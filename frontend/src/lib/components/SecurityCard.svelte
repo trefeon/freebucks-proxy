@@ -21,11 +21,9 @@
   } = $props();
   let currentPassword = $state("");
   let newPassword = $state("");
-  let confirmPassword = $state("");
 
   let showCurrentPassword = $state(false);
   let showNewPassword = $state(false);
-  let showConfirmPassword = $state(false);
 
   let submitting = $state(false);
   let errorMsg = $state("");
@@ -52,7 +50,6 @@
     if (hasPassword && !currentPassword.trim()) return false;
     if (!newPassword || newPassword.length < 6) return false;
     if (newPassword === "123456") return false;
-    if (newPassword !== confirmPassword) return false;
     return true;
   });
 
@@ -73,12 +70,8 @@
       errorMsg = $tr("New password cannot be the default password (123456).");
       return;
     }
-    if (newPassword !== confirmPassword) {
-      errorMsg = $tr("New passwords do not match.");
-      return;
-    }
-
     submitting = true;
+
     try {
       const res = await postAPI(adminApi.changePassword, {
         current_password: hasPassword ? currentPassword.trim() : "",
@@ -89,7 +82,6 @@
         successMsg = res.message || $tr("Admin password updated successfully!");
         currentPassword = "";
         newPassword = "";
-        confirmPassword = "";
         isDefaultAdminToken = false;
         hasPassword = true;
         updateAuthState({
@@ -162,90 +154,48 @@
         </div>
       {/if}
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="flex flex-col gap-2">
-          <label
-            for="sec-new-password"
-            class="text-xs sm:text-sm font-medium text-[var(--fp-text)]"
+      <div class="flex flex-col gap-2">
+        <label
+          for="sec-new-password"
+          class="text-xs sm:text-sm font-medium text-[var(--fp-text)]"
+        >
+          {$tr("New Password")}
+        </label>
+        <div class="relative">
+          <input
+            id="sec-new-password"
+            type={showNewPassword ? "text" : "password"}
+            bind:value={newPassword}
+            placeholder={$tr("Enter new password")}
+            class="fp-input pr-10"
+            autocomplete="new-password"
+            disabled={submitting}
+          />
+          <button
+            type="button"
+            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] hover:text-[var(--fp-text)] p-1 rounded transition-colors"
+            onclick={() => (showNewPassword = !showNewPassword)}
+            aria-label={showNewPassword
+              ? $tr("Hide password")
+              : $tr("Show password")}
           >
-            {$tr("New Password")}
-          </label>
-          <div class="relative">
-            <input
-              id="sec-new-password"
-              type={showNewPassword ? "text" : "password"}
-              bind:value={newPassword}
-              placeholder={$tr("Enter new password")}
-              class="fp-input pr-10"
-              autocomplete="new-password"
-              disabled={submitting}
-            />
-            <button
-              type="button"
-              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] hover:text-[var(--fp-text)] p-1 rounded transition-colors"
-              onclick={() => (showNewPassword = !showNewPassword)}
-              aria-label={showNewPassword
-                ? $tr("Hide password")
-                : $tr("Show password")}
-            >
-              {#if showNewPassword}
-                <EyeOff size={16} />
-              {:else}
-                <Eye size={16} />
-              {/if}
-            </button>
-          </div>
-          {#if newPassword && newPassword.length < 6}
-            <p class="text-[11px] text-[var(--fp-warning)]">
-              {$tr("Minimum 6 characters")}
-            </p>
-          {:else if newPassword === "123456"}
-            <p class="text-[11px] text-[var(--fp-error)]">
-              {$tr("Cannot be factory default (123456)")}
-            </p>
-          {/if}
+            {#if showNewPassword}
+              <EyeOff size={16} />
+            {:else}
+              <Eye size={16} />
+            {/if}
+          </button>
         </div>
-
-        <div class="flex flex-col gap-2">
-          <label
-            for="sec-confirm-password"
-            class="text-xs sm:text-sm font-medium text-[var(--fp-text)]"
-          >
-            {$tr("Confirm New Password")}
-          </label>
-          <div class="relative">
-            <input
-              id="sec-confirm-password"
-              type={showConfirmPassword ? "text" : "password"}
-              bind:value={confirmPassword}
-              placeholder={$tr("Confirm new password")}
-              class="fp-input pr-10"
-              autocomplete="new-password"
-              disabled={submitting}
-            />
-            <button
-              type="button"
-              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] hover:text-[var(--fp-text)] p-1 rounded transition-colors"
-              onclick={() => (showConfirmPassword = !showConfirmPassword)}
-              aria-label={showConfirmPassword
-                ? $tr("Hide password")
-                : $tr("Show password")}
-            >
-              {#if showConfirmPassword}
-                <EyeOff size={16} />
-              {:else}
-                <Eye size={16} />
-              {/if}
-            </button>
-          </div>
-          {#if confirmPassword && newPassword !== confirmPassword}
-            <p class="text-[11px] text-[var(--fp-error)]">
-              {$tr("Passwords do not match")}
-            </p>
-          {/if}
-        </div>
+        {#if newPassword && newPassword.length < 6}
+          <p class="text-[11px] text-[var(--fp-warning)]">
+            {$tr("Minimum 6 characters")}
+          </p>
+        {:else if newPassword === "123456"}
+          <p class="text-[11px] text-[var(--fp-error)]">
+            {$tr("Cannot be factory default (123456)")}
+          </p>
+        {/if}
       </div>
-
       {#if errorMsg}
         <Alert tone="error">{errorMsg}</Alert>
       {/if}

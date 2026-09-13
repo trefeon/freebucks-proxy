@@ -26,9 +26,9 @@
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
    * @prop {Record<string, string>} [sources] - ADR-0019 source tiers
-   * @prop {(key: string) => Promise<void>} [onReset] - DB override reset
+   * @prop {(key: string) => Promise<void>} [onReset] - saved-value reset
    * @prop {(() => Promise<void>) | null} [onSaved] - parent refetch after a
-   *   per-key DB-overlay save
+   *   per-key save
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
@@ -46,10 +46,11 @@
   } = $props();
 
   // Keys owned by the curated section components above (Gateway, Traffic —
-  // including the Rotation block — ModelRouting); Advanced shows
-  // everything else the catalog exposes.
+  // including the Rotation block and the Smart routing group — ModelRouting,
+  // Dashboard access); Advanced shows everything else the catalog exposes.
   const COVERED = new Set([
     "BRIDGE_ENABLED",
+    "DASHBOARD_REQUIRE_LOGIN",
     "HTTP_READ_TIMEOUT",
     "LOG_LEVEL",
     "MAX_REQUESTS_PER_DAY",
@@ -57,10 +58,14 @@
     "MODELS_ALLOW",
     "MODEL_ALIASES",
     "MODEL_LOCKS",
+    "QUEUE_DEPTH",
+    "QUEUE_WAIT",
     "RATE_LIMIT_FAILOVER",
     "RATE_LIMIT_PER_IP",
     "REASONING_IN_CONTENT",
+    "ROUTING_SMART",
     "SAFE_MODE",
+    "TOKEN_MAX_CONCURRENT",
     "TOKEN_ROTATION",
   ]);
 
@@ -225,12 +230,16 @@
                 {/if}
                 {#if entry.restart_only}
                   <span
-                    class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-warning)]/40 bg-[var(--fp-warning)]/10 text-[var(--fp-warning)] font-semibold uppercase tracking-wider shrink-0"
-                    >{$tr("restart")}</span
+                    class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
+                    >{$tr("(needs restart)")}</span
                   >
                 {/if}
-                {#if sources[entry.key] === "db"}
-                  <DbBadge settingKey={entry.key} {onReset} />
+                {#if sources[entry.key] === "db" || sources[entry.key] === "env"}
+                  <DbBadge
+                    settingKey={entry.key}
+                    source={sources[entry.key]}
+                    {onReset}
+                  />
                 {/if}
               {/snippet}
               {#snippet extra()}

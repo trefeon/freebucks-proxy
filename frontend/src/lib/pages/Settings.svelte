@@ -11,6 +11,7 @@
   import GatewaySettings from "./settings/GatewaySettings.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
   import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
+  import RequireLoginCard from "./settings/RequireLoginCard.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { fetchAPI, postForm, deleteAPI } from "../api/client.js";
   import { adminApi, adminActions } from "../api/paths.js";
@@ -48,12 +49,14 @@
   let gatewayMatches = $state(-1);
   let trafficMatches = $state(-1);
   let routingMatches = $state(-1);
+  let accessMatches = $state(-1);
   let advancedMatches = $state(-1);
   let allEmpty = $derived(
     searching &&
       gatewayMatches === 0 &&
       trafficMatches === 0 &&
       routingMatches === 0 &&
+      accessMatches === 0 &&
       advancedMatches === 0,
   );
   // ---------------------------------------------------------------------------
@@ -153,11 +156,6 @@
   let restartKeys = $derived(dirtyKeys.filter(needsRestart));
   let liveKeys = $derived(dirtyKeys.filter((k) => !needsRestart(k)));
 
-  // How many keys the DB overlay currently wins (ADR-0019 badge count).
-  let dbCount = $derived(
-    Object.values(settingSources).filter((s) => s === "db").length,
-  );
-
   // ---------------------------------------------------------------------------
   // Data
   // ---------------------------------------------------------------------------
@@ -216,7 +214,7 @@
       const res = await deleteAPI(adminApi.settingsDelete(key));
       result = {
         ok: true,
-        message: res?.message || $tr("DB override removed."),
+        message: res?.message || $tr("Saved value removed."),
         restart_only: [],
       };
       await fetchData();
@@ -224,7 +222,7 @@
     } catch (e) {
       result = {
         ok: false,
-        message: e.message || $tr("Failed to reset override"),
+        message: e.message || $tr("Failed to reset saved value"),
         restart_only: [],
       };
     }
@@ -245,7 +243,7 @@
       const ok = await confirmAction({
         title: $tr("Save Configuration"),
         message: $tr(
-          "Save the .env file and reload the proxy with these changes?",
+          "Save these settings and reload the proxy with the changes?",
         ),
         confirmText: $tr("Save & Reload"),
         tone: "warn",
@@ -433,21 +431,6 @@
     </Alert>
   {/if}
 
-  {#if dbCount > 0}
-    <Alert tone="info" title={$tr("DB overrides active")}>
-      {#if dbCount === 1}
-        {$tr(
-          "1 setting comes from the DB overlay and wins over the .env file below until reset per row.",
-        )}
-      {:else}
-        {$tr(
-          "{count} settings come from the DB overlay and win over the .env file below until reset per row.",
-          { count: dbCount },
-        )}
-      {/if}
-    </Alert>
-  {/if}
-
   <!-- Key search across all 70 catalog keys -->
   <div class="flex flex-col gap-1.5">
     <label
@@ -465,7 +448,20 @@
     />
   </div>
 
-  <SecurityCard onSuccess={fetchData} />
+  <!-- 1. Security + Dashboard access (side by side on desktop) -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+    <SecurityCard onSuccess={fetchData} />
+    <RequireLoginCard
+      {formValues}
+      {rawText}
+      onField={setField}
+      sources={settingSources}
+      onReset={resetSetting}
+      onSaved={overlaySaved}
+      query={filterQuery}
+      onMatchCount={(n) => (accessMatches = n)}
+    />
+  </div>
 
   <!-- 2. Gateway & Protection (General - live reload) -->
   <GatewaySettings

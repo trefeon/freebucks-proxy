@@ -5,15 +5,12 @@
   import { tr } from "../i18n.js";
 
   /**
-   * Per-key "Save as DB override" affordance (ADR-0019).
+   * Per-key save affordance (ADR-0019).
    *
-   * Persists the row's current form value to the SQLite overlay via
-   * POST /admin/api/settings and asks the parent to refetch, so badges,
-   * effective values, and the .env document agree again. The classic
-   * whole-file .env save flow is untouched — this is the row-level
-   * alternative for operators who want one knob in the DB without
-   * rewriting the file. A rejected value (POST 400, e.g. a malformed
-   * lock map) surfaces inline on the row, never as a page error.
+   * Persists the row's current form value via POST /admin/api/settings
+   * and asks the parent to refetch, so badges and effective values agree
+   * again. A rejected value (POST 400, e.g. a malformed lock map)
+   * surfaces inline on the row, never as a page error.
    *
    * @prop {string} settingKey - catalog key (e.g. "LOG_LEVEL")
    * @prop {string} value - current form value for the key
@@ -37,7 +34,7 @@
       });
       status = {
         ok: true,
-        text: res?.message || $tr("Saved as DB override."),
+        text: res?.message || $tr("Saved."),
       };
       await onSaved?.();
     } catch (e) {
@@ -55,11 +52,9 @@
     onclick={save}
     disabled={saving}
     loading={saving}
-    title={$tr(
-      "Save this key to the DB overlay (wins over the .env file until reset)",
-    )}
+    title={$tr("Save this setting")}
   >
-    {$tr("Save as override")}
+    {$tr("Save")}
   </Button>
   {#if status}
     <span

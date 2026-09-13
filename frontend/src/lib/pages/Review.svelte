@@ -204,7 +204,7 @@
         {
           m: "DELETE",
           p: "/admin/api/settings/{key}",
-          note: "DESTRUCTIVE: drop DB override for {key} (confirm)",
+          note: "DESTRUCTIVE: drop saved value for {key} (confirm)",
           danger: true,
         },
         {

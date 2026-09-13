@@ -189,7 +189,7 @@ test.describe("per-page persist", () => {
   });
 });
 
-test.describe("settings DB overlay", () => {
+test.describe("settings saved values", () => {
   type Posted = Array<Record<string, unknown>>;
   async function mockSettings(
     page: Parameters<typeof mockDashboard>[0],
@@ -197,8 +197,8 @@ test.describe("settings DB overlay", () => {
     postStatus = 200,
     opts: { degraded?: boolean } = {},
   ) {
-    // Mutable overlay: DELETE drops a key and later GETs reflect the drop,
-    // so the DbOverrideBadge reset round-trip is actually observable.
+    // Mutable saved values: DELETE drops a key and later GETs reflect the drop,
+    // so the saved-value reset round-trip is actually observable.
     let live: Array<Record<string, unknown>> = [
       {
         key: "LOG_LEVEL",
@@ -239,7 +239,6 @@ test.describe("settings DB overlay", () => {
             contentType: "application/json",
             body: JSON.stringify({
               ok: true,
-              message: "X saved to the DB overlay and applied live.",
               code: "setting_saved",
               restart_only: [],
             }),
@@ -273,7 +272,6 @@ test.describe("settings DB overlay", () => {
         contentType: "application/json",
         body: JSON.stringify({
           ok: true,
-          message: "DB override removed.",
           code: "setting_deleted",
         }),
       });
@@ -281,7 +279,7 @@ test.describe("settings DB overlay", () => {
     return deleted;
   }
 
-  test("model routing rows mount with DB badges and per-key save posts the overlay", async ({
+  test("model routing rows mount with saved-value notes and per-key save posts the setting", async ({
     page,
   }) => {
     await mockDashboard(page, loadFixtures());
@@ -293,27 +291,28 @@ test.describe("settings DB overlay", () => {
       page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
     // ModelRoutingSettings mounts (it owns these four inputs) and the
-    // seeded db source renders its override badge.
+    // seeded db source renders its saved-value note.
     await expect(
       page.locator('input[aria-label="MODEL_ALIASES"]'),
     ).toBeVisible();
-    await expect(page.getByText("DB override").first()).toBeVisible();
-    // First row-level save (SAFE_MODE) posts just that key to the overlay.
-    await page
-      .getByRole("button", { name: "Save as override" })
-      .first()
-      .click();
+    await expect(
+      page.getByText("saved value", { exact: true }).first(),
+    ).toBeVisible();
+    // Row-anchored: the page now opens with the Dashboard access card,
+    // whose own Save precedes this one in DOM order.
+    const row = page.locator("div.py-4", {
+      has: page.locator('input[aria-label="MODEL_ALIASES"]'),
+    });
+    await row.getByRole("button", { name: "Save", exact: true }).click();
     await expect
       .poll(() => posted.length, { timeout: 10_000 })
       .toBeGreaterThan(0);
-    expect(posted[0].key).toBe("SAFE_MODE");
+    expect(posted[0].key).toBe("MODEL_ALIASES");
     expect(typeof posted[0].value).toBe("string");
-    await expect(
-      page.getByText(/saved to the DB overlay/i).first(),
-    ).toBeVisible();
+    await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
   });
 
-  test("a rejected overlay value surfaces inline on the row", async ({
+  test("a rejected saved value surfaces inline on the row", async ({
     page,
   }) => {
     await mockDashboard(page, loadFixtures());
@@ -325,7 +324,7 @@ test.describe("settings DB overlay", () => {
       { timeout: 10_000 },
     );
     await page
-      .getByRole("button", { name: "Save as override" })
+      .getByRole("button", { name: "Save", exact: true })
       .first()
       .click();
     await expect
@@ -336,7 +335,7 @@ test.describe("settings DB overlay", () => {
     ).toBeVisible();
   });
 
-  test("DB badge reset deletes the overlay key and refetches the form", async ({
+  test("saved-value reset deletes the key and refetches the form", async ({
     page,
   }) => {
     await mockDashboard(page, loadFixtures());
@@ -347,25 +346,19 @@ test.describe("settings DB overlay", () => {
     await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
       { timeout: 10_000 },
     );
-    // Two seeded db rows → two override badges + plural count copy.
-    await expect(page.getByText("DB override", { exact: true })).toHaveCount(2);
-    await expect(
-      page.getByText("2 settings come from the DB overlay"),
-    ).toBeVisible();
+    // Two seeded db rows → two saved-value notes.
+    await expect(page.getByText("saved value", { exact: true })).toHaveCount(2);
     const delReq = page.waitForRequest(
       (r) =>
         r.method() === "DELETE" && r.url().includes("/admin/api/settings/"),
     );
     // First Reset in DOM order drops LOG_LEVEL (Gateway card precedes
-    // Model Routing); the refetch then leaves one badge + singular copy.
+    // Model Routing); the refetch then leaves one saved-value note.
     await page.getByRole("button", { name: "Reset" }).first().click();
     await delReq;
     expect(deleted).toEqual(["LOG_LEVEL"]);
-    await expect(page.getByText("DB override", { exact: true })).toHaveCount(1);
-    await expect(
-      page.getByText("1 setting comes from the DB overlay"),
-    ).toBeVisible();
-    await expect(page.getByText("DB override removed.")).toBeVisible();
+    await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
+    await expect(page.getByText("Saved value removed.")).toBeVisible();
   });
 
   test("degraded store banners read-only while the .env form stays usable", async ({
@@ -380,7 +373,7 @@ test.describe("settings DB overlay", () => {
     );
     await expect(page.getByText("DB overlay unavailable")).toBeVisible();
     await expect(page.getByText(/runs live-only/)).toBeVisible();
-    // The .env form keeps working: editing a key enables Save Changes.
+    // The settings form keeps working: editing a key enables Save Changes.
     await page
       .locator('input[aria-label="MODEL_ALIASES"]')
       .fill("gpt-4o:openai/gpt-5.6-luna,x:y");

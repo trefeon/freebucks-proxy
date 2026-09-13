@@ -16,9 +16,9 @@
    * @prop {string} rawText
    * @prop {(key: string, value: string) => void} onField
    * @prop {Record<string, string>} [sources] - ADR-0019 source tiers
-   * @prop {(key: string) => Promise<void>} [onReset] - DB override reset
+   * @prop {(key: string) => Promise<void>} [onReset] - saved-value reset
    * @prop {(() => Promise<void>) | null} [onSaved] - parent refetch after a
-   *   per-key DB-overlay save
+   *   per-key save
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
@@ -148,8 +148,12 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.SAFE_MODE === "db"}
-            <DbBadge settingKey="SAFE_MODE" {onReset} />
+          {#if sources.SAFE_MODE === "db" || sources.SAFE_MODE === "env"}
+            <DbBadge
+              settingKey="SAFE_MODE"
+              source={sources.SAFE_MODE}
+              {onReset}
+            />
           {/if}
         {/snippet}
 
@@ -190,8 +194,12 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.LOG_LEVEL === "db"}
-            <DbBadge settingKey="LOG_LEVEL" {onReset} />
+          {#if sources.LOG_LEVEL === "db" || sources.LOG_LEVEL === "env"}
+            <DbBadge
+              settingKey="LOG_LEVEL"
+              source={sources.LOG_LEVEL}
+              {onReset}
+            />
           {/if}
         {/snippet}
         {#snippet extra()}
@@ -244,12 +252,15 @@
               >{$tr("default")}</span
             >
           {/if}
-          <span
-            class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-warning)]/50 bg-[var(--fp-warning)]/10 text-[var(--fp-warning)] font-semibold uppercase tracking-wider shrink-0"
-            >{$tr("restart")}</span
+          <span class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
+            >{$tr("(needs restart)")}</span
           >
-          {#if sources.HTTP_READ_TIMEOUT === "db"}
-            <DbBadge settingKey="HTTP_READ_TIMEOUT" {onReset} />
+          {#if sources.HTTP_READ_TIMEOUT === "db" || sources.HTTP_READ_TIMEOUT === "env"}
+            <DbBadge
+              settingKey="HTTP_READ_TIMEOUT"
+              source={sources.HTTP_READ_TIMEOUT}
+              {onReset}
+            />
           {/if}
         {/snippet}
         {#snippet extra()}
@@ -305,8 +316,12 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.BRIDGE_ENABLED === "db"}
-            <DbBadge settingKey="BRIDGE_ENABLED" {onReset} />
+          {#if sources.BRIDGE_ENABLED === "db" || sources.BRIDGE_ENABLED === "env"}
+            <DbBadge
+              settingKey="BRIDGE_ENABLED"
+              source={sources.BRIDGE_ENABLED}
+              {onReset}
+            />
           {/if}
         {/snippet}
         {#snippet extra()}

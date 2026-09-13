@@ -771,19 +771,25 @@ test.describe("operator interactions (hermetic mocks)", () => {
       page.getByRole("button", { name: "Hide password" }).first(),
     ).toBeVisible();
 
-    // Mismatch surfaces the inline error and keeps submit disabled.
+    // A short password surfaces the min-length note and keeps submit
+    // disabled.
+    const submit = page.getByRole("button", { name: "Update Password" });
+    await expect(submit).toBeDisabled();
+    await page.locator("#sec-new-password").fill("abc");
+    await expect(page.getByText("Minimum 6 characters")).toBeVisible();
+    await expect(submit).toBeDisabled();
+
+    // The factory default is rejected with its own note.
+    await page.locator("#sec-new-password").fill("123456");
+    await expect(
+      page.getByText("Cannot be factory default (123456)"),
+    ).toBeVisible();
+    await expect(submit).toBeDisabled();
+
+    // A valid new password plus the current password enables submit; the
+    // mocked endpoint succeeds and the fields clear.
     await page.locator("#sec-current-password").fill("oldpass1");
     await page.locator("#sec-new-password").fill("newpass123");
-    await page.locator("#sec-confirm-password").fill("different");
-    await expect(page.getByText("Passwords do not match")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Update Password" }),
-    ).toBeDisabled();
-
-    // Matching passwords enable submit; the mocked endpoint succeeds and the
-    // success alert survives (refetches are silent once mounted).
-    await page.locator("#sec-confirm-password").fill("newpass123");
-    const submit = page.getByRole("button", { name: "Update Password" });
     await expect(submit).toBeEnabled();
     const changeReq = page.waitForRequest(
       (r) =>
@@ -797,8 +803,6 @@ test.describe("operator interactions (hermetic mocks)", () => {
     });
     await expect(page.locator("#sec-current-password")).toHaveValue("");
     await expect(page.locator("#sec-new-password")).toHaveValue("");
-    await expect(page.locator("#sec-confirm-password")).toHaveValue("");
-    await expect(page.getByText("Passwords do not match")).toHaveCount(0);
     await expect(page.getByText("Password changed")).toBeVisible();
   });
 

@@ -17,9 +17,9 @@
    * @prop {string} rawText
    * @prop {(key: string, value: string) => void} onField
    * @prop {Record<string, string>} [sources] - ADR-0019 source tiers
-   * @prop {(key: string) => Promise<void>} [onReset] - DB override reset
+   * @prop {(key: string) => Promise<void>} [onReset] - saved-value reset
    * @prop {(() => Promise<void>) | null} [onSaved] - parent refetch after a
-   *   per-key DB-overlay save
+   *   per-key save
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
@@ -126,8 +126,12 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.MODEL_ALIASES === "db"}
-            <DbBadge settingKey="MODEL_ALIASES" {onReset} />
+          {#if sources.MODEL_ALIASES === "db" || sources.MODEL_ALIASES === "env"}
+            <DbBadge
+              settingKey="MODEL_ALIASES"
+              source={sources.MODEL_ALIASES}
+              {onReset}
+            />
           {/if}
         {/snippet}
 
@@ -172,8 +176,12 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.MODELS_ALLOW === "db"}
-            <DbBadge settingKey="MODELS_ALLOW" {onReset} />
+          {#if sources.MODELS_ALLOW === "db" || sources.MODELS_ALLOW === "env"}
+            <DbBadge
+              settingKey="MODELS_ALLOW"
+              source={sources.MODELS_ALLOW}
+              {onReset}
+            />
           {/if}
         {/snippet}
 
@@ -219,8 +227,12 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.REASONING_IN_CONTENT === "db"}
-            <DbBadge settingKey="REASONING_IN_CONTENT" {onReset} />
+          {#if sources.REASONING_IN_CONTENT === "db" || sources.REASONING_IN_CONTENT === "env"}
+            <DbBadge
+              settingKey="REASONING_IN_CONTENT"
+              source={sources.REASONING_IN_CONTENT}
+              {onReset}
+            />
           {/if}
         {/snippet}
 
@@ -262,8 +274,12 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.MODEL_LOCKS === "db"}
-            <DbBadge settingKey="MODEL_LOCKS" {onReset} />
+          {#if sources.MODEL_LOCKS === "db" || sources.MODEL_LOCKS === "env"}
+            <DbBadge
+              settingKey="MODEL_LOCKS"
+              source={sources.MODEL_LOCKS}
+              {onReset}
+            />
           {/if}
         {/snippet}
 
