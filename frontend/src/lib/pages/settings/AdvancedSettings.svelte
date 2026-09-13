@@ -5,6 +5,8 @@
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
   import DbBadge from "../../components/DbOverrideBadge.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
+  import NumberStepper from "../../components/NumberStepper.svelte";
+  import DurationPicker from "../../components/DurationPicker.svelte";
   import { SlidersHorizontal } from "@lucide/svelte";
   import { tr } from "../../i18n.js";
   import { parseEnv } from "../../utils/env.js";
@@ -124,6 +126,21 @@
     const v = val(key, entry);
     if (v === "") return (entry?.default ?? "true") !== "false";
     return v !== "false";
+  }
+  // Duration text-kind catalog keys: a key is a Go duration when its
+  // documented default parses as one (e.g. 30s, 5m, 168h), its description
+  // says so, or its name is temporal (TIMEOUT/TTL/IDLE/...). Catches the
+  // "0 = disabled" idle knobs whose default alone is not a duration;
+  // non-temporal text (CORS origin, file paths, URLs) stays a plain input.
+  const GO_DURATION_RE = /^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/;
+  const TEMPORAL_KEY_RE =
+    /(TIMEOUT|TTL|INTERVAL|IDLE|EVICT|RETENTION|WINDOW|HEARTBEAT|EXPIR|WAIT|DELAY|DRAIN|PERIOD|JITTER)/;
+  const DURATION_PRESETS = ["5s", "15s", "30s", "1m", "5m", "15m", "1h"];
+  function isDurationKey(entry) {
+    if (!entry || entry.kind !== "text") return false;
+    if (GO_DURATION_RE.test((entry.default ?? "").trim())) return true;
+    if (/go duration|duration/i.test(entry.description ?? "")) return true;
+    return TEMPORAL_KEY_RE.test(entry.key ?? "");
   }
   // Deep-link focus from cross-page jump links: a link stashes a catalog
   // key in sessionStorage, then routes here.
@@ -283,13 +300,19 @@
                   {/each}
                 </select>
               {:else if entry.kind === "int"}
-                <input
-                  type="number"
-                  class="fp-input fp-num"
+                <NumberStepper
                   value={val(entry.key, entry)}
-                  aria-label={entry.key}
+                  ariaLabel={entry.key}
                   placeholder={entry.default ?? ""}
-                  oninput={(e) => onField(entry.key, e.currentTarget.value)}
+                  oninput={(v) => onField(entry.key, v)}
+                />
+              {:else if isDurationKey(entry)}
+                <DurationPicker
+                  value={val(entry.key, entry)}
+                  presets={DURATION_PRESETS}
+                  ariaLabel={entry.key}
+                  placeholder={entry.default ?? ""}
+                  oninput={(v) => onField(entry.key, v)}
                 />
               {:else}
                 <input

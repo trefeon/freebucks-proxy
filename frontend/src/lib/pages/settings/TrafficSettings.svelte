@@ -4,6 +4,8 @@
   import DbBadge from "../../components/DbOverrideBadge.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
+  import NumberStepper from "../../components/NumberStepper.svelte";
+  import DurationPicker from "../../components/DurationPicker.svelte";
   import { Activity } from "@lucide/svelte";
   import { tr } from "../../i18n.js";
   import { parseEnv } from "../../utils/env.js";
@@ -427,17 +429,15 @@
               />
             {/snippet}
 
-            <div class="w-full sm:w-44">
-              <input
-                type="number"
-                min="0"
-                step="1"
-                aria-label="TOKEN_MAX_CONCURRENT"
-                class="fp-input w-full !text-xs !py-1.5"
-                placeholder="2"
+            <div class="w-full sm:w-56">
+              <NumberStepper
                 value={tokenMaxConcurrent}
-                oninput={(e) => {
-                  const val = e.currentTarget.value.trim();
+                min={0}
+                step={1}
+                ariaLabel="TOKEN_MAX_CONCURRENT"
+                placeholder="2"
+                oninput={(v) => {
+                  const val = v.trim();
                   onField("TOKEN_MAX_CONCURRENT", val === "" ? "2" : val);
                 }}
               />
@@ -481,14 +481,13 @@
               />
             {/snippet}
 
-            <div class="w-full sm:w-44">
-              <input
-                type="text"
-                aria-label="QUEUE_WAIT"
-                class="fp-input w-full !text-xs !py-1.5 font-mono"
-                placeholder="30s"
+            <div class="w-full sm:w-56">
+              <DurationPicker
                 value={queueWait}
-                oninput={(e) => onField("QUEUE_WAIT", e.currentTarget.value)}
+                presets={["5s", "15s", "30s", "1m", "5m"]}
+                ariaLabel="QUEUE_WAIT"
+                placeholder="30s"
+                oninput={(v) => onField("QUEUE_WAIT", v)}
               />
             </div>
           </SettingsRow>
@@ -527,17 +526,15 @@
               />
             {/snippet}
 
-            <div class="w-full sm:w-44">
-              <input
-                type="number"
-                min="0"
-                step="1"
-                aria-label="QUEUE_DEPTH"
-                class="fp-input w-full !text-xs !py-1.5"
-                placeholder="16"
+            <div class="w-full sm:w-56">
+              <NumberStepper
                 value={queueDepth}
-                oninput={(e) => {
-                  const val = e.currentTarget.value.trim();
+                min={0}
+                step={1}
+                ariaLabel="QUEUE_DEPTH"
+                placeholder="16"
+                oninput={(v) => {
+                  const val = v.trim();
                   onField("QUEUE_DEPTH", val === "" ? "16" : val);
                 }}
               />
@@ -585,26 +582,18 @@
           />
         {/snippet}
 
-        <div class="w-full sm:w-44">
-          <div class="relative">
-            <input
-              type="number"
-              min="0"
-              step="1"
-              aria-label="RATE_LIMIT_PER_IP"
-              class="fp-input w-full !text-xs !py-1.5 !pr-14"
-              placeholder="0"
-              value={rateLimitPerIp}
-              oninput={(e) => {
-                const val = e.currentTarget.value.trim();
-                onField("RATE_LIMIT_PER_IP", val === "" ? "0" : val);
-              }}
-            />
-            <span
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-muted pointer-events-none"
-              >req/s</span
-            >
-          </div>
+        <div class="w-full sm:w-56">
+          <NumberStepper
+            value={rateLimitPerIp}
+            min={0}
+            step={1}
+            ariaLabel="RATE_LIMIT_PER_IP"
+            placeholder="0"
+            oninput={(v) => {
+              const val = v.trim();
+              onField("RATE_LIMIT_PER_IP", val === "" ? "0" : val);
+            }}
+          />
           <p class="text-[10px] text-[var(--fp-dim)] mt-1">
             {$tr(RL_IP_HINT)}
           </p>
