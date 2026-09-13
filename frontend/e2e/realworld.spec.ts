@@ -227,7 +227,8 @@ test.describe("real-world data", () => {
     await expect(traceTable.getByText("acquire_ms")).toBeVisible();
     await page.goto(admin("activity"));
     await page.getByRole("button", { name: "Metrics" }).click();
-    await expect(page.getByText("HIGH")).toBeVisible();
+    await expect(page.getByText("Per-token metrics").first()).toBeVisible();
+    await expect(page.getByText("Requests (24h)").first()).toBeVisible();
   });
 
   test("settings/setup render keys, traffic caps, hybrid bridge", async ({
