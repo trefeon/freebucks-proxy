@@ -804,9 +804,6 @@ func TestUnlockToken(t *testing.T) {
 	if !snap.CooldownUntil.IsZero() {
 		t.Errorf("CooldownUntil = %v after unlock, want zero", snap.CooldownUntil)
 	}
-	if snap.RiskLevel != "low" {
-		t.Errorf("RiskLevel = %q after unlock, want low", snap.RiskLevel)
-	}
 	lease, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
 		t.Fatalf("acquire after unlock: %v", err)

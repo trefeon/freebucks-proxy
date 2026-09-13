@@ -707,9 +707,6 @@ func TestOverviewPageCooldownCard(t *testing.T) {
 	if token["cooldown_active"] != true {
 		t.Errorf("cooldown_active = %v, want true", token["cooldown_active"])
 	}
-	if token["risk_level"] != "high" {
-		t.Errorf("risk_level = %v, want high", token["risk_level"])
-	}
 }
 
 // TestOverviewPageHasTokens pins the #200 regression: df7a16a dropped the

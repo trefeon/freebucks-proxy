@@ -205,8 +205,7 @@ func TestMetricsModelCountServedGate(t *testing.T) {
 func TestCardFromSnapshotStanding(t *testing.T) {
 	at := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
 	card := cardFromSnapshot(pool.TokenSnapshot{
-		Token:     0,
-		RiskLevel: "low",
+		Token: 0,
 		Standing: &upstream.SessionStanding{
 			Level:       "established",
 			Label:       "Established",
@@ -231,7 +230,7 @@ func TestCardFromSnapshotStanding(t *testing.T) {
 		t.Errorf("nextLevelAt = %q, want %q", card.StandingNextLevelAt, at.Format(time.RFC3339))
 	}
 
-	card = cardFromSnapshot(pool.TokenSnapshot{Token: 1, RiskLevel: "low"})
+	card = cardFromSnapshot(pool.TokenSnapshot{Token: 1})
 	if card.HasStanding {
 		t.Error("HasStanding = true without a standing block, want false")
 	}
@@ -241,8 +240,7 @@ func TestCardFromSnapshotStanding(t *testing.T) {
 
 	// Issue #140: cap + earn-back fields land on the card too.
 	card = cardFromSnapshot(pool.TokenSnapshot{
-		Token:     2,
-		RiskLevel: "low",
+		Token: 2,
 		Standing: &upstream.SessionStanding{
 			Level:        "verified",
 			Label:        "Verified",
@@ -272,7 +270,6 @@ func TestCardFromSnapshotStanding(t *testing.T) {
 func TestCardFromSnapshotAllowlist(t *testing.T) {
 	snap := pool.TokenSnapshot{
 		Token:          0,
-		RiskLevel:      "low",
 		AllowedModels:  []string{"z-ai/glm-5.2"},
 		AllowlistSkips: 7,
 	}
@@ -294,7 +291,6 @@ func TestCardFromSnapshotRefund(t *testing.T) {
 	settled := 1.5
 	snap := pool.TokenSnapshot{
 		Token:         0,
-		RiskLevel:     "low",
 		LastRefund:    &settled,
 		PendingRefund: "inst-abc-123",
 	}
@@ -313,11 +309,11 @@ func TestCardFromSnapshotRefund(t *testing.T) {
 		t.Errorf("live LastRefund = %+v, want 1.5", live.LastRefund)
 	}
 
-	plain := cardFromSnapshot(pool.TokenSnapshot{Token: 1, RiskLevel: "low"})
+	plain := cardFromSnapshot(pool.TokenSnapshot{Token: 1})
 	if plain.PendingRefund != "" || plain.LastRefund != nil {
 		t.Errorf("refund fields = %+v/%q without a receipt, want nil/empty", plain.LastRefund, plain.PendingRefund)
 	}
-	livePlain := liveCardFromSnapshot(pool.TokenSnapshot{Token: 1, RiskLevel: "low"})
+	livePlain := liveCardFromSnapshot(pool.TokenSnapshot{Token: 1})
 	if livePlain.PendingRefund != "" || livePlain.LastRefund != nil {
 		t.Errorf("live refund fields = %+v/%q without a receipt, want nil/empty", livePlain.LastRefund, livePlain.PendingRefund)
 	}
@@ -332,7 +328,6 @@ func TestCardFromSnapshotBanAndLocked(t *testing.T) {
 	until := time.Date(2026, 8, 22, 18, 0, 0, 0, time.UTC)
 	card := cardFromSnapshot(pool.TokenSnapshot{
 		Token:       0,
-		RiskLevel:   "critical",
 		Locked:      true,
 		BanType:     "temporary",
 		BannedUntil: until,
@@ -348,15 +343,14 @@ func TestCardFromSnapshotBanAndLocked(t *testing.T) {
 	}
 
 	card = cardFromSnapshot(pool.TokenSnapshot{
-		Token:     1,
-		RiskLevel: "low",
-		BanType:   "hard",
+		Token:   1,
+		BanType: "hard",
 	})
 	if card.BanType != "hard" || card.BannedUntil != "" {
 		t.Errorf("hard ban card = %q/%q, want hard/empty", card.BanType, card.BannedUntil)
 	}
 
-	card = cardFromSnapshot(pool.TokenSnapshot{Token: 2, RiskLevel: "low"})
+	card = cardFromSnapshot(pool.TokenSnapshot{Token: 2})
 	if card.Locked || card.BanType != "" || card.BannedUntil != "" {
 		t.Errorf("clean card = %v/%q/%q, want false/empty/empty", card.Locked, card.BanType, card.BannedUntil)
 	}

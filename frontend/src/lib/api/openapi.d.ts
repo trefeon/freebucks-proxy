@@ -1230,7 +1230,6 @@ export interface components {
       per_tokens: {
         fingerprint_rotations: number;
         requests_24h: number;
-        risk_level: string;
         spend_day: number;
         token: number;
         transient_retries: number;
@@ -1411,7 +1410,6 @@ export interface components {
         referral_sessions_left: number;
         requests: number;
         requests_per_day: number;
-        risk_level: string;
         session_status: string;
         standing_blurb?: string;
         standing_capped_by?: string;

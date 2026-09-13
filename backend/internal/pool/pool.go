@@ -113,7 +113,6 @@ type TokenSnapshot struct {
 	// Pacific day, rolling at Pacific midnight. Read by the dashboard
 	// per-day display and the maturity client-active skip.
 	RequestsPerDay int    `json:"requests_per_day"`
-	RiskLevel      string // "low", "moderate", "high", "critical" account safety indicator (#6)
 	// Spend24h / SpendDay / SpendWeek / SpendMonth are the local per-token
 	// spend ledger (issue #87/#122): tokens spent in the rolling 24h window
 	// and the current Pacific day/week/month buckets (with rollover —

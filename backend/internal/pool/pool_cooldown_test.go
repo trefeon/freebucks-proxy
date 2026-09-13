@@ -257,8 +257,11 @@ func TestPoolCooldownRateLimitAndBan(t *testing.T) {
 	p.CooldownTokenBan(0, be)
 
 	snap := p.Snapshot()[0]
-	if snap.RiskLevel != "critical" {
-		t.Errorf("RiskLevel = %q, want critical (active ban outranks the cooldown label)", snap.RiskLevel)
+	if !snap.Quarantined {
+		t.Error("token not quarantined during active ban window, want quarantined")
+	}
+	if snap.BanType != "temporary" {
+		t.Errorf("BanType = %q, want temporary (active ban outranks the cooldown)", snap.BanType)
 	}
 }
 
@@ -399,32 +402,6 @@ func TestAcquireAllCountryBlocked(t *testing.T) {
 	}
 }
 
-// TestSnapshotBanRiskLevel is the regression guard for the ban
-// mislabeling: a banned token must show "critical" during the ban window
-// (not "high" from the cooldown case shadowing it), and the risk must drop
-// after the window expires instead of staying sticky "critical" forever.
-func TestSnapshotBanRiskLevel(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPool(t, mock)
-
-	// Short ban window: CooldownBan also fills the shared cooldown
-	// deadline, so before the fix the cooldown case matched first ("high")
-	// and the remembered BanError stayed non-nil past the window.
-	p.CooldownTokenBan(0, &upstream.BanError{Body: "banned", ResumesAt: time.Now().Add(60 * time.Millisecond)})
-
-	if got := p.Snapshot()[0].RiskLevel; got != "critical" {
-		t.Errorf("RiskLevel during ban = %q, want critical", got)
-	}
-
-	// Once the ban window expires the label must drop (not sticky).
-	eventually(t, "risk drop after ban window", func() bool {
-		return p.Snapshot()[0].RiskLevel != "critical"
-	})
-	if got := p.Snapshot()[0].RiskLevel; got != "low" {
-		t.Errorf("RiskLevel after ban window = %q, want low", got)
-	}
-}
 
 // TestIdleFinishAllRunsHonorsMaintainCtx is the regression guard for the
 // context.Background bug in the idle FINISH: Pool.Shutdown cancels the

@@ -14,7 +14,6 @@
   import TokenDetailsDrawer from "./TokenDetailsDrawer.svelte";
   import {
     statusFor,
-    riskBadgeFor,
     streakBadgeFor,
     cooldownLabel,
   } from "../utils/tokenStatus.js";
@@ -64,9 +63,6 @@
     onDragEnd,
   } = $props();
 
-  // Risk chip (moved from the standalone At-risk cards): shown when the
-  // account carries a risk flag and no ban badge already claims the row.
-  const riskBadge = $derived(riskBadgeFor(token));
   const streak = $derived(streakBadgeFor(token));
 
   // Live session countdown (freebuff TUI parity). Anchor to the server's
@@ -186,13 +182,6 @@
   <td>
     <div class="flex flex-wrap items-center gap-1.5">
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
-      {#if riskBadge}
-        <StatusBadge
-          status={riskBadge.label}
-          tone={riskBadge.tone}
-          pulse={riskBadge.pulse}
-        />
-      {/if}
     </div>
   </td>
   <td>

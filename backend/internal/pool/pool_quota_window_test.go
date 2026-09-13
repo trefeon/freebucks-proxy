@@ -1,8 +1,8 @@
 // pool_quota_window_test.go — quota-window audit regression tests (item #2):
-// lift-aware quarantine (temporary vs hard bans), hard-ban risk labeling,
-// mismatch-window cleanup on token removal, the shared quota-window
-// implementation (pooled == bridge), and usage/spend index alignment after
-// by-index removal followed by AddToken.
+// lift-aware quarantine (temporary vs hard bans), mismatch-window cleanup
+// on token removal, the shared quota-window implementation (pooled ==
+// bridge), and usage/spend index alignment after by-index removal followed
+// by AddToken.
 package pool
 
 import (
@@ -62,9 +62,8 @@ func TestTemporaryBanQuarantineLiftsAfterResumesAt(t *testing.T) {
 
 // TestHardBanQuarantinePermanent pins the inverse: a hard ban (no
 // resumes_at) is a permanent terminal state — the marker never self-clears,
-// the risk label stays "critical" (a permanent ban has no timed
-// BannedUntil), and further Acquires surface the remembered ban without any
-// repeated upstream contact.
+// BannedUntil stays zero (no timed deadline), and further Acquires surface
+// the remembered ban without any repeated upstream contact.
 func TestHardBanQuarantinePermanent(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -79,9 +78,6 @@ func TestHardBanQuarantinePermanent(t *testing.T) {
 	}
 	if snap.BanType != "hard" {
 		t.Errorf("BanType = %q, want hard", snap.BanType)
-	}
-	if snap.RiskLevel != "critical" {
-		t.Errorf("RiskLevel = %q, want critical (hard ban is permanently live)", snap.RiskLevel)
 	}
 	if got := p.PoolSnapshot().Quarantined; got != 1 {
 		t.Errorf("PoolSnapshot().Quarantined = %d, want 1", got)

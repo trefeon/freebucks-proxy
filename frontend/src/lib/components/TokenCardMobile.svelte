@@ -13,7 +13,6 @@
   import TokenDetailsDrawer from "./TokenDetailsDrawer.svelte";
   import {
     statusFor,
-    riskBadgeFor,
     streakBadgeFor,
     cooldownLabel,
   } from "../utils/tokenStatus.js";
@@ -84,9 +83,6 @@
     Math.max(0, Math.floor((sessionEndsAtMs - nowTick) / 1000)),
   );
 
-  // Risk chip (moved from the standalone At-risk cards): shown when the
-  // account carries a risk flag and no ban badge already claims the card.
-  const riskBadge = $derived(riskBadgeFor(token));
   const streak = $derived(streakBadgeFor(token));
 </script>
 
@@ -118,13 +114,6 @@
         >Account #{idx + 1}</span
       >
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
-      {#if riskBadge}
-        <StatusBadge
-          status={riskBadge.label}
-          tone={riskBadge.tone}
-          pulse={riskBadge.pulse}
-        />
-      {/if}
       {#if token.email || token.account_id}
         <span
           class="text-[11px] text-[var(--fp-muted)] truncate max-w-[160px]"

@@ -5,7 +5,6 @@
   import Stat from "./Stat.svelte";
   import Alert from "./Alert.svelte";
   import Button from "./Button.svelte";
-  import StatusBadge from "./StatusBadge.svelte";
   import SegmentedControl from "./SegmentedControl.svelte";
   import { fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
@@ -82,9 +81,6 @@
       trend.direction === "up" ? "↑" : trend.direction === "down" ? "↓" : "→";
     const pct = Math.abs(Number(trend.percentage) || 0).toFixed(1);
     return `${arrow} ${pct}%`;
-  }
-  function riskTone(level) {
-    return level === "high" || level === "medium" ? "bad" : "good";
   }
 
   // Session-cost tally in Freebucks (per-session wire price summed per
@@ -326,9 +322,7 @@
     <!-- Per-token breakdown -->
     <Card
       title={$tr("Per-token metrics")}
-      description={$tr(
-        "24h request counts and risk posture for every pool token.",
-      )}
+      description={$tr("24h request counts for every pool token.")}
       pad="none"
     >
       {#if data.per_tokens?.length}
@@ -336,7 +330,7 @@
           <table class="fp-table">
             <caption class="sr-only"
               >{$tr(
-                "Per-token metrics — requests, retries, rotations, spend and risk",
+                "Per-token metrics — requests, retries, rotations and spend",
               )}</caption
             >
             <thead>
@@ -350,7 +344,6 @@
                   >{$tr("Fingerprint rotations")}</th
                 >
                 <th scope="col" class="num">{$tr("Spend")}</th>
-                <th scope="col">{$tr("Risk")}</th>
                 <th scope="col"><span class="sr-only">{$tr("Links")}</span></th>
               </tr>
             </thead>
@@ -378,12 +371,6 @@
                   <td class="num"
                     >{Number(p.spend_day ?? 0).toLocaleString()}</td
                   >
-                  <td>
-                    <StatusBadge
-                      status={p.risk_level || "low"}
-                      tone={riskTone(p.risk_level)}
-                    />
-                  </td>
                   <td>
                     <button
                       type="button"

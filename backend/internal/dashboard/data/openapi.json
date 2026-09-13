@@ -908,9 +908,6 @@
                 "requests_24h": {
                   "type": "integer"
                 },
-                "risk_level": {
-                  "type": "string"
-                },
                 "spend_day": {
                   "type": "integer"
                 },
@@ -924,7 +921,6 @@
               "required": [
                 "fingerprint_rotations",
                 "requests_24h",
-                "risk_level",
                 "spend_day",
                 "token",
                 "transient_retries"
@@ -1562,9 +1558,6 @@
                 "requests_per_day": {
                   "type": "integer"
                 },
-                "risk_level": {
-                  "type": "string"
-                },
                 "session_status": {
                   "type": "string"
                 },
@@ -1649,7 +1642,6 @@
                 "referral_sessions_left",
                 "requests",
                 "requests_per_day",
-                "risk_level",
                 "session_status",
                 "standing_label",
                 "standing_level",

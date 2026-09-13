@@ -37,7 +37,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 			"SpendMonth":                snap.SpendMonth,
 			"SpendDayStart":             snap.SpendDayStart,
 			"SpendLimited":              snap.SpendLimited,
-			"RiskLevel":                 snap.RiskLevel,
 			"country":                   snap.CountryCode,
 			"session_model":             snap.SessionModel,
 			"session_remaining_seconds": snap.SessionRemainingSeconds,

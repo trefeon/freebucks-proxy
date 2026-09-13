@@ -42,37 +42,6 @@ export function statusFor(token) {
   return { label: t()("idle"), tone: "idle" };
 }
 
-/** Risk-level string to LED tone. */
-export function riskTone(risk) {
-  switch (risk) {
-    case "low":
-      return "good";
-    case "moderate":
-      return "warn";
-    case "high":
-    case "critical":
-      return "bad";
-    default:
-      return "idle";
-  }
-}
-
-/**
- * Risk chip (moved from the standalone At-risk cards): shown when the
- * account carries a risk flag and no ban badge already claims the row.
- */
-export function riskBadgeFor(token) {
-  if (banBadge(token)) return null;
-  if (token.risk_level && token.risk_level !== "low") {
-    return {
-      label: token.risk_level,
-      tone: riskTone(token.risk_level),
-      pulse: token.risk_level === "critical",
-    };
-  }
-  return null;
-}
-
 /** Live cooldown countdown against the page clock (ms epoch). */
 export function cooldownLabel(token, now) {
   if (!token.cooldown_active || !token.cooldown_until) return "—";

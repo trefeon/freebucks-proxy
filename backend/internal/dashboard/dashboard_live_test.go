@@ -111,7 +111,7 @@ func TestLiveViewOverviewOmitsStatic(t *testing.T) {
 			t.Errorf("live token card carries static %q", k)
 		}
 	}
-	for _, k := range []string{"index", "session_status", "active_runs", "requests", "risk_level"} {
+	for _, k := range []string{"index", "session_status", "active_runs", "requests"} {
 		if _, ok := card[k]; !ok {
 			t.Errorf("live token card missing live %q", k)
 		}

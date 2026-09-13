@@ -23,7 +23,6 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 		Requests:         t.Requests,
 		Messages24h:      t.Messages24h,
 		RequestsPerDay:   t.RequestsPerDay,
-		RiskLevel:        t.RiskLevel,
 		TransientRetries: t.TransientRetries,
 		AllowlistSkips:   t.AllowlistSkips,
 		Locked:           t.Locked,
@@ -130,7 +129,6 @@ type tokenLiveCard struct {
 	Requests         int    `json:"requests"`
 	Messages24h      int    `json:"messages_24h"`
 	RequestsPerDay   int    `json:"requests_per_day"`
-	RiskLevel        string `json:"risk_level"`
 	CooldownActive   bool   `json:"cooldown_active"`
 	CooldownUntil    string `json:"cooldown_until"`
 	Locked           bool   `json:"locked"`
@@ -165,7 +163,6 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 		Requests:         t.Requests,
 		Messages24h:      t.Messages24h,
 		RequestsPerDay:   t.RequestsPerDay,
-		RiskLevel:        t.RiskLevel,
 		TransientRetries: t.TransientRetries,
 		Locked:           t.Locked,
 	}

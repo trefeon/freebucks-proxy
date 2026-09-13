@@ -76,26 +76,6 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			}
 		}
 
-		riskLevel := "low"
-		switch {
-		// Ban is checked first: CooldownBan fills the shared cooldown
-		// deadline, so the cooldown case below would otherwise shadow a
-		// banned token as "high". The ban risk is gated on the ban window
-		// still being active (BannedUntil) so an expired ban does not stay
-		// sticky "critical" forever.
-		// A HARD ban has BannedUntil zero (no timed window) and stays live
-		// for good — it must still rank critical instead of falling through
-		// to the usage cases.
-		case rs.BanError != nil && (rs.BannedUntil.IsZero() || time.Now().Before(rs.BannedUntil)):
-			riskLevel = "critical"
-		case !rs.CooldownUntil.IsZero() && time.Now().Before(rs.CooldownUntil):
-			riskLevel = "high"
-		case msgs > 120:
-			riskLevel = "high"
-		case msgs >= 50:
-			riskLevel = "moderate"
-		}
-
 		spend := p.spendSnapshot(i)
 
 		// Countdown: prefer the server-authored absolute expiry over wire
@@ -168,7 +148,6 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			Requests:                rs.Requests,
 			Messages24h:             msgs,
 			RequestsPerDay:          p.dayRequestCount(i),
-			RiskLevel:               riskLevel,
 			SessionStatus:           sessionStatus,
 			SessionInstanceID:       ss.InstanceID,
 			SessionQueuePosition:    ss.QueuePosition,

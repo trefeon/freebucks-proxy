@@ -671,7 +671,7 @@ func TestAcquireConcurrentFinishAllRuns(t *testing.T) {
 }
 
 // TestSnapshotBannedUntil surfaces the ban window deadline the pool uses to
-// gate its ban risk label (fixes the sticky "critical" healthz after an
+// gate quarantined acquires (fixes the sticky quarantine after an
 // expired ban).
 func TestSnapshotBannedUntil(t *testing.T) {
 	mock := testutil.NewMock()
