@@ -6,7 +6,7 @@ test.describe("dashboard hermetic mocks", () => {
   // slow runners the render can exceed the default 5s expect window, so give
   // this group a wider one (CI: 1 worker + retries anyway).
   test.use({ expect: { timeout: 10_000 } });
-  test("Overview polls every 15s; risk cards live on Tokens page", async ({
+  test("Overview polls every 15s; tokens live on Tokens page", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -28,8 +28,8 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     // Overview KPI row shows Pool total / Banned etc (rendered from fixture)
     await expect(page.getByText("Pool total")).toBeVisible();
-    // Risk info was integrated into the Pool Tokens table rows (moved from
-    // the standalone At-risk section): overview must not render it anymore.
+    // Pool status lives in the Pool Tokens table rows (the standalone At-risk
+    // section is gone): overview must not render it anymore.
     await expect(
       page.locator('section[aria-label="At-risk tokens"]'),
     ).toHaveCount(0);
@@ -1033,18 +1033,18 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#overview");
     await overviewResp;
     // Overview loading skeleton used aria-live="polite" and aria-busy="true"
-    // Risk info integrated into the Pool Tokens table (moved from the
-    // standalone At-risk section): overview must not render it, tokens rows
-    // must show risk + usage per account.
+    // Pool status lives in the Pool Tokens table (the standalone At-risk
+    // section is gone): overview must not render it, tokens rows must show
+    // status + usage per account.
     await expect(
       page.locator('section[aria-label="At-risk tokens"]'),
     ).toHaveCount(0);
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const tokensTable = page.locator("table.fp-table");
-    // Fixture token #2 (Account #2) carries risk_level "moderate".
+    // Fixture token #2 (Account #2) row shows its status chip and usage.
     await expect(
       tokensTable.locator("tbody tr").filter({ hasText: "Account #2" }),
-    ).toContainText("moderate");
+    ).toContainText("msgs 24h");
     await expect(tokensTable.getByText("msgs 24h").first()).toBeVisible();
     await expect(tokensTable.getByText("reqs").first()).toBeVisible();
 
@@ -1108,13 +1108,13 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByText("Models served")).toBeVisible();
     // Sparkline SVG embedded from the API payload
     await expect(page.locator('svg[role="img"]').first()).toBeVisible();
-    // Per-token table rows (risk column renders the fixture risk levels)
+    // Per-token table rows carry the fixture requests_24h counts (2 and 4).
     await expect(
       page.getByRole("heading", { name: "Per-token metrics" }),
     ).toBeVisible();
     const metricRows = page.locator("table tbody tr");
-    await expect(metricRows.nth(0)).toContainText("low");
-    await expect(metricRows.nth(1)).toContainText("high");
+    await expect(metricRows.nth(0)).toContainText("2");
+    await expect(metricRows.nth(1)).toContainText("4");
     await expect(metricRows).toHaveCount(2);
   });
 

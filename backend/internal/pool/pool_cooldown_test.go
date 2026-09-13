@@ -402,7 +402,6 @@ func TestAcquireAllCountryBlocked(t *testing.T) {
 	}
 }
 
-
 // TestIdleFinishAllRunsHonorsMaintainCtx is the regression guard for the
 // context.Background bug in the idle FINISH: Pool.Shutdown cancels the
 // maintain ctx first and waits on the maintain goroutine, so a mid-drain

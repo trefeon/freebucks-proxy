@@ -20,16 +20,14 @@
       "requests_24h": 2,
       "transient_retries": 4,
       "fingerprint_rotations": 1,
-      "spend_day": 0,
-      "risk_level": "low"
+      "spend_day": 0
     },
     {
       "token": 1,
       "requests_24h": 4,
       "transient_retries": 8,
       "fingerprint_rotations": 2,
-      "spend_day": 0,
-      "risk_level": "high"
+      "spend_day": 0
     }
   ]
 }

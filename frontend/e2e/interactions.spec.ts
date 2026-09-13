@@ -27,7 +27,6 @@ function tokenRow(
     active_runs: 0,
     requests: 0,
     messages_24h: 0,
-    risk_level: "low",
     cooldown_active: false,
     cooldown_until: "",
     locked: false,
@@ -159,7 +158,6 @@ test.describe("operator interactions (hermetic mocks)", () => {
         tokenRow(0, {
           cooldown_active: true,
           cooldown_until: new Date(Date.now() + 5 * 60_000).toISOString(),
-          risk_level: "high",
         }),
         tokenRow(1),
       ],
@@ -175,7 +173,6 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await page.route("**/admin/tokens/0/unlock", async (route) => {
       state.tokens[0].cooldown_active = false;
       state.tokens[0].cooldown_until = "";
-      state.tokens[0].risk_level = "low";
       await route.fulfill({
         status: 200,
         contentType: "application/json",

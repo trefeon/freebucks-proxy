@@ -909,11 +909,11 @@ type metricTrend struct {
 }
 
 type perTokenMetrics struct {
-	Token                int    `json:"token"`
-	Requests24h          int    `json:"requests_24h"`
-	TransientRetries     int64  `json:"transient_retries"`
-	FingerprintRotations int64  `json:"fingerprint_rotations"`
-	SpendDay             int64  `json:"spend_day"`
+	Token                int   `json:"token"`
+	Requests24h          int   `json:"requests_24h"`
+	TransientRetries     int64 `json:"transient_retries"`
+	FingerprintRotations int64 `json:"fingerprint_rotations"`
+	SpendDay             int64 `json:"spend_day"`
 }
 
 type metricsData struct {
