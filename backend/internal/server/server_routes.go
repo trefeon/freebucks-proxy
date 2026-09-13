@@ -94,6 +94,8 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return s.dash.APIHandler("logs/history")
 	case "GET /admin/api/metrics":
 		return s.dash.APIHandler("metrics")
+	case "GET /admin/api/usage":
+		return s.dash.APIHandler("usage")
 	case "GET /admin/api/version":
 		return http.HandlerFunc(s.dash.APIVersion)
 	case "GET /admin/api/auth/status":

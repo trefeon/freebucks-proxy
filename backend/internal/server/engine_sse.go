@@ -21,6 +21,15 @@ type relayStats struct {
 	// final usage block), fed to the pool spend ledger once per successful
 	// completion (#122). 0 when the stream carried no usage.
 	usageTokens int64
+	// usageInput/usageOutput/usageCached/usageReasoning split the usage
+	// total above for the token usage log: prompt/input tokens,
+	// completion/output tokens, cache-read input tokens, and reasoning
+	// output tokens. Captured from the same final usage block via setUsage
+	// (usage_record.go); zero when the stream carried no usage.
+	usageInput     int64
+	usageOutput    int64
+	usageCached    int64
+	usageReasoning int64
 	// servedModel is the model this lease's session/run is actually bound to
 	// (lease.Model, resolved fallbacks included). Set by chatCore before the
 	// relay runs so wire relays can stamp it onto the response body's model

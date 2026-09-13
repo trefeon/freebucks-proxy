@@ -71,6 +71,52 @@
     const t = String(tok ?? "").trim();
     return /^\d+$/.test(t) ? Number(t) : null;
   }
+
+  // Per-trace LLM token counts ride the Contract UsageRecord keys verbatim
+  // (input/output/cached/reasoning/total); older rows without them render
+  // no token line. Never confuse these with the Account column: that value
+  // is the serving pool account index ("bridge" for client-supplied
+  // tokens), not LLM token usage.
+  function num(n) {
+    const v = Number(n);
+    return Number.isFinite(v) ? v.toLocaleString() : "0";
+  }
+  function hasUsage(t) {
+    return (
+      t != null &&
+      (t.input != null ||
+        t.output != null ||
+        t.cached != null ||
+        t.total != null)
+    );
+  }
+  function tokLine(t) {
+    if (!hasUsage(t)) return "";
+    const parts = [
+      `${num(t.input)} in`,
+      `${num(t.cached)} cached`,
+      `${num(t.output)} out`,
+      `${num(t.total)} total`,
+    ];
+    if (Number(t.reasoning) > 0) parts.push(`${num(t.reasoning)} reasoning`);
+    return parts.join(" · ");
+  }
+  // Rate-limited error rows may carry no serving token but a `rate_tokens`
+  // list (comma-joined 1-based pool indices, e.g. "2" or "1,3"). Show the
+  // first binding token as #N with a title naming every limited account.
+  // `agent` names the serving agent when the backend supplies it.
+  function rateList(t) {
+    const raw = String(t?.rate_tokens ?? "").trim();
+    if (!raw) return [];
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^\d+$/.test(s));
+  }
+  function rateFirst(t) {
+    const l = rateList(t);
+    return l.length ? Number(l[0]) : null;
+  }
 </script>
 
 <div class="space-y-6">
@@ -117,14 +163,15 @@
           <table class="fp-table w-full min-w-[640px]">
             <caption class="sr-only"
               >{$tr(
-                "Chat traces — time, token, model, status, latency and phases",
+                "Chat traces — time, account, model, tokens, status, latency and phases",
               )}</caption
             >
             <thead>
               <tr>
                 <th scope="col">{$tr("Time")}</th>
-                <th scope="col">{$tr("Token")}</th>
+                <th scope="col">{$tr("Account")}</th>
                 <th scope="col">{$tr("Model")}</th>
+                <th scope="col">{$tr("Tokens")}</th>
                 <th scope="col">{$tr("Status")}</th>
                 <th scope="col" class="num">{$tr("Latency")}</th>
                 <th scope="col">{$tr("Phases")}</th>
@@ -136,6 +183,8 @@
               {#each visibleTraces as t, i (t.time + "|" + (rowReqId(t) ?? "") + "|" + i)}
                 {@const tidx = accIndex(t.token)}
                 {@const reqId = rowReqId(t)}
+                {@const limited = rateFirst(t)}
+                {@const usage = tokLine(t)}
                 <tr class={highlightRow(t) ? "bg-amber-500/5" : ""}>
                   <td
                     class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
@@ -146,15 +195,58 @@
                       <button
                         type="button"
                         onclick={() => onOpenToken?.(tidx)}
-                        title={$tr("Open token {idx}", { idx: tidx })}
+                        title={$tr("Pool account {idx} — not LLM token usage", {
+                          idx: tidx,
+                        })}
+                        aria-label={$tr(
+                          "Pool account {idx} — not LLM token usage",
+                          { idx: tidx },
+                        )}
                         class="fp-num font-mono text-xs text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0"
                         >#{t.token}</button
                       >
+                    {:else if limited !== null}
+                      <button
+                        type="button"
+                        onclick={() => onOpenToken?.(limited)}
+                        title={$tr(
+                          "Rate-limited accounts {list} — first binding token shown",
+                          { list: rateList(t).join(", ") },
+                        )}
+                        aria-label={$tr(
+                          "Rate-limited accounts {list} — first binding token shown",
+                          { list: rateList(t).join(", ") },
+                        )}
+                        class="fp-num font-mono text-xs text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0"
+                        >#{limited}</button
+                      >
+                    {:else if t.token && t.token !== "—"}
+                      <span
+                        class="fp-num font-mono text-xs"
+                        title={$tr(
+                          "Serving account {name} — not LLM token usage",
+                          { name: t.token },
+                        )}>#{t.token}</span
+                      >
                     {:else}
-                      <span class="fp-num font-mono text-xs">#{t.token}</span>
+                      <span class="fp-num font-mono text-xs">—</span>
                     {/if}
                   </td>
-                  <td class="font-mono text-[11px]">{t.model || "—"}</td>
+                  <td class="font-mono text-[11px]"
+                    >{t.model || "—"}
+                    {#if t.agent}
+                      <span
+                        class="block text-[10px] text-[var(--fp-dim)]"
+                        title={$tr("Serving agent")}>{t.agent}</span
+                      >
+                    {/if}
+                  </td>
+                  <td
+                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
+                    title={usage
+                      ? $tr("Input / cached / output / total LLM tokens")
+                      : ""}>{usage || "—"}</td
+                  >
                   <td>
                     <span
                       class={t.status === "error"
@@ -189,6 +281,12 @@
                     <button
                       type="button"
                       onclick={() => onOpenLogs?.(reqId ? String(reqId) : "")}
+                      title={reqId
+                        ? $tr("Open logs for trace {id}", { id: reqId })
+                        : $tr("No request id for this entry")}
+                      aria-label={reqId
+                        ? $tr("Open logs for trace {id}", { id: reqId })
+                        : $tr("Open logs")}
                       class="font-mono text-[11px] text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 whitespace-nowrap"
                       >{$tr("Logs")}</button
                     >
@@ -205,6 +303,8 @@
           {#each visibleTraces as t, i (t.time + "|" + (rowReqId(t) ?? "") + "|" + i)}
             {@const tidx = accIndex(t.token)}
             {@const reqId = rowReqId(t)}
+            {@const limited = rateFirst(t)}
+            {@const usage = tokLine(t)}
             <li class="fp-inset rounded p-3 flex flex-col gap-2 min-w-0">
               <div class="flex items-center justify-between gap-2 min-w-0">
                 <span
@@ -224,18 +324,58 @@
                   <button
                     type="button"
                     onclick={() => onOpenToken?.(tidx)}
-                    title={$tr("Open token {idx}", { idx: tidx })}
+                    title={$tr("Pool account {idx} — not LLM token usage", {
+                      idx: tidx,
+                    })}
+                    aria-label={$tr(
+                      "Pool account {idx} — not LLM token usage",
+                      { idx: tidx },
+                    )}
                     class="fp-num font-mono text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 shrink-0"
                     >#{t.token}</button
                   >
+                {:else if limited !== null}
+                  <button
+                    type="button"
+                    onclick={() => onOpenToken?.(limited)}
+                    title={$tr(
+                      "Rate-limited accounts {list} — first binding token shown",
+                      { list: rateList(t).join(", ") },
+                    )}
+                    aria-label={$tr(
+                      "Rate-limited accounts {list} — first binding token shown",
+                      { list: rateList(t).join(", ") },
+                    )}
+                    class="fp-num font-mono text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                    >#{limited}</button
+                  >
+                {:else if t.token && t.token !== "—"}
+                  <span
+                    class="fp-num font-mono shrink-0"
+                    title={$tr("Serving account {name} — not LLM token usage", {
+                      name: t.token,
+                    })}>#{t.token}</span
+                  >
                 {:else}
-                  <span class="fp-num font-mono shrink-0">#{t.token}</span>
+                  <span class="fp-num font-mono shrink-0">—</span>
                 {/if}
                 <code
                   class="fp-num truncate min-w-0 text-[11px] text-[var(--fp-muted)]"
-                  >{t.model || "—"}</code
+                  >{t.model || "—"}{#if t.agent}
+                    <span class="text-[var(--fp-dim)]">
+                      · {t.agent}</span
+                    >{/if}</code
                 >
               </div>
+              {#if usage}
+                <div
+                  class="fp-num text-[11px] text-[var(--fp-muted)]"
+                  title={$tr("Input / cached / output / total LLM tokens")}
+                  aria-label={$tr("LLM token usage: {usage}", { usage })}
+                >
+                  {usage}
+                </div>
+              {/if}
               <div class="flex items-center justify-between gap-2 text-xs">
                 <span class="fp-num text-[var(--fp-muted)]"
                   >{t.ms ? t.ms : "—"}</span
@@ -243,6 +383,12 @@
                 <button
                   type="button"
                   onclick={() => onOpenLogs?.(reqId ? String(reqId) : "")}
+                  title={reqId
+                    ? $tr("Open logs for trace {id}", { id: reqId })
+                    : $tr("No request id for this entry")}
+                  aria-label={reqId
+                    ? $tr("Open logs for trace {id}", { id: reqId })
+                    : $tr("Open logs")}
                   class="font-mono text-[11px] text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 whitespace-nowrap"
                   >{$tr("Logs")}</button
                 >

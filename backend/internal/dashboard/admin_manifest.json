@@ -21,6 +21,7 @@
   {"method": "GET", "path": "/admin/api/maturity/history", "auth": "dashboard", "js": {"export": "adminApi", "key": "maturityHistory"}},
   {"method": "GET", "path": "/admin/api/logs/history", "auth": "sensitive", "js": {"export": "adminApi", "key": "logsHistory"}},
   {"method": "GET", "path": "/admin/api/metrics", "auth": "dashboard", "js": {"export": "adminApi", "key": "metrics"}},
+  {"method": "GET", "path": "/admin/api/usage", "auth": "dashboard", "js": {"export": "adminApi", "key": "usage"}},
   {"method": "GET", "path": "/admin/api/version", "auth": "dashboard", "js": {"export": "adminApi", "key": "version"}},
   {"method": "GET", "path": "/admin/api/events", "auth": "dashboard", "js": {"export": "adminApi", "key": "events"}},
   {"method": "GET", "path": "/admin/api/auth/status", "auth": "dashboard", "js": {"export": "adminApi", "key": "authStatus"}},

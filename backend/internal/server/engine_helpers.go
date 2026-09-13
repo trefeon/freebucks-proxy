@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -42,9 +43,40 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 			"agent", lease.AgentID,
 			"trace_session_id", lease.Run.TraceSessionID,
 		)
+	} else if st != nil {
+		// No lease was ever held (acquire failure or pre-attempt
+		// refusal). Two nil-lease failures still carry token attribution:
+		// a post-acquire upstream error reports the failed lease's token
+		// (chatAttempt releases before returning), and an acquire-time
+		// rate limit reports the binding token plus the limited set.
+		// Egress refusals (model_ip_limited) and every other no-token
+		// path leave both empty, so the row keeps TOKEN —.
+		if st.failedToken != "" {
+			attrs = append(attrs, "token", st.failedToken)
+			if st.failedAgent != "" {
+				attrs = append(attrs, "agent", st.failedAgent)
+			}
+		} else if st.rateToken != "" {
+			attrs = append(attrs, "token", st.rateToken)
+			if st.rateTokens != "" {
+				attrs = append(attrs, "rate_tokens", st.rateTokens)
+			}
+		}
 	}
 	if errClass != "" {
 		attrs = append(attrs, "error", errClass)
+	}
+	// Token split for the traces enrichment: integer attrs under the exact
+	// UsageRecord key names, logged only when the relay observed a real
+	// usage block (absent otherwise, so the trace renders no token line).
+	if st != nil && st.usageTotal > 0 {
+		attrs = append(attrs,
+			"input", st.usageInput,
+			"output", st.usageOutput,
+			"cached", st.usageCached,
+			"reasoning", st.usageReasoning,
+			"total", st.usageTotal,
+		)
 	}
 	for _, name := range []string{
 		phasetiming.AcquireMS,
@@ -127,6 +159,30 @@ type chatTraceState struct {
 	statuses        []int
 	retried         bool
 	backoffMs       int64
+	// usageInput/usageOutput/usageCached/usageReasoning/usageTotal carry
+	// the completed chat's token split onto the "chat trace" line for the
+	// traces enrichment (dashboard parses the keys verbatim). Zero value
+	// = no usage observed: the line omits the keys entirely.
+	usageInput     int64
+	usageOutput    int64
+	usageCached    int64
+	usageReasoning int64
+	usageTotal     int64
+	// failedToken/failedAgent carry the lease attribution of a
+	// post-acquire chat error: chatAttempt releases the lease before
+	// returning, so without these the trace would lose the token that
+	// actually served (and failed) the attempt. Rendered 1-based via
+	// tokenLabel ("bridge" for bridge leases). Empty = no lease was
+	// held when the request failed (acquire-time failure).
+	failedToken string
+	failedAgent string
+	// rateToken/rateTokens carry an acquire-time rate-limit's token
+	// attribution (pool returned nil lease): the 1-based binding token
+	// whose window bounds the wait, plus the comma-joined 1-based set
+	// of all currently rate-limited tokens for the model. Empty =
+	// unknown (egress refusals keep TOKEN —).
+	rateToken  string
+	rateTokens string
 }
 
 // statusesSeen renders the observed attempt statuses comma-joined
@@ -149,4 +205,37 @@ func tokenLabel(lease *pool.Lease) string {
 		return "bridge"
 	}
 	return fmt.Sprintf("%d", lease.Token+1)
+}
+
+// setRateAttribution records an acquire-time rate limit's token
+// attribution onto the trace state from the pool's wrapped 429 (nil-lease
+// path in chatCore). rateToken is the 1-based binding token; rateTokens
+// the comma-joined 1-based limited set, or the binding token alone when
+// enumeration was unavailable. Non-rate errors and unknown bindings leave
+// the state untouched so those rows keep TOKEN —. Nil-safe.
+func setRateAttribution(st *chatTraceState, err error) {
+	if st == nil || err == nil {
+		return
+	}
+	var are *pool.AcquireRateLimitedError
+	if !errors.As(err, &are) || are == nil || are.Token < 0 {
+		return
+	}
+	st.rateToken = strconv.Itoa(are.Token + 1)
+	if len(are.LimitedTokens) == 0 {
+		st.rateTokens = st.rateToken
+		return
+	}
+	parts := make([]string, 0, len(are.LimitedTokens))
+	for _, idx := range are.LimitedTokens {
+		if idx < 0 {
+			continue
+		}
+		parts = append(parts, strconv.Itoa(idx+1))
+	}
+	if len(parts) == 0 {
+		st.rateTokens = st.rateToken
+		return
+	}
+	st.rateTokens = strings.Join(parts, ",")
 }

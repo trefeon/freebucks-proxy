@@ -131,7 +131,7 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 		}
 	}
 	if usage, ok := completion["usage"].(map[string]any); ok {
-		stats.usageTokens = usageTotalTokens(usage) // #122 spend ledger
+		stats.setUsage(usage) // #122 spend ledger
 	}
 	stats.bytes = len(out)
 	w.Header().Set("Content-Type", "application/json")

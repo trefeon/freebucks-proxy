@@ -297,17 +297,6 @@ func (p *Pool) classifyAndCooldown(runsMgr *runs.RunManager, err error) *classif
 	return c
 }
 
-// appendRateLimit adds rle to dst unless an equivalent error is already
-// present (error-string identity, matching the original inline dedup).
-func appendRateLimit(dst []*upstream.RateLimitError, rle *upstream.RateLimitError) []*upstream.RateLimitError {
-	for _, existing := range dst {
-		if existing.Error() == rle.Error() {
-			return dst
-		}
-	}
-	return append(dst, rle)
-}
-
 // appendIpCapped adds ice to dst unless an equivalent error is present.
 func appendIpCapped(dst []*upstream.IpCappedError, ice *upstream.IpCappedError) []*upstream.IpCappedError {
 	for _, existing := range dst {

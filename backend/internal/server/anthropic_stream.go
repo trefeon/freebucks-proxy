@@ -198,7 +198,7 @@ func (s *Server) relayAnthropicStream(ctx context.Context, w http.ResponseWriter
 			if usage, ok := chunk["usage"]; ok && usage != nil {
 				if um, ok := usage.(map[string]any); ok {
 					st.usage = openAIUsageToAnthropic(um)
-					stats.usageTokens = usageTotalTokens(um) // #122 spend ledger
+					stats.setUsage(um) // #122 spend ledger + usage-log split
 				}
 			}
 			// Rewrite XML tool calls out of content before translation.

@@ -161,10 +161,11 @@ func flipFinishReason(chunk map[string]any, from, to string) bool {
 func (cr *chunkRewriter) capture(chunk map[string]any) {
 	// Usage: the final chunk carries the usage block (or a usage-only chunk
 	// with stream_options.include_usage); capture its total for the spend
-	// ledger (#122). Only adopt a real usage block: "usage":null or a chunk
-	// merely mentioning the key must not zero the ledger.
+	// ledger (#122) plus the split for the usage log. Only adopt a real
+	// usage block: "usage":null or a chunk merely mentioning the key must
+	// not zero the ledger.
 	if u, ok := chunk["usage"]; ok && u != nil {
-		cr.stats.usageTokens = usageTotalTokens(u)
+		cr.stats.setUsage(u)
 	}
 	if chunkModel, _ := chunk["model"].(string); chunkModel != "" && cr.streamModel == "" {
 		cr.streamModel = chunkModel

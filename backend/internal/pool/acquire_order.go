@@ -2,7 +2,6 @@ package pool
 
 import (
 	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
 	"math/rand/v2"
 	"sort"
 	"time"
@@ -33,7 +32,7 @@ import (
 // round-robin so the loop still records every reason. The fallback branch
 // in Acquire only runs after that loop completed without a lease and every
 // rate-limited error it recorded is a quota exhaustion.
-func (p *Pool) acquireOrder(toks *[]*tokenEntry, start int, model string) ([]int, []*upstream.RateLimitError) {
+func (p *Pool) acquireOrder(toks *[]*tokenEntry, start int, model string) ([]int, []rateLimitEntry) {
 	// eligible mirrors the per-token checks the failover loop applies:
 	// not cooling down, under the daily message cap, and not
 	// Freebucks-capped for the requested model (ADR-0027: session-count
@@ -222,13 +221,13 @@ func (p *Pool) acquireOrder(toks *[]*tokenEntry, start int, model string) ([]int
 	for _, idx := range order {
 		inOrder[idx] = struct{}{}
 	}
-	var quotaLimited []*upstream.RateLimitError
+	var quotaLimited []rateLimitEntry
 	for idx := range *toks {
 		if _, ok := inOrder[idx]; ok {
 			continue
 		}
 		if capped, _ := freebucksCapped((*toks)[idx], model); capped {
-			quotaLimited = append(quotaLimited, freebucksLimitError((*toks)[idx], model))
+			quotaLimited = appendRateLimitEntry(quotaLimited, freebucksLimitError((*toks)[idx], model), idx)
 		}
 	}
 	return order, quotaLimited

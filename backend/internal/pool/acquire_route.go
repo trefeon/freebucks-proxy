@@ -163,10 +163,10 @@ func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 // leaseFromOrder runs the token failover loop against the given order.
 // Extracted from Acquire so the leader-election follower path can call it
 // with a reordered token list without duplicating the loop.
-func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string, cfg *config.Config, toks *[]*tokenEntry, order []int, quotaLimited []*upstream.RateLimitError) (*Lease, error) {
+func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string, cfg *config.Config, toks *[]*tokenEntry, order []int, quotaLimited []rateLimitEntry) (*Lease, error) {
 	var errs []string
 	var waiting []*session.WaitingRoomError
-	var rateLimited []*upstream.RateLimitError
+	var rateLimited []rateLimitEntry
 	var ipCapped []*upstream.IpCappedError
 	var banned []*upstream.BanError
 	var countryBlocked []*upstream.CountryBlockedError
@@ -275,16 +275,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 					}
 				}
 				if rle := tok.runs.RateLimitError(); rle != nil {
-					dup := false
-					for _, existing := range rateLimited {
-						if existing.Error() == rle.Error() {
-							dup = true
-							break
-						}
-					}
-					if !dup {
-						rateLimited = append(rateLimited, rle)
-					}
+					rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
 				}
 				if ice := tok.runs.IpCappedError(); ice != nil {
 					dup := false
@@ -321,7 +312,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				if slotErr != nil {
 					if routeIsQueueExhausted(slotErr) {
 						live := p.routeSlotLive(tok)
-						rateLimited = appendRateLimit(rateLimited, routeQueueRateLimit(slotErr.(*routeQueueExhaustedError), model, slotCap, live))
+						rateLimited = appendRateLimitEntry(rateLimited, routeQueueRateLimit(slotErr.(*routeQueueExhaustedError), model, slotCap, live), idx)
 						errs = append(errs, fmt.Sprintf("%s: %v", name, slotErr))
 						p.logger.Debug("pool: token skipped (live-turn queue exhausted)", "token", idx+1, "err", slotErr)
 						continue
@@ -398,7 +389,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				if rle.Model == "" {
 					rle.Model = model
 				}
-				rateLimited = appendRateLimit(rateLimited, rle)
+				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
 				// Issue #122: the fresh-admission spend ceiling is the
 				// upstream's primary spend gate, so an admission-path
 				// spend_limited counts on the ledger too (same counter as
@@ -499,7 +490,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				if rle.Model == "" {
 					rle.Model = model
 				}
-				rateLimited = appendRateLimit(rateLimited, rle)
+				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
 				// Issue #122: count run-start spend_limited refusals on the
 				// ledger (same counter as the chat-path refusal).
 				if c.spendLimited {
@@ -595,8 +586,8 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		// refusal, never a cached count — ADR-0027), fall back to the
 		// unlimited model (mimo-v2.5) if configured.
 		allQuotaCapped := true
-		for _, rle := range rateLimited {
-			if !isQuotaExhaustedError(rle) {
+		for _, e := range rateLimited {
+			if !isQuotaExhaustedError(e.err) {
 				allQuotaCapped = false
 				break
 			}
@@ -630,7 +621,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			n.Send(notify.Event{Event: "pool_exhausted", TokenIndex: 0, Model: model,
 				Message: "all tokens are rate-limited; the pool cannot serve the request"})
 		}
-		return nil, bestRateLimit(rateLimited)
+		return nil, bestRateLimitEntry(rateLimited)
 	}
 	if len(ipCapped) > 0 {
 		return nil, ipCapped[0]

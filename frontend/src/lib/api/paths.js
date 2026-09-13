@@ -27,6 +27,7 @@ export const adminApi = {
   maturityHistory: "/admin/api/maturity/history",
   logsHistory: "/admin/api/logs/history",
   metrics: "/admin/api/metrics",
+  usage: "/admin/api/usage",
   traces: "/admin/api/traces",
   setup: "/admin/api/setup",
   version: "/admin/api/version",

@@ -240,6 +240,13 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	be = &timedBackend{chatBackend: be, phases: phases}
 	up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
 	if err != nil {
+		// Acquire-time rate limit (pool returned nil lease): attribute the
+		// binding token + limited set onto the trace line. Post-acquire
+		// errors already carry the failed lease via chatAttempt; egress
+		// refusals carry neither and keep TOKEN —.
+		if lease == nil {
+			setRateAttribution(st, err)
+		}
 		phases.Since(phasetiming.TotalMS, start)
 		s.traceChat(lease, model, time.Since(start).Milliseconds(), "error", chatErrClass(err), phases.All(), st)
 		// Issue #114: a chat that died on a terminal upstream error must
@@ -327,6 +334,14 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	// completion with the usage total observed by the relay (0 when the
 	// upstream stream carried none — RecordSpend ignores non-positive).
 	be.RecordSpend(lease, stats.usageTokens)
+	// Usage log: persist the same completion's token split into the
+	// dashboard ring (unconditional — zero-usage completions still count
+	// as requests with OK=false; nil-dash safe).
+	s.recordUsage(ctx, stats, model)
+	// Traces enrichment: carry the split onto the "chat trace" line below
+	// (traceChat omits the keys when no usage block was observed).
+	st.usageInput, st.usageOutput, st.usageCached, st.usageReasoning, st.usageTotal =
+		stats.usageInput, stats.usageOutput, stats.usageCached, stats.usageReasoning, stats.usageTokens
 	phases.Since(phasetiming.TotalMS, start)
 	ms := time.Since(start).Milliseconds()
 	s.logger.Info(kind+" done", chatDoneAttrs(reqID, model, lease.AgentID, stream, ms, stats.chunks, stats.bytes, reasoningEffort)...)

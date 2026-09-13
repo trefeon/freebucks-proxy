@@ -324,7 +324,7 @@ func (s *Server) relayJSON(ctx context.Context, w http.ResponseWriter, r io.Read
 		Usage any `json:"usage"`
 	}
 	if json.Unmarshal(out, &usageObj) == nil && usageObj.Usage != nil {
-		stats.usageTokens = usageTotalTokens(usageObj.Usage)
+		stats.setUsage(usageObj.Usage)
 	}
 	if s.reasoningCache != nil {
 		var comp map[string]any

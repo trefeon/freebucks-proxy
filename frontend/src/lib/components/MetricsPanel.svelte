@@ -6,6 +6,7 @@
   import Alert from "./Alert.svelte";
   import Button from "./Button.svelte";
   import StatusBadge from "./StatusBadge.svelte";
+  import SegmentedControl from "./SegmentedControl.svelte";
   import { fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import { tr } from "../i18n.js";
@@ -15,6 +16,15 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
+
+  // Token usage overview (9Router-style): range tabs + overview/details
+  // toggle, fed by GET /admin/api/usage?range=… with a fallback to the
+  // `usage` key of GET /admin/api/metrics.
+  let usageRange = $state("today");
+  let usageView = $state("overview");
+  let usage = $state(null);
+  let usageLoading = $state(true);
+  let usageError = $state("");
 
   async function fetchData() {
     try {
@@ -27,6 +37,27 @@
     }
   }
 
+  async function fetchUsage(range) {
+    usageLoading = true;
+    try {
+      try {
+        usage = await fetchAPI(
+          `${adminApi.usage}?range=${encodeURIComponent(range)}`,
+        );
+      } catch {
+        // Older gateway without the dedicated route: usage rides along
+        // under the `usage` key of the metrics payload.
+        const m = await fetchAPI(adminApi.metrics);
+        usage = m?.usage ?? null;
+      }
+      usageError = "";
+    } catch (e) {
+      usageError = e.message || $tr("Failed to load usage");
+    } finally {
+      usageLoading = false;
+    }
+  }
+
   onMount(fetchData);
 
   // Shared time cursor from the Activity page ("Refresh all"): refetch when
@@ -34,6 +65,14 @@
   // dependency.
   $effect(() => {
     if (cursor) fetchData();
+  });
+
+  // Usage refetch: runs on mount, on range change, and on Refresh-all.
+  // Both reads are in the effect body so they stay tracked; fetchUsage
+  // takes the range as a parameter and reads no reactive state itself.
+  $effect(() => {
+    const range = usageRange;
+    if (cursor >= 0) fetchUsage(range);
   });
 
   // Trend shorthand: up/down/flat arrow plus the magnitude, e.g. "↑ 12.5%".
@@ -44,9 +83,17 @@
     const pct = Math.abs(Number(trend.percentage) || 0).toFixed(1);
     return `${arrow} ${pct}%`;
   }
-
   function riskTone(level) {
     return level === "high" || level === "medium" ? "bad" : "good";
+  }
+
+  // Session-cost tally in Freebucks (per-session wire price summed per
+  // entry, not a per-token USD estimate): mirrors freebucksPriceLabel.
+  function formatCost(cost) {
+    const n = Number(cost ?? 0);
+    if (!Number.isFinite(n) || n === 0) return "0 Freebucks";
+    const s = Number.isInteger(n) ? String(n) : n.toFixed(1);
+    return `${s} Freebucks`;
   }
 </script>
 
@@ -70,6 +117,139 @@
       </Button>
     </div>
   {:else if data}
+    <!-- Token usage overview (9Router-style): range tabs, overview/details
+         toggle, five total cards, per-entry table in details mode. -->
+    <Card
+      title={$tr("Token usage")}
+      description={$tr("Session cost in Freebucks — not a billing figure.")}
+      pad="none"
+    >
+      {#snippet actions()}
+        <SegmentedControl
+          bind:value={usageRange}
+          options={[
+            { id: "today", label: "Today" },
+            { id: "24h", label: "24h" },
+            { id: "7d", label: "7D" },
+            { id: "30d", label: "30D" },
+            { id: "60d", label: "60D" },
+          ]}
+          ariaLabel={$tr("Usage range")}
+          size="xs"
+        />
+        <SegmentedControl
+          bind:value={usageView}
+          options={[
+            { id: "overview", label: $tr("Overview") },
+            { id: "details", label: $tr("Details") },
+          ]}
+          ariaLabel={$tr("Usage view")}
+          size="xs"
+        />
+      {/snippet}
+      <div class="px-5 py-4">
+        {#if usageLoading && !usage}
+          <div
+            class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4"
+            aria-busy="true"
+          >
+            {#each Array(5) as _, i (i)}
+              <div class="skeleton skeleton-card h-24"></div>
+            {/each}
+          </div>
+          <span class="sr-only">{$tr("Loading usage")}</span>
+        {:else if usageError && !usage}
+          <div class="space-y-3">
+            <Alert tone="error">{usageError}</Alert>
+            <Button variant="secondary" onclick={() => fetchUsage(usageRange)}>
+              <RefreshCw size={15} />
+              {$tr("Retry")}
+            </Button>
+          </div>
+        {:else}
+          {@const totals = usage?.totals ?? {}}
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <Card class="p-4">
+              <Stat
+                label={$tr("Total Requests")}
+                value={Number(totals.requests ?? 0).toLocaleString()}
+              />
+            </Card>
+            <Card class="p-4">
+              <Stat
+                label={$tr("Total Input Tokens")}
+                value={Number(totals.input ?? 0).toLocaleString()}
+              />
+            </Card>
+            <Card class="p-4">
+              <Stat
+                label={$tr("Cached Tokens")}
+                value={Number(totals.cached ?? 0).toLocaleString()}
+              />
+            </Card>
+            <Card class="p-4">
+              <Stat
+                label={$tr("Output Tokens")}
+                value={Number(totals.output ?? 0).toLocaleString()}
+              />
+            </Card>
+            <Card class="p-4">
+              <Stat label={$tr("Est. Cost")} value={formatCost(totals.cost)} />
+            </Card>
+          </div>
+          {#if usageView === "details"}
+            {#if usage?.entries?.length}
+              <div class="overflow-x-auto mt-4">
+                <table class="fp-table">
+                  <caption class="sr-only"
+                    >{$tr(
+                      "Per-request token usage — time, model and token counts",
+                    )}</caption
+                  >
+                  <thead>
+                    <tr>
+                      <th scope="col">{$tr("Time")}</th>
+                      <th scope="col">{$tr("Model")}</th>
+                      <th scope="col" class="num">{$tr("Input")}</th>
+                      <th scope="col" class="num">{$tr("Cached")}</th>
+                      <th scope="col" class="num">{$tr("Output")}</th>
+                      <th scope="col" class="num">{$tr("Total")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each usage.entries as e (e.req_id ?? e.ts_ms)}
+                      <tr>
+                        <td class="font-mono text-xs whitespace-nowrap"
+                          >{new Date(Number(e.ts_ms ?? 0)).toLocaleString()}</td
+                        >
+                        <td class="font-mono text-xs">{e.model ?? "—"}</td>
+                        <td class="num"
+                          >{Number(e.input ?? 0).toLocaleString()}</td
+                        >
+                        <td class="num"
+                          >{Number(e.cached ?? 0).toLocaleString()}</td
+                        >
+                        <td class="num"
+                          >{Number(e.output ?? 0).toLocaleString()}</td
+                        >
+                        <td class="num"
+                          >{Number(e.total ?? 0).toLocaleString()}</td
+                        >
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {:else}
+              <p class="mt-4 text-sm text-[var(--fp-muted)]">
+                {$tr("No usage in this range yet.")}
+              </p>
+            {/if}
+          {/if}
+        {/if}
+      </div>
+    </Card>
+
     <!-- KPI row -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <Card class="p-4">

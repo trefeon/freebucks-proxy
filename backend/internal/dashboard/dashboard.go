@@ -50,6 +50,13 @@ type Dashboard struct {
 	version string
 	updates *updatecheck.Checker
 
+	// usageRing is the in-memory token-usage log backing GET /admin/api/usage
+	// (dashboard_usage.go). Per-instance like metricHist; RecordUsage appends
+	// from the chat path, usageData snapshots under usageMu. Evicts oldest
+	// past maxUsageRecords; history resets on restart by design (zero knobs).
+	usageMu   sync.Mutex
+	usageRing []UsageRecord
+
 	// metricHist is the rolling counter history sampled by the metrics page
 	// (UI-poll-driven, not a background goroutine). Per-instance so multiple
 	// dashboards never share one window.
@@ -190,6 +197,8 @@ func (d *Dashboard) dataFor(name string, r *http.Request) any {
 		return d.setupData(r)
 	case "metrics":
 		return d.metricsData()
+	case "usage":
+		return d.usageData(r)
 	case "upstream":
 		return d.upstreamData()
 	case "notices":

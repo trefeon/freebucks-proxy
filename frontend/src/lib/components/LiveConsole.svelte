@@ -101,6 +101,59 @@
     const t = String(tok ?? "").trim();
     return /^\d+$/.test(t) ? Number(t) : null;
   }
+  // Badge glossary: every console chip maps to a plain-language title so a
+  // pool account index (ACCT) or a message/tool/chunk/byte count never reads
+  // as LLM token usage. Counts carry units; ids carry the id kind.
+  // NOTE on the old "80919B" chip: that slot is `${bytes}B` — the response
+  // body size (e.g. 80919 bytes), not a trace/session id and not tokens.
+  // Bare digits + B read as hex, so the builder below now emits an explicit
+  // "bytes" unit with a thousands separator.
+  function chipTitle(chip) {
+    const c = String(chip ?? "");
+    if (c.startsWith("ACCT ")) {
+      const n = c.slice(5).trim();
+      return /^\d+$/.test(n)
+        ? `Serving pool account #${n} — not LLM token usage`
+        : `Serving pool account ${n || "unknown"} — not LLM token usage`;
+    }
+    if (c === "ACCT —") return "Serving pool account unknown";
+    if (c.endsWith(" Msgs"))
+      return `${c} in this request (message count, not tokens)`;
+    if (c.endsWith(" Tools"))
+      return `${c} in this request (tool-call count, not tokens)`;
+    if (c.endsWith(" CHUNKS"))
+      return `${c} streamed (SSE chunk count, not tokens)`;
+    if (c.endsWith(" bytes"))
+      return `${c} of response body (bytes — not LLM tokens, not an id)`;
+    if (c.startsWith("TTFT ")) return "Time to first token (latency)";
+    if (c.startsWith("THINK ")) return "Reasoning effort level (not a count)";
+    if (c === "STREAM" || c === "SYNC") return "Transport mode";
+    if (c.startsWith("FALLBACK ")) return "Quota-fallback model served";
+    if (c === "RETRIED" || c.startsWith("×"))
+      return "Upstream retry bookkeeping";
+    if (
+      c === "chat" ||
+      c === "messages" ||
+      c === "responses" ||
+      c === "count_tokens"
+    )
+      return "API endpoint";
+    return "";
+  }
+  // Rate-limited rows may carry no serving token but a `rate_tokens` list
+  // (comma-joined 1-based pool indices). First binding token renders as #N.
+  function consoleRateList(v) {
+    const raw = String(v ?? "").trim();
+    if (!raw) return [];
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^\d+$/.test(s));
+  }
+  function consoleRateFirst(v) {
+    const l = consoleRateList(v);
+    return l.length ? Number(l[0]) : null;
+  }
 
   // goDurationSeconds parses the backend's Go duration strings ("1h0m0s",
   // "15m0s") into seconds; null when the shape is unrecognized, so the label
@@ -197,9 +250,9 @@
           fallback: "",
           stream: null,
           msgs: 0,
-          tools: 0,
           effort: "",
           token: "",
+          rateTokens: "",
           instanceId: "",
           reqId: "",
           refused: false,
@@ -301,6 +354,8 @@
         if (!g.model && fields.model) g.model = fields.model;
         if (!g.agent && fields.agent) g.agent = fields.agent;
         if (!g.token && fields.token) g.token = fields.token;
+        if (!g.rateTokens && fields.rate_tokens)
+          g.rateTokens = fields.rate_tokens;
         if (msg === "chat trace") {
           g.traceStatus = fields.status || g.traceStatus;
           if (!g.ttft && fields.upstream_ttfb_ms)
@@ -317,7 +372,6 @@
             g.errText = fields.error;
         } else {
           g.done = true;
-          if (!g.ms && fields.ms) g.ms = fields.ms;
           if (!g.bytes && fields.bytes) g.bytes = fields.bytes;
           if (!g.chunks && fields.chunks) g.chunks = fields.chunks;
           if (g.stream === null) g.stream = parseStream(fields.stream);
@@ -411,16 +465,20 @@
           : g.stream === false
             ? ["SYNC"]
             : []),
-        ...(g.msgs > 0 ? [`${g.msgs} MSG`] : []),
-        ...(g.tools > 0 ? [`${g.tools} TOOL`] : []),
+        ...(g.msgs > 0 ? [`${g.msgs} Msgs`] : []),
+        ...(g.tools > 0 ? [`${g.tools} Tools`] : []),
         ...(g.effort ? [`THINK ${g.effort}`] : []),
-        ...(g.token ? [`ACC ${g.token}`] : []),
-        ...(g.fallback ? [`FALLBACK ${g.fallback}`] : []),
-        ...(g.ttft ? [`TTFT ${g.ttft}ms`] : []),
-        ...(g.bytes ? [`${g.bytes}B`] : []),
+        ...(g.token ? [`ACCT ${g.token}`] : []),
+        // Explicit unit with a thousands separator: bare `${bytes}B`
+        // (e.g. 80919B) reads as a hex id. Response body size, not tokens.
+        ...(g.bytes
+          ? [
+              Number.isFinite(Number(g.bytes))
+                ? `${Number(g.bytes).toLocaleString()} bytes`
+                : `${g.bytes} bytes`,
+            ]
+          : []),
         ...(g.chunks ? [`${g.chunks} CHUNKS`] : []),
-        ...(g.attempts > 1 ? [`×${g.attempts}`] : []),
-        ...(g.retried ? ["RETRIED"] : []),
       ];
     }
     return order;
@@ -962,20 +1020,27 @@
                 {/if}
                 <div class="flex flex-wrap gap-1 mt-1">
                   {#each g.chips as chip, j (j)}
-                    {#if chip.startsWith("ACC ")}
-                      {@const tok = chip.slice(4).trim()}
+                    {#if chip.startsWith("ACCT ")}
+                      {@const tok = chip.slice(5).trim()}
                       {@const idx = accIndex(tok)}
                       {#if idx !== null}
                         <button
                           type="button"
                           onclick={() => onOpenToken?.(idx)}
-                          title={$tr("Open token {idx}", { idx })}
+                          title={$tr("Pool account {idx} — not token usage", {
+                            idx,
+                          })}
+                          aria-label={$tr(
+                            "Pool account {idx} — not token usage",
+                            { idx },
+                          )}
                           class="inline-flex items-center rounded border px-1.5 py-px text-[10px] leading-4 whitespace-nowrap cursor-pointer hover:underline {groupChipClass(
                             chip,
-                          )}">ACC {tok}</button
+                          )}">ACCT {tok}</button
                         >
                       {:else}
                         <span
+                          title={chipTitle(chip)}
                           class="inline-flex items-center rounded border px-1.5 py-px text-[10px] leading-4 whitespace-nowrap {groupChipClass(
                             chip,
                           )}">{chip}</span
@@ -983,6 +1048,7 @@
                       {/if}
                     {:else}
                       <span
+                        title={chipTitle(chip)}
                         class="inline-flex items-center rounded border px-1.5 py-px text-[10px] leading-4 whitespace-nowrap {groupChipClass(
                           chip,
                         )}">{chip}</span
@@ -990,10 +1056,29 @@
                     {/if}
                   {/each}
                   {#if !g.token}
-                    <span
-                      class="inline-flex items-center rounded border border-zinc-800 px-1.5 py-px text-[10px] leading-4 whitespace-nowrap text-zinc-600"
-                      >ACC —</span
-                    >
+                    {@const limited = consoleRateFirst(g.rateTokens)}
+                    {#if limited !== null}
+                      <button
+                        type="button"
+                        onclick={() => onOpenToken?.(limited)}
+                        title={$tr(
+                          "Rate-limited accounts {list} — first binding token shown",
+                          { list: consoleRateList(g.rateTokens).join(", ") },
+                        )}
+                        aria-label={$tr(
+                          "Rate-limited accounts {list} — first binding token shown",
+                          { list: consoleRateList(g.rateTokens).join(", ") },
+                        )}
+                        class="inline-flex items-center rounded border border-zinc-700/80 bg-zinc-900 px-1.5 py-px text-[10px] leading-4 whitespace-nowrap text-zinc-300 cursor-pointer hover:text-white hover:border-zinc-500 transition-colors"
+                        >ACCT {limited}</button
+                      >
+                    {:else}
+                      <span
+                        title={chipTitle("ACCT —")}
+                        class="inline-flex items-center rounded border border-zinc-800 px-1.5 py-px text-[10px] leading-4 whitespace-nowrap text-zinc-600"
+                        >ACCT —</span
+                      >
+                    {/if}
                   {/if}
                   {#if g.reqId}
                     <button
@@ -1184,14 +1269,24 @@
                         <button
                           type="button"
                           onclick={() => onOpenToken?.(tidx)}
-                          title={$tr("Open token {idx}", { idx: tidx })}
+                          title={$tr("Pool account {idx} — not token usage", {
+                            idx: tidx,
+                          })}
+                          aria-label={$tr(
+                            "Pool account {idx} — not token usage",
+                            { idx: tidx },
+                          )}
                           class="fp-num font-mono text-[11px] text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 shrink-0"
-                          >ACC {tokField.value}</button
+                          >ACCT {tokField.value}</button
                         >
                       {:else}
                         <span
+                          title={$tr(
+                            "Serving account {name} — not LLM token usage",
+                            { name: tokField.value },
+                          )}
                           class="fp-num font-mono text-[11px] text-[var(--fp-muted)] shrink-0"
-                          >ACC {tokField.value}</span
+                          >ACCT {tokField.value}</span
                         >
                       {/if}
                     {/if}

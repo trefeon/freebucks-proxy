@@ -242,6 +242,14 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 			st.statuses = append(st.statuses, s)
 		}
 		failTime = time.Now()
+		// The lease is released before every error return below, so
+		// remember its attribution for the trace line now: post-acquire
+		// errors keep the serving token even though chatCore sees a nil
+		// lease. A retry re-acquire overwrites it with the fresh lease.
+		if lease != nil {
+			st.failedToken = tokenLabel(lease)
+			st.failedAgent = lease.AgentID
+		}
 		switch {
 		case errors.Is(err, upstream.ErrModelIPLimited):
 			// Issue #74 P2: the egress IP is limited for the requested

@@ -2137,14 +2137,23 @@
           "traces": {
             "items": {
               "properties": {
+                "cached": {
+                  "type": "integer"
+                },
                 "error": {
                   "type": "string"
+                },
+                "input": {
+                  "type": "integer"
                 },
                 "model": {
                   "type": "string"
                 },
                 "ms": {
                   "type": "string"
+                },
+                "output": {
+                  "type": "integer"
                 },
                 "phases": {
                   "items": {
@@ -2164,6 +2173,15 @@
                   },
                   "type": "array"
                 },
+                "rate_tokens": {
+                  "type": "string"
+                },
+                "reasoning": {
+                  "type": "integer"
+                },
+                "req_id": {
+                  "type": "string"
+                },
                 "status": {
                   "type": "string"
                 },
@@ -2172,6 +2190,12 @@
                 },
                 "token": {
                   "type": "string"
+                },
+                "total": {
+                  "type": "integer"
+                },
+                "ts_ms": {
+                  "type": "integer"
                 }
               },
               "required": [
@@ -2190,6 +2214,92 @@
         "required": [
           "enabled",
           "traces"
+        ],
+        "type": "object"
+      },
+      "usageData": {
+        "properties": {
+          "entries": {
+            "items": {
+              "properties": {
+                "cached": {
+                  "type": "integer"
+                },
+                "input": {
+                  "type": "integer"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "output": {
+                  "type": "integer"
+                },
+                "reasoning": {
+                  "type": "integer"
+                },
+                "req_id": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "integer"
+                },
+                "ts_ms": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "cached",
+                "input",
+                "model",
+                "ok",
+                "output",
+                "reasoning",
+                "req_id",
+                "total",
+                "ts_ms"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "range": {
+            "type": "string"
+          },
+          "totals": {
+            "properties": {
+              "cached": {
+                "type": "integer"
+              },
+              "cost": {
+                "type": "number"
+              },
+              "input": {
+                "type": "integer"
+              },
+              "output": {
+                "type": "integer"
+              },
+              "requests": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cached",
+              "cost",
+              "input",
+              "output",
+              "requests"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "entries",
+          "range",
+          "totals"
         ],
         "type": "object"
       }
@@ -3072,6 +3182,43 @@
           }
         ],
         "summary": "Recent chat traces",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/admin/api/usage": {
+      "get": {
+        "operationId": "getUsage",
+        "parameters": [
+          {
+            "description": "today (default) | 24h | 7d | 30d | 60d",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/usageData"
+                }
+              }
+            },
+            "description": "Token usage log: range totals plus per-entry detail (9Router-style overview)"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Token usage log: range totals plus per-entry detail (9Router-style overview)",
         "tags": [
           "views"
         ]

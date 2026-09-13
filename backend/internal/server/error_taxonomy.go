@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
 )
@@ -77,6 +78,10 @@ func defaultHintForCode(code, message string) string {
 // 200 default when nothing was (or could be) written, so a generic "error"
 // would render a context-free "ERROR 200" on the dashboard.
 func chatErrClass(err error) string {
+	// The pool's acquire-time 429 wraps the binding refusal with token
+	// attribution: classify the inner refusal so the trace error column
+	// still reads rate_limited.
+	err = unwrapAcquireRateLimit(err)
 	if errors.Is(err, context.Canceled) {
 		return "client_canceled"
 	}
@@ -109,6 +114,7 @@ func chatErrClass(err error) string {
 // ErrSessionInvalid/ErrRunInvalid, and transport-level failures). A 0 is
 // skipped in statuses_seen — only observed statuses are listed.
 func attemptStatus(err error) int {
+	err = unwrapAcquireRateLimit(err)
 	switch e := err.(type) {
 	case *upstream.UpstreamError:
 		return e.Status
@@ -136,6 +142,18 @@ func attemptStatus(err error) int {
 		return http.StatusTooManyRequests
 	}
 	return 0
+}
+
+// unwrapAcquireRateLimit strips the pool's acquire-time attribution wrapper
+// so type-switch classifiers see the underlying refusal. Non-wrapped
+// errors pass through untouched; a wrapper with no inner refusal yields
+// the wrapper itself (still a rate-limit signal via errors.Is).
+func unwrapAcquireRateLimit(err error) error {
+	var are *pool.AcquireRateLimitedError
+	if errors.As(err, &are) && are != nil && are.Err != nil {
+		return are.Err
+	}
+	return err
 }
 
 // quotaSummary renders the live per-model session quota from a probe's

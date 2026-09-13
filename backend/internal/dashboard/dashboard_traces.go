@@ -24,6 +24,21 @@ type traceEntry struct {
 	Ms     string    `json:"ms"`
 	Error  string    `json:"error"`
 	Phases []PhaseKV `json:"phases,omitempty"`
+	// ReqID threads the request correlation id the chat trace log has
+	// always carried (the display row used to drop it). The token counts
+	// ride the Contract UsageRecord keys verbatim when the chat path logs
+	// them, omitted otherwise so rows without counts render unchanged.
+	ReqID     string `json:"req_id,omitempty"`
+	TsMs      int64  `json:"ts_ms,omitempty"`
+	Input     int64  `json:"input,omitempty"`
+	Output    int64  `json:"output,omitempty"`
+	Cached    int64  `json:"cached,omitempty"`
+	Reasoning int64  `json:"reasoning,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	// RateTokens is the acquire-time rate-limit's limited-token set the
+	// chat trace logs verbatim (comma-joined 1-based, e.g. "2" or "1,3").
+	// String passthrough like Token: the dashboard never interprets it.
+	RateTokens string `json:"rate_tokens,omitempty"`
 }
 
 // tracesData merges the live ring with the history store so the Traces
@@ -79,10 +94,24 @@ func traceFromFields(timeStr string, fields []string) traceEntry {
 		switch key {
 		case "token":
 			entry.Token = value
+		case "rate_tokens":
+			entry.RateTokens = value
 		case "model":
 			entry.Model = value
 		case "status":
 			entry.Status = value
+		case "req_id":
+			entry.ReqID = value
+		case "input":
+			entry.Input = parseTraceCount(value)
+		case "output":
+			entry.Output = parseTraceCount(value)
+		case "cached":
+			entry.Cached = parseTraceCount(value)
+		case "reasoning":
+			entry.Reasoning = parseTraceCount(value)
+		case "total":
+			entry.Total = parseTraceCount(value)
 		case "ms":
 			entry.Ms = value + "ms"
 		case "error":
@@ -101,10 +130,23 @@ func traceFromFields(timeStr string, fields []string) traceEntry {
 	if phaseMap != nil {
 		entry.Phases = PhaseList(phaseMap)
 	}
-	if entry.Token == "" {
+	// TsMs re-derives millis from the display stamp so ring and DB rows
+	// carry the same key (both paths format RFC3339); unparseable stamps
+	// omit it via omitempty.
+	if ts, err := time.Parse(time.RFC3339, timeStr); err == nil {
+		entry.TsMs = ts.UnixMilli()
+	}
+	if entry.Token == "" && entry.RateTokens == "" {
 		entry.Token = "—"
 	}
 	return entry
+}
+
+// parseTraceCount parses one logged token count; malformed values read 0
+// (omitted downstream via omitempty) and never fail the row.
+func parseTraceCount(s string) int64 {
+	v, _ := strconv.ParseInt(s, 10, 64)
+	return v
 }
 
 // phaseNames is the phase-timing field set a trace row renders.
