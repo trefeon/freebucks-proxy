@@ -60,7 +60,10 @@ dotenv → static → live → SSE hash → store refresh.
 
 1. Feature branch off `origin/main` → PR → CI gates
    (`test`, `frontend`, `golangci`, `analyze`/CodeQL, `dependency-review`) green →
-   squash merge. `gh pr update-branch` takes NO `--merge` flag on this host.
+   squash merge, then clean up: `gh pr merge --squash --delete-branch`, plus
+   `git fetch origin --prune`, `git branch -d <branch>` (`-D` when squash-merged,
+   the tip is never an ancestor), and `git worktree remove <path>` for the
+   `/tmp` worktree. `gh pr update-branch` takes NO `--merge` flag on this host.
 2. Conventional Commits (`feat|fix|chore|docs|…(scope): subject`).
 3. Never stage/commit unless asked. Never commit secrets, `reference/`, or devdocs.
 4. No local docker. Preview on acerblue from a `/tmp` worktree (never the shared
