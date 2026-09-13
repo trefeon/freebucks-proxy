@@ -199,7 +199,7 @@ pin_hash() {
 	tr -d '\r' <"$1" | "${SHA_CMD[@]}"
 }
 
-if [[ ! -d "$CLONE_DIR/.git" ]]; then
+if ! git -C "$CLONE_DIR" rev-parse --git-dir >/dev/null 2>&1; then
 	echo "check-upstream: cloning $VENDOR_URL into $CLONE_DIR (--depth 50)"
 	git clone --depth 50 -- "$VENDOR_URL" "$CLONE_DIR"
 elif [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]] && git -C "$CLONE_DIR" cat-file -e "${REF}^{commit}" 2>/dev/null; then

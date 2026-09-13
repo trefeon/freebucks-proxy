@@ -12,7 +12,10 @@
 #
 # Steps (in order, per the proven playbook):
 #   1. Classify wire drift with review-wire-drift.sh BEFORE touching baselines.
-#      FUNCTIONAL rows abort the refresh: port the Go side first, then re-run.
+#      FUNCTIONAL or UNKNOWN-BASELINE rows abort the refresh: port the Go
+#      side first, then re-run. NOTICE rows (notice-string-only drift) flow
+#      through the same refresh: the snapshots re-pin plus wiregen regen
+#      carries the new copy with no port.
 #   2. Refresh the 13 wire snapshots via git show plus LF normalize and stamp
 #      snapshots.json upstream_sha and vendor_version.
 #   3. Update wirefacts_test testUpstream and the wirefacts.go go:generate line.
@@ -26,6 +29,12 @@
 # sync stays in sync-upstream.sh and the dashboard embed stays in
 # check-upstream.sh with DRIFT_REPORT set. This script calls those; it does
 # not reimplement them.
+#
+# Non-interactive bot path: .github/workflows/upstream-drift.yml runs steps
+# 2-5 of this chain for the notice-copy re-pin job (classification already
+# done in the drift job: exact_functional == 0 with notice_only_files > 0).
+# The steps are invoked here, not duplicated in the workflow, so the manual
+# flow and the bot flow share one implementation.
 #
 # Windows: run under Git Bash, e.g.
 #   "C:\Program Files\Git\bin\bash.exe" scripts/repin-all.sh --dry-run <sha>
@@ -62,8 +71,9 @@ echo "$CLASSIFY_OUT"
 SAME_COUNT="$(echo "$CLASSIFY_OUT" | grep -c '^SAME ' || true)"
 FUNC_COUNT="$(echo "$CLASSIFY_OUT" | grep -c '^FUNCTIONAL ' || true)"
 COMMENT_COUNT="$(echo "$CLASSIFY_OUT" | grep -c '^COMMENT-ONLY ' || true)"
+NOTICE_COUNT="$(echo "$CLASSIFY_OUT" | grep -c '^NOTICE ' || true)"
 UNKNOWN_COUNT="$(echo "$CLASSIFY_OUT" | grep -c '^UNKNOWN-BASELINE ' || true)"
-echo "classify: $SAME_COUNT SAME, $FUNC_COUNT FUNCTIONAL, $COMMENT_COUNT COMMENT-ONLY, $UNKNOWN_COUNT UNKNOWN"
+echo "classify: $SAME_COUNT SAME, $FUNC_COUNT FUNCTIONAL, $COMMENT_COUNT COMMENT-ONLY, $NOTICE_COUNT NOTICE, $UNKNOWN_COUNT UNKNOWN"
 if [[ "$UNKNOWN_COUNT" != "0" ]]; then
   echo "repin-all: UNKNOWN-BASELINE rows need a deeper reference fetch; aborting refresh" >&2
   exit 1
@@ -126,9 +136,101 @@ for rel, old in [
     p.write_text(text, newline="\n")
     print(f"stamped {rel} ({n + m} pins)")
 PY
+  echo "==> 3b. Refreshing pinned notice copy from the new snapshots"
+  python3 - "$WIRE_DIR" "$REPO_ROOT" <<'PY'
+import pathlib, re, sys
+wiredir, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+# Same `export const NAME` plus single-quoted string rule as wireExtractConst
+# in backend/internal/wirefacts/emit_wire.go: first quote after the export
+# key opens the literal, escapes collapse, newline before close fails.
+entries = [
+    ("FREEBUFF_TIER_CHANGE_NOTICE", "common/src/util/freebuff-model-availability.ts"),
+    ("FREEBUFF_CAPACITY_NOTICE", "common/src/constants/freebuff-spend-ceilings.ts"),
+    ("FREEBUFF_RESTRICTED_NOTICE", "common/src/constants/freebuff-spend-ceilings.ts"),
+    ("FREEBUFF_BUDGET_NOTICE", "common/src/constants/freebuff-spend-ceilings.ts"),
+    ("FREEBUFF_FREEBUCKS_CEILING_NOTICE", "common/src/constants/freebuff-spend-ceilings.ts"),
+]
+def value(src, name):
+    i = src.find("export const " + name)
+    assert i >= 0, name
+    q = src.find("'", i)
+    assert q >= 0, name
+    j, esc, val = q + 1, False, []
+    while True:
+        c = src[j]
+        if esc:
+            val.append(c)
+            esc = False
+        elif c == "\\":
+            esc = True
+        elif c == "'":
+            break
+        else:
+            assert c != "\n", name
+            val.append(c)
+        j += 1
+    return "".join(val)
+def goq(s):
+    # Go %q rendering for notice copy: printable Unicode stays literal,
+    # only backslash, double-quote, and control chars escape.
+    out = ['"']
+    for c in s:
+        if c == "\\":
+            out.append("\\\\")
+        elif c == '"':
+            out.append('\\"')
+        elif c == "\n":
+            out.append("\\n")
+        elif ord(c) < 0x20 or ord(c) == 0x7F:
+            out.append("\\u%04x" % ord(c))
+        else:
+            out.append(c)
+    out.append('"')
+    return "".join(out)
+texts = {}
+for name, rel in entries:
+    texts[name] = value((wiredir / rel).read_text(encoding="utf-8"), name)
+# wireNotices table in emit_wire.go: replace the verbatim value literal of
+# each export (the Go string on the same entry, matched by export name).
+emit = root / "backend/internal/wirefacts/emit_wire.go"
+text = emit.read_text(encoding="utf-8")
+n = 0
+for name, val in texts.items():
+    pat = re.compile(r'(\{"\w+", "%s", wire\w+,\n\t\t)' % re.escape(name) + r'"(?:[^"\\]|\\.)*"', re.M)
+    text, k = pat.subn(lambda m: m.group(1) + goq(val), text, count=1)
+    assert k == 1, name
+    n += k
+emit.write_text(text, newline="\n")
+print(f"refreshed {emit} ({n} notice values)")
+# TestNoticeConstants want map in notices_test.go carries the four
+# spend-ceilings notices verbatim (TierChangeNotice is only checked
+# non-empty there; its value is pinned by wiregen regen plus
+# TestEmitWireUpToDate). Refresh only entries present in that map.
+by_go = {
+    "CapacityNotice": texts["FREEBUFF_CAPACITY_NOTICE"],
+    "RestrictedNotice": texts["FREEBUFF_RESTRICTED_NOTICE"],
+    "BudgetNotice": texts["FREEBUFF_BUDGET_NOTICE"],
+    "FreebucksCeilingNotice": texts["FREEBUFF_FREEBUCKS_CEILING_NOTICE"],
+}
+t = root / "backend/internal/upstream/notices_test.go"
+text = t.read_text(encoding="utf-8")
+m = 0
+for goname, val in by_go.items():
+    pat = re.compile(r'("%s":\s+)' % re.escape(goname) + r'"(?:[^"\\]|\\.)*"')
+    text, k = pat.subn(lambda mm: mm.group(1) + goq(val), text, count=1)
+    assert k == 1, goname
+    m += k
+t.write_text(text, newline="\n")
+print(f"refreshed {t} ({m} notice values)")
+PY
   echo "==> 4. Running wiregen"
   (cd "$REPO_ROOT" && go run ./backend/cmd/wiregen -upstream "$VENDOR_SHA")
   echo "==> 5. Verifying pins plus hermetic tests"
+  # The re-pinned content is reviewed by definition (classification ran BEFORE
+  # the refresh and FUNCTIONAL rows abort above), so record it as the new
+  # wire baseline before the pinned verification; otherwise check-upstream.sh
+  # <sha> reports DRIFT against the pre-re-pin anchors.
+  FREEBUFF_REFERENCE_DIR="$CLONE_DIR" bash "$REPO_ROOT/scripts/check-upstream.sh" --update-wire-baseline "$VENDOR_SHA" "$CLONE_DIR" >/dev/null
   FREEBUFF_REFERENCE_DIR="$CLONE_DIR" bash "$REPO_ROOT/scripts/check-upstream.sh" "$VENDOR_SHA" "$CLONE_DIR"
   (cd "$REPO_ROOT" && env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/internal/wirefacts/...)
   (cd "$REPO_ROOT" && env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/internal/registry/ -run TestFallbackParityWithPinnedUpstream -v)

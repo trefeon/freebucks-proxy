@@ -281,12 +281,16 @@
               "window_start_utc"
             ],
             "type": "object"
+          },
+          "upstream_sha": {
+            "type": "string"
           }
         },
         "required": [
           "count",
           "notices",
-          "peak_hours"
+          "peak_hours",
+          "upstream_sha"
         ],
         "type": "object"
       },

@@ -6,6 +6,11 @@
 // peak window fails the generator explicitly.
 package upstream
 
+// NoticeUpstreamSHA is the upstream commit the notice copy was extracted
+// from. Served on GET /admin/api/notices as upstream_sha so operators can
+// see the copy's pin age.
+const NoticeUpstreamSHA = "748275dfbe96e099666e01fa9e7c4ec73602b713"
+
 const (
 	// TierChangeNotice is FREEBUFF_TIER_CHANGE_NOTICE from upstream. Upstream FREEBUFF_TIER_CHANGE_NOTICE (common/src/util/freebuff-model-availability.ts).
 	TierChangeNotice = "Solar Pro 4 is now unmetered at full access and available with limited access. GPT-5.6 Luna still uses your shared premium allowance, charging partial time rounded up to a tenth. —❤️ Freebuff Team"

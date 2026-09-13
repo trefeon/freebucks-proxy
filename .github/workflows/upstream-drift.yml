@@ -14,8 +14,9 @@
 #  reuses any open PR whose title already carries the new version
 #  (per-version skip, never duplicate).
 #
-#  Wire drift is additionally classified by scripts/review-wire-drift.sh:
-#  COMMENT-ONLY (docs) vs FUNCTIONAL (needs a Go-side port).
+#  Wire drift is additionally classified by scripts/review-wire-drift.sh and
+#  scripts/drift-exact.sh: COMMENT-ONLY (docs) vs NOTICE (notice copy) vs
+#  FUNCTIONAL (needs a Go-side port).
 #  1. **Registry pin drift** (the 6 files in backend/internal/registry/testdata/upstream/):
 #     auto-open a PR that runs sync-upstream so the change lands in front of a
 #     human reviewer. Idempotent: reruns reuse the open PR carrying the new
@@ -26,11 +27,17 @@
 #     port lands on the PR branch in front of a human reviewer. Idempotent:
 #     reruns reuse the open PR carrying the new version (per-version skip).
 #     Never auto-merge because the port needs human judgment.
+#  2b. **Notice-copy drift** (the five FREEBUFF_*_NOTICE exports consumed by
+#     the wireNotices table in backend/internal/wirefacts/emit_wire.go):
+#     auto-open a re-pin PR that runs the repin-all.sh chain (snapshots
+#     refresh plus wiregen regen plus parity verify), so the dashboard
+#     announcement copy updates without a manual re-pin. Fires only when
+#     exact_functional == 0 with notice_only_files > 0; never auto-merge.
 #  3. **Dashboard embed refresh**: refreshes the JSON embedded in the
 #     dashboard binary so users see up-to-date sync status without a live
 #     network call at boot. Opens a PR only when the embed's semantic
 #     content (everything except checked_at) actually changed.
-# NOTE: all three PR-opening jobs need Settings -> Actions -> General ->
+# NOTE: all four PR-opening jobs need Settings -> Actions -> General ->
 # "Allow GitHub Actions to create and approve pull requests".
 name: upstream-drift
 
@@ -135,6 +142,7 @@ jobs:
       drift_summary: ${{ steps.report.outputs.drift_summary }}
       exact_action: ${{ steps.exact.outputs.exact_action }}
       exact_functional: ${{ steps.exact.outputs.exact_functional }}
+      exact_notice: ${{ steps.exact.outputs.exact_notice }}
       exact_announce: ${{ steps.exact.outputs.exact_announce }}
       tui_action: ${{ steps.tui.outputs.tui_action }}
       tui_announce: ${{ steps.tui.outputs.tui_announce }}
@@ -200,6 +208,7 @@ jobs:
           {
             echo "exact_action=$(jq -r .summary.action_needed "$EXACT_REPORT")"
             echo "exact_functional=$(jq -r .summary.functional_files "$EXACT_REPORT")"
+            echo "exact_notice=$(jq -r '.summary.notice_only_files // 0' "$EXACT_REPORT")"
             echo "old_sha=$(jq -r .old_sha "$EXACT_REPORT")"
           } >>"$GITHUB_OUTPUT"
           {
@@ -614,6 +623,173 @@ jobs:
             --title "$title" \
             --body "$body" \
             --label "anti-ban"
+  open-notices-pr:
+    name: Re-pin PR (notice copy only)
+    needs: [version_gate, drift]
+    # Notice-string-only drift (the five FREEBUFF_*_NOTICE exports consumed
+    # by the wireNotices table in backend/internal/wirefacts/emit_wire.go)
+    # is re-pinnable by the bot: refresh snapshots plus wiregen regen plus
+    # parity verify, pushed to a chore branch with an opened PR. True
+    # functional wire-shape drift keeps the human-port path (open-port-pr):
+    # exact_functional != 0 excludes this job. Never auto-merge; the owner
+    # merges after green gates. Per-version skip plus close-superseded
+    # mirror the other jobs: one rolling notices PR per wrapper version.
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.drift.outputs.exact_functional == '0' && needs.drift.outputs.exact_notice != '0'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure commit identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache: false
+
+      - name: Clone upstream reference
+        env:
+          FREEBUFF_REFERENCE_DIR: ${{ runner.temp }}/freebuff-ref
+        run: |
+          mkdir -p "$FREEBUFF_REFERENCE_DIR"
+          git clone --depth 50 https://github.com/CodebuffAI/freebuff.git "$FREEBUFF_REFERENCE_DIR"
+          git -C "$FREEBUFF_REFERENCE_DIR" fetch --unshallow || true
+
+      - name: Check out fresh branch
+        env:
+          BRANCH_NAME: chore/upstream-notices-${{ needs.drift.outputs.upstream_sha }}
+        run: |
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            git checkout -B "$BRANCH_NAME" origin/"$BRANCH_NAME"
+          else
+            git checkout -b "$BRANCH_NAME"
+          fi
+
+      - name: Re-pin notice copy (repin-all.sh steps 2-5)
+        env:
+          FREEBUFF_REFERENCE_DIR: ${{ runner.temp }}/freebuff-ref
+          UPSTREAM_SHA: ${{ needs.drift.outputs.upstream_sha }}
+        run: |
+          # Classification already ran in the drift job (exact_functional == 0
+          # with notice_only_files > 0) and repin-all.sh re-classifies BEFORE
+          # touching baselines, so a mixed functional drift aborts here and
+          # keeps the human-port path. Steps 2-5 are invoked from the script,
+          # not duplicated: refresh snapshots via git show plus LF normalize,
+          # stamp snapshots.json, run wiregen, verify with check-upstream.sh
+          # plus wirefacts tests plus TestFallbackParityWithPinnedUpstream.
+          bash scripts/repin-all.sh "$UPSTREAM_SHA" "$FREEBUFF_REFERENCE_DIR"
+
+      - name: Commit any changes
+        run: |
+          git add backend/internal/wirefacts/testdata/wire backend/internal/wirefacts/wirefacts.go backend/internal/wirefacts/wirefacts_test.go backend/internal/wirefacts/emit_wire.go backend/internal/wirefacts/wirefacts_gen.go backend/internal/modelcat/catalog_gen.go backend/internal/upstream/wirecodes_gen.go backend/internal/upstream/notices_gen.go backend/internal/convert/toolnames_gen.go scripts/wire-baseline.tsv scripts/wire-drift-latest.json
+          if git diff --cached --quiet; then
+            # No new changes this run. A branch that already carries the
+            # re-pin commit (pushed by an earlier run whose PR creation
+            # failed) must still reach the PR step; only a branch identical
+            # to main means there is genuinely nothing to publish.
+            if git diff --quiet origin/main HEAD; then
+              echo "No changes after notice re-pin and branch matches main; skipping PR."
+              exit 0
+            fi
+            echo "Branch already has re-pin commits ahead of main; reusing them."
+          else
+            sha="${{ needs.drift.outputs.upstream_sha }}"
+            short="${sha:0:7}"
+            old_ver="${{ needs.version_gate.outputs.pinned_version }}"
+            new_ver="${{ needs.version_gate.outputs.live_version }}"
+            git -c commit.gpgsign=false commit -m "chore(wire): re-pin notice copy to vendor ${short} ${old_ver} -> ${new_ver}" \
+              -m "Automated notice-copy re-pin triggered by .github/workflows/upstream-drift.yml." \
+              -m "Vendor ${old_ver} -> ${new_ver} @ ${{ needs.drift.outputs.old_sha }}..${sha}" \
+              -m "Upstream SHA: ${sha}" \
+              -m "Drift summary:" \
+              -m "${{ needs.drift.outputs.drift_summary }}" \
+              -m "Notice rewords (scripts/drift-exact.sh):" \
+              -m "${{ needs.drift.outputs.exact_announce }}"
+          fi
+          git push -u origin HEAD
+
+      - name: Close superseded notices PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_SHA: ${{ needs.drift.outputs.upstream_sha }}
+          NEW_VER: ${{ needs.version_gate.outputs.live_version }}
+        run: |
+          # One rolling notices PR per wrapper version; titles carrying the
+          # new version are kept (per-version skip), legacy titles fall back
+          # to the SHA branch check.
+          gh pr list --state open --json number,title,headRefName \
+            --jq '.[] | select(.title | startswith("chore(wire): re-pin notice copy to vendor")) | {number, title, branch: .headRefName}' \
+          | jq -c . \
+          | while read -r pr; do
+              num=$(echo "$pr" | jq -r .number)
+              title=$(echo "$pr" | jq -r .title)
+              branch=$(echo "$pr" | jq -r .branch)
+              if [ -n "$NEW_VER" ] && printf '%s' "$title" | grep -Fq "$NEW_VER"; then
+                echo "Keeping #$num (matches version $NEW_VER); not superseded."
+                continue
+              fi
+              case "$branch" in
+                chore/upstream-notices-"${UPSTREAM_SHA:0:7}"|chore/upstream-notices-"${UPSTREAM_SHA}") ;;
+                *) gh pr close "$num" --comment "Superseded by upstream ${UPSTREAM_SHA:0:7} ($NEW_VER); a fresh notices re-pin PR covers the current pin state." \
+                     && git push origin --delete "$branch" || true ;;
+              esac
+            done
+
+      - name: Open or update PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_SHA: ${{ needs.drift.outputs.upstream_sha }}
+          OLD_SHA: ${{ needs.drift.outputs.old_sha }}
+          OLD_VER: ${{ needs.version_gate.outputs.pinned_version }}
+          NEW_VER: ${{ needs.version_gate.outputs.live_version }}
+          DRIFT_SUMMARY: ${{ needs.drift.outputs.drift_summary }}
+          EXACT_ANNOUNCE: ${{ needs.drift.outputs.exact_announce }}
+        run: |
+          short="${UPSTREAM_SHA:0:7}"
+          title="chore(wire): re-pin notice copy to vendor ${short} ${OLD_VER} -> ${NEW_VER}"
+          existing=$(gh pr list --state open --json number,title \
+            --jq ".[] | select(.title | startswith(\"chore(wire): re-pin notice copy to vendor\") and contains(\"${NEW_VER}\")) | .number" | head -1)
+          if [ -n "$existing" ]; then
+            echo "Existing notices PR #$existing already open for version ${NEW_VER}; reusing (per-version skip)."
+            exit 0
+          fi
+          # Reword diff: the refreshed snapshot lines carrying the new copy.
+          reword="$(git diff origin/main HEAD -- backend/internal/wirefacts/testdata/wire | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | head -40 || true)"
+          body="Vendor ${OLD_VER} -> ${NEW_VER} @ ${OLD_SHA:0:7}..${UPSTREAM_SHA:0:7}
+          Checkpoint ${OLD_SHA:0:7} -> upstream $UPSTREAM_SHA (full: ${OLD_SHA} -> ${UPSTREAM_SHA})
+
+          $DRIFT_SUMMARY
+
+          ## Notice rewords (scripts/drift-exact.sh, NOTICE rows only)
+
+          $EXACT_ANNOUNCE
+
+          ## Reword diff (refreshed snapshots)
+
+          \`\`\`diff
+          $reword
+          \`\`\`
+
+          Verified: snapshots re-pinned, wiregen regen is a fixed point,
+          check-upstream.sh $UPSTREAM_SHA exit 0, wirefacts plus
+          TestFallbackParityWithPinnedUpstream green.
+          Never auto-merge: the owner merges after green gates.
+
+          Note: PRs created with GITHUB_TOKEN do not trigger CI workflows; run the checks manually before merging."
+          gh pr create --base main \
+            --title "$title" \
+            --body "$body" \
+            --label "dependencies"
+
 
   publish-drift-data:
     name: Publish drift JSON to dashboard embed

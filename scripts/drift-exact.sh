@@ -13,21 +13,17 @@
 # What "exact" means: each watched file is split into export blocks (one
 # `export ...` statement plus its attached doc comment) at both refs.
 # Added/removed/changed export names are reported; changed blocks are
-# strip-tested (comments and blanks removed) into COMMENT_ONLY vs FUNCTIONAL,
-# and only functional hunks are printed. Registry model files get MODEL vs
-# PRICE labels from the export name, so the bot announces "price change only"
-# instead of "models drifted".
+# strip-tested (comments and blanks removed) into COMMENT_ONLY vs
+# FUNCTIONAL, except a block named for one of the five FREEBUFF_*_NOTICE
+# exports whose diff is confined to its string value: that is NOTICE_ONLY
+# (re-pin plus regen, never a port). FUNC hunks printed stay functional
+# only. Registry model files get MODEL vs PRICE labels from the export
+# name, so the bot announces "price change only" instead of "models drifted".
 #
-# Watch sets mirror check-upstream.sh (registry group + wire baseline); path
-# noise (package.json, bun.lock, docs, tests, e2e, assets) is counted as
-# ignored, never actionable. Blobs come from `git show`, so CRLF checkouts
-# cannot fake drift.
-#
-# Deps: git, jq. No bun/node. JSON report to $EXACT_REPORT
-# (default $REPO_ROOT/.exact-drift.json).
-# Exit: 0 nothing actionable, 1 action needed, 2 setup error.
-#
-# Windows: run under Git Bash like check-upstream.sh.
+# File status is one of SAME, COMMENT_ONLY, NOTICE_ONLY, FUNCTIONAL.
+# NOTICE_ONLY files carry changed_notice (the reworded exports) and need
+# the notice re-pin chain, not a Go-side port. True functional shape drift
+# anywhere keeps FUNCTIONAL: the notice path never fires.
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd | sed 's|\\|/|g')"
@@ -49,7 +45,7 @@ else CLONE_DIR="$REPO_ROOT/../freebuff-reference"; fi
 
 # Resolve relative to the repo so callers work from any cwd.
 if [[ ! "$CLONE_DIR" =~ ^(/|[A-Za-z]:/) ]]; then CLONE_DIR="$REPO_ROOT/$CLONE_DIR"; fi
-if [[ ! -d "$CLONE_DIR/.git" ]]; then
+if ! git -C "$CLONE_DIR" rev-parse --git-dir >/dev/null 2>&1; then
 	echo "drift-exact: cloning $VENDOR_URL (--depth 500)..." >&2
 	git clone --depth 500 -- "$VENDOR_URL" "$CLONE_DIR" || die "clone failed"
 fi
@@ -170,6 +166,55 @@ kind_of() {
 		printf 'comment'
 	fi
 }
+# strip_notice <old_block> <new_block> <export>: exit 0 when the two block
+# files differ only in the single-quoted string value of the named notice
+# export (same `export const NAME` plus same-line/next-line string rule as
+# wireExtractConst in emit_wire.go). A parse failure on either side exits 1
+# (fail-closed: the block stays FUNCTIONAL). Needs python3.
+strip_notice() {
+	command -v python3 >/dev/null 2>&1 || return 1
+	old_blob="$(cat "$1")"
+	new_blob="$(cat "$2")"
+	NOTICE_OLD="$old_blob" NOTICE_NEW="$new_blob" NOTICE_EXPORT="$3" python3 - <<'PY'
+import os, sys
+name = os.environ["NOTICE_EXPORT"]
+def value(src):
+    key = "export const " + name
+    i = src.find(key)
+    if i < 0:
+        return None
+    q = src.find("'", i + len(key))
+    if q < 0:
+        return None
+    j, esc, val = q + 1, False, []
+    while j < len(src):
+        c = src[j]
+        if esc:
+            val.append(c)
+            esc = False
+        elif c == "\\":
+            esc = True
+        elif c == "'":
+            break
+        elif c == "\n":
+            return None
+        else:
+            val.append(c)
+        j += 1
+    else:
+        return None
+    if j >= len(src) or src[j] != "'":
+        return None
+    norm = src[:q] + "'\x00NOTICE\x00'" + src[j + 1:]
+    return ("".join(val), norm)
+v = value(os.environ["NOTICE_OLD"])
+w = value(os.environ["NOTICE_NEW"])
+if v is None or w is None:
+    sys.exit(1)
+# Same export, different copy, identical surroundings: notice-only.
+sys.exit(0 if v[0] != w[0] and v[1] == w[1] else 1)
+PY
+}
 
 # MODEL vs PRICE vs WIRE label from the export name (heuristic, documented).
 label_of() {
@@ -180,7 +225,7 @@ label_of() {
 	esac
 }
 
-TMP="$(mktemp -d)"
+TMP="$(TMPDIR=/tmp mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "drift-exact: $OLD_SHA -> $NEW_SHA"
@@ -189,6 +234,11 @@ ANNOUNCE=()
 IGNORED=()
 functional_files=0
 comment_files=0
+notice_files=0
+# The notice exports consumed by the wireNotices table in
+# backend/internal/wirefacts/emit_wire.go. A block change confined to one
+# of these string values is notice copy (re-pin plus regen), never a port.
+NOTICE_EXPORTS="FREEBUFF_TIER_CHANGE_NOTICE FREEBUFF_CAPACITY_NOTICE FREEBUFF_RESTRICTED_NOTICE FREEBUFF_BUDGET_NOTICE FREEBUFF_FREEBUCKS_CEILING_NOTICE"
 
 if [[ "$OLD_SHA" == "$NEW_SHA" ]]; then
 	echo "drift-exact: refs identical, nothing to compare"
@@ -200,7 +250,7 @@ else
 			is_noise "$path" && IGNORED+=("$path")
 			continue
 		fi
-		added=() removed=() changed_c=() changed_f=() hunks=""
+		added=() removed=() changed_c=() changed_f=() changed_n=() hunks=""
 		if [[ "$status" == "A" ]]; then
 			added+=("(whole file)")
 			fstatus="FUNCTIONAL"
@@ -221,6 +271,13 @@ else
 					removed+=("$b")
 				elif cmp -s "$TMP/old/$fb" "$TMP/new/$fb"; then
 					:
+				elif [[ " $NOTICE_EXPORTS " == *" $b "* ]] && strip_notice "$TMP/old/$fb" "$TMP/new/$fb" "$b"; then
+					# A block named for a notice export whose diff is confined
+					# to its string value is copy, not shape: keep it out of
+					# changed_f so a pure reword never reads as FUNCTIONAL.
+					# Checked BEFORE kind_of (a reworded string line starts
+					# with a quote, which kind_of strips as comment-like).
+					changed_n+=("$b")
 				elif [[ "$(kind_of "$TMP/old/$fb" "$TMP/new/$fb")" == "comment" ]]; then
 					changed_c+=("$b")
 				else
@@ -238,7 +295,8 @@ else
 			# unique per manifest (split_blocks dedupes with #2), so a shared
 			# filename means the same block.
 			if ((${#added[@]} + ${#removed[@]} + ${#changed_f[@]} == 0)); then
-				if ((${#changed_c[@]} == 0)); then fstatus="SAME"; else fstatus="COMMENT_ONLY"; fi
+				if ((${#changed_n[@]} > 0)); then fstatus="NOTICE_ONLY"
+				elif ((${#changed_c[@]} == 0)); then fstatus="SAME"; else fstatus="COMMENT_ONLY"; fi
 			else
 				fstatus="FUNCTIONAL"
 			fi
@@ -246,10 +304,12 @@ else
 		case "$fstatus" in
 		FUNCTIONAL) functional_files=$((functional_files + 1)) ;;
 		COMMENT_ONLY) comment_files=$((comment_files + 1)) ;;
+		NOTICE_ONLY) notice_files=$((notice_files + 1)) ;;
 		esac
 		for b in ${added[@]+"${added[@]}"}; do ANNOUNCE+=("$(label_of "$group" "$b") $path: +$b (added)"); done
 		for b in ${removed[@]+"${removed[@]}"}; do ANNOUNCE+=("$(label_of "$group" "$b") $path: -$b (removed)"); done
 		for b in ${changed_f[@]+"${changed_f[@]}"}; do ANNOUNCE+=("$(label_of "$group" "$b") $path: ~$b"); done
+		for b in ${changed_n[@]+"${changed_n[@]}"}; do ANNOUNCE+=("NOTICE $path: ~$b (notice copy)"); done
 		if ((${#changed_c[@]} > 8)); then ANNOUNCE+=("DOC $path: ${#changed_c[@]} comment-only blocks"); else for b in ${changed_c[@]+"${changed_c[@]}"}; do ANNOUNCE+=("DOC $path: ~$b (comment-only)"); done; fi
 		hunk_lines="$(printf '%s' "$hunks" | wc -l)"
 		if ((hunk_lines > HUNK_CAP)); then
@@ -260,8 +320,9 @@ else
 			--argjson removed "$(printf '%s\n' ${removed[@]+"${removed[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
 			--argjson changed_functional "$(printf '%s\n' ${changed_f[@]+"${changed_f[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
 			--argjson changed_comment "$(printf '%s\n' ${changed_c[@]+"${changed_c[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
+			--argjson changed_notice "$(printf '%s\n' ${changed_n[@]+"${changed_n[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
 			--arg hunks "$hunks" \
-			'{path:$path,group:$group,status:$status,added:$added,removed:$removed,changed_functional:$changed_functional,changed_comment:$changed_comment,hunks:$hunks}')")
+			'{path:$path,group:$group,status:$status,added:$added,removed:$removed,changed_functional:$changed_functional,changed_comment:$changed_comment,changed_notice:$changed_notice,hunks:$hunks}')")
 	done < <(git -C "$CLONE_DIR" diff --name-status "$OLD_SHA" "$NEW_SHA" -- || die "diff failed")
 fi
 
@@ -272,11 +333,11 @@ jq -n --arg old "$OLD_SHA" --arg new "$NEW_SHA" \
 	--argjson ignored "$(printf '%s\n' ${IGNORED[@]+"${IGNORED[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
 	--argjson announce "$(printf '%s\n' ${ANNOUNCE[@]+"${ANNOUNCE[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
 	--argjson functional_files "$functional_files" --argjson comment_files "$comment_files" \
-	--argjson action_needed "$action" \
+	--argjson notice_files "$notice_files" --argjson action_needed "$action" \
 	'{old_sha:$old,new_sha:$new,checked_at:(now|todate),files:$files,ignored_paths:$ignored,announce:$announce,
-    summary:{functional_files:$functional_files,comment_only_files:$comment_files,action_needed:$action_needed}}' >"$EXACT_REPORT"
+    summary:{functional_files:$functional_files,comment_only_files:$comment_files,notice_only_files:$notice_files,action_needed:$action_needed}}' >"$EXACT_REPORT"
 
 echo "report: $EXACT_REPORT"
-echo "functional_files=$functional_files comment_only_files=$comment_files action_needed=$action"
+echo "functional_files=$functional_files comment_only_files=$comment_files notice_only_files=$notice_files action_needed=$action"
 if ((${#ANNOUNCE[@]})); then printf '  - %s\n' "${ANNOUNCE[@]}"; fi
 if [[ "$action" == "true" ]]; then exit 1; else exit 0; fi

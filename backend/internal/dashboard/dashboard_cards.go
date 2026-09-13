@@ -1067,10 +1067,14 @@ type NoticeItem struct {
 }
 
 // NoticesResponse is the payload returned by GET /admin/api/notices.
+// UpstreamSHA is the upstream commit the notice copy was extracted from
+// (wiregen-stamped NoticeUpstreamSHA): the copy's pin age, served without
+// a live upstream call.
 type NoticesResponse struct {
-	Notices   []NoticeItem                     `json:"notices"`
-	PeakHours upstream.DeepSeekPeakHoursWindow `json:"peak_hours"`
-	Count     int                              `json:"count"`
+	Notices     []NoticeItem                     `json:"notices"`
+	PeakHours   upstream.DeepSeekPeakHoursWindow `json:"peak_hours"`
+	Count       int                              `json:"count"`
+	UpstreamSHA string                           `json:"upstream_sha"`
 }
 
 // noticesData aggregates upstream static announcements, live DeepSeek peak
@@ -1133,8 +1137,9 @@ func (d *Dashboard) noticesData() NoticesResponse {
 	}
 
 	return NoticesResponse{
-		Notices:   list,
-		PeakHours: peak,
-		Count:     len(list),
+		Notices:     list,
+		PeakHours:   peak,
+		Count:       len(list),
+		UpstreamSHA: upstream.NoticeUpstreamSHA,
 	}
 }
