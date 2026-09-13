@@ -115,32 +115,32 @@
     role="region"
     aria-label={$tr("Upstream Announcements")}
   >
-    <!-- Header bar -->
+    <!-- Header bar: wraps on narrow screens so the peak badge drops to its own line -->
     <div
-      class="flex items-center justify-between px-3.5 py-2.5 bg-[var(--fp-surface-2)]/60 border-b border-[var(--fp-border)]/50 gap-2"
+      class="flex flex-wrap items-center justify-between px-3.5 py-2.5 bg-[var(--fp-surface-2)]/60 border-b border-[var(--fp-border)]/50 gap-2"
     >
-      <div class="flex items-center gap-2 min-w-0">
+      <div class="flex items-center gap-2 min-w-0 flex-1">
         <span
           class="flex items-center justify-center w-5 h-5 rounded-sm bg-[var(--fp-accent)]/15 text-[var(--fp-accent)] shrink-0"
         >
           <Megaphone size={13} />
         </span>
         <span
-          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)]"
+          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] truncate"
         >
           {$tr("Upstream Notices & Broadcasts")}
         </span>
         <span
-          class="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium bg-[var(--fp-accent)]/10 text-[var(--fp-accent)]"
+          class="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium bg-[var(--fp-accent)]/10 text-[var(--fp-accent)] shrink-0"
         >
           {notices.length}
         </span>
       </div>
 
-      <div class="flex items-center gap-1 shrink-0">
+      <div class="flex items-center gap-1 min-w-0">
         {#if peakHours}
           <div
-            class="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono {peakHours.is_peak
+            class="flex min-w-0 overflow-hidden items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono whitespace-nowrap max-w-full {peakHours.is_peak
               ? 'bg-[var(--fp-warning)]/15 text-[var(--fp-warning)] border border-[var(--fp-warning)]/30'
               : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}"
             title={peakHours.is_peak
@@ -154,7 +154,7 @@
                 )}
           >
             <Clock size={11} />
-            <span>
+            <span class="truncate min-w-0">
               {peakHours.is_peak
                 ? $tr("Peak ends {local} ({in} left)", {
                     local: peakLocal(),
