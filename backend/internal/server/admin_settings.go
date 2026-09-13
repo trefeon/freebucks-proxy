@@ -203,11 +203,11 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 
 	def, _ := config.LookupSetting(key)
 	restartOnly := []string{}
-	message := key + " saved to the DB overlay and applied live."
+	message := key + " saved and applied live."
 	code := "setting_saved"
 	if def.RestartOnly {
 		restartOnly = []string{key}
-		message = key + " saved to the DB overlay. It applies after restart (restart-only key)."
+		message = key + " saved. It applies after restart."
 		code = "setting_restart_only"
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -242,7 +242,7 @@ func (a *adminHandlers) handleSettingsDelete(w http.ResponseWriter, r *http.Requ
 		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to read setting: "+err.Error(), "persist_failed")
 		return
 	} else if !ok {
-		a.dash.RenderResult(w, http.StatusNotFound, false, "No DB override for "+key+" (nothing to reset).", "no_override")
+		a.dash.RenderResult(w, http.StatusNotFound, false, "No saved value for "+key+" (nothing to reset).", "no_override")
 		return
 	}
 	overlay := a.settingsOverlay()
@@ -267,7 +267,7 @@ func (a *adminHandlers) handleSettingsDelete(w http.ResponseWriter, r *http.Requ
 		"remote", remoteHost(r), "key", key, "source", source,
 		"changed_keys", changedConfigKeys(oldCfg, &newCfg))
 	a.dash.RenderResult(w, http.StatusOK, true,
-		"DB override for "+key+" removed — effective value now comes from "+source+".", "setting_reset")
+		"Saved value for "+key+" removed — effective value now comes from "+source+".", "setting_reset")
 }
 
 // settingsValueString coerces the POSTed value to its raw overlay string.
@@ -302,7 +302,7 @@ func (a *adminHandlers) settingsOverlayNote() string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	return " DB overrides still win for: " + strings.Join(keys, ", ") +
+	return " Saved values still take precedence for: " + strings.Join(keys, ", ") +
 		" (DELETE /admin/api/settings/:key to reset)."
 }
 
