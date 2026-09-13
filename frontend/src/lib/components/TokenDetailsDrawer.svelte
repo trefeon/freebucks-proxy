@@ -255,10 +255,7 @@
     <div
       class="mb-2 px-2 py-1 rounded bg-[var(--fp-accent)]/10 text-xs text-[var(--fp-accent)] flex items-center justify-between gap-2 flex-wrap"
     >
-      <span
-        >{$tr("Active Session:")}
-        <code class="fp-num">{token.session_model}</code></span
-      >
+      <span>{$tr("Active Session:")}</span>
       <span class="fp-num">{fmtCountdown(sessionRemaining)}</span>
     </div>
   {/if}

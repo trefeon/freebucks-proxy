@@ -125,9 +125,6 @@
           pulse={riskBadge.pulse}
         />
       {/if}
-      {#if token.session_model}
-        <StatusBadge tone="info" status={token.session_model} />
-      {/if}
       {#if token.email || token.account_id}
         <span
           class="text-[11px] text-[var(--fp-muted)] truncate max-w-[160px]"
@@ -275,13 +272,16 @@
     <div class="flex flex-col gap-2">
       <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
         <span class="text-[var(--fp-muted)]">{$tr("Instance")}</span>
-        <span class="min-w-0">
+        <span class="min-w-0 flex flex-col items-start gap-1">
           {#if token.session_instance}
             <code class="fp-num break-all select-all"
               >{token.session_instance}</code
             >
-          {:else}
+          {:else if !token.session_model}
             <span class="text-[var(--fp-dim)]">—</span>
+          {/if}
+          {#if token.session_model}
+            <StatusBadge tone="info" status={token.session_model} />
           {/if}
         </span>
       </div>
