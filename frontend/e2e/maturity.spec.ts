@@ -11,7 +11,7 @@ function maintenanceTokens() {
     has_tokens: true,
     maturity_enabled: true,
     maturity_dry_run: true,
-    maturity_window_start: "2026-09-12T06:00:00Z",
+    maturity_window_start: "2026-09-12T06:45:00Z",
     maturity_window_end: "2026-09-12T07:00:00Z",
     tokens: [
       {
@@ -170,7 +170,7 @@ test.describe("streak maintenance", () => {
           has_tokens: true,
           maturity_enabled: true,
           maturity_dry_run: true,
-          maturity_window_start: "2026-09-12T06:00:00Z",
+          maturity_window_start: "2026-09-12T06:45:00Z",
           maturity_window_end: "2026-09-12T07:00:00Z",
           tokens: [
             {
@@ -233,7 +233,7 @@ test.describe("streak maintenance", () => {
           has_tokens: true,
           maturity_enabled: true,
           maturity_dry_run: true,
-          maturity_window_start: "2026-09-12T06:00:00Z",
+          maturity_window_start: "2026-09-12T06:45:00Z",
           maturity_window_end: "2026-09-12T07:00:00Z",
           tokens: [
             {
