@@ -12,14 +12,13 @@
   /**
    * Traffic & Rate Limiting settings card (Pool group).
    * Built using the SettingsCard and SettingsRow template components.
-   * Leads with a bespoke Rotation section (relocated from the
-   * Tokens page): the TOKEN_ROTATION radiogroup + RATE_LIMIT_FAILOVER
-   * toggle persist through the whole-file flow (onField, batched
-   * into the page Save). Followed by the curated Smart routing group
-   * (ROUTING_SMART, TOKEN_MAX_CONCURRENT, QUEUE_WAIT, QUEUE_DEPTH),
-   * the Client IP Rate Limit row, and the Bridge Mode row (moved from
-   * GatewaySettings for single Pool ownership).
-   * All keys apply live on reload (none is restart-only).
+   * Holds the curated Smart routing queue rows (TOKEN_MAX_CONCURRENT,
+   * QUEUE_WAIT, QUEUE_DEPTH) — dimmed, never disabled, while smart
+   * routing is off or turns are unlimited — followed by the Client IP
+   * Rate Limit row and the Bridge Mode row (moved from GatewaySettings
+   * for single Pool ownership). Rotation policy, the ROUTING_SMART
+   * master switch, and 429 failover live in the Pool Strategy card and
+   * Custom advanced. All keys apply live on reload (none is restart-only).
    *
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
@@ -68,41 +67,19 @@
     "Maximum requests per second allowed from any single client IP address. Prevents rapid agent loops from depleting the pool. Set to 0 for no cap.";
   const RL_IP_HINT = "0 = no cap (recommended for a single-user gateway)";
 
-  // Rotation copy (relocated verbatim from Tokens.svelte).
-  const ROT_SECTION = "Rotation";
-  const ROT_POLICY_LABEL = "Token Rotation Policy";
-  const ROT_DRAIN_BTN = "Drain (Safest)";
-  const ROT_RR_BTN = "Round Robin (1:1)";
-  const ROT_LU_BTN = "Least Used (Max Quota)";
-  const ROT_RANDOM_BTN = "Random (Stochastic)";
-  const ROT_DRAIN_TITLE = "Drain Mode (Default & Recommended):";
-  const ROT_DRAIN_BODY =
-    "Sticks to one account until it is unfit (cooldown, quota, or ban) before rotating to the next token. Mimics authentic single-user behavior and provides the strongest anti-ban protection.";
-  const ROT_RR_TITLE = "Round-Robin Mode:";
-  const ROT_RR_BODY =
-    "Rotates to the next token on every request (1:1). Note: rapid alternating requests across healthy accounts may raise upstream anomaly-detection signals.";
-  const ROT_LU_TITLE = "Least-Used Mode:";
-  const ROT_LU_BODY =
-    "Routes requests to the token with the lowest daily usage or active run count. Maximizes concurrency and distributes quota consumption evenly.";
-  const ROT_RANDOM_TITLE = "Random Mode:";
-  const ROT_RANDOM_BODY =
-    "Selects an available healthy token at random per request. Provides stochastic load balancing.";
-  const FAILOVER_LABEL = "Auto Failover on Rate Limit (429)";
-  const FAILOVER_DESC =
-    "When enabled, an in-flight request encountering a 429 rate limit or account throttle immediately leases another healthy pool token and retries seamlessly without failing the request.";
-  // Smart routing copy (curated Pool rows: ROUTING_SMART et al. — all
-  // live-apply, none restart-only).
+  // Queue posture copy (curated Pool rows: TOKEN_MAX_CONCURRENT et al. —
+  // all live-apply, none restart-only). Rotation policy, the smart-routing
+  // master switch, and 429 failover moved to the Pool Strategy card and
+  // Custom advanced; this card keeps the queue rows, which dim (never
+  // disable) while smart routing is off or turns are unlimited.
   const SMART_SECTION = "Smart routing";
-  const SMART_LABEL = "Smart Routing";
-  const SMART_DESC =
-    "Route each request through per-token live-turn slots with a FIFO waiter queue plus the unified scorer. Off restores the legacy acquire path.";
   const MAXC_LABEL = "Max Concurrent Turns per Token";
   const MAXC_DESC =
     "Cap on concurrent live turns per pooled token (default 2, the approved anti-ban pacing). Excess waiters park FIFO until Queue Wait elapses.";
   const MAXC_HINT = "0 = unlimited (no slot gating at all)";
   const QWAIT_LABEL = "Queue Wait";
   const QWAIT_DESC =
-    "How long one acquire parks on a full token's FIFO queue before failing over (Go duration, e.g. 5s, 30s). Empty or non-positive falls back to 30s.";
+    "How long one acquire parks on a full token's FIFO live-turn queue before failing over (Go duration, e.g. 5s, 30s). Empty or non-positive falls back to 30s.";
   const QDEPTH_LABEL = "Queue Depth";
   const QDEPTH_DESC =
     "Cap on parked FIFO waiters per token. A full queue fails over at once with the existing 429 shape.";
@@ -117,33 +94,6 @@
     return parts.join("\n").toLowerCase().includes(q);
   }
 
-  let showRotation = $derived(
-    hit(
-      "TOKEN_ROTATION",
-      "RATE_LIMIT_FAILOVER",
-      ROT_SECTION,
-      ROT_POLICY_LABEL,
-      ROT_DRAIN_BTN,
-      ROT_RR_BTN,
-      ROT_LU_BTN,
-      ROT_RANDOM_BTN,
-      ROT_DRAIN_TITLE,
-      ROT_DRAIN_BODY,
-      ROT_RR_TITLE,
-      ROT_RR_BODY,
-      ROT_LU_TITLE,
-      ROT_LU_BODY,
-      ROT_RANDOM_TITLE,
-      ROT_RANDOM_BODY,
-      FAILOVER_LABEL,
-      FAILOVER_DESC,
-      "Token Rotation & Handling Policy",
-      "Strategy used by the gateway to select upstream accounts for model requests.",
-    ),
-  );
-  let showSmart = $derived(
-    hit("ROUTING_SMART", SMART_SECTION, SMART_LABEL, SMART_DESC),
-  );
   let showMaxConc = $derived(
     hit(
       "TOKEN_MAX_CONCURRENT",
@@ -165,7 +115,6 @@
   let showBridge = $derived(hit("BRIDGE_ENABLED", BRIDGE_LABEL, BRIDGE_DESC));
   let visibleKeys = $derived(
     [
-      showSmart ? "ROUTING_SMART" : null,
       showMaxConc ? "TOKEN_MAX_CONCURRENT" : null,
       showQueueWait ? "QUEUE_WAIT" : null,
       showQueueDepth ? "QUEUE_DEPTH" : null,
@@ -173,43 +122,18 @@
       showBridge ? "BRIDGE_ENABLED" : null,
     ].filter((k) => k !== null),
   );
-  // The bespoke section counts as one row for the "N of M" search count.
-  let visible = $derived((showRotation ? 1 : 0) + visibleKeys.length);
+  let visible = $derived(visibleKeys.length);
   $effect(() => {
     onMatchCount?.(visible);
   });
 
-  // ---------------------------------------------------------------------------
-  // Rotation & failover: whole-file flow. Unlike Tokens.svelte (which
-  // saved immediately via its own fetch + postForm), this page batches every
-  // edit through onField into the shared Save/Discard flow — the
-  // persistence target (file document → configSave) is identical.
-  // ---------------------------------------------------------------------------
-  const ROT_MODES = ["drain", "round_robin", "least_used", "random"];
-  let tokenRotation = $derived.by(() => {
-    const raw = String(
-      formValues.TOKEN_ROTATION ?? env.TOKEN_ROTATION ?? "drain",
-    ).toLowerCase();
-    return ROT_MODES.includes(raw) ? raw : "drain";
-  });
-  let rateLimitFailover = $derived(
-    String(
-      formValues.RATE_LIMIT_FAILOVER ?? env.RATE_LIMIT_FAILOVER ?? "true",
-    ).toLowerCase() !== "false",
-  );
+  // Queue rows dim (never disable) while smart routing is off — the
+  // master switch moved to Custom advanced — or while turns are
+  // unlimited (0 = no slot gating, so nothing ever parks).
+  let queueParked = $derived(!routingSmart || Number(tokenMaxConcurrent) === 0);
 
-  function setTokenRotation(mode) {
-    if (tokenRotation === mode) return;
-    onField("TOKEN_ROTATION", mode);
-  }
-  function toggleRateLimitFailover(next) {
-    const v = typeof next === "boolean" ? next : !rateLimitFailover;
-    onField("RATE_LIMIT_FAILOVER", v ? "true" : "false");
-  }
-  function toggleRoutingSmart(next) {
-    const v = typeof next === "boolean" ? next : !routingSmart;
-    onField("ROUTING_SMART", v ? "true" : "false");
-  }
+  // Whole-file flow: every edit batches through onField into the shared
+  // Save/Discard flow (file document → configSave).
   function toggleBridge(next) {
     const v = typeof next === "boolean" ? next : !bridgeEnabled;
     onField("BRIDGE_ENABLED", v ? "true" : "false");
@@ -220,28 +144,18 @@
   <SettingsCard
     title={$tr(cardTitle)}
     description={$tr(
-      "Traffic limits, rotation policy, and smart routing for the token pool. Changes apply live without restart.",
+      "Queue posture, client IP limits, and bridge mode for the token pool. Strategy presets sit in the card above; hand-tuning lives in Custom advanced below. Changes apply live without restart.",
     )}
   >
     {#snippet icon()}
       <Activity size={20} />
     {/snippet}
     {#snippet actions()}
-      <span
-        class="inline-flex items-center gap-1.5 font-mono text-xs text-[var(--fp-muted)]"
-      >
-        <span class="led {tokenRotation === 'drain' ? 'led-good' : 'led-idle'}"
-        ></span>
-        <span
-          class="uppercase tracking-wider font-semibold text-[var(--fp-accent)]"
-          >{tokenRotation}</span
-        >
-      </span>
       {#if q}
         <span
           role="status"
           class="text-[11px] font-mono text-[var(--fp-dim)] shrink-0"
-          >{$tr("{visible} of {total}", { visible, total: 7 })}</span
+          >{$tr("{visible} of {total}", { visible, total: 5 })}</span
         >
       {/if}
     {/snippet}
@@ -268,177 +182,24 @@
         </a>
       </div>
     {:else}
-      {#if showRotation}
-        <!-- Rotation (relocated from Tokens.svelte) -->
-        <div class="space-y-3 py-4">
-          <p
-            class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)]"
-          >
-            {$tr(ROT_SECTION)}
-          </p>
-          <div
-            class="flex flex-wrap items-center gap-2"
-            role="radiogroup"
-            aria-label={$tr(ROT_POLICY_LABEL)}
-          >
-            <button
-              type="button"
-              role="radio"
-              aria-checked={tokenRotation === "drain"}
-              onclick={() => setTokenRotation("drain")}
-              class="fp-btn {tokenRotation === 'drain'
-                ? 'fp-btn-primary'
-                : 'fp-btn-ghost'} fp-btn-sm text-xs"
-            >
-              {$tr(ROT_DRAIN_BTN)}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={tokenRotation === "round_robin"}
-              onclick={() => setTokenRotation("round_robin")}
-              class="fp-btn {tokenRotation === 'round_robin'
-                ? 'fp-btn-primary'
-                : 'fp-btn-ghost'} fp-btn-sm text-xs"
-            >
-              {$tr(ROT_RR_BTN)}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={tokenRotation === "least_used"}
-              onclick={() => setTokenRotation("least_used")}
-              class="fp-btn {tokenRotation === 'least_used'
-                ? 'fp-btn-primary'
-                : 'fp-btn-ghost'} fp-btn-sm text-xs"
-            >
-              {$tr(ROT_LU_BTN)}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={tokenRotation === "random"}
-              onclick={() => setTokenRotation("random")}
-              class="fp-btn {tokenRotation === 'random'
-                ? 'fp-btn-primary'
-                : 'fp-btn-ghost'} fp-btn-sm text-xs"
-            >
-              {$tr(ROT_RANDOM_BTN)}
-            </button>
-          </div>
-
-          <div
-            class="fp-inset p-3 rounded text-xs text-[var(--fp-muted)] flex items-start gap-2"
-          >
-            {#if tokenRotation === "drain"}
-              <p class="leading-relaxed">
-                <strong class="text-[var(--fp-text)]"
-                  >{$tr(ROT_DRAIN_TITLE)}</strong
-                >
-                {$tr(ROT_DRAIN_BODY)}
-              </p>
-            {:else if tokenRotation === "round_robin"}
-              <p class="leading-relaxed">
-                <strong class="text-[var(--fp-text)]"
-                  >{$tr(ROT_RR_TITLE)}</strong
-                >
-                {$tr(ROT_RR_BODY)}
-              </p>
-            {:else if tokenRotation === "least_used"}
-              <p class="leading-relaxed">
-                <strong class="text-[var(--fp-text)]"
-                  >{$tr(ROT_LU_TITLE)}</strong
-                >
-                {$tr(ROT_LU_BODY)}
-              </p>
-            {:else if tokenRotation === "random"}
-              <p class="leading-relaxed">
-                <strong class="text-[var(--fp-text)]"
-                  >{$tr(ROT_RANDOM_TITLE)}</strong
-                >
-                {$tr(ROT_RANDOM_BODY)}
-              </p>
-            {/if}
-          </div>
-          <!-- Rate Limit Auto-Failover Toggle -->
-          <div
-            class="pt-3 border-t border-[var(--fp-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-          >
-            <div class="space-y-0.5">
-              <div class="flex items-center gap-2">
-                <span class="text-xs font-semibold text-[var(--fp-text)]">
-                  {$tr(FAILOVER_LABEL)}
-                </span>
-                <span class="led {rateLimitFailover ? 'led-good' : 'led-dim'}"
-                ></span>
-              </div>
-              <p class="text-[11px] text-[var(--fp-muted)] leading-relaxed">
-                {$tr(FAILOVER_DESC)}
-              </p>
-            </div>
-            <ToggleSwitch
-              checked={rateLimitFailover}
-              ariaLabel="Auto Failover on Rate Limit (429)"
-              onchange={(v) => toggleRateLimitFailover(v)}
-            />
-          </div>
-        </div>
-      {/if}
-
-      {#if showSmart || showMaxConc || showQueueWait || showQueueDepth}
-        <!-- Smart routing (curated Pool rows) -->
+      {#if showMaxConc || showQueueWait || showQueueDepth}
+        <!-- Smart routing queue rows (master switch lives in Custom advanced) -->
         <div class="pt-4">
           <p
             class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] pb-1"
           >
             {$tr(SMART_SECTION)}
           </p>
-          {#if showSmart}
-            <SettingsRow
-              first={visibleKeys[0] === "ROUTING_SMART"}
-              last={visibleKeys[visibleKeys.length - 1] === "ROUTING_SMART"}
-              label={$tr(SMART_LABEL)}
-              description={$tr(SMART_DESC)}
-            >
-              {#snippet badge()}
-                <code
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-                  >ROUTING_SMART</code
-                >
-                {#if !env.ROUTING_SMART}
-                  <span
-                    class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-                    >{$tr("default")}</span
-                  >
-                {/if}
-              {/snippet}
-              {#snippet extra()}
-                {#if degraded}
-                  <span class="text-[10px] text-[var(--fp-dim)]"
-                    >{$tr("Overlay offline — use .env save")}</span
-                  >
-                {:else}
-                  <DbOverrideSave
-                    settingKey="ROUTING_SMART"
-                    value={formValues.ROUTING_SMART ?? "true"}
-                    source={sources.ROUTING_SMART}
-                    {onReset}
-                    {onSaved}
-                  />
-                {/if}
-              {/snippet}
-
-              <div class="flex items-center gap-2.5">
-                <ToggleSwitch
-                  checked={routingSmart}
-                  ariaLabel="ROUTING_SMART"
-                  onchange={(v) => toggleRoutingSmart(v)}
-                />
-              </div>
-            </SettingsRow>
+          {#if queueParked}
+            <p class="text-[11px] text-[var(--fp-dim)] leading-relaxed pb-1">
+              {$tr(
+                "Parked: smart routing is off or turns are unlimited (0) — these rows do nothing until re-enabled in Custom advanced.",
+              )}
+            </p>
           {/if}
           {#if showMaxConc}
             <SettingsRow
+              class={queueParked ? "opacity-60" : ""}
               first={visibleKeys[0] === "TOKEN_MAX_CONCURRENT"}
               last={visibleKeys[visibleKeys.length - 1] ===
                 "TOKEN_MAX_CONCURRENT"}
@@ -493,6 +254,7 @@
           {/if}
           {#if showQueueWait}
             <SettingsRow
+              class={queueParked ? "opacity-60" : ""}
               first={visibleKeys[0] === "QUEUE_WAIT"}
               last={visibleKeys[visibleKeys.length - 1] === "QUEUE_WAIT"}
               label={$tr(QWAIT_LABEL)}
@@ -539,6 +301,7 @@
           {/if}
           {#if showQueueDepth}
             <SettingsRow
+              class={queueParked ? "opacity-60" : ""}
               first={visibleKeys[0] === "QUEUE_DEPTH"}
               last={visibleKeys[visibleKeys.length - 1] === "QUEUE_DEPTH"}
               label={$tr(QDEPTH_LABEL)}

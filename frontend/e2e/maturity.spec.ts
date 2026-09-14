@@ -96,7 +96,7 @@ async function gotoWarming(page) {
 }
 
 test.describe("streak maintenance", () => {
-  test("board carries the universal switch and nothing else", async ({
+  test("board carries the switch plus dry-run and touch-model rows", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -120,11 +120,15 @@ test.describe("streak maintenance", () => {
 
     await gotoWarming(page);
     await expect(page.getByText("Streak Maintenance")).toBeVisible();
-    // The universal on/off switch is the ONLY control: no touch-model
-    // select, no Touch-now buttons anywhere on the board.
+    // Kill-switch plus the two tuning rows under it: dry-run switch and
+    // touch-model select. Still no Touch-now buttons anywhere.
     await expect(
       page.getByRole("switch", { name: "Streak maintenance" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
     await expect(page.getByLabel("Global touch model")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Touch now" })).toHaveCount(
       0,
@@ -133,13 +137,15 @@ test.describe("streak maintenance", () => {
     await expect(
       page.getByText("Nightly window 23:45–00:00 Pacific"),
     ).toBeVisible();
-    await expect(page.getByText("Dry run")).toBeVisible();
+    await expect(page.getByText("Dry run").first()).toBeVisible();
     await expect(page.getByLabel("Next maintenance run")).toBeVisible();
     await expect(page.getByText(/Next run|In window/)).toBeVisible();
     // One row per account: touched with the resolved model id, skipped
     // with the exact ledger reason, pending without a ledger.
     await expect(page.getByText("Touched").first()).toBeVisible();
-    await expect(page.getByText("mimo/mimo-v2.5").first()).toBeVisible();
+    await expect(
+      page.locator("code", { hasText: "mimo/mimo-v2.5" }).first(),
+    ).toBeVisible();
     await expect(page.getByText("Skipped · skip:cooling")).toBeVisible();
     await expect(page.getByText("Pending").first()).toBeVisible();
     // Last-run ledger summary: time, touched, skipped with reasons.
@@ -345,19 +351,60 @@ test.describe("streak maintenance", () => {
     await expect(page.getByText("Locked").first()).toBeVisible();
   });
 
-  test("pool controls tab wires the dry-run toggle and touch model", async ({
+  test("warming tab wires the dry-run toggle and touch model", async ({
     page,
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
-    await page.goto("http://127.0.0.1:4173/admin/#tokens");
-    await page.getByRole("button", { name: "Controls" }).click();
-    // Pool knobs moved to the Pool Controls tab: MATURITY_DRY_RUN as a
-    // switch, MATURITY_TOUCH_MODEL as the Auto select.
-    await expect(
-      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
-    ).toBeVisible();
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    await page.unroute("**/admin/api/config");
+    await page.route("**/admin/api/config", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceConfig()),
+      });
+    });
+    const posts: Array<{ url: string; body: string }> = [];
+    await page.route("**/admin/api/settings", async (route) => {
+      if (route.request().method() === "POST") {
+        posts.push({
+          url: route.request().url(),
+          body: route.request().postData() ?? "",
+        });
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, message: "saved." }),
+      });
+    });
+    await gotoWarming(page);
+    // Streak knobs moved from Pool Tuning to the Warming card, under the
+    // kill-switch: MATURITY_DRY_RUN as a switch, MATURITY_TOUCH_MODEL as
+    // the Auto select, each with a per-key overlay Save.
+    const dryRun = page.getByRole("switch", { name: "MATURITY_DRY_RUN" });
+    await expect(dryRun).toBeVisible();
+    await expect(dryRun).toHaveAttribute("aria-checked", "true");
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
+    // Toggling + row Save posts the overlay path with the key.
+    await dryRun.click();
+    const saveReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+    );
+    await page
+      .getByRole("button", { name: "Save", exact: true })
+      .first()
+      .click();
+    await saveReq;
+    expect(posts[0].body).toContain("MATURITY_DRY_RUN");
   });
 
   test("no per-account target stepper or model select remains", async ({
@@ -440,7 +487,9 @@ test.describe("streak maintenance", () => {
     await expect(page.getByText("Touched").first()).toBeVisible();
     await expect(page.getByText("Pending").first()).toBeVisible();
     await expect(page.getByText("Locked").first()).toBeVisible();
-    await expect(page.getByText("mimo/mimo-v2.5").first()).toBeVisible();
+    await expect(
+      page.locator("code", { hasText: "mimo/mimo-v2.5" }).first(),
+    ).toBeVisible();
   });
 
   test("board shows the last-run ledger summary", async ({ page }) => {

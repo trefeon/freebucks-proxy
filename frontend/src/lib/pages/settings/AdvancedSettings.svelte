@@ -37,6 +37,7 @@
    *   otherwise only the listed catalog group ids (e.g. ["pool"])
    * @prop {string} [cardTitle] - card heading, translated at render
    * @prop {string} [cardDescription] - card subheading, translated at render
+   * @prop {boolean} [bridgePossible=true] - BRIDGE_IDLE_EVICT hides unless set
    */
   let {
     meta = [],
@@ -51,28 +52,37 @@
     onlyGroups = null,
     cardTitle = "Advanced",
     cardDescription = "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
+    bridgePossible = true,
   } = $props();
-
-  // Keys owned by the curated section components above (Gateway, Traffic —
-  // including the Rotation block and the Smart routing group — ModelRouting,
-  // Dashboard access); Advanced shows everything else the catalog exposes.
+  // Keys owned by the curated section components above (Gateway, Traffic,
+  // ModelRouting, Dashboard access, the Pool Strategy card, and Pool Custom
+  // advanced); Advanced shows everything else the catalog exposes.
+  // (Fallback keys stay exactly where they are — a separate lane owns them.)
   const COVERED = new Set([
+    "ADOPT_CLI_SESSION",
     "BRIDGE_ENABLED",
     "DASHBOARD_REQUIRE_LOGIN",
     "HTTP_READ_TIMEOUT",
     "LOG_LEVEL",
+    "MATURITY_DRY_RUN",
+    "MATURITY_TOUCH_MODEL",
     "MAX_REQUESTS_PER_DAY",
     "MAX_REQUESTS_PER_MINUTE",
-    "MODELS_ALLOW",
-    "MODEL_ALIASES",
     "MODEL_LOCKS",
+    "MODEL_ALIASES",
+    "MODEL_UNAVAILABLE_CACHE_TTL",
+    "MODELS_ALLOW",
     "QUEUE_DEPTH",
     "QUEUE_WAIT",
+    "QUOTA_PROBE_ACTIVE_INTERVAL",
+    "QUOTA_PROBE_IDLE_HEARTBEAT",
     "RATE_LIMIT_FAILOVER",
     "RATE_LIMIT_PER_IP",
     "REASONING_IN_CONTENT",
     "ROUTING_SMART",
     "SAFE_MODE",
+    "SESSION_PERSIST",
+    "SESSION_PROBE_CACHE_TTL",
     "TOKEN_MAX_CONCURRENT",
     "TOKEN_ROTATION",
   ]);
@@ -85,7 +95,8 @@
     security: "Security",
   };
   let env = $derived(parseEnv(rawText));
-
+  // BRIDGE_IDLE_EVICT only makes sense while bridge mode can serve: hidden
+  // unless the parent reports bridge as possible (BRIDGE_ENABLED on).
   let rows = $derived(
     (meta ?? []).filter(
       (e) =>
@@ -94,6 +105,7 @@
         !e.hidden &&
         !e.secret &&
         !COVERED.has(e.key) &&
+        (e.key !== "BRIDGE_IDLE_EVICT" || bridgePossible) &&
         (!onlyGroups || onlyGroups.includes(e.group)),
     ),
   );

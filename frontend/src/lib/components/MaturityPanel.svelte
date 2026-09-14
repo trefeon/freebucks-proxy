@@ -5,7 +5,8 @@
   import Alert from "./Alert.svelte";
   import StatusBadge from "./StatusBadge.svelte";
   import ToggleSwitch from "./ToggleSwitch.svelte";
-  import { postAPI } from "../api/client.js";
+  import DbOverrideSave from "./DbOverrideSave.svelte";
+  import { postAPI, fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import {
     tokensData as tokensStore,
@@ -13,11 +14,36 @@
     ensureTokensStore,
     refreshTokens,
   } from "../stores/tokens.js";
+  import {
+    touchOptions as sharedTouchOptions,
+    touchLabel,
+  } from "../utils/touchModels.js";
   import { tr } from "../i18n.js";
 
-  // Streak Maintenance board: universal automatic, one switch. The global
-  // kill-switch is the ONLY control here — dry-run and touch-model knobs
-  // live in Settings → Advanced. Rows and ledger are read-only status.
+  /**
+   * Streak Maintenance board: universal automatic, one switch plus the two
+   * tuning rows below it. The global kill-switch is the master control;
+   * dry-run (MATURITY_DRY_RUN) and touch-model (MATURITY_TOUCH_MODEL)
+   * moved here from Pool Tuning so the whole streak surface sits on the
+   * Warming tab. Row edits batch through onField (page Save) with per-key
+   * overlay saves beside each control; rows dim while the kill-switch is
+   * off. Ledger rows stay read-only status.
+   *
+   * @prop {Record<string, string>} [formValues={}] - shared settings draft
+   * @prop {(key: string, value: string) => void} [onField] - draft edit
+   * @prop {Record<string, string>} [sources={}] - ADR-0019 source tiers
+   * @prop {(key: string) => Promise<void>} [onReset=null] - saved-value reset
+   * @prop {(() => Promise<void>) | null} [onSaved=null] - parent refetch
+   * @prop {boolean} [degraded=false] - settings store offline note
+   */
+  let {
+    formValues = {},
+    onField = null,
+    sources = {},
+    onReset = null,
+    onSaved = null,
+    degraded = false,
+  } = $props();
 
   let data = $state(null);
   let loading = $state(true);
@@ -25,12 +51,26 @@
   let unsubStore = null;
   let unsubErr = null;
 
-  // Global kill-switch (MATURITY_ENABLED, default true): the ONLY streak
-  // control. Dry-run display only (MATURITY_DRY_RUN lives in Settings).
+  // Global kill-switch (MATURITY_ENABLED, default true): the master streak
+  // control. Dry-run badge below is display-only from the snapshot; the
+  // editable dry-run + touch-model rows read the shared settings draft.
   let globalEnabled = $state(true);
   let globalLoaded = $state(false);
   let savingGlobal = $state(false);
   let dryRun = $state(true);
+  // Editable tuning rows (shared draft; overlay Save beside each control):
+  // dry-run defaults true, touch-model defaults "" (= auto, cheapest
+  // unmetered). Rows dim while the kill-switch is off.
+  let dryRunDraft = $derived(
+    String(formValues.MATURITY_DRY_RUN ?? "true").toLowerCase() !== "false",
+  );
+  let touchVal = $derived(formValues.MATURITY_TOUCH_MODEL ?? "");
+  let touchSelectVal = $derived(touchVal === "" ? "auto" : touchVal);
+  let maturityOff = $derived(globalLoaded && !globalEnabled);
+  let modelRows = $state([]);
+  function touchOpts() {
+    return sharedTouchOptions(modelRows, touchSelectVal);
+  }
   // Tonight's maintenance window (RFC3339 absolute instants from the
   // payload): the next-run countdown formats these, so the window math
   // lives in one DST-safe place server-side.
@@ -299,6 +339,16 @@
 
   onMount(() => {
     recordPageVisit("maturity");
+    // Served-model catalog for the touch-model select (shared
+    // utils/touchModels.js, priced labels kept).
+    (async () => {
+      try {
+        const res = await fetchAPI(adminApi.models);
+        modelRows = res?.models ?? [];
+      } catch {
+        modelRows = [];
+      }
+    })();
     countdownTimer = setInterval(() => {
       nowMs = Date.now();
     }, 30000);
@@ -342,7 +392,7 @@
   <Card
     title={$tr("Streak Maintenance")}
     description={$tr(
-      "Fully automatic: every account is touched nightly. The switch below is the only control; dry-run and touch-model knobs live in Settings.",
+      "Fully automatic: every account is touched nightly. The switch plus the dry-run and touch-model rows below are the only controls.",
     )}
   >
     {#snippet actions()}
@@ -364,6 +414,84 @@
           ariaLabel={$tr("Streak maintenance")}
           onchange={(next) => setGlobalEnabled(next)}
         />
+      </div>
+      <div
+        class="flex flex-col gap-2 border-t border-[var(--fp-border)]/60 pt-2.5 {maturityOff
+          ? 'opacity-60'
+          : ''}"
+      >
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <ToggleSwitch
+            checked={dryRunDraft}
+            ariaLabel="MATURITY_DRY_RUN"
+            onchange={(v) =>
+              onField?.("MATURITY_DRY_RUN", v ? "true" : "false")}
+          />
+          <span class="text-xs font-medium text-[var(--fp-text)]"
+            >{$tr("Dry run")}</span
+          >
+          <code
+            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+            >MATURITY_DRY_RUN</code
+          >
+          <span class="ml-auto">
+            {#if degraded}
+              <span class="text-[10px] text-[var(--fp-dim)]"
+                >{$tr("Overlay offline — use .env save")}</span
+              >
+            {:else}
+              <DbOverrideSave
+                settingKey="MATURITY_DRY_RUN"
+                value={formValues.MATURITY_DRY_RUN ?? "true"}
+                source={sources.MATURITY_DRY_RUN}
+                {onReset}
+                {onSaved}
+              />
+            {/if}
+          </span>
+        </div>
+        <p class="text-[11px] text-[var(--fp-dim)] leading-relaxed">
+          {$tr(
+            "Zero-cost session probe only — never claims a slot until the schedule is proven.",
+          )}
+        </p>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-xs font-medium text-[var(--fp-text)]"
+            >{$tr("Touch model")}</span
+          >
+          <code
+            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+            >MATURITY_TOUCH_MODEL</code
+          >
+          <select
+            class="fp-select"
+            value={touchSelectVal}
+            aria-label="MATURITY_TOUCH_MODEL"
+            title={touchSelectVal}
+            onchange={(e) =>
+              onField?.("MATURITY_TOUCH_MODEL", e.currentTarget.value)}
+          >
+            <option value="auto">Auto (cheapest unmetered)</option>
+            {#each touchOpts() as opt (opt.id)}
+              <option value={opt.id}>{touchLabel(opt)}</option>
+            {/each}
+          </select>
+          <span class="ml-auto">
+            {#if degraded}
+              <span class="text-[10px] text-[var(--fp-dim)]"
+                >{$tr("Overlay offline — use .env save")}</span
+              >
+            {:else}
+              <DbOverrideSave
+                settingKey="MATURITY_TOUCH_MODEL"
+                value={touchVal}
+                source={sources.MATURITY_TOUCH_MODEL}
+                {onReset}
+                {onSaved}
+              />
+            {/if}
+          </span>
+        </div>
       </div>
       <p class="fp-num text-[11px] leading-relaxed text-[var(--fp-dim)]">
         {$tr("Nightly window 23:45–00:00 Pacific")}

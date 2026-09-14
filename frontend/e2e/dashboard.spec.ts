@@ -654,6 +654,147 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByText("CORS_ALLOWED_ORIGIN", { exact: true }).first(),
     ).toBeVisible();
   });
+  test("Pool strategy preset switch writes the five owned keys", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    // Catalog defaults (30s / 16) already read as Balance.
+    const drain = page.getByRole("radio", { name: "Drain", exact: true });
+    const balance = page.getByRole("radio", { name: "Balance", exact: true });
+    await expect(page.getByText("Pool Strategy")).toBeVisible();
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    let savedBody = "";
+    await page.route(/\/admin\/config$/, async (route) => {
+      if (route.request().method() === "POST") {
+        savedBody = decodeURIComponent(route.request().postData() || "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: true }),
+        });
+      } else {
+        await route.fallback();
+      }
+    });
+    page.once("dialog", (d) => d.accept());
+    await drain.click();
+    await expect(drain).toHaveAttribute("aria-checked", "true");
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+    // The preset writes ONLY its five owned keys.
+    await expect.poll(() => savedBody).toContain("ROUTING_SMART=true");
+    expect(savedBody).toContain("TOKEN_ROTATION=drain");
+    expect(savedBody).toContain("RATE_LIMIT_FAILOVER=true");
+    expect(savedBody).toContain("QUEUE_WAIT=300s");
+    expect(savedBody).toContain("QUEUE_DEPTH=1024");
+    expect(savedBody).not.toContain("TOKEN_MAX_CONCURRENT=");
+  });
+
+  test("Balance threshold slider shows only in Balance and persists QUEUE_WAIT", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    const slider = page.locator(
+      'input[type="range"][aria-label="Balance threshold (QUEUE_WAIT)"]',
+    );
+    await expect(slider).toBeVisible();
+    // In-range moves keep the Balance badge (never flip to Custom).
+    await slider.evaluate((el) => {
+      const input = el as HTMLInputElement;
+      input.value = "90";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+    let savedBody = "";
+    await page.route(/\/admin\/config$/, async (route) => {
+      if (route.request().method() === "POST") {
+        savedBody = decodeURIComponent(route.request().postData() || "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: true }),
+        });
+      } else {
+        await route.fallback();
+      }
+    });
+    page.once("dialog", (d) => d.accept());
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+    await expect.poll(() => savedBody).toContain("QUEUE_WAIT=90s");
+    // Drain hides the slider.
+    await page.getByRole("radio", { name: "Drain", exact: true }).click();
+    await expect(slider).toHaveCount(0);
+  });
+
+  test("Editing an owned key flips the badge to Custom with reset", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+    // Hand-editing one owned key (queue depth) flips to Custom.
+    await page.locator('input[aria-label="QUEUE_DEPTH"]').fill("32");
+    await expect(
+      page.getByRole("button", { name: "Reset to Balance" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Reset to Drain" }),
+    ).toBeVisible();
+    // Reset restores the Balance five (threshold back to its 60s default).
+    let savedBody = "";
+    await page.route(/\/admin\/config$/, async (route) => {
+      if (route.request().method() === "POST") {
+        savedBody = decodeURIComponent(route.request().postData() || "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: true }),
+        });
+      } else {
+        await route.fallback();
+      }
+    });
+    page.once("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Reset to Balance" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+    await expect.poll(() => savedBody).toContain("QUEUE_DEPTH=16");
+    expect(savedBody).toContain("QUEUE_WAIT=60s");
+  });
 
   test("Usage Controls tab renders upstream and quota keys", async ({
     page,

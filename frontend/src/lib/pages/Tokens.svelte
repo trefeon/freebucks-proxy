@@ -18,6 +18,8 @@
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import MaturityPanel from "../components/MaturityPanel.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
+  import StrategyPresetCard from "./settings/StrategyPresetCard.svelte";
+  import PoolCustomAdvanced from "./settings/PoolCustomAdvanced.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { fetchAPI, postAPI, csrfHeader } from "../api/client.js";
   import { adminApi, adminActions, tokenActions } from "../api/paths.js";
@@ -80,6 +82,12 @@
   // legacy #maturity hash redirects here one-shot via sessionStorage (see
   // onMount).
   let tab = $state("accounts");
+  // Bridge-gated rows (BRIDGE_IDLE_EVICT in Pool Tuning) hide unless bridge
+  // mode can serve: BRIDGE_ENABLED on (default true).
+  let bridgePossible = $derived(
+    String($settingsFormValues.BRIDGE_ENABLED ?? "true").toLowerCase() !==
+      "false",
+  );
 
   // Device login flow
   let oauthStarting = $state(false);
@@ -783,6 +791,10 @@
         {/if}
       </Alert>
     {/if}
+    <StrategyPresetCard
+      formValues={$settingsFormValues}
+      onField={setSettingsField}
+    />
     <TrafficSettings
       cardTitle="Pool Controls"
       formValues={$settingsFormValues}
@@ -792,6 +804,17 @@
       onReset={resetSettingsKey}
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
+    />
+    <PoolCustomAdvanced
+      meta={$settingsMeta}
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
+      tokenCount={data?.token_count ?? (data?.tokens ?? []).length}
     />
     <AdvancedSettings
       meta={$settingsMeta}
@@ -804,8 +827,16 @@
       onlyGroups={["pool"]}
       cardTitle="Pool Tuning"
       cardDescription="Pool sizing, sessions, streak maintenance, and quota probing."
+      {bridgePossible}
     />
   {:else if tab === "warming"}
-    <MaturityPanel />
+    <MaturityPanel
+      formValues={$settingsFormValues}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
+    />
   {/if}
 </PageShell>
