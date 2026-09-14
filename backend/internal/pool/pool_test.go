@@ -45,10 +45,6 @@ func newTestPoolCfg(t *testing.T, mut func(*config.Config), mocks ...*testutil.M
 		SessionCallTimeout: 5 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    "https://www.codebuff.com",
-		QuotaFallbackModels: map[string]string{
-			"deepseek/deepseek-v4-flash": "mimo/mimo-v2.5",
-			"z-ai/glm-5.2":               "deepseek/deepseek-v4-flash",
-		},
 	}
 	if mut != nil {
 		mut(cfg)

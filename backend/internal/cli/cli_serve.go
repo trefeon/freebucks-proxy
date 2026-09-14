@@ -81,7 +81,8 @@ func Serve(configPath string, verbose bool, version string) int {
 	logger := telemetry.New(level, cfg.LogFile, cfg.LogFormat)
 	// The dashboard log viewer reads from an in-memory ring that mirrors
 	// every record the process logger emits (no log file or docker needed).
-	logringHandler := logring.NewHandler(logger.Handler(), cfg.LogRingSize)
+	// Ring capacity is hardcoded to 500 (LOG_RING_SIZE is excised).
+	logringHandler := logring.NewHandler(logger.Handler(), 500)
 	logger = slog.New(logringHandler)
 	// The pool/upstream/session/runs log through slog.Default(); route it
 	// through our logger so the configured level and log file cover them too.

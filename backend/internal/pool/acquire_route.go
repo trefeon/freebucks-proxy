@@ -19,27 +19,10 @@ import (
 	"time"
 )
 
-// fallbackDepthKey and maxFallbackDepth bound the QUOTA_FALLBACK_MODELS
-// recursion (issue #219). See Acquire.
-type fallbackDepthKey struct{}
-
-const maxFallbackDepth = 8
-
 // Acquire resolves the model's agent, picks a start token round-robin, and
 // fails over linearly until a token yields both a run and a session. Returns
 // a lease on success. Registry misses (unknown model) are returned as-is.
 func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
-	// Issue #219: the QUOTA_FALLBACK_MODELS recursion (leaseFromOrder →
-	// Acquire) is bounded by a depth counter carried in ctx. Validate()
-	// already rejects fallback cycles at config time; this is the runtime
-	// backstop so a misconfigured pool degrades to an error instead of a
-	// stack overflow.
-	depth, _ := ctx.Value(fallbackDepthKey{}).(int)
-	if depth >= maxFallbackDepth {
-		return nil, errors.New("pool: QUOTA_FALLBACK_MODELS cycle detected (max fallback depth reached); check QUOTA_FALLBACK_MODELS for a loop")
-	}
-	ctx = context.WithValue(ctx, fallbackDepthKey{}, depth+1)
-
 	// Post-drain re-admission gate: once Shutdown starts draining, no new
 	// session POST or run START may be admitted — an admission landing
 	// after the drain would leak an owned session row upstream.
@@ -581,34 +564,6 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		return nil, modelLimited[0]
 	}
 	if len(rateLimited) > 0 {
-		// Issue #155: quota-exhaustion fallback — when every rate-limited error
-		// is a quota exhaustion for the requested model (a live upstream
-		// refusal, never a cached count — ADR-0027), fall back to the
-		// unlimited model (mimo-v2.5) if configured.
-		allQuotaCapped := true
-		for _, e := range rateLimited {
-			if !isQuotaExhaustedError(e.err) {
-				allQuotaCapped = false
-				break
-			}
-		}
-		if allQuotaCapped {
-			if fb := cfg.QuotaFallbackModels[model]; fb != "" && fb != model {
-				p.logger.Info("pool: quota exhausted, falling back to unlimited model", "requested", model, "fallback", fb)
-				// Issue #164: the fallback lease reports why it serves a
-				// different model so the server surfaces the switch to the
-				// client (X-FreeBuff-Fallback: quota_exhausted). By the time
-				// this branch is reached every eligible token for `model` has
-				// already been tried and failed in the failover loop above
-				// before the fallback fires.
-				fbLease, fbErr := p.Acquire(ctx, fb)
-				if fbLease != nil {
-					fbLease.FallbackReason = "quota_exhausted"
-				}
-				return fbLease, fbErr
-			}
-		}
-
 		// Pool exhausted (issue #48): every token failed and the highest-
 		// precedence bucket is rate-limit — no ban/country is present, so
 		// this is the "all tokens are at their quota/window limit" state the

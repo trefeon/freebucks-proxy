@@ -585,14 +585,14 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     // Model routing moved from Settings Upstream to the Usage page's
-    // Controls tab: the aliases input lives there, keyed by badge;
-    // secrets never surface.
+    // Controls tab: the reasoning-format switch lives there, keyed by
+    // badge; secrets never surface.
     await page.getByRole("button", { name: "Controls" }).click();
     await expect(
-      page.getByText("MODEL_ALIASES", { exact: true }).first(),
+      page.getByText("REASONING_IN_CONTENT", { exact: true }).first(),
     ).toBeVisible();
     await expect(
-      page.getByText("MODEL_LOCKS", { exact: true }).first(),
+      page.getByRole("switch", { name: "REASONING_IN_CONTENT" }),
     ).toBeVisible();
     // Editing posts the key on save through the shared .env flow.
     let savedBody = "";
@@ -609,13 +609,11 @@ test.describe("dashboard hermetic mocks", () => {
       }
     });
     page.once("dialog", (d) => d.accept());
-    await page
-      .locator('input[aria-label="MODEL_ALIASES"]')
-      .fill("flash:deepseek/deepseek-v4-flash");
+    await page.getByRole("switch", { name: "REASONING_IN_CONTENT" }).click();
     await page
       .getByRole("button", { name: "Save Changes", exact: true })
       .click();
-    await expect.poll(() => savedBody).toContain("MODEL_ALIASES=");
+    await expect.poll(() => savedBody).toContain("REASONING_IN_CONTENT=");
     // Settings keeps a link-out stub pointing at the Usage page.
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await expect(
@@ -814,7 +812,7 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByText("REGISTRY_REFRESH", { exact: true }).first(),
     ).toBeVisible();
     await expect(
-      page.getByText("FALLBACK_AFTER_MS", { exact: true }).first(),
+      page.getByText("MODELS_HIDE_UNAVAILABLE", { exact: true }).first(),
     ).toBeVisible();
   });
 
@@ -832,12 +830,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.getByRole("button", { name: "Logging" }).click();
     // General-group keys moved from Settings Advanced to Logs.
     await expect(page.getByText("Logging & Diagnostics")).toBeVisible();
-    await expect(
-      page.getByText("LOG_TABLE_RETENTION", { exact: true }).first(),
-    ).toBeVisible();
-    await expect(
-      page.getByText("LOG_CONSOLE_WINDOW", { exact: true }).first(),
-    ).toBeVisible();
+    await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toBeVisible();
   });
 
   test("Logs card renders log level and saves", async ({ page }) => {
@@ -1100,7 +1093,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#activity");
     // The label follows the server's effective window (the fixture stands in
-    // for LOG_CONSOLE_WINDOW = 1h) and the matching option is active.
+    // for the 1h default) and the matching option is active.
     await expect(page.getByText("last 1 hour")).toBeVisible();
     await expect(page.getByRole("button", { name: "1h" })).toHaveAttribute(
       "aria-pressed",

@@ -7,7 +7,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -42,59 +41,52 @@ type rawConfig struct {
 	LogLevel           string `json:"LOG_LEVEL"`
 	LogFormat          string `json:"LOG_FORMAT"`
 	LogAccess          bool   `json:"LOG_ACCESS"`
-	LogRingSize        *int   `json:"LOG_RING_SIZE"`
-	LogConsoleWindow   string `json:"LOG_CONSOLE_WINDOW"`
-	LogTableRetention  string `json:"LOG_TABLE_RETENTION"`
 	// BridgeEnabled records BRIDGE_ENABLED (default true via
 	// defaultRawConfig): whether bridge-mode traffic is accepted alongside
 	// the AUTH_TOKENS pool (hybrid mode).
 	BridgeEnabled bool `json:"BRIDGE_ENABLED"`
 	// BridgeIdleEvict is the sliding-TTL string for idle bridge-entry
 	// eviction (BRIDGE_IDLE_EVICT; default "72h", zero-tolerant → 72h).
-	BridgeIdleEvict          string                  `json:"BRIDGE_IDLE_EVICT"`
-	IdleRotationTimeout      string                  `json:"IDLE_ROTATION_TIMEOUT"`
-	SafeMode                 bool                    `json:"SAFE_MODE"`
-	SessionIdleEnd           string                  `json:"SESSION_IDLE_END"`
-	ModelsHideUnavailable    bool                    `json:"MODELS_HIDE_UNAVAILABLE"`
-	ModelsAllow              modelsAllowList         `json:"MODELS_ALLOW"`
-	CORSAllowedOrigin        string                  `json:"CORS_ALLOWED_ORIGIN"`
-	RequestJitter            string                  `json:"REQUEST_JITTER"`
-	CLIVersion               string                  `json:"CLI_VERSION"`
-	ModelAliases             string                  `json:"MODEL_ALIASES"`
-	TransientRetries         *int                    `json:"TRANSIENT_RETRIES"`
-	SessionPersist           bool                    `json:"SESSION_PERSIST"`
-	SessionStateFile         string                  `json:"SESSION_STATE_FILE"`
-	HTTP2Upstream            bool                    `json:"HTTP2_UPSTREAM"`
-	RunFinishQueueSize       *int                    `json:"RUN_FINISH_QUEUE_SIZE"`
-	RunFinishInlineTimeout   string                  `json:"RUN_FINISH_INLINE_TIMEOUT"`
-	RunsDrainQueueCap        *int                    `json:"RUNS_DRAIN_QUEUE_CAP"`
-	RunsDrainTTL             string                  `json:"RUNS_DRAIN_TTL"`
-	SessionReAdmitLead       string                  `json:"SESSION_RE_ADMIT_LEAD"`
-	SessionProbeCacheTTL     string                  `json:"SESSION_PROBE_CACHE_TTL"`
-	ModelUnavailableCacheTTL string                  `json:"MODEL_UNAVAILABLE_CACHE_TTL"`
-	QuotaFallbackModels      quotaFallbackModelsList `json:"QUOTA_FALLBACK_MODELS"`
-	WebhookURL               string                  `json:"WEBHOOK_URL"`
-	FallbackAfter            string                  `json:"FALLBACK_AFTER_MS"`
-	FallbackModels           string                  `json:"FALLBACK_MODEL"`
-	AdoptCLISession          bool                    `json:"ADOPT_CLI_SESSION"`
-	MaturityEnabled          bool                    `json:"MATURITY_ENABLED"`
-	MaturityDryRun           bool                    `json:"MATURITY_DRY_RUN"`
-	MaturityTouchModel       string                  `json:"MATURITY_TOUCH_MODEL"`
-	MaturityTargetDays       *int                    `json:"MATURITY_TARGET_DAYS"`
-	QuotaAutoProbe           bool                    `json:"QUOTA_AUTO_PROBE"`
-	QuotaProbeActiveInterval string                  `json:"QUOTA_PROBE_ACTIVE_INTERVAL"`
-	QuotaProbeIdleHeartbeat  string                  `json:"QUOTA_PROBE_IDLE_HEARTBEAT"`
-	WaitingRoomChain         bool                    `json:"WAITING_ROOM_CHAIN"`
-	RateLimitPerIP           *float64                `json:"RATE_LIMIT_PER_IP"`
-	RateLimitBurst           *int                    `json:"RATE_LIMIT_BURST"`
-	TokenRotation            string                  `json:"TOKEN_ROTATION"`
-	RateLimitFailover        *bool                   `json:"RATE_LIMIT_FAILOVER"`
-	ModelLocks               string                  `json:"MODEL_LOCKS"`
-	DashboardEnabled         bool                    `json:"DASHBOARD_ENABLED"`
-	DashboardRequireLogin    bool                    `json:"DASHBOARD_REQUIRE_LOGIN"`
-	CompressPrompt           string                  `json:"COMPRESS_PROMPT"`
-	CacheControlInjection    string                  `json:"CACHE_CONTROL_INJECTION"`
-	ReasoningInContent       string                  `json:"REASONING_IN_CONTENT"`
+	BridgeIdleEvict          string          `json:"BRIDGE_IDLE_EVICT"`
+	IdleRotationTimeout      string          `json:"IDLE_ROTATION_TIMEOUT"`
+	SafeMode                 bool            `json:"SAFE_MODE"`
+	SessionIdleEnd           string          `json:"SESSION_IDLE_END"`
+	ModelsHideUnavailable    bool            `json:"MODELS_HIDE_UNAVAILABLE"`
+	ModelsAllow              modelsAllowList `json:"MODELS_ALLOW"`
+	CORSAllowedOrigin        string          `json:"CORS_ALLOWED_ORIGIN"`
+	RequestJitter            string          `json:"REQUEST_JITTER"`
+	CLIVersion               string          `json:"CLI_VERSION"`
+	TransientRetries         *int            `json:"TRANSIENT_RETRIES"`
+	SessionPersist           bool            `json:"SESSION_PERSIST"`
+	SessionStateFile         string          `json:"SESSION_STATE_FILE"`
+	HTTP2Upstream            bool            `json:"HTTP2_UPSTREAM"`
+	RunFinishQueueSize       *int            `json:"RUN_FINISH_QUEUE_SIZE"`
+	RunFinishInlineTimeout   string          `json:"RUN_FINISH_INLINE_TIMEOUT"`
+	RunsDrainQueueCap        *int            `json:"RUNS_DRAIN_QUEUE_CAP"`
+	RunsDrainTTL             string          `json:"RUNS_DRAIN_TTL"`
+	SessionReAdmitLead       string          `json:"SESSION_RE_ADMIT_LEAD"`
+	SessionProbeCacheTTL     string          `json:"SESSION_PROBE_CACHE_TTL"`
+	ModelUnavailableCacheTTL string          `json:"MODEL_UNAVAILABLE_CACHE_TTL"`
+	WebhookURL               string          `json:"WEBHOOK_URL"`
+	AdoptCLISession          bool            `json:"ADOPT_CLI_SESSION"`
+	MaturityEnabled          bool            `json:"MATURITY_ENABLED"`
+	MaturityDryRun           bool            `json:"MATURITY_DRY_RUN"`
+	MaturityTouchModel       string          `json:"MATURITY_TOUCH_MODEL"`
+	MaturityTargetDays       *int            `json:"MATURITY_TARGET_DAYS"`
+	QuotaAutoProbe           bool            `json:"QUOTA_AUTO_PROBE"`
+	QuotaProbeActiveInterval string          `json:"QUOTA_PROBE_ACTIVE_INTERVAL"`
+	QuotaProbeIdleHeartbeat  string          `json:"QUOTA_PROBE_IDLE_HEARTBEAT"`
+	WaitingRoomChain         bool            `json:"WAITING_ROOM_CHAIN"`
+	RateLimitPerIP           *float64        `json:"RATE_LIMIT_PER_IP"`
+	RateLimitBurst           *int            `json:"RATE_LIMIT_BURST"`
+	TokenRotation            string          `json:"TOKEN_ROTATION"`
+	RateLimitFailover        *bool           `json:"RATE_LIMIT_FAILOVER"`
+	ModelLocks               string          `json:"MODEL_LOCKS"`
+	DashboardEnabled         bool            `json:"DASHBOARD_ENABLED"`
+	DashboardRequireLogin    bool            `json:"DASHBOARD_REQUIRE_LOGIN"`
+	CompressPrompt           string          `json:"COMPRESS_PROMPT"`
+	CacheControlInjection    string          `json:"CACHE_CONTROL_INJECTION"`
+	ReasoningInContent       string          `json:"REASONING_IN_CONTENT"`
 	// RoutingSmart records ROUTING_SMART (default true via
 	// defaultRawConfig): the smart-routing master switch.
 	RoutingSmart bool `json:"ROUTING_SMART"`
@@ -131,29 +123,7 @@ func (m *modelsAllowList) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// quotaFallbackModelsList is the raw QUOTA_FALLBACK_MODELS value (issue #155):
-// env is a comma-separated list of k=v pairs, JSON may be a string or a map.
-type quotaFallbackModelsList string
-
-func (q *quotaFallbackModelsList) UnmarshalJSON(data []byte) error {
-	var v string
-	if err := json.Unmarshal(data, &v); err == nil {
-		*q = quotaFallbackModelsList(v)
-		return nil
-	}
-	var m map[string]string
-	if err := json.Unmarshal(data, &m); err == nil {
-		parts := make([]string, 0, len(m))
-		for k, val := range m {
-			parts = append(parts, k+"="+val)
-		}
-		sort.Strings(parts)
-		*q = quotaFallbackModelsList(strings.Join(parts, ","))
-		return nil
-	}
-	return fmt.Errorf("QUOTA_FALLBACK_MODELS must be a comma-separated k=v string or a map, got: %s", data)
-}
-
+// defaultRawConfig returns the raw defaults every load source layers over.
 func defaultRawConfig() rawConfig {
 	return rawConfig{
 		ListenAddr:               "127.0.0.1:3457",       // loopback by default (PRD §3); containers set LISTEN_ADDR=:3457
@@ -174,12 +144,9 @@ func defaultRawConfig() rawConfig {
 		DashboardEnabled:         true,  // dashboard on by default; set DASHBOARD_ENABLED=false to disable
 		DashboardRequireLogin:    true,  // require login on by default; set DASHBOARD_REQUIRE_LOGIN=false to disable
 		LogAccess:                true,
-		DevToolsEnabled:          false,       // per-request access lines on by default; LOG_ACCESS=false disables them
-		LogRingSize:              ptrInt(500), // dashboard log viewer ring capacity (T19)
-		LogConsoleWindow:         "1h",        // console view window only; the spill still stores everything
-		LogTableRetention:        "168h",      // 7d storage retention for log_entries and request_records
-		CORSAllowedOrigin:        "*",         // browser clients reach /v1/* cross-origin by default
-		RequestJitter:            "",          // "" = disabled (unset → SAFE_MODE preset may fill)
+		DevToolsEnabled:          false, // per-request access lines on by default; LOG_ACCESS=false disables them
+		CORSAllowedOrigin:        "*",   // browser clients reach /v1/* cross-origin by default
+		RequestJitter:            "",    // "" = disabled (unset → SAFE_MODE preset may fill)
 		CLIVersion:               "0.10.7",
 		TransientRetries:         nil,  // nil = 1 (one retry after a transient transport failure; 0 disables)
 		SessionPersist:           true, // session persistence on by default: restart resumes unexpired sessions
@@ -191,7 +158,6 @@ func defaultRawConfig() rawConfig {
 		RunsDrainTTL:             "10m",      // #55: draining-runs TTL eviction
 		SessionReAdmitLead:       "60s",      // #99: pre-emptive re-admit lead
 		SessionProbeCacheTTL:     "15s",      // #60: admission probe cache TTL
-		FallbackAfter:            "0",        // #100: queue-wait fallback threshold (ms); 0 = disabled by default
 		RoutingSmart:             true,       // smart pool routing on by default; false restores the legacy acquire path
 		TokenMaxConcurrent:       ptrInt(2),  // per-token live turns (floor 1; bunker strictness is 1)
 		QueueWait:                "30s",      // FIFO slot-queue wait bound per parked Acquire
@@ -207,15 +173,3 @@ func defaultRawConfig() rawConfig {
 
 // ptrInt returns a pointer to n for *int raw fields with a non-nil default.
 func ptrInt(n int) *int { return &n }
-
-// defaultFallbackModels returns the FALLBACK_MODEL defaults (issue #100):
-// empty by default — no automatic model fallback on queue wait.
-func defaultFallbackModels() map[string]string {
-	return nil
-}
-
-// defaultQuotaFallbackModels returns the QUOTA_FALLBACK_MODELS defaults (issue #155, #183):
-// empty by default — no automatic model fallback on quota exhaustion.
-func defaultQuotaFallbackModels() map[string]string {
-	return nil
-}

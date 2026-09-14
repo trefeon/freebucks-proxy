@@ -57,7 +57,6 @@
   // Keys owned by the curated section components above (Gateway, Traffic,
   // ModelRouting, Dashboard access, the Pool Strategy card, and Pool Custom
   // advanced); Advanced shows everything else the catalog exposes.
-  // (Fallback keys stay exactly where they are — a separate lane owns them.)
   const COVERED = new Set([
     "ADOPT_CLI_SESSION",
     "BRIDGE_ENABLED",
@@ -66,10 +65,7 @@
     "LOG_LEVEL",
     "MATURITY_DRY_RUN",
     "MATURITY_TOUCH_MODEL",
-    "MAX_REQUESTS_PER_DAY",
-    "MAX_REQUESTS_PER_MINUTE",
     "MODEL_LOCKS",
-    "MODEL_ALIASES",
     "MODEL_UNAVAILABLE_CACHE_TTL",
     "MODELS_ALLOW",
     "QUEUE_DEPTH",

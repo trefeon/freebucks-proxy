@@ -50,7 +50,6 @@ func TestEffectiveOverlayRoundTrip(t *testing.T) {
 		"BRIDGE_ENABLED":       "false",
 		"MODELS_ALLOW":         "deepseek/deepseek-v4-flash",
 		"MODEL_LOCKS":          "0:z-ai/glm-5.2",
-		"FALLBACK_MODEL":       "a=b",
 		"REASONING_IN_CONTENT": "thinking",
 		"RATE_LIMIT_PER_IP":    "2.5",
 	}

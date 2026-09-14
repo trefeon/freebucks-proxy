@@ -22,16 +22,16 @@ import (
 // See the sort below.
 //
 // Issue #164 (fallback ordering): the order returned here exhausts EVERY
-// eligible token for the requested model before the caller's
-// QUOTA_FALLBACK_MODELS fallback can fire. Non-capped tokens (matching hot,
+// eligible token for the requested model (the QUOTA_FALLBACK_MODELS fallback
+// this ordering once served is removed). Non-capped tokens (matching hot,
 // cold, mismatched hot) are all in the order and the failover loop in
 // Acquire visits each of them in turn — a token only fails the pass with a
 // quota-exhausted error after it was actually attempted. Freebucks-capped
 // tokens are excluded (their allowance cannot cover the price), and when
 // every token is capped or cooling down the order degrades to full
-// round-robin so the loop still records every reason. The fallback branch
-// in Acquire only runs after that loop completed without a lease and every
-// rate-limited error it recorded is a quota exhaustion.
+// round-robin so the loop still records every reason (the removed fallback
+// branch in Acquire used to run only after that loop completed without a
+// lease, when every recorded rate-limited error was a quota exhaustion).
 func (p *Pool) acquireOrder(toks *[]*tokenEntry, start int, model string) ([]int, []rateLimitEntry) {
 	// eligible mirrors the per-token checks the failover loop applies:
 	// not cooling down, under the daily message cap, and not

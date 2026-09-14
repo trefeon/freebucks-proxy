@@ -288,7 +288,6 @@ var restartOnlyConfigKeys = []string{
 	"LOG_LEVEL",
 	"LOG_FORMAT",
 	"LOG_FILE",
-	"LOG_RING_SIZE",
 }
 
 // changedRestartOnlyKeys returns the subset of restartOnlyConfigKeys whose
@@ -397,9 +396,6 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"LOG_LEVEL":                   cfg.LogLevel,
 		"LOG_FORMAT":                  cfg.LogFormat,
 		"LOG_ACCESS":                  strconv.FormatBool(cfg.LogAccess),
-		"LOG_RING_SIZE":               strconv.Itoa(cfg.LogRingSize),
-		"LOG_CONSOLE_WINDOW":          cfg.LogConsoleWindow.String(),
-		"LOG_TABLE_RETENTION":         cfg.LogTableRetention.String(),
 		"IDLE_ROTATION_TIMEOUT":       cfg.IdleRotationTimeout.String(),
 		"SESSION_IDLE_END":            cfg.SessionIdleEnd.String(),
 		"SAFE_MODE":                   strconv.FormatBool(cfg.SafeMode),
@@ -408,7 +404,6 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"CORS_ALLOWED_ORIGIN":         cfg.CORSAllowedOrigin,
 		"REQUEST_JITTER":              cfg.RequestJitter.String(),
 		"CLI_VERSION":                 cfg.CLIVersion,
-		"MODEL_ALIASES":               strconv.Itoa(len(cfg.ModelAliases)),
 		"TRANSIENT_RETRIES":           strconv.Itoa(cfg.TransientRetries),
 		"SESSION_PERSIST":             strconv.FormatBool(cfg.SessionPersist),
 		"SESSION_STATE_FILE":          cfg.SessionStateFile,
@@ -422,11 +417,8 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"SESSION_PROBE_CACHE_TTL":     cfg.SessionProbeCacheTTL.String(),
 		"MODEL_UNAVAILABLE_CACHE_TTL": cfg.ModelUnavailableCacheTTL.String(),
 		"WEBHOOK_URL":                 boolWord(cfg.WebhookURL != ""),
-		"FALLBACK_AFTER_MS":           cfg.FallbackAfter.String(),
-		"FALLBACK_MODEL":              strconv.Itoa(len(cfg.FallbackModels)),
 		"ADOPT_CLI_SESSION":           strconv.FormatBool(cfg.AdoptCLISession),
 		"WAITING_ROOM_CHAIN":          strconv.FormatBool(cfg.WaitingRoomChain),
-		"QUOTA_FALLBACK_MODELS":       strconv.Itoa(len(cfg.QuotaFallbackModels)),
 		"TOKEN_ROTATION":              cfg.TokenRotation,
 		"RATE_LIMIT_FAILOVER":         strconv.FormatBool(cfg.RateLimitFailover),
 		"ROUTING_SMART":               strconv.FormatBool(cfg.RoutingSmart),

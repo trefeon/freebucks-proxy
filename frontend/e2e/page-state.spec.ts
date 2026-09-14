@@ -208,8 +208,8 @@ test.describe("settings saved values", () => {
         secret: false,
       },
       {
-        key: "MODEL_ALIASES",
-        value: "gpt-4o:openai/gpt-5.6-luna",
+        key: "REASONING_IN_CONTENT",
+        value: "true",
         source: "db",
         restart_only: false,
         secret: false,
@@ -293,25 +293,25 @@ test.describe("settings saved values", () => {
     // Controls live behind the Usage Controls tab now.
     await page.getByRole("button", { name: "Controls" }).click();
     await expect(
-      page.locator('input[aria-label="MODEL_ALIASES"]'),
+      page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
     ).toBeVisible();
     await expect(
       page.getByText("saved value", { exact: true }).first(),
     ).toBeVisible();
-    // Row-anchored: the locator binds to the MODEL_ALIASES row itself,
-    // so sibling cards cannot shadow its Save.
+    // Row-anchored: the locator binds to the REASONING_IN_CONTENT row
+    // itself, so sibling cards cannot shadow its Save.
     const row = page.locator("div.py-4", {
-      has: page.locator('input[aria-label="MODEL_ALIASES"]'),
+      has: page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
     });
+    await row.getByRole("switch", { name: "REASONING_IN_CONTENT" }).click();
     await row.getByRole("button", { name: "Save", exact: true }).click();
     await expect
       .poll(() => posted.length, { timeout: 10_000 })
       .toBeGreaterThan(0);
-    expect(posted[0].key).toBe("MODEL_ALIASES");
+    expect(posted[0].key).toBe("REASONING_IN_CONTENT");
     expect(typeof posted[0].value).toBe("string");
     await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
   });
-
   test("a rejected saved value surfaces inline on the row", async ({
     page,
   }) => {
@@ -321,18 +321,20 @@ test.describe("settings saved values", () => {
     await mockPageState(page);
     await page.goto(admin("plans"));
     await page.getByRole("button", { name: "Controls" }).click();
-    await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
-      { timeout: 10_000 },
-    );
-    await page
-      .getByRole("button", { name: "Save", exact: true })
-      .first()
-      .click();
+    await expect(
+      page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
+    ).toBeVisible({ timeout: 10_000 });
+    // Row-anchored like the save test: the rejection must surface on the
+    // REASONING_IN_CONTENT row itself.
+    const row = page.locator("div.py-4", {
+      has: page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
+    });
+    await row.getByRole("button", { name: "Save", exact: true }).click();
     await expect
       .poll(() => posted.length, { timeout: 10_000 })
       .toBeGreaterThan(0);
     await expect(
-      page.locator('span[role="status"]', { hasText: "Setting rejected" }),
+      row.locator('span[role="status"]', { hasText: "Setting rejected" }),
     ).toBeVisible();
   });
 
@@ -343,7 +345,7 @@ test.describe("settings saved values", () => {
     const posted: Posted = [];
     const deleted = await mockSettings(page, posted);
     // Moved keys render inline on their section pages now: LOG_LEVEL on
-    // the Logs Logging tab, MODEL_ALIASES on the Usage Controls tab.
+    // the Logs Logging tab, REASONING_IN_CONTENT on the Usage Controls tab.
     // One saved-value note per page.
     await page.goto(admin("activity"));
     await page.getByRole("button", { name: "Logging" }).click();
@@ -353,18 +355,18 @@ test.describe("settings saved values", () => {
     await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
     await page.goto(admin("plans"));
     await page.getByRole("button", { name: "Controls" }).click();
-    await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
-      { timeout: 10_000 },
-    );
+    await expect(
+      page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
-    // Reset on the Usage row drops MODEL_ALIASES and refetches the form.
+    // Reset on the Usage row drops REASONING_IN_CONTENT and refetches the form.
     const delReq = page.waitForRequest(
       (r) =>
         r.method() === "DELETE" && r.url().includes("/admin/api/settings/"),
     );
     await page.getByRole("button", { name: "Reset" }).first().click();
     await delReq;
-    expect(deleted).toEqual(["MODEL_ALIASES"]);
+    expect(deleted).toEqual(["REASONING_IN_CONTENT"]);
     await expect(page.getByText("saved value", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Saved value removed.")).toBeVisible();
   });

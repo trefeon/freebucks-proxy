@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -92,9 +91,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.LogLevel, "LOG_LEVEL")
 	overrideString(&raw.LogFormat, "LOG_FORMAT")
 	overrideBool(&raw.LogAccess, "LOG_ACCESS")
-	overrideInt(&raw.LogRingSize, "LOG_RING_SIZE")
-	overrideString(&raw.LogConsoleWindow, "LOG_CONSOLE_WINDOW")
-	overrideString(&raw.LogTableRetention, "LOG_TABLE_RETENTION")
 	overrideBool(&raw.BridgeEnabled, "BRIDGE_ENABLED")
 	overrideString(&raw.BridgeIdleEvict, "BRIDGE_IDLE_EVICT")
 	overrideString(&raw.IdleRotationTimeout, "IDLE_ROTATION_TIMEOUT")
@@ -105,7 +101,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.CORSAllowedOrigin, "CORS_ALLOWED_ORIGIN")
 	overrideString(&raw.RequestJitter, "REQUEST_JITTER")
 	overrideString(&raw.CLIVersion, "CLI_VERSION")
-	overrideString(&raw.ModelAliases, "MODEL_ALIASES")
 	overrideInt(&raw.TransientRetries, "TRANSIENT_RETRIES")
 	overrideBool(&raw.SessionPersist, "SESSION_PERSIST")
 	overrideString(&raw.SessionStateFile, "SESSION_STATE_FILE")
@@ -117,10 +112,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.SessionReAdmitLead, "SESSION_RE_ADMIT_LEAD")
 	overrideString(&raw.SessionProbeCacheTTL, "SESSION_PROBE_CACHE_TTL")
 	overrideString(&raw.ModelUnavailableCacheTTL, "MODEL_UNAVAILABLE_CACHE_TTL")
-	overrideString((*string)(&raw.QuotaFallbackModels), "QUOTA_FALLBACK_MODELS")
 	overrideString(&raw.WebhookURL, "WEBHOOK_URL")
-	overrideString(&raw.FallbackAfter, "FALLBACK_AFTER_MS")
-	overrideString(&raw.FallbackModels, "FALLBACK_MODEL")
 	overrideBool(&raw.AdoptCLISession, "ADOPT_CLI_SESSION")
 	overrideBool(&raw.MaturityEnabled, "MATURITY_ENABLED")
 	overrideBool(&raw.MaturityDryRun, "MATURITY_DRY_RUN")
@@ -297,9 +289,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		transientRetries = *raw.TransientRetries
 	}
 
-	// LOG_RING_SIZE: nil (unset/empty) defaults to 500; an explicit value
-	// must stay within 50..5000 (validated in Validate).
-	logRingSize := 500
 	// RATE_LIMIT_PER_IP / RATE_LIMIT_BURST (issue #137): per-source-IP rate
 	// limiter to protect upstream from bursts and spam. 0 = disabled.
 	rateLimitPerIP := 0.0
@@ -310,72 +299,11 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	if raw.RateLimitBurst != nil {
 		rateLimitBurst = *raw.RateLimitBurst
 	}
-	if raw.LogRingSize != nil {
-		logRingSize = *raw.LogRingSize
-	}
 
-	// LOG_CONSOLE_WINDOW / LOG_TABLE_RETENTION are zero-tolerant like
-	// BURST_WINDOW: "" falls back to the documented default, and an explicit
-	// non-positive value falls back the same way. For the console window 0
-	// would show an empty view; for retention 0 would purge every row on the
-	// next tick — neither is ever what an operator meant.
-	logConsoleWindow := DefaultLogConsoleWindow
-	if v := strings.TrimSpace(raw.LogConsoleWindow); v != "" {
-		logConsoleWindow, err = parseDuration(v, "LOG_CONSOLE_WINDOW")
-		if err != nil {
-			return Config{}, err
-		}
-		if logConsoleWindow <= 0 {
-			logConsoleWindow = DefaultLogConsoleWindow
-		}
-	}
-	logTableRetention := DefaultLogTableRetention
-	if v := strings.TrimSpace(raw.LogTableRetention); v != "" {
-		logTableRetention, err = parseDuration(v, "LOG_TABLE_RETENTION")
-		if err != nil {
-			return Config{}, err
-		}
-		if logTableRetention <= 0 {
-			logTableRetention = DefaultLogTableRetention
-		}
-	}
-
-	// FALLBACK_AFTER_MS (issue #100): milliseconds, ""/0 = disabled. Any
-	// parse failure fails the load — a typo silently disabling model
-	// fallback would be worse than surfacing it.
-	fallbackAfter := time.Duration(0)
-	if v := strings.TrimSpace(raw.FallbackAfter); v != "" {
-		ms, err := strconv.Atoi(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("parse FALLBACK_AFTER_MS: %w", err)
-		}
-		if ms < 0 {
-			return Config{}, errors.New("FALLBACK_AFTER_MS cannot be negative (0 disables model fallback)")
-		}
-		fallbackAfter = time.Duration(ms) * time.Millisecond
-	}
-
-	// MODEL_ALIASES (issue #42): parsed verbatim — there are no built-in
-	// defaults (the old gpt-4o/deepseek-chat/claude-3-5-sonnet map was
-	// emptied on 2026-08-20 and removed on 2026-08-28: with deepseek-v4-pro
-	// paused, the best-known target of the set was no longer servable, and
-	// an empty map applied silently was dead machinery).
-	modelAliases := parseMap(raw.ModelAliases)
-
-	// FALLBACK_MODEL (issue #100): explicit operator pairs only; empty
-	// default = no queue-wait fallback. Operators extend with their own
-	// pairs (e.g. meta/muse-spark-1.2-contributor=openai/gpt-5.6-luna).
-	fallbackModels := parseMap(raw.FallbackModels)
-	if len(fallbackModels) == 0 {
-		fallbackModels = defaultFallbackModels()
-	}
-
-	// QUOTA_FALLBACK_MODELS (issue #155): explicit operator pairs only;
-	// empty default = quota exhaustion surfaces an honest 429.
-	quotaFallbackModels := parseMap(string(raw.QuotaFallbackModels))
-	if len(quotaFallbackModels) == 0 && string(raw.QuotaFallbackModels) == "" {
-		quotaFallbackModels = defaultQuotaFallbackModels()
-	}
+	// Model fallback and the log-surface knobs are excised: saved
+	// MODEL_ALIASES / FALLBACK_AFTER_MS / FALLBACK_MODEL /
+	// QUOTA_FALLBACK_MODELS / LOG_RING_SIZE / LOG_CONSOLE_WINDOW /
+	// LOG_TABLE_RETENTION values are tolerated as unknown keys and ignored.
 
 	// Backward-compat (#126): a JSON config carrying the pre-rename USER_ID
 	// key still works when no ACTING_USER_ID source (env/.env/JSON) set a
@@ -504,9 +432,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		LogLevel:                 strings.TrimSpace(raw.LogLevel),
 		LogFormat:                logFormat,
 		LogAccess:                raw.LogAccess,
-		LogRingSize:              logRingSize,
-		LogConsoleWindow:         logConsoleWindow,
-		LogTableRetention:        logTableRetention,
 		BridgeEnabled:            raw.BridgeEnabled,
 		BridgeIdleEvict:          bridgeIdleEvict,
 		IdleRotationTimeout:      idleRotationTimeout,
@@ -517,7 +442,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		CORSAllowedOrigin:        strings.TrimSpace(raw.CORSAllowedOrigin),
 		RequestJitter:            requestJitter,
 		CLIVersion:               strings.TrimSpace(raw.CLIVersion),
-		ModelAliases:             modelAliases,
 		TransientRetries:         transientRetries,
 		SessionPersist:           raw.SessionPersist,
 		SessionStateFile:         strings.TrimSpace(raw.SessionStateFile),
@@ -529,8 +453,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		SessionProbeCacheTTL:     sessionProbeCacheTTL,
 		ModelUnavailableCacheTTL: modelUnavailableCacheTTL,
 		WebhookURL:               strings.TrimSpace(raw.WebhookURL),
-		FallbackAfter:            fallbackAfter,
-		FallbackModels:           fallbackModels,
 		AdoptCLISession:          raw.AdoptCLISession,
 		MaturityEnabled:          raw.MaturityEnabled,
 		MaturityDryRun:           raw.MaturityDryRun,
@@ -543,7 +465,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		TokenMaxConcurrent:       tokenMaxConcurrent,
 		QueueWait:                queueWait,
 		QueueDepth:               queueDepth,
-		QuotaFallbackModels:      quotaFallbackModels,
 		WaitingRoomChain:         raw.WaitingRoomChain,
 		RateLimitPerIP:           rateLimitPerIP,
 		RateLimitBurst:           rateLimitBurst,
@@ -699,9 +620,6 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.LogLevel, get, "LOG_LEVEL")
 	overrideStringFrom(&raw.LogFormat, get, "LOG_FORMAT")
 	overrideBoolFrom(&raw.LogAccess, get, "LOG_ACCESS")
-	overrideIntFrom(&raw.LogRingSize, get, "LOG_RING_SIZE")
-	overrideStringFrom(&raw.LogConsoleWindow, get, "LOG_CONSOLE_WINDOW")
-	overrideStringFrom(&raw.LogTableRetention, get, "LOG_TABLE_RETENTION")
 	overrideBoolFrom(&raw.BridgeEnabled, get, "BRIDGE_ENABLED")
 	overrideStringFrom(&raw.BridgeIdleEvict, get, "BRIDGE_IDLE_EVICT")
 	overrideStringFrom(&raw.IdleRotationTimeout, get, "IDLE_ROTATION_TIMEOUT")
@@ -715,7 +633,6 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.CORSAllowedOrigin, get, "CORS_ALLOWED_ORIGIN")
 	overrideStringFrom(&raw.RequestJitter, get, "REQUEST_JITTER")
 	overrideStringFrom(&raw.CLIVersion, get, "CLI_VERSION")
-	overrideStringFrom(&raw.ModelAliases, get, "MODEL_ALIASES")
 	overrideIntFrom(&raw.TransientRetries, get, "TRANSIENT_RETRIES")
 	overrideBoolFrom(&raw.SessionPersist, get, "SESSION_PERSIST")
 	overrideStringFrom(&raw.SessionStateFile, get, "SESSION_STATE_FILE")
@@ -728,9 +645,6 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.SessionProbeCacheTTL, get, "SESSION_PROBE_CACHE_TTL")
 	overrideStringFrom(&raw.ModelUnavailableCacheTTL, get, "MODEL_UNAVAILABLE_CACHE_TTL")
 	overrideStringFrom(&raw.WebhookURL, get, "WEBHOOK_URL")
-	overrideStringFrom((*string)(&raw.QuotaFallbackModels), get, "QUOTA_FALLBACK_MODELS")
-	overrideStringFrom(&raw.FallbackAfter, get, "FALLBACK_AFTER_MS")
-	overrideStringFrom(&raw.FallbackModels, get, "FALLBACK_MODEL")
 	overrideBoolFrom(&raw.AdoptCLISession, get, "ADOPT_CLI_SESSION")
 	overrideBoolFrom(&raw.MaturityEnabled, get, "MATURITY_ENABLED")
 	overrideBoolFrom(&raw.MaturityDryRun, get, "MATURITY_DRY_RUN")

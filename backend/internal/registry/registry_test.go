@@ -460,63 +460,17 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Errorf("unexpected final model count %d", len(models))
 	}
 }
-func TestModelAliases(t *testing.T) {
-	cfg := &config.Config{
-		ModelAliases: map[string]string{
-			"gpt-4o": "deepseek/deepseek-v4-flash",
-			"glm":    "z-ai/glm-5.2",
-		},
-	}
-	r := New(cfg, nil)
+func TestResolveModelIdentity(t *testing.T) {
+	r := New(&config.Config{}, nil)
 	r.LoadFallback()
 
-	if got := r.ResolveModel("gpt-4o"); got != "deepseek/deepseek-v4-flash" {
-		t.Errorf("ResolveModel(gpt-4o) = %q, want deepseek/deepseek-v4-flash", got)
+	// MODEL_ALIASES is excised: ids resolve to themselves (suffix stripping
+	// aside) — a short id like "gpt-4o" is NOT rewritten.
+	if got := r.ResolveModel("gpt-4o"); got != "gpt-4o" {
+		t.Errorf("ResolveModel(gpt-4o) = %q, want gpt-4o (no alias rewriting)", got)
 	}
 	if got := r.ResolveModel("unknown"); got != "unknown" {
 		t.Errorf("ResolveModel(unknown) = %q, want unknown", got)
-	}
-
-	agent, err := r.AgentForModel("gpt-4o")
-	if err != nil {
-		t.Fatalf("AgentForModel(gpt-4o) error: %v", err)
-	}
-	// deepseek-v4-flash routes to its per-model root via the fallback root
-	// map, exactly like a live refresh.
-	if agent != "base2-free-deepseek-flash" {
-		t.Errorf("AgentForModel(gpt-4o) = %q, want base2-free-deepseek-flash", agent)
-	}
-}
-
-// TestSetConfigUpdatesAliases verifies a runtime config swap (dashboard
-// save / /admin/reload) is reflected by alias resolution without a restart:
-// the registry must read MODEL_ALIASES through the atomic pointer, not the
-// startup pointer.
-func TestSetConfigUpdatesAliases(t *testing.T) {
-	cfg := &config.Config{
-		ModelAliases: map[string]string{"gpt-4o": "deepseek/deepseek-v4-flash"},
-	}
-	r := New(cfg, nil)
-	r.LoadFallback()
-
-	if got := r.ResolveModel("gpt-4o"); got != "deepseek/deepseek-v4-flash" {
-		t.Fatalf("ResolveModel(gpt-4o) before SetConfig = %q, want deepseek/deepseek-v4-flash", got)
-	}
-
-	r.SetConfig(&config.Config{
-		ModelAliases: map[string]string{"gpt-4o": "z-ai/glm-5.2", "glm": "z-ai/glm-5.2"},
-	})
-	if got := r.ResolveModel("gpt-4o"); got != "z-ai/glm-5.2" {
-		t.Errorf("ResolveModel(gpt-4o) after SetConfig = %q, want z-ai/glm-5.2 (reload must apply)", got)
-	}
-	if got := r.ResolveModel("glm"); got != "z-ai/glm-5.2" {
-		t.Errorf("ResolveModel(glm) after SetConfig = %q, want z-ai/glm-5.2 (new alias must apply)", got)
-	}
-
-	// Clearing the config must fall back to identity resolution.
-	r.SetConfig(nil)
-	if got := r.ResolveModel("gpt-4o"); got != "gpt-4o" {
-		t.Errorf("ResolveModel(gpt-4o) after SetConfig(nil) = %q, want unchanged", got)
 	}
 }
 
@@ -623,37 +577,14 @@ func TestSetSourcesNilRestoresDefaults(t *testing.T) {
 	}
 }
 
-// TestModelAliasesOneHop verifies alias resolution is one-hop only: an alias
-// whose value is itself an alias resolves to that alias, never recursed
-// (R5, documented in ResolveModel).
-func TestModelAliasesOneHop(t *testing.T) {
-	cfg := &config.Config{
-		ModelAliases: map[string]string{
-			"alias-a": "alias-b",
-			"alias-b": "deepseek/deepseek-v4-flash",
-		},
-	}
-	r := New(cfg, nil)
-	if got := r.ResolveModel("alias-a"); got != "alias-b" {
-		t.Errorf("ResolveModel(alias-a) = %q, want alias-b (one hop only, no recursion)", got)
-	}
-	if got := r.ResolveModel("alias-b"); got != "deepseek/deepseek-v4-flash" {
-		t.Errorf("ResolveModel(alias-b) = %q, want deepseek/deepseek-v4-flash", got)
-	}
-}
-
-// TestAgentForModelAliasToUnmappedModel verifies an alias resolving to a
-// model that is absent from the registry surfaces ErrModelNotFound (the
-// alias is resolved first, then the lookup misses).
+// TestAgentForModelAliasToUnmappedModel verifies a model id absent from the
+// registry surfaces ErrModelNotFound.
 func TestAgentForModelAliasToUnmappedModel(t *testing.T) {
-	cfg := &config.Config{
-		ModelAliases: map[string]string{"gpt-4o": "not/in-the-registry"},
-	}
-	r := New(cfg, nil)
+	r := New(&config.Config{}, nil)
 	r.LoadFallback()
 
-	if _, err := r.AgentForModel("gpt-4o"); !errors.Is(err, ErrModelNotFound) {
-		t.Fatalf("AgentForModel(alias→unmapped) err = %v, want ErrModelNotFound", err)
+	if _, err := r.AgentForModel("not/in-the-registry"); !errors.Is(err, ErrModelNotFound) {
+		t.Fatalf("AgentForModel(unknown) err = %v, want ErrModelNotFound", err)
 	}
 }
 
@@ -854,14 +785,13 @@ func TestRefreshLogsSuccess(t *testing.T) {
 	}
 }
 
-// TestResolveModelSuffixStripping pins the simplified resolution: alias
-// mapping plus suffix stripping only. The proxy NEVER auto-upgrades base
-// models to their -max variants (those are per-account upstream provisions),
-// so "(max)"/":max" suffixes resolve to the bare base id.
+// TestResolveModelSuffixStripping pins the simplified resolution: suffix
+// stripping only (MODEL_ALIASES is excised — unknown ids are never remapped).
+// The proxy NEVER auto-upgrades base models to their -max variants (those are
+// per-account upstream provisions), so "(max)"/":max" suffixes resolve to the
+// bare base id.
 func TestResolveModelSuffixStripping(t *testing.T) {
-	r := New(&config.Config{
-		ModelAliases: map[string]string{"gpt-4o": "deepseek/deepseek-v4-pro"},
-	}, nil)
+	r := New(&config.Config{}, nil)
 	r.LoadFallback()
 
 	cases := []struct {
@@ -882,13 +812,13 @@ func TestResolveModelSuffixStripping(t *testing.T) {
 		{"openai/gpt-5.6-luna-max", "openai/gpt-5.6-luna-max"},
 		{"minimax/minimax-m3(high)", "minimax/minimax-m3"},
 		{"minimax/minimax-m3(max)", "minimax/minimax-m3"},
-		{"gpt-4o", "deepseek/deepseek-v4-pro"},
-		{"gpt-4o(max)", "deepseek/deepseek-v4-pro"},
+		{"gpt-4o", "gpt-4o"},
+		{"gpt-4o(max)", "gpt-4o"},
 		// Claude Code 1M-context marker (reference/agents/claude-code):
-		// "[1m]"/"[200k]" strip to the bare id, aliases still resolve.
+		// "[1m]"/"[200k]" strip to the bare id.
 		{"deepseek/deepseek-v4-flash[1m]", "deepseek/deepseek-v4-flash"},
 		{"deepseek/deepseek-v4-pro[200k]", "deepseek/deepseek-v4-pro"},
-		{"gpt-4o[1m]", "deepseek/deepseek-v4-pro"},
+		{"gpt-4o[1m]", "gpt-4o"},
 		{"claude-sonnet-4-5[1m]", "claude-sonnet-4-5"},
 		{"unknown", "unknown"},
 	}

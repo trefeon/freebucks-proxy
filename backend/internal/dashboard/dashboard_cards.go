@@ -682,11 +682,9 @@ func (d *Dashboard) bridgeCards(show bool) []bridgeTokenCard {
 // --- models ---
 
 type modelsData struct {
-	Models     []modelRow `json:"models"`
-	Count      int        `json:"count"`
-	Agents     int        `json:"agents"`
-	Aliases    []aliasRow `json:"aliases"`
-	HasAliases bool       `json:"has_aliases"`
+	Models []modelRow `json:"models"`
+	Count  int        `json:"count"`
+	Agents int        `json:"agents"`
 }
 
 type modelRow struct {
@@ -738,11 +736,6 @@ func unmeteredModels(reg *registry.Registry) []unmeteredRow {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
-}
-
-type aliasRow struct {
-	Alias string `json:"alias"`
-	Real  string `json:"real"`
 }
 
 // quotaFor returns the price label for a model row, Freebucks-based like the
@@ -868,12 +861,6 @@ func (d *Dashboard) modelsData() modelsData {
 	// rows sort last.
 	sortModelRowsByPrice(md.Models, effectivePrices)
 	md.Count = len(md.Models)
-	cfg := d.cfg()
-	for alias, real := range cfg.ModelAliases {
-		md.Aliases = append(md.Aliases, aliasRow{Alias: alias, Real: real})
-	}
-	sort.Slice(md.Aliases, func(i, j int) bool { return md.Aliases[i].Alias < md.Aliases[j].Alias })
-	md.HasAliases = len(md.Aliases) > 0
 	return md
 }
 

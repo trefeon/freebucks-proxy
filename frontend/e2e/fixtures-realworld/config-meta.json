@@ -134,17 +134,6 @@
     "description": "Log level (trace = wire-level bodies)."
   },
   {
-    "key": "LOG_RING_SIZE",
-    "group": "general",
-    "kind": "int",
-    "default": "500",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "In-memory log ring capacity behind the dashboard log viewer (50-5000)."
-  },
-  {
     "key": "SAFE_MODE",
     "group": "general",
     "kind": "bool",
@@ -493,28 +482,6 @@
     "description": "Global daily chat cap across ALL bridge-mode entries (0 = unlimited)."
   },
   {
-    "key": "FALLBACK_AFTER_MS",
-    "group": "quota",
-    "kind": "int",
-    "default": "0",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Queue-wait threshold (ms) before re-routing to FALLBACK_MODEL; 0 (default) disables fallback. Queue-wait only — never on 429 quota exhaustion."
-  },
-  {
-    "key": "FALLBACK_MODEL",
-    "group": "quota",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Map model=fallback (comma-separated) to re-route a request when its queue wait passes FALLBACK_AFTER_MS. Empty default: no fallback."
-  },
-  {
     "key": "MAX_MESSAGES_PER_DAY",
     "group": "quota",
     "kind": "int",
@@ -555,17 +522,6 @@
     "essential": false,
     "hidden": true,
     "description": "Advisory per-token Pacific-day spend ceiling in ledger units (0 = unlimited). Never enforced — surfacing only, on /healthz."
-  },
-  {
-    "key": "QUOTA_FALLBACK_MODELS",
-    "group": "quota",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Map model=fallback when its session quota is exhausted or unentitled (comma-separated k=v pairs). Empty default: no fallback (surfaces honest 429 with guidance to switch model)."
   },
   {
     "key": "CACHE_CONTROL_INJECTION",
@@ -632,16 +588,6 @@
     "essential": false,
     "hidden": true,
     "description": "/v1/models prunes models marked unavailable (region/tier demotion, quota exhaustion); off by default so a stale signal never hides a working model."
-  },
-  {
-    "key": "MODEL_ALIASES",
-    "group": "upstream",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": true,
-    "description": "Map aliases to real model IDs (e.g. gpt-4o:openai/gpt-5.6-luna; comma-separated). No built-in aliases — clients must map explicitly."
   },
   {
     "key": "REASONING_IN_CONTENT",

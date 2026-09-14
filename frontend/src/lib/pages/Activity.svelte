@@ -224,7 +224,7 @@
       onSaved={settingsOverlaySaved}
       onlyGroups={["general"]}
       cardTitle="Logging & Diagnostics"
-      cardDescription="Log output, retention, console windows, and diagnostics."
+      cardDescription="Log output and diagnostics."
     />
   {:else}
     {#if tab === "live"}

@@ -300,11 +300,10 @@ func TestSettingsWithoutStore(t *testing.T) {
 func TestSettingsPostRestartOnlyMatrix(t *testing.T) {
 	ts, cookie, csrf := settingsTestServer(t)
 	for key, value := range map[string]string{
-		"LOG_LEVEL":     "debug",
-		"LOG_FORMAT":    "json",
-		"LOG_FILE":      "proxy.log",
-		"LOG_RING_SIZE": "600",
-		"LISTEN_ADDR":   "127.0.0.1:3458",
+		"LOG_LEVEL":   "debug",
+		"LOG_FORMAT":  "json",
+		"LOG_FILE":    "proxy.log",
+		"LISTEN_ADDR": "127.0.0.1:3458",
 	} {
 		code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
 			map[string]any{"key": key, "value": value})
@@ -320,7 +319,7 @@ func TestSettingsPostRestartOnlyMatrix(t *testing.T) {
 		}
 	}
 	entries := settingsSources(t, ts, cookie)
-	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LOG_RING_SIZE", "LISTEN_ADDR"} {
+	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LISTEN_ADDR"} {
 		if entries[key]["source"] != "db" {
 			t.Errorf("%s source = %v, want db after POST", key, entries[key]["source"])
 		}

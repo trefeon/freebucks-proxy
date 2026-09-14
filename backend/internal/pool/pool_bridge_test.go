@@ -721,42 +721,6 @@ func TestHardBannedBridgeEntrySkipsMaintainAndPoll(t *testing.T) {
 	}
 }
 
-// TestAcquireBridgeFallbackDepthGuard pins the QUOTA_FALLBACK_MODELS
-// recursion backstop in bridge mode: a fallback cycle (each admission
-// refused quota-exhausted with a different model name than requested)
-// degrades to the bounded error instead of an unbounded recursion.
-func TestAcquireBridgeFallbackDepthGuard(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgePool(t, mock)
-	cfg := p.cfg.Load()
-	cfg.QuotaFallbackModels = map[string]string{
-		"openai/gpt-5.6-luna":      "anthropic/claude-fable-5",
-		"anthropic/claude-fable-5": "openai/gpt-5.6-luna",
-	}
-	p.cfg.Store(cfg)
-	const quotaBody = `{"model":"mimo/mimo-v2.5","limit":3,"period":"pacific_day","resetAt":"2026-08-12T07:00:00.000Z","recentCount":3.6,"status":"rate_limited","retryAfterMs":48549499}`
-	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method == http.MethodPost {
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = io.WriteString(w, quotaBody)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-depth"}`)
-	}
-
-	_, err := p.AcquireBridge(context.Background(), "depth-tok", "openai/gpt-5.6-luna")
-	if err == nil {
-		t.Fatal("want fallback-cycle error, got a lease")
-		return
-	}
-	if !strings.Contains(err.Error(), "cycle") {
-		t.Fatalf("err = %v, want QUOTA_FALLBACK_MODELS cycle detection", err)
-	}
-}
-
 // TestHybridPooledCredentialRefusedOnBridge pins the hybrid guard: in
 // hybrid mode a client credential that equals a pooled AUTH_TOKENS entry
 // must not be relayed as a bridge token — the same upstream account would

@@ -39,8 +39,6 @@ func (c Config) Validate() error {
 		return errors.New("SESSION_STATE_FILE cannot be empty when SESSION_PERSIST is enabled")
 	case c.CostMode != "" && c.CostMode != "free":
 		return errors.New(`COST_MODE must be "free" or unset -- any other value (e.g. a typo) routes requests as PAID and fresh free accounts get 402 "Out of credits"`)
-	case c.LogRingSize != 0 && (c.LogRingSize < 50 || c.LogRingSize > 5000):
-		return errors.New("LOG_RING_SIZE must be between 50 and 5000 (default 500)")
 	case c.RateLimitPerIP < 0:
 		return errors.New("RATE_LIMIT_PER_IP cannot be negative")
 	case c.RateLimitBurst < 0:
@@ -52,33 +50,8 @@ func (c Config) Validate() error {
 	case c.TokenMaxConcurrent < 0:
 		return errors.New("TOKEN_MAX_CONCURRENT cannot be negative (0 = unlimited)")
 	}
-	for src, target := range c.QuotaFallbackModels {
-		if strings.TrimSpace(src) == "" || strings.TrimSpace(target) == "" {
-			return errors.New("QUOTA_FALLBACK_MODELS cannot contain empty model IDs")
-		}
-		if src == target {
-			return fmt.Errorf("QUOTA_FALLBACK_MODELS source and target cannot be identical: %q", src)
-		}
-	}
-	// Multi-hop cycle detection (issue #219): a→b→a passes the self-loop
-	// check above but drives unbounded Acquire recursion (stack overflow)
-	// when every token is quota-capped. Walk each chain to its sink and
-	// reject any revisit.
-	for src := range c.QuotaFallbackModels {
-		seen := map[string]bool{}
-		cur := src
-		for {
-			next, ok := c.QuotaFallbackModels[cur]
-			if !ok {
-				break
-			}
-			if seen[cur] {
-				return fmt.Errorf("QUOTA_FALLBACK_MODELS contains a cycle: %q", cur)
-			}
-			seen[cur] = true
-			cur = next
-		}
-	}
+	// Model fallback is excised: saved QUOTA_FALLBACK_MODELS values are
+	// tolerated as unknown keys and ignored, so there is nothing to validate.
 
 	if c.WebhookURL != "" {
 		u, err := url.Parse(c.WebhookURL)

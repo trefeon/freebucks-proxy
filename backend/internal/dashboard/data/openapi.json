@@ -994,29 +994,8 @@
           "agents": {
             "type": "integer"
           },
-          "aliases": {
-            "items": {
-              "properties": {
-                "alias": {
-                  "type": "string"
-                },
-                "real": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "alias",
-                "real"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
           "count": {
             "type": "integer"
-          },
-          "has_aliases": {
-            "type": "boolean"
           },
           "models": {
             "items": {
@@ -1078,9 +1057,7 @@
         },
         "required": [
           "agents",
-          "aliases",
           "count",
-          "has_aliases",
           "models"
         ],
         "type": "object"

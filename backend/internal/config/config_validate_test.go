@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -226,9 +225,6 @@ func TestValidate(t *testing.T) {
 		{"invalid listen port non-int", func(c *Config) { c.ListenAddr = "127.0.0.1:abc" }},
 		{"invalid listen port overflow", func(c *Config) { c.ListenAddr = "127.0.0.1:99999" }},
 		{"invalid listen port zero", func(c *Config) { c.ListenAddr = "127.0.0.1:0" }},
-		{"quota fallback self-loop", func(c *Config) { c.QuotaFallbackModels = map[string]string{"a": "a"} }},
-		{"quota fallback multi-hop cycle", func(c *Config) { c.QuotaFallbackModels = map[string]string{"a": "b", "b": "a"} }},
-		{"quota fallback three-hop cycle", func(c *Config) { c.QuotaFallbackModels = map[string]string{"a": "b", "b": "c", "c": "a"} }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -338,85 +334,6 @@ func TestTransientRetries(t *testing.T) {
 		return
 	}
 	t.Setenv("TRANSIENT_RETRIES", "")
-}
-
-// TestLogRingSize pins the T19 LOG_RING_SIZE knob: default 500 when unset,
-// an empty value keeps the default, explicit values must stay within
-// 50..5000 (below the floor / above the cap fail validation), and the JSON
-// and .env sources both apply.
-func TestLogRingSize(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("AUTH_TOKENS", "tok")
-
-	// default: 500 when unset
-	if cfg, err := Load(""); err != nil {
-		t.Fatalf("Load (default): %v", err)
-	} else if cfg.LogRingSize != 500 {
-		t.Errorf("LogRingSize default = %d, want 500", cfg.LogRingSize)
-	}
-
-	// explicit empty value keeps the default
-	t.Setenv("LOG_RING_SIZE", "")
-	if cfg, err := Load(""); err != nil {
-		t.Fatalf("Load (empty): %v", err)
-	} else if cfg.LogRingSize != 500 {
-		t.Errorf("LogRingSize (empty) = %d, want 500", cfg.LogRingSize)
-	}
-
-	// env source: a valid value loads
-	t.Setenv("LOG_RING_SIZE", "2000")
-	if cfg, err := Load(""); err != nil {
-		t.Fatalf("Load (env 2000): %v", err)
-	} else if cfg.LogRingSize != 2000 {
-		t.Errorf("LogRingSize (env) = %d, want 2000", cfg.LogRingSize)
-	}
-
-	// boundary values are accepted
-	for _, v := range []string{"50", "5000"} {
-		t.Setenv("LOG_RING_SIZE", v)
-		n, _ := strconv.Atoi(v)
-		if cfg, err := Load(""); err != nil {
-			t.Fatalf("Load (LOG_RING_SIZE=%s): %v", v, err)
-		} else if cfg.LogRingSize != n {
-			t.Errorf("LogRingSize (LOG_RING_SIZE=%s) = %d, want %d", v, cfg.LogRingSize, n)
-		}
-	}
-
-	// below the floor fails validation
-	t.Setenv("LOG_RING_SIZE", "49")
-	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "LOG_RING_SIZE") {
-		t.Fatalf("Load (49): err = %v, want validation error mentioning LOG_RING_SIZE", err)
-		return
-	}
-
-	// above the cap fails validation
-	t.Setenv("LOG_RING_SIZE", "5001")
-	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "LOG_RING_SIZE") {
-		t.Fatalf("Load (5001): err = %v, want validation error mentioning LOG_RING_SIZE", err)
-		return
-	}
-	t.Setenv("LOG_RING_SIZE", "")
-
-	// JSON file source
-	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"LOG_RING_SIZE": 750}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if cfg, err := Load(path); err != nil {
-		t.Fatalf("Load (file): %v", err)
-	} else if cfg.LogRingSize != 750 {
-		t.Errorf("LogRingSize (file) = %d, want 750", cfg.LogRingSize)
-	}
-
-	// .env source (applyDotenv)
-	if err := os.WriteFile(".env", []byte("AUTH_TOKENS=tok\nLOG_RING_SIZE=900\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if cfg, err := Load(""); err != nil {
-		t.Fatalf("Load (.env): %v", err)
-	} else if cfg.LogRingSize != 900 {
-		t.Errorf("LogRingSize (.env) = %d, want 900", cfg.LogRingSize)
-	}
 }
 
 func TestBadDuration(t *testing.T) {

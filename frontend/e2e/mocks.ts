@@ -182,8 +182,8 @@ export async function mockDashboard(
   });
 
   // Logs - handles ?level= & ?msg= filtering like the real Go handler, and
-  // echoes the effective view window (the ?window= override, else the
-  // LOG_CONSOLE_WINDOW default the fixture stands in for).
+  // echoes the effective view window (the ?window= override, else the 1h
+  // default the fixture stands in for).
   await page.route("**/admin/api/logs**", async (route) => {
     const url = new URL(route.request().url());
     const level = (url.searchParams.get("level") || "").toLowerCase();

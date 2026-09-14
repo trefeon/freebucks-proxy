@@ -734,29 +734,6 @@ func TestOverviewPageHasTokens(t *testing.T) {
 	}
 }
 
-// TestModelsPageAliases pins the alias table JSON.
-func TestModelsPageAliases(t *testing.T) {
-	ts, _ := pageServer(t, 1, "models", func(c *config.Config) {
-		c.ModelAliases = map[string]string{"gpt-4o": dashModel, "sonnet": "anthropic/claude-sonnet-5"}
-	}, nil)
-	resp, err := http.Get(ts.URL + "/models")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var data map[string]any
-	if err := json.Unmarshal(mustReadAll(t, resp), &data); err != nil {
-		t.Fatalf("response is not valid JSON: %v", err)
-	}
-	if data["has_aliases"] != true {
-		t.Error("has_aliases should be true")
-	}
-	aliases, _ := data["aliases"].([]any)
-	if len(aliases) != 2 {
-		t.Fatalf("aliases count = %d, want 2", len(aliases))
-	}
-}
-
 // TestTracesPageWithLiveTrace pins the chat-trace field parsing in JSON.
 func TestTracesPageWithLiveTrace(t *testing.T) {
 	ring := logring.NewHandler(slog.NewTextHandler(io.Discard, nil), 100)

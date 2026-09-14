@@ -104,16 +104,6 @@
     "description": "Log one access line per HTTP request (healthz/metrics/OPTIONS are rate-limited to 1/min regardless)."
   },
   {
-    "key": "LOG_CONSOLE_WINDOW",
-    "group": "general",
-    "kind": "text",
-    "default": "1h",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Default time window of the Activity console (Go duration, e.g. 15m, 1h, 24h). VIEW ONLY: it bounds which history rows the console asks for and never changes what is stored, so widening it reveals older entries without any reload. Zero or invalid falls back to 1h."
-  },
-  {
     "key": "LOG_FILE",
     "group": "general",
     "kind": "text",
@@ -154,26 +144,6 @@
     "secret": false,
     "essential": true,
     "description": "Log level (trace = wire-level bodies). Restart-only: the logger is configured once at boot and a reload never reconfigures it."
-  },
-  {
-    "key": "LOG_RING_SIZE",
-    "group": "general",
-    "kind": "int",
-    "default": "500",
-    "restart_only": true,
-    "secret": false,
-    "essential": false,
-    "description": "In-memory log ring capacity behind the dashboard log viewer (50-5000). Restart-only: the ring is allocated once at boot and a reload never resizes it."
-  },
-  {
-    "key": "LOG_TABLE_RETENTION",
-    "group": "general",
-    "kind": "text",
-    "default": "168h",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Storage retention for the log_entries and request_records history tables (Go duration; default 168h = 7 days). This is what the purge actually deletes: rows older than this are gone for good, so keep it at least as long as the console window you want to read. Quota and maturity history keep their own 90-day retention. Zero or invalid falls back to 168h."
   },
   {
     "key": "SAFE_MODE",
@@ -544,38 +514,6 @@
     "description": "After an upstream 428 waiting_room_required, fire the reference ad-chain + streak requests before the next session create (best-effort, never blocks)."
   },
   {
-    "key": "FALLBACK_AFTER_MS",
-    "group": "quota",
-    "kind": "int",
-    "default": "0",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Queue-wait threshold (ms) before re-routing to FALLBACK_MODEL; 0 (default) disables fallback. Queue-wait only — never on 429 quota exhaustion."
-  },
-  {
-    "key": "FALLBACK_MODEL",
-    "group": "quota",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Map model=fallback (comma-separated) to re-route a request when its queue wait passes FALLBACK_AFTER_MS. Empty default: no fallback."
-  },
-  {
-    "key": "QUOTA_FALLBACK_MODELS",
-    "group": "quota",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Map model=fallback when its session quota is exhausted or unentitled (comma-separated k=v pairs). Empty default: no fallback (surfaces honest 429 with guidance to switch model)."
-  },
-  {
     "key": "CACHE_CONTROL_INJECTION",
     "group": "upstream",
     "kind": "bool",
@@ -639,16 +577,6 @@
     "secret": false,
     "essential": false,
     "description": "/v1/models prunes models marked unavailable (region/tier demotion, quota exhaustion); off by default so a stale signal never hides a working model."
-  },
-  {
-    "key": "MODEL_ALIASES",
-    "group": "upstream",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": true,
-    "description": "Map aliases to real model IDs (e.g. gpt-4o:openai/gpt-5.6-luna; comma-separated). No built-in aliases — clients must map explicitly."
   },
   {
     "key": "REASONING_IN_CONTENT",

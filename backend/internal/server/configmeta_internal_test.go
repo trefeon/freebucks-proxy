@@ -36,14 +36,14 @@ func TestConfigCatalogRestartOnlyMatchesServer(t *testing.T) {
 }
 
 // TestRestartOnlyIncludesLoggerAndListener pins the review finding that the
-// logger (LOG_LEVEL/LOG_FORMAT/LOG_FILE/LOG_RING_SIZE) and the listener
+// logger (LOG_LEVEL/LOG_FORMAT/LOG_FILE) and the listener
 // socket (LISTEN_ADDR) are reload-proof: applyReloadedConfig never touches
 // the logger and the socket never re-binds, so both the server set (which
 // drives the .env-save message) and the catalog flags (which drive the
 // settings POST code) must carry them. Agreement itself is pinned by
 // TestConfigCatalogRestartOnlyMatchesServer above.
 func TestRestartOnlyIncludesLoggerAndListener(t *testing.T) {
-	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LOG_RING_SIZE", "LISTEN_ADDR"} {
+	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LISTEN_ADDR"} {
 		found := false
 		for _, k := range restartOnlyConfigKeys {
 			if k == key {

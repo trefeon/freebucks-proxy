@@ -86,16 +86,6 @@ func (p *Pool) AcquireBridge(ctx context.Context, clientToken, model string) (*L
 	if clientToken == "" {
 		return nil, errors.New("bridge: empty client token")
 	}
-	// QUOTA_FALLBACK_MODELS recursion backstop (mirrors the pooled path in
-	// Acquire): the bridge fallback chain is bounded by a depth counter
-	// carried in ctx, so a fallback cycle degrades to an error instead of a
-	// stack overflow.
-	depth, _ := ctx.Value(fallbackDepthKey{}).(int)
-	if depth >= maxFallbackDepth {
-		return nil, errors.New("pool: QUOTA_FALLBACK_MODELS cycle detected (max fallback depth reached); check QUOTA_FALLBACK_MODELS for a loop")
-	}
-	ctx = context.WithValue(ctx, fallbackDepthKey{}, depth+1)
-
 	// Post-drain re-admission gate (mirrors Acquire): no session POST or
 	// run START once Shutdown is draining.
 	if p.draining.Load() {
@@ -278,21 +268,6 @@ admitRetry:
 				p.bridgeMu.Lock()
 				p.bridgeRecordSpendLimited(entry)
 				p.bridgeMu.Unlock()
-			}
-			if isQuotaExhaustedError(rle) {
-				if fb := cfg.QuotaFallbackModels[model]; fb != "" && fb != model {
-					p.logger.Info("pool: bridge token quota exhausted on admission, falling back", "token", bridgeTokenLabel(entry), "requested", model, "fallback", fb)
-					// Drop this model's live-turn slot BEFORE the recursive
-					// acquire: the fallback contends the same bridge entry's
-					// lane, and holding it would park the child behind its
-					// parent until QUEUE_WAIT (a 429 at cap 1).
-					routeSlot.Release()
-					fbLease, fbErr := p.AcquireBridge(ctx, clientToken, fb)
-					if fbLease != nil {
-						fbLease.FallbackReason = "quota_exhausted"
-					}
-					return fbLease, fbErr
-				}
 			}
 		}
 		if lie := c.limitedIp; lie != nil {

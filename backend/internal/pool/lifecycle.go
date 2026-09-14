@@ -177,22 +177,6 @@ func (p *Pool) InvalidateLeaseRun(lease *Lease, agentID string) {
 	lease.entry.runs.Invalidate(agentID)
 }
 
-// ClearQueuedCaches drops every token's cached QUEUED session (issue #100):
-// the queue-time model fallback calls this before re-acquiring with the
-// fallback model, so the fallback acquire creates a fresh session instead of
-// re-surfacing the same waiting room. Returns how many queued caches were
-// cleared. Other states (active/disabled) are untouched.
-func (p *Pool) ClearQueuedCaches() int {
-	toks := p.roster.Load()
-	cleared := 0
-	for _, tok := range *toks {
-		if tok.session.ClearQueued() {
-			cleared++
-		}
-	}
-	return cleared
-}
-
 // InvalidateBridgeSession drops the cached free session of the bridge
 // entry so the next AcquireBridge re-creates it (session-invalid recovery).
 // Guarded to the lease's instance id (issue #132) — see InvalidateSession.

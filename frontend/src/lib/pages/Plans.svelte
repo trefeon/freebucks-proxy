@@ -182,7 +182,7 @@
       onSaved={settingsOverlaySaved}
       onlyGroups={["upstream", "quota"]}
       cardTitle="Upstream & Quota"
-      cardDescription="Upstream behavior, fallbacks, and quotas."
+      cardDescription="Upstream behavior and quotas."
     />
   {:else}
     <div class="flex flex-col gap-5">

@@ -58,21 +58,10 @@ type Config struct {
 	LogLevel          string // "" (use -v/default) or debug|info|warn|error|trace
 	LogFormat         string // "text" (default) or "json"
 	LogAccess         bool   // true = per-request access log lines (LOG_ACCESS; default true, an empty .env line keeps it enabled)
-	// LogRingSize is the bounded in-memory log ring capacity behind the
-	// dashboard log viewer (LOG_RING_SIZE; default 500, validated 50..5000).
-	LogRingSize int
-	// LogConsoleWindow is the dashboard log console's default VIEW window
-	// (LOG_CONSOLE_WINDOW; default 1h). It only bounds which rows the console
-	// query asks for — it never changes what the spill stores, so shrinking
-	// it hides nothing permanently. A non-positive value falls back to the
-	// default at load.
-	LogConsoleWindow time.Duration
-	// LogTableRetention is the storage retention age applied to log_entries
-	// AND request_records by the history purge (LOG_TABLE_RETENTION; default
-	// 168h = 7d). Quota and maturity history keep their own 90d retention.
-	// A non-positive value falls back to the default at load: a zero age
-	// would delete every history row on the next purge tick.
-	LogTableRetention   time.Duration
+	// The dashboard log surface is hardcoded: the viewer ring holds 500
+	// records, the console's default VIEW window is 1h, and the history
+	// purge keeps log_entries/request_records for 168h (7d). Quota and
+	// maturity history keep their own 90d retention.
 	IdleRotationTimeout time.Duration // 0 = disabled: pause rotation/refresh after this idle period
 	SessionIdleEnd      time.Duration // 0 = disabled: end upstream sessions after this idle period (SESSION_IDLE_END)
 	// BridgeEnabled gates bridge-mode traffic when AUTH_TOKENS are configured
@@ -91,7 +80,7 @@ type Config struct {
 	// ModelsAllow is the operator-set model allowlist (MODELS_ALLOW,
 	// comma-separated). When non-empty, /v1/models lists only the allowed
 	// ids and chat/messages/responses requests whose RESOLVED model (after
-	// registry alias resolution and -max upgrades) is not listed are
+	// registry suffix stripping) is not listed are
 	// rejected with 404 model_not_found ("model not allowed by
 	// MODELS_ALLOW"). Empty = no restriction.
 	ModelsAllow       []string
@@ -106,10 +95,9 @@ type Config struct {
 	// unlocked (today's behavior). Parsed at Load; malformed values
 	// reject the config.
 	ModelLocks       map[int][]string
-	ModelAliases     map[string]string // map model alias -> real model ID (#25)
-	TransientRetries int               // max additional attempts after a transient transport failure (0 = disabled; default 1)
-	SessionPersist   bool              // true = persist session state to disk so restart resumes unexpired sessions (SESSION_PERSIST)
-	SessionStateFile string            // path to the session state file (SESSION_STATE_FILE; default .freebuff-session-state.json)
+	TransientRetries int    // max additional attempts after a transient transport failure (0 = disabled; default 1)
+	SessionPersist   bool   // true = persist session state to disk so restart resumes unexpired sessions (SESSION_PERSIST)
+	SessionStateFile string // path to the session state file (SESSION_STATE_FILE; default .freebuff-session-state.json)
 	// RunFinishQueueSize is the bounded deferred-FINISH worker queue size
 	// (issue #90, RUN_FINISH_QUEUE_SIZE default 64): rotated/drained runs
 	// are FINISHed by a background worker; when the queue is full the caller
@@ -137,9 +125,9 @@ type Config struct {
 	// ModelUnavailableCacheTTL is how long a model_unavailable admission
 	// refusal is remembered per model (issue #158,
 	// MODEL_UNAVAILABLE_CACHE_TTL default 1h): off-window models
-	// short-circuit to the fallback within the TTL (or until the parsed
-	// availability window re-opens, whichever is sooner) instead of burning
-	// a 409 roundtrip per request.
+	// short-circuit to the cheapest served fallback within the TTL (or until
+	// the parsed availability window re-opens, whichever is sooner) instead
+	// of burning a 409 roundtrip per request.
 	ModelUnavailableCacheTTL time.Duration
 	// WebhookURL fires best-effort alert POSTs when the token pool is
 	// exhausted or a token is classified banned (issue #48, WEBHOOK_URL;
@@ -147,27 +135,10 @@ type Config struct {
 	// ...}; at most one POST per event type per 5m; never blocks the
 	// request path.
 	WebhookURL string
-	// FallbackAfter is the queue-wait threshold for model fallback (issue
-	// #100, FALLBACK_AFTER_MS default 10000): when a request's acquire is
-	// answered with a waiting-room/queue delay at least this long AND a
-	// fallback model is configured for the requested model
-	// (FallbackModels), the request is re-routed to the fallback model for
-	// the same token instead of surfacing 503. 0 disables fallback.
-	FallbackAfter time.Duration
-	// FallbackModels maps a requested model to the model served instead
-	// when the queue wait reaches FallbackAfter (issue #100,
-	// FALLBACK_MODEL; default empty = no fallback). Operators opt in with
-	// their own pairs (e.g. meta/muse-spark-1.2-contributor=openai/gpt-5.6-luna).
-	// Referral-gated models (z-ai/glm-5.2) are handled via QUOTA_FALLBACK_MODELS.
-	// The proxy path fires only when the pool surfaces a waiting-room/queue delay ≥ FallbackAfter
-	// for the requested model (issue #100) — 429 quota exhaustion NEVER
-	// falls back (anti-ban invariant §10).
-	FallbackModels map[string]string
-	// QuotaFallbackModels maps a model to its fallback model when its session
-	// quota is exhausted or unentitled (QUOTA_FALLBACK_MODELS; comma-separated k=v pairs).
-	// Default: empty — quota exhaustion surfaces an honest 429 with no automatic
-	// fallback (kept per revamp decision: Hidden, cycle-validated, depth-guarded).
-	QuotaFallbackModels map[string]string
+	// Model fallback is excised: queue-wait re-routing (FALLBACK_AFTER_MS /
+	// FALLBACK_MODEL) and session-quota re-routing (QUOTA_FALLBACK_MODELS)
+	// are gone. A queued request surfaces 503 waiting_room_queued and quota
+	// exhaustion surfaces an honest 429 — no automatic re-routing.
 	// AdoptCLISession, when enabled (ADOPT_CLI_SESSION=false default),
 	// makes the proxy behave like the official CLI for a single account:
 	// with AUTH_TOKENS empty the token is sourced from

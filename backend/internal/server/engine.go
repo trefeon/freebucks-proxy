@@ -2,17 +2,13 @@ package server
 
 import (
 	"context"
-	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"time"
 
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/phasetiming"
 	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
 )
 
@@ -59,46 +55,6 @@ func (b *timedBackend) Acquire(ctx context.Context, model string) (*pool.Lease, 
 	start := time.Now()
 	l, err := b.chatBackend.Acquire(ctx, model)
 	b.phases.Since(phasetiming.AcquireMS, start)
-	return l, err
-}
-
-// fallbackBackend wraps the pooled chatBackend with the issue #100 bounded
-// queue-time model fallback: when the requested model's acquire surfaces a
-// waiting-room delay of at least fallbackAfter, the SAME token is re-routed
-// to the fallback model instead of handing the client a 503. Conservative:
-// only when a fallback is configured; the switch is surfaced to the client
-// via the response header and the routing log line.
-type fallbackBackend struct {
-	chatBackend
-	p             *pool.Pool
-	model         string
-	fallbackModel string
-	fallbackAfter time.Duration
-	fallbackUsed  *bool
-	logger        *slog.Logger
-}
-
-func (b *fallbackBackend) Acquire(ctx context.Context, model string) (*pool.Lease, error) {
-	l, err := b.chatBackend.Acquire(ctx, model)
-	if err == nil || errors.Is(err, registry.ErrModelNotFound) {
-		return l, err
-	}
-	var wr *session.WaitingRoomError
-	if errors.As(err, &wr) && wr.RetryAfter >= b.fallbackAfter {
-		b.logger.Info("model fallback: waiting room exceeds FALLBACK_AFTER_MS; switching model",
-			"model", model, "fallback", b.fallbackModel, "retry_after", wr.RetryAfter.String())
-		// Drop the queued session caches so the fallback-model acquire can
-		// CREATE a fresh session instead of re-surfacing the same waiting
-		// room (issue #100).
-		if cleared := b.p.ClearQueuedCaches(); cleared > 0 {
-			b.logger.Debug("model fallback: cleared queued session caches", "cleared", cleared)
-		}
-		l2, err2 := b.chatBackend.Acquire(ctx, b.fallbackModel)
-		if err2 == nil {
-			*b.fallbackUsed = true
-		}
-		return l2, err2
-	}
 	return l, err
 }
 
@@ -159,7 +115,6 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		// No stamped snapshot (direct handler calls in tests): load live.
 		cfg = s.cfg.Load()
 	}
-	fallbackUsed := false
 	tok := bearerToken(r)
 	bridge := false
 	// Hybrid (default when AUTH_TOKENS set): the pool and the bridge share
@@ -210,8 +165,8 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		}
 	}
 	// The chatBackend abstracts the pooled-vs-bridge acquire/chat/invalidate/
-	// cooldown/lease hooks (issue #255); the timing and (pooled only) rate
-	// fallback wrappers decorate it.
+	// cooldown/lease hooks (issue #255); the timing wrapper records the
+	// acquire phase.
 	var err error
 	var be chatBackend
 	if bridge {
@@ -224,18 +179,6 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		be = bridgeBackend{p: s.pool, token: tok}
 	} else {
 		be = pooledBackend{p: s.pool}
-		// Issue #100: bounded queue-time model fallback. When the request's
-		// model has a configured fallback (FALLBACK_MODEL) and the pool
-		// surfaces a waiting-room/queue delay of at least FALLBACK_AFTER_MS,
-		// re-route the SAME token to the fallback model instead of handing
-		// the client a 503 the client would have to wait out. Conservative:
-		// only when a fallback is configured; the switch is surfaced to the
-		// client via the X-FreeBuff-Fallback-Model response header and in
-		// the routing log line.
-		fallbackModel := cfg.FallbackModels[model]
-		if cfg.FallbackAfter > 0 && fallbackModel != "" && fallbackModel != model {
-			be = &fallbackBackend{chatBackend: be, p: s.pool, model: model, fallbackModel: fallbackModel, fallbackAfter: cfg.FallbackAfter, fallbackUsed: &fallbackUsed, logger: s.logger}
-		}
 	}
 	be = &timedBackend{chatBackend: be, phases: phases}
 	up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
@@ -286,34 +229,16 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	if reasoningEffort != "" {
 		routingAttrs = append(routingAttrs, "reasoning_effort", reasoningEffort)
 	}
-	// Issue #164: fallback transparency. x-freebuff-served-model names the
-	// model this lease's session/run is actually bound to — requested model
-	// when served directly, the re-routed model after any fallback — and is
-	// set on every successful response so clients can always tell what
-	// served them. x-freebuff-fallback is set ONLY when a fallback fired,
-	// with the reason: "quota_exhausted" (pool QUOTA_FALLBACK_MODELS path,
-	// after every quota-positive token for the requested model was
-	// exhausted) or "queue_timeout" (FALLBACK_AFTER_MS waiting-room
-	// re-route, issue #100). The legacy X-FreeBuff-Fallback-Model header
-	// (issue #100) is kept for the queue-time path.
+	// Served-model transparency (issue #164, narrowed): x-freebuff-served-model
+	// names the model this lease's session/run is actually bound to —
+	// requested model when served directly — and is set on every successful
+	// response so clients can always tell what served them.
 	servedModel := lease.Model
 	if servedModel == "" {
 		servedModel = model
 	}
 	w.Header().Set("X-FreeBuff-Served-Model", servedModel)
-	fallbackReason := lease.FallbackReason
-	if fallbackUsed {
-		fallbackReason = "queue_timeout"
-		// Surface the transparent model switch to the client (issue #100):
-		// the streamed response itself is indistinguishable, so the header
-		// is the notice.
-		w.Header().Set("X-FreeBuff-Fallback-Model", cfg.FallbackModels[model])
-		routingAttrs = append(routingAttrs, "fallback", cfg.FallbackModels[model])
-	}
-	if fallbackReason != "" {
-		w.Header().Set("X-FreeBuff-Fallback", fallbackReason)
-		routingAttrs = append(routingAttrs, "served_model", servedModel)
-	} else if servedModel != model {
+	if servedModel != model {
 		// Issue #230: upstream coercion transparency. When upstream binds the
 		// session to a different model (e.g. limited-tier token coerced to mimo),
 		// surface served_model in the INFO routing log so operators immediately

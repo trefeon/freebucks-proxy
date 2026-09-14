@@ -45,17 +45,12 @@ type logEntry struct {
 }
 
 // consoleWindow resolves the view window for one request. The ?window= query
-// parameter (Go duration) overrides the LOG_CONSOLE_WINDOW knob for that
-// request; absent, unparsable, or non-positive values fall back to the knob,
-// and the result is clamped into the documented range. It is a VIEW window
-// only: the spill keeps storing everything LOG_TABLE_RETENTION allows.
+// parameter (Go duration) overrides the hardcoded 1h default view window for
+// that request; absent, unparsable, or non-positive values fall back to the
+// default, and the result is clamped into the documented range. It is a VIEW
+// window only: the spill keeps storing everything the 168h retention allows.
 func (d *Dashboard) consoleWindow(r *http.Request) time.Duration {
 	window := config.DefaultLogConsoleWindow
-	if d.cfg != nil {
-		if v := d.cfg().LogConsoleWindow; v > 0 {
-			window = v
-		}
-	}
 	if r != nil && r.URL != nil {
 		if raw := strings.TrimSpace(r.URL.Query().Get("window")); raw != "" {
 			if v, err := time.ParseDuration(raw); err == nil && v > 0 {
