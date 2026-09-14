@@ -56,13 +56,15 @@ export const NAV_ITEMS = [
     icon: FlaskConical,
     gate: "devtools",
   },
-  // REVIEW TEMP - temporary show-all page, WILL BE DELETED. Always visible,
-  // no gate, inSidebar true so the owner can click through everything.
+  // REVIEW TEMP - agent-only click-through surface, hidden from the sidebar
+  // (inSidebar:false) but still mounted by App.svelte via pageComponentFor,
+  // so #review deep-link keeps working. WILL BE DELETED.
   {
     id: "review",
     component: Review,
     label: "REVIEW-TEMP",
     icon: AlertTriangle,
+    inSidebar: false,
   },
 ];
 
