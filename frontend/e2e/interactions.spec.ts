@@ -541,7 +541,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
         await route.continue();
       }
     });
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const drain = page.getByRole("radio", { name: "Drain (Safest)" });
     const rr = page.getByRole("radio", { name: "Round Robin (1:1)" });
     await expect(drain).toHaveAttribute("aria-checked", "true");
@@ -555,7 +555,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await expect(failover).toHaveAttribute("aria-checked", "true");
     await failover.click();
     await expect(failover).toHaveAttribute("aria-checked", "false");
-    // Traffic edits batch through the Settings .env save (Save/Discard),
+    // Pool edits batch through the shared .env save (Save/Discard),
     // not immediate POSTs: one save persists both keys.
     page.once("dialog", (d) => d.accept());
     await page
@@ -706,9 +706,9 @@ test.describe("operator interactions (hermetic mocks)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 10. Settings: bridge toggle and rate-limit input persist into the save.
+  // 10. Pool: bridge toggle and rate-limit input persist into the save.
   // -------------------------------------------------------------------------
-  test("settings: bridge toggle and rate-limit input persist into the save", async ({
+  test("pool: bridge toggle and rate-limit input persist into the save", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -717,7 +717,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
     );
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
 
     // Absent from .env, the bridge switch defaults to on.

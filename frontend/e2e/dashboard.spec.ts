@@ -526,7 +526,7 @@ test.describe("dashboard hermetic mocks", () => {
     expect(savedBody).toContain("LOG_LEVEL=info");
   });
 
-  test("Settings Traffic renders relocated policy keys and saves", async ({
+  test("Pool controls render relocated policy keys and save", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -535,14 +535,13 @@ test.describe("dashboard hermetic mocks", () => {
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
     );
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
     await expect(
-      page.getByRole("heading", { name: "Settings", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("Advanced", { exact: true })).toBeVisible();
-    // Rotation policy moved from Tokens to Settings Traffic (dashboard IA
-    // merge): the failover switch lives there now, keyed by label; secrets
+    // Rotation policy moved from Settings Traffic to Pool (settings move):
+    // the failover switch lives there now, keyed by label; secrets
     // never reach the advanced list.
     const failover = page.getByRole("switch", {
       name: "Auto Failover on Rate Limit (429)",

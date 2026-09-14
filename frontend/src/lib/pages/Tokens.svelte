@@ -1,6 +1,13 @@
 <script>
   import { onMount } from "svelte";
-  import { LogIn, Plus, ExternalLink, RefreshCw } from "@lucide/svelte";
+  import {
+    LogIn,
+    Plus,
+    ExternalLink,
+    RefreshCw,
+    Save,
+    X,
+  } from "@lucide/svelte";
   import Button from "../components/Button.svelte";
   import Card from "../components/Card.svelte";
   import Alert from "../components/Alert.svelte";
@@ -10,8 +17,27 @@
   import TokenTable from "./tokens/TokenTable.svelte";
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import MaturityPanel from "../components/MaturityPanel.svelte";
+  import TrafficSettings from "./settings/TrafficSettings.svelte";
   import { fetchAPI, postAPI, csrfHeader } from "../api/client.js";
   import { adminApi, adminActions, tokenActions } from "../api/paths.js";
+  import {
+    formValues as settingsFormValues,
+    rawText as settingsRawText,
+    settingSources as settingsSources,
+    settingsDegraded,
+    saving as settingsSaving,
+    result as settingsResult,
+    dirty as settingsDirty,
+    changedKeysCount as settingsChangedCount,
+    restartKeys as settingsRestartKeys,
+    liveKeys as settingsLiveKeys,
+    fetchData as fetchSettings,
+    resetSetting as resetSettingsKey,
+    overlaySaved as settingsOverlaySaved,
+    saveConfig as saveSettingsConfig,
+    setField as setSettingsField,
+    discard as discardSettings,
+  } from "../stores/settings.js";
   import { isDevToolsEnabled } from "../utils/devtools.js";
   import {
     tokensData as tokensStore,
@@ -44,8 +70,8 @@
   // sidebar's Dev Tools tab and the server-side DevTools route).
   let devToolsEnabled = $state(false);
   // Token rotation strategy (TOKEN_ROTATION) + auto-failover flag
-  // (RATE_LIMIT_FAILOVER): READ-ONLY here, fed from the tokens snapshot in
-  // applyTokens. Policy editing moved to Settings → Traffic.
+  // (RATE_LIMIT_FAILOVER): summary chips fed from the tokens snapshot in
+  // applyTokens. Policy editing lives in the inline Pool controls below.
   let tokenRotation = $state("drain");
   let rateLimitFailover = $state(true);
   // Active tab: pool accounts vs account warming. The legacy #maturity hash
@@ -383,6 +409,9 @@
       /* storage blocked: default tab stands */
     }
     restoreExpandedToken();
+    // Shared settings draft (same store as Settings): hydrates the inline
+    // Pool controls; silent when Settings already loaded it.
+    fetchSettings();
     // One shared tokens store owns the /admin/api/tokens poll + SSE (issue
     // #292); this page renders from the cached snapshot and refreshes the
     // store after every mutation.
@@ -462,7 +491,7 @@
       <div
         class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
         title={$tr(
-          "Drain uses each account fully before moving to the next. Edit in Settings → Traffic.",
+          "Drain uses each account fully before moving to the next. Edit in the Pool controls below.",
         )}
       >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
@@ -481,7 +510,7 @@
       <div
         class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
         title={$tr(
-          "On a 429 the request retries at once on another healthy account. Edit in Settings → Traffic.",
+          "On a 429 the request retries at once on another healthy account. Edit in the Pool controls below.",
         )}
       >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
@@ -547,12 +576,6 @@
         ariaLabel={$tr("Tokens sections")}
       />
     </div>
-    <a
-      href="#settings"
-      class="text-[11px] text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:underline"
-    >
-      {$tr("Strategy & failover live in Settings → Traffic")}
-    </a>
   </div>
 
   {#if tab === "accounts"}
@@ -645,6 +668,108 @@
         error = "";
         refreshTokens();
       }}
+    />
+    {#if $settingsDegraded}
+      <Alert tone="warning" title={$tr("DB overlay unavailable")}>
+        {$tr(
+          "The settings store is offline — per-key overlay saves are disabled. .env saves below still apply.",
+        )}
+      </Alert>
+    {/if}
+    {#if $settingsResult}
+      <Alert
+        tone={$settingsResult.ok
+          ? $settingsResult.restart_only.length
+            ? "warning"
+            : "success"
+          : "error"}
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            {$settingsResult.message}
+            {#if $settingsResult.ok && $settingsResult.restart_only.length}
+              <p class="mt-1 text-xs">
+                {$tr("Applies after restart: {keys}", {
+                  keys: $settingsResult.restart_only.join(", "),
+                })}
+              </p>
+            {/if}
+          </div>
+          <button
+            type="button"
+            onclick={() => settingsResult.set(null)}
+            class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] transition-colors shrink-0"
+            aria-label={$tr("Dismiss alert")}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </Alert>
+    {/if}
+    {#if $settingsDirty}
+      <Alert tone="warning" title={$tr("Unsaved changes")}>
+        <div
+          class="flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+        >
+          <span
+            >{$tr(
+              "{count} setting(s) modified. Click Save Changes to apply them immediately.",
+              { count: $settingsChangedCount },
+            )}</span
+          >
+          <div class="flex items-center gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              size="sm"
+              onclick={discardSettings}
+              disabled={$settingsSaving}
+            >
+              <X size={14} />
+              {$tr("Discard")}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onclick={saveSettingsConfig}
+              disabled={$settingsSaving}
+              loading={$settingsSaving}
+            >
+              <Save size={14} />
+              {$tr("Save Changes")}
+            </Button>
+          </div>
+        </div>
+        {#if $settingsRestartKeys.length > 0 || $settingsLiveKeys.length > 0}
+          <div class="flex flex-col gap-0.5 mt-2 text-xs">
+            {#if $settingsRestartKeys.length > 0}
+              <span
+                >{$tr("Needs restart ({n}): {keys}", {
+                  n: $settingsRestartKeys.length,
+                  keys: $settingsRestartKeys.join(", "),
+                })}</span
+              >
+            {/if}
+            {#if $settingsLiveKeys.length > 0}
+              <span class="text-[var(--fp-dim)]"
+                >{$tr("Live-applying ({n}): {keys}", {
+                  n: $settingsLiveKeys.length,
+                  keys: $settingsLiveKeys.join(", "),
+                })}</span
+              >
+            {/if}
+          </div>
+        {/if}
+      </Alert>
+    {/if}
+    <TrafficSettings
+      cardTitle="Pool Controls"
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
     />
     {#if data?.show_bridge && data?.bridge_token_cards?.length > 0}
       <Card

@@ -231,11 +231,9 @@ test.describe("real-world data", () => {
     await expect(page.getByText("Requests (24h)").first()).toBeVisible();
   });
 
-  test("settings/setup render keys, traffic caps, hybrid bridge", async ({
-    page,
-  }) => {
+  test("pool renders traffic caps, hybrid bridge", async ({ page }) => {
     await mockDashboard(page, loadFixtures(RW));
-    await page.goto(admin("settings"));
+    await page.goto(admin("tokens"));
     await expect(page.getByText("RATE_LIMIT_PER_IP")).toBeVisible();
     await page.goto(admin("overview"));
     await expect(
