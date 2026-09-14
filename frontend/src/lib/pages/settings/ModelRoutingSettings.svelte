@@ -22,6 +22,12 @@
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
+   * @prop {boolean} [stub=false] - link-out stub for the Settings page
+   *   (same search matching + count, body links to #plans)
+   * @prop {boolean} [degraded=false] - settings store offline: per-key
+   *   overlay saves render an honest offline note, .env flow stays usable
+   * @prop {string} [cardTitle='Upstream'] - card title override (the Usage
+   *   page embeds the full card as 'Usage Controls')
    */
   let {
     formValues,
@@ -32,6 +38,9 @@
     onSaved = null,
     query = "",
     onMatchCount = null,
+    stub = false,
+    degraded = false,
+    cardTitle = "Upstream",
   } = $props();
 
   let env = $derived(parseEnv(rawText));
@@ -87,7 +96,7 @@
 
 {#if !q || visible > 0}
   <SettingsCard
-    title={$tr("Upstream")}
+    title={$tr(cardTitle)}
     description={$tr(
       "Model aliases, access filtering, and reasoning format. Changes apply live without restart.",
     )}
@@ -104,183 +113,222 @@
         >
       {/if}
     {/snippet}
-
-    <!-- Model Aliases -->
-    {#if showAliases}
-      <SettingsRow
-        first={visibleKeys[0] === "MODEL_ALIASES"}
-        last={visibleKeys[visibleKeys.length - 1] === "MODEL_ALIASES"}
-        align="start"
-        label={$tr(ALIASES_LABEL)}
-        description={$tr(ALIASES_DESC)}
-      >
-        {#snippet badge()}
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >MODEL_ALIASES</code
-          >
-          {#if !env.MODEL_ALIASES}
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-              >{$tr("default")}</span
+    {#if stub}
+      <div class="py-4 flex flex-col items-start gap-2">
+        <p class="text-xs text-[var(--fp-muted)] leading-relaxed">
+          {$tr(
+            "Model routing, aliases, and access filtering now live on the Usage page.",
+          )}
+        </p>
+        <a
+          href="#plans"
+          class="text-xs text-[var(--fp-accent)] hover:underline font-medium"
+        >
+          {$tr("Manage Usage controls on the Usage page")}
+        </a>
+      </div>
+    {:else}
+      <!-- Model Aliases -->
+      {#if showAliases}
+        <SettingsRow
+          first={visibleKeys[0] === "MODEL_ALIASES"}
+          last={visibleKeys[visibleKeys.length - 1] === "MODEL_ALIASES"}
+          align="start"
+          label={$tr(ALIASES_LABEL)}
+          description={$tr(ALIASES_DESC)}
+        >
+          {#snippet badge()}
+            <code
+              class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+              >MODEL_ALIASES</code
             >
-          {/if}
-        {/snippet}
+            {#if !env.MODEL_ALIASES}
+              <span
+                class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
+                >{$tr("default")}</span
+              >
+            {/if}
+          {/snippet}
 
-        {#snippet extra()}
-          <DbOverrideSave
-            settingKey="MODEL_ALIASES"
-            value={modelAliases}
-            source={sources.MODEL_ALIASES}
-            {onReset}
-            {onSaved}
-          />
-        {/snippet}
+          {#snippet extra()}
+            {#if degraded}
+              <span class="text-[10px] text-[var(--fp-dim)]"
+                >{$tr("Overlay offline — use .env save")}</span
+              >
+            {:else}
+              <DbOverrideSave
+                settingKey="MODEL_ALIASES"
+                value={modelAliases}
+                source={sources.MODEL_ALIASES}
+                {onReset}
+                {onSaved}
+              />
+            {/if}
+          {/snippet}
 
-        <div class="w-full md:w-80">
-          <input
-            type="text"
-            aria-label="MODEL_ALIASES"
-            class="fp-input w-full !text-xs !py-1.5"
-            placeholder="e.g. gpt-4o:openai/gpt-5.6-luna, sonnet:anthropic/claude-3.5-sonnet"
-            value={modelAliases}
-            oninput={(e) => onField("MODEL_ALIASES", e.currentTarget.value)}
-          />
-        </div>
-      </SettingsRow>
-    {/if}
+          <div class="w-full md:w-80">
+            <input
+              type="text"
+              aria-label="MODEL_ALIASES"
+              class="fp-input w-full !text-xs !py-1.5"
+              placeholder="e.g. gpt-4o:openai/gpt-5.6-luna, sonnet:anthropic/claude-3.5-sonnet"
+              value={modelAliases}
+              oninput={(e) => onField("MODEL_ALIASES", e.currentTarget.value)}
+            />
+          </div>
+        </SettingsRow>
+      {/if}
 
-    <!-- Allowed Models Filter -->
-    {#if showAllow}
-      <SettingsRow
-        first={visibleKeys[0] === "MODELS_ALLOW"}
-        last={visibleKeys[visibleKeys.length - 1] === "MODELS_ALLOW"}
-        align="start"
-        label={$tr(ALLOW_LABEL)}
-        description={$tr(ALLOW_DESC)}
-      >
-        {#snippet badge()}
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >MODELS_ALLOW</code
-          >
-          {#if !env.MODELS_ALLOW}
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-              >{$tr("default")}</span
+      <!-- Allowed Models Filter -->
+      {#if showAllow}
+        <SettingsRow
+          first={visibleKeys[0] === "MODELS_ALLOW"}
+          last={visibleKeys[visibleKeys.length - 1] === "MODELS_ALLOW"}
+          align="start"
+          label={$tr(ALLOW_LABEL)}
+          description={$tr(ALLOW_DESC)}
+        >
+          {#snippet badge()}
+            <code
+              class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+              >MODELS_ALLOW</code
             >
-          {/if}
-        {/snippet}
+            {#if !env.MODELS_ALLOW}
+              <span
+                class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
+                >{$tr("default")}</span
+              >
+            {/if}
+          {/snippet}
 
-        {#snippet extra()}
-          <DbOverrideSave
-            settingKey="MODELS_ALLOW"
-            value={modelsAllow}
-            source={sources.MODELS_ALLOW}
-            {onReset}
-            {onSaved}
-          />
-        {/snippet}
+          {#snippet extra()}
+            {#if degraded}
+              <span class="text-[10px] text-[var(--fp-dim)]"
+                >{$tr("Overlay offline — use .env save")}</span
+              >
+            {:else}
+              <DbOverrideSave
+                settingKey="MODELS_ALLOW"
+                value={modelsAllow}
+                source={sources.MODELS_ALLOW}
+                {onReset}
+                {onSaved}
+              />
+            {/if}
+          {/snippet}
 
-        <div class="w-full md:w-80">
-          <input
-            type="text"
-            aria-label="MODELS_ALLOW"
-            class="fp-input w-full !text-xs !py-1.5"
-            placeholder={$tr(
-              "Leave blank for all models (or e.g. openai/gpt-5.6-luna)",
-            )}
-            value={modelsAllow}
-            oninput={(e) => onField("MODELS_ALLOW", e.currentTarget.value)}
-          />
-        </div>
-      </SettingsRow>
-    {/if}
+          <div class="w-full md:w-80">
+            <input
+              type="text"
+              aria-label="MODELS_ALLOW"
+              class="fp-input w-full !text-xs !py-1.5"
+              placeholder={$tr(
+                "Leave blank for all models (or e.g. openai/gpt-5.6-luna)",
+              )}
+              value={modelsAllow}
+              oninput={(e) => onField("MODELS_ALLOW", e.currentTarget.value)}
+            />
+          </div>
+        </SettingsRow>
+      {/if}
 
-    <!-- Fold Reasoning into Content -->
-    {#if showReason}
-      <SettingsRow
-        first={visibleKeys[0] === "REASONING_IN_CONTENT"}
-        last={visibleKeys[visibleKeys.length - 1] === "REASONING_IN_CONTENT"}
-        label={$tr(REASON_LABEL)}
-        description={$tr(REASON_DESC)}
-      >
-        {#snippet badge()}
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >REASONING_IN_CONTENT</code
-          >
-          {#if !env.REASONING_IN_CONTENT}
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-              >{$tr("default")}</span
+      <!-- Fold Reasoning into Content -->
+      {#if showReason}
+        <SettingsRow
+          first={visibleKeys[0] === "REASONING_IN_CONTENT"}
+          last={visibleKeys[visibleKeys.length - 1] === "REASONING_IN_CONTENT"}
+          label={$tr(REASON_LABEL)}
+          description={$tr(REASON_DESC)}
+        >
+          {#snippet badge()}
+            <code
+              class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+              >REASONING_IN_CONTENT</code
             >
-          {/if}
-        {/snippet}
+            {#if !env.REASONING_IN_CONTENT}
+              <span
+                class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
+                >{$tr("default")}</span
+              >
+            {/if}
+          {/snippet}
 
-        {#snippet extra()}
-          <DbOverrideSave
-            settingKey="REASONING_IN_CONTENT"
-            value={formValues.REASONING_IN_CONTENT ?? ""}
-            source={sources.REASONING_IN_CONTENT}
-            {onReset}
-            {onSaved}
-          />
-        {/snippet}
+          {#snippet extra()}
+            {#if degraded}
+              <span class="text-[10px] text-[var(--fp-dim)]"
+                >{$tr("Overlay offline — use .env save")}</span
+              >
+            {:else}
+              <DbOverrideSave
+                settingKey="REASONING_IN_CONTENT"
+                value={formValues.REASONING_IN_CONTENT ?? ""}
+                source={sources.REASONING_IN_CONTENT}
+                {onReset}
+                {onSaved}
+              />
+            {/if}
+          {/snippet}
 
-        <div class="flex items-center gap-2.5">
-          <ToggleSwitch
-            checked={reasoningInContent}
-            ariaLabel="REASONING_IN_CONTENT"
-            onchange={(v) => onField("REASONING_IN_CONTENT", v ? "true" : "")}
-          />
-        </div>
-      </SettingsRow>
-    {/if}
+          <div class="flex items-center gap-2.5">
+            <ToggleSwitch
+              checked={reasoningInContent}
+              ariaLabel="REASONING_IN_CONTENT"
+              onchange={(v) => onField("REASONING_IN_CONTENT", v ? "true" : "")}
+            />
+          </div>
+        </SettingsRow>
+      {/if}
 
-    <!-- Model Locks -->
-    {#if showLocks}
-      <SettingsRow
-        first={visibleKeys[0] === "MODEL_LOCKS"}
-        last={visibleKeys[visibleKeys.length - 1] === "MODEL_LOCKS"}
-        align="start"
-        label={$tr(LOCKS_LABEL)}
-        description={$tr(LOCKS_DESC)}
-      >
-        {#snippet badge()}
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >MODEL_LOCKS</code
-          >
-          {#if !env.MODEL_LOCKS}
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-              >{$tr("default")}</span
+      <!-- Model Locks -->
+      {#if showLocks}
+        <SettingsRow
+          first={visibleKeys[0] === "MODEL_LOCKS"}
+          last={visibleKeys[visibleKeys.length - 1] === "MODEL_LOCKS"}
+          align="start"
+          label={$tr(LOCKS_LABEL)}
+          description={$tr(LOCKS_DESC)}
+        >
+          {#snippet badge()}
+            <code
+              class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+              >MODEL_LOCKS</code
             >
-          {/if}
-        {/snippet}
+            {#if !env.MODEL_LOCKS}
+              <span
+                class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
+                >{$tr("default")}</span
+              >
+            {/if}
+          {/snippet}
 
-        {#snippet extra()}
-          <DbOverrideSave
-            settingKey="MODEL_LOCKS"
-            value={modelLocks}
-            source={sources.MODEL_LOCKS}
-            {onReset}
-            {onSaved}
-          />
-        {/snippet}
+          {#snippet extra()}
+            {#if degraded}
+              <span class="text-[10px] text-[var(--fp-dim)]"
+                >{$tr("Overlay offline — use .env save")}</span
+              >
+            {:else}
+              <DbOverrideSave
+                settingKey="MODEL_LOCKS"
+                value={modelLocks}
+                source={sources.MODEL_LOCKS}
+                {onReset}
+                {onSaved}
+              />
+            {/if}
+          {/snippet}
 
-        <div class="w-full md:w-80">
-          <input
-            type="text"
-            aria-label="MODEL_LOCKS"
-            class="fp-input w-full !text-xs !py-1.5"
-            placeholder="e.g. 0:z-ai/glm-5.2;1:upstage/solar-pro4,mimo/mimo-v2.5"
-            value={modelLocks}
-            oninput={(e) => onField("MODEL_LOCKS", e.currentTarget.value)}
-          />
-        </div>
-      </SettingsRow>
+          <div class="w-full md:w-80">
+            <input
+              type="text"
+              aria-label="MODEL_LOCKS"
+              class="fp-input w-full !text-xs !py-1.5"
+              placeholder="e.g. 0:z-ai/glm-5.2;1:upstage/solar-pro4,mimo/mimo-v2.5"
+              value={modelLocks}
+              oninput={(e) => onField("MODEL_LOCKS", e.currentTarget.value)}
+            />
+          </div>
+        </SettingsRow>
+      {/if}
     {/if}
   </SettingsCard>
 {/if}

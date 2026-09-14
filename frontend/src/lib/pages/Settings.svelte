@@ -12,6 +12,7 @@
   import TrafficSettings from "./settings/TrafficSettings.svelte";
   import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
+  import LogLevelSettings from "./settings/LogLevelSettings.svelte";
   import {
     meta,
     loading,
@@ -44,6 +45,7 @@
   let gatewayMatches = $state(-1);
   let trafficMatches = $state(-1);
   let routingMatches = $state(-1);
+  let logLevelMatches = $state(-1);
   let accessMatches = $state(-1);
   let advancedMatches = $state(-1);
   let allEmpty = $derived(
@@ -51,6 +53,7 @@
       gatewayMatches === 0 &&
       trafficMatches === 0 &&
       routingMatches === 0 &&
+      logLevelMatches === 0 &&
       accessMatches === 0 &&
       advancedMatches === 0,
   );
@@ -252,7 +255,7 @@
     stub
   />
 
-  <!-- 4. Model Routing & Aliases (Upstream - live reload) -->
+  <!-- 4. Model Routing & Aliases (moved to the Usage page - stub links out to #plans) -->
   <ModelRoutingSettings
     formValues={$formValues}
     rawText={$rawText}
@@ -262,9 +265,23 @@
     onSaved={overlaySaved}
     query={filterQuery}
     onMatchCount={(n) => (routingMatches = n)}
+    stub
   />
 
-  <!-- 5. Advanced (every remaining catalog key with its default) -->
+  <!-- 5. Logging (moved to the Logs page - stub links out to #activity) -->
+  <LogLevelSettings
+    formValues={$formValues}
+    rawText={$rawText}
+    onField={setField}
+    sources={$settingSources}
+    onReset={resetSetting}
+    onSaved={overlaySaved}
+    query={filterQuery}
+    onMatchCount={(n) => (logLevelMatches = n)}
+    stub
+  />
+
+  <!-- 6. Advanced (every remaining catalog key with its default) -->
   <AdvancedSettings
     meta={$meta}
     formValues={$formValues}
@@ -296,6 +313,6 @@
     </EmptyState>
   {/if}
 
-  <!-- 6. Command Center (Lifecycle, updates & rollback) -->
+  <!-- 7. Command Center (Lifecycle, updates & rollback) -->
   <CommandCenterCard />
 </PageShell>

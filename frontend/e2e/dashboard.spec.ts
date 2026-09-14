@@ -569,8 +569,102 @@ test.describe("dashboard hermetic mocks", () => {
       .click();
     await expect.poll(() => savedBody).toContain("RATE_LIMIT_FAILOVER=");
   });
+  test("Usage controls render routing keys and save", async ({ page }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await metaResp;
+    await expect(
+      page.getByRole("heading", { name: "Usage", exact: true }),
+    ).toBeVisible();
+    // Model routing moved from Settings Upstream to Usage: the aliases
+    // input lives there now, keyed by badge; secrets never surface.
+    await expect(
+      page.getByText("MODEL_ALIASES", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("MODEL_LOCKS", { exact: true }).first(),
+    ).toBeVisible();
+    // Editing posts the key on save through the shared .env flow.
+    let savedBody = "";
+    await page.route(/\/admin\/config$/, async (route) => {
+      if (route.request().method() === "POST") {
+        savedBody = decodeURIComponent(route.request().postData() || "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: true }),
+        });
+      } else {
+        await route.fallback();
+      }
+    });
+    page.once("dialog", (d) => d.accept());
+    await page
+      .locator('input[aria-label="MODEL_ALIASES"]')
+      .fill("flash:deepseek/deepseek-v4-flash");
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+    await expect.poll(() => savedBody).toContain("MODEL_ALIASES=");
+    // Settings keeps a link-out stub pointing at the Usage page.
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await expect(
+      page.getByRole("link", {
+        name: "Manage Usage controls on the Usage page",
+      }),
+    ).toBeVisible();
+  });
 
-  test("Settings legacy #config alias and select save", async ({ page }) => {
+  test("Logs card renders log level and saves", async ({ page }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await metaResp;
+    await expect(
+      page.getByRole("heading", { name: "Logs", exact: true }),
+    ).toBeVisible();
+    // Log level moved from Settings General to Logs: the select lives
+    // there now, above the Live/Metrics/Traces panels.
+    const level = page.locator('select[aria-label="LOG_LEVEL"]');
+    await expect(level).toBeVisible();
+    let savedBody = "";
+    await page.route(/\/admin\/config$/, async (route) => {
+      if (route.request().method() === "POST") {
+        savedBody = decodeURIComponent(route.request().postData() || "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: true }),
+        });
+      } else {
+        await route.fallback();
+      }
+    });
+    page.once("dialog", (d) => d.accept());
+    await level.selectOption("debug");
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+    await expect.poll(() => savedBody).toContain("LOG_LEVEL=debug");
+    // Settings keeps a link-out stub pointing at the Logs page.
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await expect(
+      page.getByRole("link", { name: "Manage log level on the Logs page" }),
+    ).toBeVisible();
+  });
+
+  test("Logs select saves via shared .env flow (legacy #config alias routes to Settings)", async ({
+    page,
+  }) => {
     const f = loadFixtures();
     const configWithContent = {
       ...f.config,
@@ -601,17 +695,18 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
 
-    // Select renders enum options from meta; changing it edits the document.
+    // LOG_LEVEL moved to the Logs page: the stub links out to #activity,
+    // and the live select edits the document from the Logs inline card.
+    await expect(
+      page.getByRole("link", { name: "Manage log level on the Logs page" }),
+    ).toBeVisible();
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
     const logLevel = page.getByRole("combobox", { name: "LOG_LEVEL" });
     await expect(logLevel).toBeVisible();
     await expect(logLevel).toContainText("debug");
     await expect(logLevel).toContainText("trace");
     await logLevel.selectOption("warn");
 
-    // Keys using default values render the 'default' badge.
-    await expect(
-      page.getByText("default", { exact: true }).first(),
-    ).toBeVisible();
     // Save posts the built .env line for the edited select.
     const postReqPromise = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/config"),
@@ -1068,15 +1163,23 @@ test.describe("dashboard hermetic mocks", () => {
     // Check that at least one element has aria-live or aria-describedby
     const liveCount = await page.locator("[aria-live]").count();
     expect(liveCount).toBeGreaterThanOrEqual(0);
-    // Settings exposes accessible labeled inputs
-    const configResp = page.waitForResponse(
-      (r) => r.url().includes("/admin/api/config"),
-      { timeout: 5000 },
-    );
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
-    await configResp;
+    // Logs page exposes the accessible LOG_LEVEL select; Settings keeps
+    // SAFE_MODE inline plus a link-out stub for the moved key.
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
     await expect(
       page.getByRole("combobox", { name: "LOG_LEVEL" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Manage log level on the Logs page" }),
+    ).toHaveCount(0);
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page
+      .waitForResponse((r) => r.url().includes("/admin/api/config"), {
+        timeout: 5000,
+      })
+      .catch(() => {});
+    await expect(
+      page.getByRole("link", { name: "Manage log level on the Logs page" }),
     ).toBeVisible();
     await expect(page.getByRole("switch", { name: "SAFE_MODE" })).toBeVisible();
   });

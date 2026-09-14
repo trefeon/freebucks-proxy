@@ -286,12 +286,12 @@ test.describe("settings saved values", () => {
     const posted: Posted = [];
     await mockSettings(page, posted);
     await mockPageState(page);
-    await page.goto(admin("settings"));
+    await page.goto(admin("plans"));
     await expect(
-      page.getByRole("heading", { name: "Settings", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
-    // ModelRoutingSettings mounts (it owns these four inputs) and the
-    // seeded db source renders its saved-value note.
+    // ModelRoutingSettings mounts on Usage (it owns these four inputs) and
+    // the seeded db source renders its saved-value note.
     await expect(
       page.locator('input[aria-label="MODEL_ALIASES"]'),
     ).toBeVisible();
@@ -299,7 +299,7 @@ test.describe("settings saved values", () => {
       page.getByText("saved value", { exact: true }).first(),
     ).toBeVisible();
     // Row-anchored: the locator binds to the MODEL_ALIASES row itself,
-    // so leading cards (Access and Security) cannot shadow its Save.
+    // so sibling cards cannot shadow its Save.
     const row = page.locator("div.py-4", {
       has: page.locator('input[aria-label="MODEL_ALIASES"]'),
     });
@@ -319,7 +319,7 @@ test.describe("settings saved values", () => {
     const posted: Posted = [];
     await mockSettings(page, posted, 400);
     await mockPageState(page);
-    await page.goto(admin("settings"));
+    await page.goto(admin("plans"));
     await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
       { timeout: 10_000 },
     );
@@ -342,22 +342,27 @@ test.describe("settings saved values", () => {
     const posted: Posted = [];
     const deleted = await mockSettings(page, posted);
     await mockPageState(page);
-    await page.goto(admin("settings"));
+    // Moved keys render inline on their section pages now: LOG_LEVEL on
+    // Logs, MODEL_ALIASES on Usage. One saved-value note per page.
+    await page.goto(admin("activity"));
+    await expect(page.getByRole("combobox", { name: "LOG_LEVEL" })).toBeVisible(
+      { timeout: 10_000 },
+    );
+    await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
+    await page.goto(admin("plans"));
     await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
       { timeout: 10_000 },
     );
-    // Two seeded db rows → two saved-value notes.
-    await expect(page.getByText("saved value", { exact: true })).toHaveCount(2);
+    await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
+    // Reset on the Usage row drops MODEL_ALIASES and refetches the form.
     const delReq = page.waitForRequest(
       (r) =>
         r.method() === "DELETE" && r.url().includes("/admin/api/settings/"),
     );
-    // First Reset in DOM order drops LOG_LEVEL (Gateway card precedes
-    // Model Routing); the refetch then leaves one saved-value note.
     await page.getByRole("button", { name: "Reset" }).first().click();
     await delReq;
-    expect(deleted).toEqual(["LOG_LEVEL"]);
-    await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
+    expect(deleted).toEqual(["MODEL_ALIASES"]);
+    await expect(page.getByText("saved value", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Saved value removed.")).toBeVisible();
   });
 
@@ -367,16 +372,19 @@ test.describe("settings saved values", () => {
     await mockDashboard(page, loadFixtures());
     await mockSettings(page, [], 200, { degraded: true });
     await mockPageState(page);
-    await page.goto(admin("settings"));
-    await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
+    // Degraded banner + usable .env save render on the inline Logs card.
+    await page.goto(admin("activity"));
+    await expect(page.getByRole("combobox", { name: "LOG_LEVEL" })).toBeVisible(
       { timeout: 10_000 },
     );
     await expect(page.getByText("DB overlay unavailable")).toBeVisible();
-    await expect(page.getByText(/runs live-only/)).toBeVisible();
-    // The settings form keeps working: editing a key enables Save Changes.
+    await expect(
+      page.getByText(/per-key overlay saves are disabled/),
+    ).toBeVisible();
+    // The inline form keeps working: editing a key enables Save Changes.
     await page
-      .locator('input[aria-label="MODEL_ALIASES"]')
-      .fill("gpt-4o:openai/gpt-5.6-luna,x:y");
+      .getByRole("combobox", { name: "LOG_LEVEL" })
+      .selectOption("debug");
     await expect(
       page.getByRole("button", { name: "Save Changes", exact: true }),
     ).toBeEnabled();
