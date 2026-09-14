@@ -245,8 +245,10 @@ func TestMaturitySkipsFutureSlot(t *testing.T) {
 }
 
 // Restart-safe idempotency: a reboot inside the window re-rolls the slot,
-// but the persisted touchDay bounds the worst case — the second pass
-// records skip:today-used instead of double-touching.
+// but the persisted touchDay bounds the worst case — the second pass holds
+// the re-fire without touching the ledger, so the fire's own outcome
+// survives the night instead of being overwritten by skip:today-used on
+// every later pass in the same window.
 func TestMaturityRestartIdempotent(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -266,8 +268,8 @@ func TestMaturityRestartIdempotent(t *testing.T) {
 	if got := mock.SessionProbesSnapshot(); got != 1 {
 		t.Errorf("SessionProbes = %d, want 1 (touchDay blocks the re-fire)", got)
 	}
-	if _, result := maturityResult(p, 0); result != "skip:today-used" {
-		t.Errorf("result = %q, want skip:today-used", result)
+	if action, result := maturityResult(p, 0); action != "probe" || result != "ok" {
+		t.Errorf("last touch = %q/%q, want probe/ok (guard holds re-fire, keeps fire outcome)", action, result)
 	}
 }
 

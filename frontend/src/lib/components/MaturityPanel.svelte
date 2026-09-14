@@ -196,12 +196,16 @@
   }
 
   // Where today's usage happened: proxy-routed traffic lands in the local
-  // day ledger (requests_per_day), anything else means the account was
-  // used outside this proxy (app, CLI, or direct).
+  // day ledger (requests_per_day); upstream-dated use with none here means
+  // the account was used outside this proxy (app, CLI, or direct). A day
+  // carrying only the nightly touch reads as automation, not outside use:
+  // touches bypass Pool.Chat so they never increment the local ledger.
   function usageSource(t) {
     const n = Number(t?.requests_per_day) || 0;
     if (n > 0) return $tr("used here ({n} today)", { n });
-    return $tr("used outside this proxy");
+    if (t?.last_usage || !t?.maturity?.last_touch)
+      return $tr("used outside this proxy");
+    return $tr("nightly touch only");
   }
 
   function lastActivity(t) {

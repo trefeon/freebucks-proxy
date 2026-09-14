@@ -217,6 +217,65 @@ test.describe("streak maintenance", () => {
     );
   });
 
+  test("touch-only rows read as automation, not outside use", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          mode: "pooled",
+          token_count: 1,
+          has_tokens: true,
+          maturity_enabled: true,
+          maturity_dry_run: true,
+          maturity_window_start: "2026-09-12T06:00:00Z",
+          maturity_window_end: "2026-09-12T07:00:00Z",
+          tokens: [
+            {
+              index: 0,
+              email: "auto@example.com",
+              session_status: "active",
+              locked: false,
+              requests_per_day: 0,
+              maturity: {
+                enabled: true,
+                target: 7,
+                mode: "unmetered",
+                badge: "Warming",
+                slot: "2026-09-11T06:30:00Z",
+                slot_day: "2026-09-11",
+                last_touch: "2026-09-11T06:56:00Z",
+                last_action: "probe",
+                last_result: "skip:today-used",
+                effective_touch_model: "upstage/solar-pro4",
+                auto_touch_model: "upstage/solar-pro4",
+              },
+            },
+          ],
+        }),
+      });
+    });
+    await gotoWarming(page);
+    const row = page
+      .getByText("Account #1")
+      .locator("..")
+      .locator("..")
+      .locator("..");
+    await expect(row.getByText(/nightly touch only/)).toBeVisible();
+    // Reset-anchored countdown and Pacific-day last run.
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /reset in/,
+    );
+    await expect(page.getByLabel("Last maintenance run")).toContainText(
+      /Sep 10 Pacific day/,
+    );
+  });
+
   test("universal switch writes the global kill-switch", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);

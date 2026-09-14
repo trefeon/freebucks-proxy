@@ -440,12 +440,20 @@ func (p *Pool) maturityTickOne(ctx context.Context, dryRun bool, touchModel stri
 
 	// Restart-safe idempotency, local half: this token already fired today
 	// (touchDay/slotDay survive restarts in the maturity_json blob), so a
-	// reboot inside the window must not double-touch.
+	// reboot inside the window must not double-touch. When the ledger
+	// already carries today's fire outcome (ok or error), keep it: the
+	// guard holds the re-fire either way, but recording another skip
+	// would overwrite the fire with skip:today-used on every later pass
+	// in the same window, making a touched account read as skipped.
 	loc := maturityLocation("America/Los_Angeles")
 	today := now.In(loc).Format("2006-01-02")
 	tok.maturityMu.Lock()
 	touchedToday := tok.maturity.touchDay == today && !tok.maturity.lastTouch.IsZero()
+	firedToday := touchedToday && !strings.HasPrefix(tok.maturity.lastResult, "skip:")
 	tok.maturityMu.Unlock()
+	if firedToday {
+		return false
+	}
 	if touchedToday {
 		p.maturityRecord(tok, "", "skip:today-used", "")
 		return false
