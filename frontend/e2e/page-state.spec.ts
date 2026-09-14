@@ -290,8 +290,8 @@ test.describe("settings saved values", () => {
     await expect(
       page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
-    // ModelRoutingSettings mounts on Usage (it owns these four inputs) and
-    // the seeded db source renders its saved-value note.
+    // Controls live behind the Usage Controls tab now.
+    await page.getByRole("button", { name: "Controls" }).click();
     await expect(
       page.locator('input[aria-label="MODEL_ALIASES"]'),
     ).toBeVisible();
@@ -320,6 +320,7 @@ test.describe("settings saved values", () => {
     await mockSettings(page, posted, 400);
     await mockPageState(page);
     await page.goto(admin("plans"));
+    await page.getByRole("button", { name: "Controls" }).click();
     await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
       { timeout: 10_000 },
     );
@@ -341,15 +342,17 @@ test.describe("settings saved values", () => {
     await mockDashboard(page, loadFixtures());
     const posted: Posted = [];
     const deleted = await mockSettings(page, posted);
-    await mockPageState(page);
     // Moved keys render inline on their section pages now: LOG_LEVEL on
-    // Logs, MODEL_ALIASES on Usage. One saved-value note per page.
+    // the Logs Logging tab, MODEL_ALIASES on the Usage Controls tab.
+    // One saved-value note per page.
     await page.goto(admin("activity"));
+    await page.getByRole("button", { name: "Logging" }).click();
     await expect(page.getByRole("combobox", { name: "LOG_LEVEL" })).toBeVisible(
       { timeout: 10_000 },
     );
     await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
     await page.goto(admin("plans"));
+    await page.getByRole("button", { name: "Controls" }).click();
     await expect(page.locator('input[aria-label="MODEL_ALIASES"]')).toBeVisible(
       { timeout: 10_000 },
     );
@@ -371,9 +374,9 @@ test.describe("settings saved values", () => {
   }) => {
     await mockDashboard(page, loadFixtures());
     await mockSettings(page, [], 200, { degraded: true });
-    await mockPageState(page);
-    // Degraded banner + usable .env save render on the inline Logs card.
+    // Degraded banner + usable .env save render on the Logs Logging tab.
     await page.goto(admin("activity"));
+    await page.getByRole("button", { name: "Logging" }).click();
     await expect(page.getByRole("combobox", { name: "LOG_LEVEL" })).toBeVisible(
       { timeout: 10_000 },
     );

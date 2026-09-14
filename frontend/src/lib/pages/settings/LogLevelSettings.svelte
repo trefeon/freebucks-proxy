@@ -92,13 +92,20 @@
     {#if stub}
       <div class="py-4 flex flex-col items-start gap-2">
         <p class="text-xs text-[var(--fp-muted)] leading-relaxed">
-          {$tr("Server log level now lives on the Logs page.")}
+          {$tr("Server log level now lives under the Logs page's Logging tab.")}
         </p>
         <a
           href="#activity"
+          onclick={() => {
+            try {
+              sessionStorage.setItem("fp-page-tab:activity", "logging");
+            } catch {
+              // Storage unavailable — the Logs page opens on its default tab.
+            }
+          }}
           class="text-xs text-[var(--fp-accent)] hover:underline font-medium"
         >
-          {$tr("Manage log level on the Logs page")}
+          {$tr("Manage log level (Logs → Logging tab)")}
         </a>
       </div>
     {:else if showLogLevel}

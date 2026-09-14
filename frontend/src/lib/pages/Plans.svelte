@@ -38,7 +38,12 @@
     try {
       const pending = sessionStorage.getItem("fp-page-tab:plans");
       sessionStorage.removeItem("fp-page-tab:plans");
-      if (pending === "models" || pending === "accounts") tab = pending;
+      if (
+        pending === "models" ||
+        pending === "accounts" ||
+        pending === "controls"
+      )
+        tab = pending;
     } catch {
       // storage unavailable — stay on the default tab
     }
@@ -56,119 +61,122 @@
       options={[
         { id: "accounts", label: $tr("Accounts") },
         { id: "models", label: $tr("Models") },
+        { id: "controls", label: $tr("Controls") },
       ]}
       ariaLabel={$tr("Catalog section")}
     />
   </div>
 
-  <div class="flex flex-col gap-5">
-    {#if tab === "models"}
-      <ModelsPanel />
-    {:else}
-      <AllowancesPanel />
+  {#if tab === "controls"}
+    {#if $settingsDegraded}
+      <Alert tone="warning" title={$tr("DB overlay unavailable")}>
+        {$tr(
+          "The settings store is offline — per-key overlay saves are disabled. .env saves below still apply.",
+        )}
+      </Alert>
     {/if}
-  </div>
-
-  {#if $settingsDegraded}
-    <Alert tone="warning" title={$tr("DB overlay unavailable")}>
-      {$tr(
-        "The settings store is offline — per-key overlay saves are disabled. .env saves below still apply.",
-      )}
-    </Alert>
-  {/if}
-  {#if $settingsResult}
-    <Alert
-      tone={$settingsResult.ok
-        ? $settingsResult.restart_only.length
-          ? "warning"
-          : "success"
-        : "error"}
-    >
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          {$settingsResult.message}
-          {#if $settingsResult.ok && $settingsResult.restart_only.length}
-            <p class="mt-1 text-xs">
-              {$tr("Applies after restart: {keys}", {
-                keys: $settingsResult.restart_only.join(", "),
-              })}
-            </p>
-          {/if}
-        </div>
-        <button
-          type="button"
-          onclick={() => settingsResult.set(null)}
-          class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] transition-colors shrink-0"
-          aria-label={$tr("Dismiss alert")}
-        >
-          <X size={14} />
-        </button>
-      </div>
-    </Alert>
-  {/if}
-  {#if $settingsDirty}
-    <Alert tone="warning" title={$tr("Unsaved changes")}>
-      <div
-        class="flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+    {#if $settingsResult}
+      <Alert
+        tone={$settingsResult.ok
+          ? $settingsResult.restart_only.length
+            ? "warning"
+            : "success"
+          : "error"}
       >
-        <span
-          >{$tr(
-            "{count} setting(s) modified. Click Save Changes to apply them immediately.",
-            { count: $settingsChangedCount },
-          )}</span
-        >
-        <div class="flex items-center gap-2 shrink-0">
-          <Button
-            variant="secondary"
-            size="sm"
-            onclick={discardSettings}
-            disabled={$settingsSaving}
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            {$settingsResult.message}
+            {#if $settingsResult.ok && $settingsResult.restart_only.length}
+              <p class="mt-1 text-xs">
+                {$tr("Applies after restart: {keys}", {
+                  keys: $settingsResult.restart_only.join(", "),
+                })}
+              </p>
+            {/if}
+          </div>
+          <button
+            type="button"
+            onclick={() => settingsResult.set(null)}
+            class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] transition-colors shrink-0"
+            aria-label={$tr("Dismiss alert")}
           >
             <X size={14} />
-            {$tr("Discard")}
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onclick={saveSettingsConfig}
-            disabled={$settingsSaving}
-            loading={$settingsSaving}
+          </button>
+        </div>
+      </Alert>
+    {/if}
+    {#if $settingsDirty}
+      <Alert tone="warning" title={$tr("Unsaved changes")}>
+        <div
+          class="flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+        >
+          <span
+            >{$tr(
+              "{count} setting(s) modified. Click Save Changes to apply them immediately.",
+              { count: $settingsChangedCount },
+            )}</span
           >
-            <Save size={14} />
-            {$tr("Save Changes")}
-          </Button>
-        </div>
-      </div>
-      {#if $settingsRestartKeys.length > 0 || $settingsLiveKeys.length > 0}
-        <div class="flex flex-col gap-0.5 mt-2 text-xs">
-          {#if $settingsRestartKeys.length > 0}
-            <span
-              >{$tr("Needs restart ({n}): {keys}", {
-                n: $settingsRestartKeys.length,
-                keys: $settingsRestartKeys.join(", "),
-              })}</span
+          <div class="flex items-center gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              size="sm"
+              onclick={discardSettings}
+              disabled={$settingsSaving}
             >
-          {/if}
-          {#if $settingsLiveKeys.length > 0}
-            <span class="text-[var(--fp-dim)]"
-              >{$tr("Live-applying ({n}): {keys}", {
-                n: $settingsLiveKeys.length,
-                keys: $settingsLiveKeys.join(", "),
-              })}</span
+              <X size={14} />
+              {$tr("Discard")}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onclick={saveSettingsConfig}
+              disabled={$settingsSaving}
+              loading={$settingsSaving}
             >
-          {/if}
+              <Save size={14} />
+              {$tr("Save Changes")}
+            </Button>
+          </div>
         </div>
+        {#if $settingsRestartKeys.length > 0 || $settingsLiveKeys.length > 0}
+          <div class="flex flex-col gap-0.5 mt-2 text-xs">
+            {#if $settingsRestartKeys.length > 0}
+              <span
+                >{$tr("Needs restart ({n}): {keys}", {
+                  n: $settingsRestartKeys.length,
+                  keys: $settingsRestartKeys.join(", "),
+                })}</span
+              >
+            {/if}
+            {#if $settingsLiveKeys.length > 0}
+              <span class="text-[var(--fp-dim)]"
+                >{$tr("Live-applying ({n}): {keys}", {
+                  n: $settingsLiveKeys.length,
+                  keys: $settingsLiveKeys.join(", "),
+                })}</span
+              >
+            {/if}
+          </div>
+        {/if}
+      </Alert>
+    {/if}
+    <ModelRoutingSettings
+      cardTitle="Usage Controls"
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
+    />
+  {:else}
+    <div class="flex flex-col gap-5">
+      {#if tab === "models"}
+        <ModelsPanel />
+      {:else}
+        <AllowancesPanel />
       {/if}
-    </Alert>
+    </div>
   {/if}
-  <ModelRoutingSettings
-    cardTitle="Usage Controls"
-    formValues={$settingsFormValues}
-    rawText={$settingsRawText}
-    onField={setSettingsField}
-    sources={$settingsSources}
-    onReset={resetSettingsKey}
-    onSaved={settingsOverlaySaved}
-    degraded={$settingsDegraded}
-  />
 </PageShell>

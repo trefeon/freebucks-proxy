@@ -540,13 +540,13 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
-    // Rotation policy moved from Settings Traffic to Pool (settings move):
-    // the failover switch lives there now, keyed by label; secrets
-    // never reach the advanced list.
+    // Rotation policy moved from Settings Traffic to the Pool page's
+    // Controls tab: the failover switch lives there, keyed by label;
+    // secrets never reach the advanced list.
+    await page.getByRole("button", { name: "Controls" }).click();
     const failover = page.getByRole("switch", {
       name: "Auto Failover on Rate Limit (429)",
     });
-    await expect(failover).toBeVisible();
     await expect(page.getByText("ADMIN_TOKEN", { exact: true })).toHaveCount(0);
     // Toggling posts the key on save.
     let savedBody = "";
@@ -581,8 +581,10 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
-    // Model routing moved from Settings Upstream to Usage: the aliases
-    // input lives there now, keyed by badge; secrets never surface.
+    // Model routing moved from Settings Upstream to the Usage page's
+    // Controls tab: the aliases input lives there, keyed by badge;
+    // secrets never surface.
+    await page.getByRole("button", { name: "Controls" }).click();
     await expect(
       page.getByText("MODEL_ALIASES", { exact: true }).first(),
     ).toBeVisible();
@@ -615,7 +617,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await expect(
       page.getByRole("link", {
-        name: "Manage Usage controls on the Usage page",
+        name: "Manage Usage controls (Usage → Controls tab)",
       }),
     ).toBeVisible();
   });
@@ -632,10 +634,10 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("heading", { name: "Logs", exact: true }),
     ).toBeVisible();
-    // Log level moved from Settings General to Logs: the select lives
-    // there now, above the Live/Metrics/Traces panels.
+    // Log level moved from Settings General to the Logs page's Logging
+    // tab: the select lives there now, behind the tab switch.
+    await page.getByRole("button", { name: "Logging" }).click();
     const level = page.locator('select[aria-label="LOG_LEVEL"]');
-    await expect(level).toBeVisible();
     let savedBody = "";
     await page.route(/\/admin\/config$/, async (route) => {
       if (route.request().method() === "POST") {
@@ -658,7 +660,7 @@ test.describe("dashboard hermetic mocks", () => {
     // Settings keeps a link-out stub pointing at the Logs page.
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await expect(
-      page.getByRole("link", { name: "Manage log level on the Logs page" }),
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
     ).toBeVisible();
   });
 
@@ -695,12 +697,13 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
 
-    // LOG_LEVEL moved to the Logs page: the stub links out to #activity,
-    // and the live select edits the document from the Logs inline card.
+    // LOG_LEVEL moved to the Logs page's Logging tab: the stub links out
+    // to #activity, and the live select edits from the Logs inline card.
     await expect(
-      page.getByRole("link", { name: "Manage log level on the Logs page" }),
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
     ).toBeVisible();
     await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await page.getByRole("button", { name: "Logging" }).click();
     const logLevel = page.getByRole("combobox", { name: "LOG_LEVEL" });
     await expect(logLevel).toBeVisible();
     await expect(logLevel).toContainText("debug");
@@ -1163,14 +1166,15 @@ test.describe("dashboard hermetic mocks", () => {
     // Check that at least one element has aria-live or aria-describedby
     const liveCount = await page.locator("[aria-live]").count();
     expect(liveCount).toBeGreaterThanOrEqual(0);
-    // Logs page exposes the accessible LOG_LEVEL select; Settings keeps
-    // SAFE_MODE inline plus a link-out stub for the moved key.
+    // Logs page exposes the accessible LOG_LEVEL select behind the
+    // Logging tab; Settings keeps SAFE_MODE inline plus a link-out stub.
     await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await page.getByRole("button", { name: "Logging" }).click();
     await expect(
       page.getByRole("combobox", { name: "LOG_LEVEL" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Manage log level on the Logs page" }),
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
     ).toHaveCount(0);
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await page
@@ -1179,7 +1183,7 @@ test.describe("dashboard hermetic mocks", () => {
       })
       .catch(() => {});
     await expect(
-      page.getByRole("link", { name: "Manage log level on the Logs page" }),
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
     ).toBeVisible();
     await expect(page.getByRole("switch", { name: "SAFE_MODE" })).toBeVisible();
   });

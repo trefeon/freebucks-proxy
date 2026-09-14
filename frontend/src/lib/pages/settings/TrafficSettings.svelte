@@ -250,14 +250,21 @@
       <div class="py-4 flex flex-col items-start gap-2">
         <p class="text-xs text-[var(--fp-muted)] leading-relaxed">
           {$tr(
-            "Pool rotation, smart routing, and limits now live on the Pool page.",
+            "Pool rotation, smart routing, and limits now live under the Pool page's Controls tab.",
           )}
         </p>
         <a
           href="#tokens"
+          onclick={() => {
+            try {
+              sessionStorage.setItem("fp-page-tab:tokens", "controls");
+            } catch {
+              // Storage unavailable — the Pool page opens on its default tab.
+            }
+          }}
           class="text-xs text-[var(--fp-accent)] hover:underline font-medium"
         >
-          {$tr("Manage Pool controls on the Pool page")}
+          {$tr("Manage Pool controls (Pool → Controls tab)")}
         </a>
       </div>
     {:else}

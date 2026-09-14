@@ -117,14 +117,21 @@
       <div class="py-4 flex flex-col items-start gap-2">
         <p class="text-xs text-[var(--fp-muted)] leading-relaxed">
           {$tr(
-            "Model routing, aliases, and access filtering now live on the Usage page.",
+            "Model routing, aliases, and access filtering now live under the Usage page's Controls tab.",
           )}
         </p>
         <a
           href="#plans"
+          onclick={() => {
+            try {
+              sessionStorage.setItem("fp-page-tab:plans", "controls");
+            } catch {
+              // Storage unavailable — the Usage page opens on its default tab.
+            }
+          }}
           class="text-xs text-[var(--fp-accent)] hover:underline font-medium"
         >
-          {$tr("Manage Usage controls on the Usage page")}
+          {$tr("Manage Usage controls (Usage → Controls tab)")}
         </a>
       </div>
     {:else}

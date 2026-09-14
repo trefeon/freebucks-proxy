@@ -74,8 +74,9 @@
   // applyTokens. Policy editing lives in the inline Pool controls below.
   let tokenRotation = $state("drain");
   let rateLimitFailover = $state(true);
-  // Active tab: pool accounts vs account warming. The legacy #maturity hash
-  // redirects here one-shot via sessionStorage (see onMount).
+  // Active tab: pool accounts vs pool controls vs account warming. The
+  // legacy #maturity hash redirects here one-shot via sessionStorage (see
+  // onMount).
   let tab = $state("accounts");
 
   // Device login flow
@@ -403,7 +404,8 @@
       const want = sessionStorage.getItem("fp-page-tab:tokens");
       if (want !== null) {
         sessionStorage.removeItem("fp-page-tab:tokens");
-        if (want === "accounts" || want === "warming") tab = want;
+        if (want === "accounts" || want === "controls" || want === "warming")
+          tab = want;
       }
     } catch {
       /* storage blocked: default tab stands */
@@ -571,6 +573,7 @@
         bind:value={tab}
         options={[
           { id: "accounts", label: $tr("Accounts") },
+          { id: "controls", label: $tr("Controls") },
           { id: "warming", label: $tr("Warming") },
         ]}
         ariaLabel={$tr("Tokens sections")}
@@ -669,6 +672,23 @@
         refreshTokens();
       }}
     />
+    {#if data?.show_bridge && data?.bridge_token_cards?.length > 0}
+      <Card
+        title={$tr("Bridge Clients")}
+        description={$tr(
+          "{count} active bridge client(s) relaying their own FreeBuff tokens",
+          { count: data.bridge_token_cards.length },
+        )}
+        pad="none"
+      >
+        <div class="flex flex-col gap-3 p-4">
+          {#each data.bridge_token_cards as bc (bc.key)}
+            <BridgeTokenCard card={bc} {now} />
+          {/each}
+        </div>
+      </Card>
+    {/if}
+  {:else if tab === "controls"}
     {#if $settingsDegraded}
       <Alert tone="warning" title={$tr("DB overlay unavailable")}>
         {$tr(
@@ -771,22 +791,6 @@
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
     />
-    {#if data?.show_bridge && data?.bridge_token_cards?.length > 0}
-      <Card
-        title={$tr("Bridge Clients")}
-        description={$tr(
-          "{count} active bridge client(s) relaying their own FreeBuff tokens",
-          { count: data.bridge_token_cards.length },
-        )}
-        pad="none"
-      >
-        <div class="flex flex-col gap-3 p-4">
-          {#each data.bridge_token_cards as bc (bc.key)}
-            <BridgeTokenCard card={bc} {now} />
-          {/each}
-        </div>
-      </Card>
-    {/if}
   {:else if tab === "warming"}
     <MaturityPanel />
   {/if}

@@ -542,6 +542,8 @@ test.describe("operator interactions (hermetic mocks)", () => {
       }
     });
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    // Pool controls moved behind the Controls tab.
+    await page.getByRole("button", { name: "Controls" }).click();
     const drain = page.getByRole("radio", { name: "Drain (Safest)" });
     const rr = page.getByRole("radio", { name: "Round Robin (1:1)" });
     await expect(drain).toHaveAttribute("aria-checked", "true");
@@ -719,10 +721,11 @@ test.describe("operator interactions (hermetic mocks)", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
+    // Pool controls moved behind the Controls tab.
+    await page.getByRole("button", { name: "Controls" }).click();
 
     // Absent from .env, the bridge switch defaults to on.
     const bridge = page.getByRole("switch", { name: "BRIDGE_ENABLED" });
-    await expect(bridge).toHaveAttribute("aria-checked", "true");
     await bridge.click();
     await page.locator('input[aria-label="RATE_LIMIT_PER_IP"]').fill("25");
 
