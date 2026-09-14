@@ -1,5 +1,5 @@
 // maturity.go — nightly streak-maintenance automation (one global run in
-// the 60 minutes before the Pacific-midnight reset, replacing the old
+// the 15 minutes before the Pacific-midnight reset, replacing the old
 // per-token all-day slots).
 //
 // Universal automatic: every account is enrolled, gated only by the global
@@ -14,7 +14,7 @@
 // dry-run probes), dry-run default (probe-only, zero
 // session slots claimed), unmetered touch models only (never burns premium
 // quota — the fire path fails closed on priced rows), per-token slots
-// staggered with jitter inside the 60m window, restart-safe idempotency
+// staggered with jitter inside the 15m window, restart-safe idempotency
 // (touchDay/slotDay plus the upstream todayUsed flag), and a 429
 // abort+backoff that pauses the walk instead of hammering. The run rides
 // the 60s maintainTick pass — no new goroutine — and never touches
@@ -56,15 +56,26 @@ const (
 	// maturityStreakFresh bounds streak-cache age for touch decisions: the
 	// number moves daily, and a touch must never fire blind off stale data.
 	maturityStreakFresh = time.Hour
-	// maturityRunWindow is the fixed nightly maintenance window: the 60
-	// minutes before the Pacific-midnight reset. One collapsed pre-reset
-	// window for every account (not per-token all-day slots), so touches
-	// land right before upstream rolls the daily streak.
-	maturityRunWindow = 60 * time.Minute
+	// maturityRunWindow is the fixed nightly maintenance window: the 15
+	// minutes before the Pacific-midnight reset (23:45–00:00). One
+	// collapsed pre-reset window for every account (not per-token all-day
+	// slots), so touches land right before upstream rolls the daily
+	// streak. Tight by design: a 60m window sprayed early-evening slots
+	// that rescued nothing; 15m keeps every slot inside the expiring
+	// day's final stretch while still fitting 3 sequential touches plus
+	// a backoff retry.
+	maturityRunWindow = 15 * time.Minute
 	// maturity429Backoff pauses the nightly walk after a rate-limited
 	// touch: the walk aborts and no further touch fires until this long
-	// after the 429, instead of hammering a throttled upstream.
-	maturity429Backoff = 15 * time.Minute
+	// after the 429, instead of hammering a throttled upstream. Kept
+	// well under the window so one 429 still leaves retry room the
+	// same night.
+	maturity429Backoff = 3 * time.Minute
+	// maturitySlotEndBuffer reserves the final stretch before the reset
+	// from slot starts: a touch carries a 30s upstream timeout, so a
+	// slot opening with less than a minute to midnight could bleed
+	// past the reset and credit the wrong day.
+	maturitySlotEndBuffer = time.Minute
 )
 
 // MaturitySnapshot is the dashboard-ready per-token maturity view. Nil on
@@ -917,12 +928,13 @@ func pacificDayKey(now time.Time) string {
 }
 
 // rollMaturitySlotInWindow draws one token's staggered slot uniformly
-// inside tonight's window (window start plus [0, 60m)): every enrolled
-// token fires once per night at a different minute, and a restart re-roll
-// can only cause one extra cheap touch (touchDay/todayUsed + the 6h
-// throttle stay the idempotency bound).
+// inside tonight's window, reserving the final maturitySlotEndBuffer
+// before the reset: every enrolled token fires once per night at a
+// different minute, and a restart re-roll can only cause one extra cheap
+// touch (touchDay/todayUsed + the 6h throttle stay the idempotency bound).
 func rollMaturitySlotInWindow(today string, now time.Time) (time.Time, string) {
 	start, end := maturityWindowFor(now)
+	end = end.Add(-maturitySlotEndBuffer)
 	if span := end.Sub(start); span > 0 {
 		return start.Add(time.Duration(sessionRand() % uint64(span))), today
 	}

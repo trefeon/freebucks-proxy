@@ -56,8 +56,9 @@ func maturityResult(p *Pool, token int) (action, result string) {
 
 // windowNow returns a clock inside tonight's maintenance window for firing
 // tests: the real clock when already in-window with room to spare, else
-// 30m before the next Pacific midnight. Test offsets (+1m/+10m ticks) stay
-// inside the window either way.
+// 3m before the next Pacific midnight (inside the 15m window, clear of the
+// 1m slot end buffer). Test offsets (+1m ticks) stay inside the window
+// either way.
 func windowNow() time.Time {
 	now := time.Now()
 	if maturityInWindow(now) {
@@ -66,7 +67,7 @@ func windowNow() time.Time {
 		}
 	}
 	_, end := maturityWindowFor(now)
-	return end.Add(-30 * time.Minute)
+	return end.Add(-3 * time.Minute)
 }
 
 // seedStreak caches a fresh streak reading as of now (what backfillLoop
@@ -558,7 +559,7 @@ func TestMaturityWindowFollowsPacific(t *testing.T) {
 	}
 }
 
-// DST Sundays keep a full 60m window ending at Pacific midnight: the 23h
+// DST Sundays keep a full 15m window ending at Pacific midnight: the 23h
 // spring-forward day and the 25h fall-back day both end at the right
 // instant (LA transitions at 02:00, never at midnight).
 func TestMaturityWindowDSTBounds(t *testing.T) {
@@ -580,7 +581,7 @@ func TestMaturityWindowDSTBounds(t *testing.T) {
 	if fend.Sub(fstart) != maturityRunWindow {
 		t.Errorf("fall-back window length = %v, want %v", fend.Sub(fstart), maturityRunWindow)
 	}
-	// In-window membership brackets the 60m exactly.
+	// In-window membership brackets the 15m exactly.
 	if !maturityInWindow(sstart) || !maturityInWindow(send.Add(-time.Second)) {
 		t.Error("window edges not in-window (start inclusive, end-exclusive)")
 	}
@@ -589,15 +590,16 @@ func TestMaturityWindowDSTBounds(t *testing.T) {
 	}
 }
 
-// Slots roll inside tonight's window: staggered across the 60m, never at
-// or past the reset.
+// Slots roll inside tonight's window: staggered across the 14m slot
+// band (15m window minus the 1m end buffer), never at or past the reset.
 func TestMaturitySlotRollsInWindow(t *testing.T) {
 	now := windowNow()
 	start, end := maturityWindowFor(now)
+	slotEnd := end.Add(-maturitySlotEndBuffer)
 	for range 25 {
 		slot, day := rollMaturitySlotInWindow(pacificDayKey(now), now)
-		if slot.Before(start) || !slot.Before(end) {
-			t.Fatalf("slot = %v, want within [%v, %v)", slot, start, end)
+		if slot.Before(start) || !slot.Before(slotEnd) {
+			t.Fatalf("slot = %v, want within [%v, %v)", slot, start, slotEnd)
 		}
 		if day != pacificDayKey(now) {
 			t.Fatalf("slot day = %q, want %q", day, pacificDayKey(now))

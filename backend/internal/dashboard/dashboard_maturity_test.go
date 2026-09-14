@@ -132,7 +132,7 @@ func TestMaturityCardNextTouchRoundTrip(t *testing.T) {
 
 // The tokens payload carries the nightly-maintenance globals: the dry-run
 // flag for the badge plus tonight's window (RFC3339 absolute instants) for
-// the next-run countdown — a fixed 60m ending at Pacific midnight.
+// the next-run countdown — a fixed 15m ending at Pacific midnight.
 func TestTokensDataMaturityWindow(t *testing.T) {
 	cfg := &config.Config{
 		AuthTokens:         []string{"tok-window-0"},
@@ -174,8 +174,8 @@ func TestTokensDataMaturityWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("maturity_window_end = %q, want RFC3339: %v", td.MaturityWindowEnd, err)
 	}
-	if end.Sub(start) != time.Hour {
-		t.Errorf("window length = %v, want 60m (fixed pre-reset window)", end.Sub(start))
+	if end.Sub(start) != 15*time.Minute {
+		t.Errorf("window length = %v, want 15m (fixed pre-reset window)", end.Sub(start))
 	}
 	la, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {

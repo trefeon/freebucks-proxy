@@ -131,7 +131,7 @@ test.describe("streak maintenance", () => {
     );
     // Fixed pre-reset window copy + read-only dry-run badge + countdown.
     await expect(
-      page.getByText("Nightly window 23:00–00:00 Pacific"),
+      page.getByText("Nightly window 23:45–00:00 Pacific"),
     ).toBeVisible();
     await expect(page.getByText("Dry run")).toBeVisible();
     await expect(page.getByLabel("Next maintenance run")).toBeVisible();
