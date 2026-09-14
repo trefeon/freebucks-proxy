@@ -57,7 +57,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     const table = page.locator("table.fp-table");
     await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
@@ -194,10 +194,10 @@ test.describe("dashboard hermetic mocks", () => {
       )
       .catch(() => {});
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     // Sidebar entry links to the merged page
-    await expect(page.getByRole("link", { name: "Plans" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Usage" })).toBeVisible();
 
     // Per-account cards: one per pooled account (1-based Account # labels)
     await expect(
@@ -256,7 +256,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Models" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     // Single shared note: live upstream values are identical for every
     // account in the region (no per-account model lists anymore).
@@ -287,7 +287,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Accounts" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -428,7 +428,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Models" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     // Vendor-catalog copy renders verbatim: the freshness marker, the
     // data-training warning, and the single-label reasoning chip.
@@ -699,7 +699,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#activity");
     await expect(
-      page.getByRole("heading", { name: "Activity", exact: true }),
+      page.getByRole("heading", { name: "Logs", exact: true }),
     ).toBeVisible();
 
     // Console (/v1 inference traffic) is the default view; table filtering
@@ -905,7 +905,7 @@ test.describe("dashboard hermetic mocks", () => {
       .catch(() => {});
     // Models tab: table assertions stay, scoped to the merged page.
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
 
     // Models fixture has 7 rows
@@ -926,7 +926,7 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByText("Referral only").first()).toBeVisible();
     await expect(page.getByText("low/high/max").first()).toBeVisible();
     await expect(page.getByText("Price").first()).toBeVisible();
-    await expect(page.getByText("Pool").first()).toHaveCount(0);
+    await expect(page.locator("table").getByText("Pool")).toHaveCount(0);
     await expect(page.getByText("referral", { exact: true })).toHaveCount(2);
   });
   test("Models sorts cheapest-first on the meter", async ({ page }) => {
@@ -949,7 +949,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Models" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     const rows = page.locator("table tbody tr");
     await expect(rows).toHaveCount(7);

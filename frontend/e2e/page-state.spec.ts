@@ -53,7 +53,7 @@ test.describe("per-page persist", () => {
       .poll(() => new URL(page.url()).hash, { timeout: 10_000 })
       .toBe("#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
   });
 
@@ -66,7 +66,7 @@ test.describe("per-page persist", () => {
     // (and the normalized hash wins over the stored lastHash).
     await page.goto(admin("models"));
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     expect(new URL(page.url()).hash).toBe("#plans");
   });

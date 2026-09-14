@@ -139,7 +139,7 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 	// (the pool adopts additions but never removals), so it 400s with a
 	// pointer instead of persisting a row the pool cannot honor.
 	if key == "AUTH_TOKENS" {
-		a.dash.RenderResult(w, http.StatusBadRequest, false, "AUTH_TOKENS is managed on the Tokens page and mode switch, not as a knob (the pool needs reconciling).", "invalid_setting")
+		a.dash.RenderResult(w, http.StatusBadRequest, false, "AUTH_TOKENS is managed on the Pool page and mode switch, not as a knob (the pool needs reconciling).", "invalid_setting")
 		return
 	}
 	if key == "ADMIN_TOKEN" {

@@ -185,7 +185,7 @@
     "secret": true,
     "essential": false,
     "hidden": true,
-    "description": "Comma-separated upstream FreeBuff tokens. Managed in the Tokens page and Device Login."
+    "description": "Comma-separated upstream FreeBuff tokens. Managed in the Pool page and Device Login."
   },
   {
     "key": "BRIDGE_ENABLED",
@@ -468,7 +468,7 @@
     "secret": false,
     "essential": false,
     "hidden": true,
-    "description": "Token selection strategy: drain (exhaust a token's session before rotating), round_robin, least_used, or random. Managed interactively on the Tokens page."
+    "description": "Token selection strategy: drain (exhaust a token's session before rotating), round_robin, least_used, or random. Managed interactively on the Pool page."
   },
   {
     "key": "WAITING_ROOM_CHAIN",

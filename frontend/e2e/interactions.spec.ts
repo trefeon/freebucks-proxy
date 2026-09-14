@@ -289,7 +289,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Accounts" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -338,7 +338,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     });
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Probe all" })).toHaveCount(
       0,
@@ -469,7 +469,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     });
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Log out" }).click();
     await logout;
@@ -818,9 +818,9 @@ test.describe("operator interactions (hermetic mocks)", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#overview");
     for (const [link, heading] of [
-      ["Tokens", "Tokens"],
-      ["Plans", "Plans"],
-      ["Activity", "Activity"],
+      ["Pool", "Pool"],
+      ["Usage", "Usage"],
+      ["Logs", "Logs"],
       ["Settings", "Settings"],
     ] as Array<[string, string]>) {
       await nav.getByRole("link", { name: link }).click();

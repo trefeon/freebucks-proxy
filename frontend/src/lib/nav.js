@@ -1,9 +1,9 @@
 import {
   LayoutDashboard,
-  Key,
-  Cpu,
+  Database,
+  Gauge,
   Settings as SettingsIcon,
-  FileText,
+  ScrollText,
   FlaskConical,
   AlertTriangle,
 } from "@lucide/svelte";
@@ -40,9 +40,9 @@ export const NAV_ITEMS = [
     label: "Overview",
     icon: LayoutDashboard,
   },
-  { id: "tokens", component: Tokens, label: "Tokens", icon: Key },
-  { id: "plans", component: Plans, label: "Plans", icon: Cpu },
-  { id: "activity", component: Activity, label: "Activity", icon: FileText },
+  { id: "tokens", component: Tokens, label: "Pool", icon: Database },
+  { id: "plans", component: Plans, label: "Usage", icon: Gauge },
+  { id: "activity", component: Activity, label: "Logs", icon: ScrollText },
   {
     id: "settings",
     component: Settings,

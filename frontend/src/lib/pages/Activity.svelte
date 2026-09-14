@@ -58,8 +58,8 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / activity.conf"
-  title={$tr("Activity")}
+  crumb="freebuff-proxy / Admin / logs.conf"
+  title={$tr("Logs")}
   description={$tr("Live traffic, metrics, and traces.")}
 >
   {#snippet actions()}

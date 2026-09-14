@@ -87,7 +87,7 @@ async function gotoWarming(page) {
   await page.goto("http://127.0.0.1:4173/admin/#tokens");
   await page.getByRole("button", { name: "Warming" }).click();
   await expect(
-    page.getByRole("heading", { name: "Tokens", exact: true }),
+    page.getByRole("heading", { name: "Pool", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Warming" })).toHaveAttribute(
     "aria-pressed",
@@ -331,7 +331,7 @@ test.describe("streak maintenance", () => {
     // day count stays as pure info where shown.
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("switch", { name: "Maturity for Account #1" }),

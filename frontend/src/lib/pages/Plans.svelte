@@ -22,8 +22,8 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / plans.conf"
-  title={$tr("Plans")}
+  crumb="freebuff-proxy / Admin / usage.conf"
+  title={$tr("Usage")}
   description={$tr("Serving accounts and served models.")}
 >
   <div class="flex flex-wrap items-center gap-2">
