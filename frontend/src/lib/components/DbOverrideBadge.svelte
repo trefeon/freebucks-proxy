@@ -33,24 +33,28 @@
   }
 </script>
 
-{#if onReset && source === "db"}
-  <button
-    type="button"
-    class="text-[10px] font-semibold uppercase tracking-wider shrink-0 inline-flex items-center gap-1 text-[var(--fp-muted)] hover:text-[var(--fp-text)] disabled:opacity-50 cursor-pointer"
-    onclick={reset}
-    disabled={resetting}
-    title={$tr("Remove the saved value; the setting falls back to its default")}
-  >
-    <RotateCcw size={11} />
-    {$tr("Reset")}
-  </button>
-{/if}
-{#if source === "db"}
-  <span class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
-    >{$tr("saved value")}</span
-  >
-{:else if source === "env"}
-  <span class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
-    >{$tr("from environment")}</span
-  >
-{/if}
+<span class="inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1">
+  {#if onReset && source === "db"}
+    <button
+      type="button"
+      class="text-[10px] font-semibold uppercase tracking-wider shrink-0 inline-flex items-center gap-1 text-[var(--fp-muted)] hover:text-[var(--fp-text)] disabled:opacity-50 cursor-pointer"
+      onclick={reset}
+      disabled={resetting}
+      title={$tr(
+        "Remove the saved value; the setting falls back to its default",
+      )}
+    >
+      <RotateCcw size={11} />
+      {$tr("Reset")}
+    </button>
+  {/if}
+  {#if source === "db"}
+    <span class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
+      >{$tr("saved value")}</span
+    >
+  {:else if source === "env"}
+    <span class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
+      >{$tr("from environment")}</span
+    >
+  {/if}
+</span>

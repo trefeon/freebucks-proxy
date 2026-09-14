@@ -513,7 +513,9 @@
 
     <!-- Universal Client Integration & Endpoints Card (Always Available) -->
     <section aria-label="Client integration">
-      <div class="flex items-center justify-between mb-3">
+      <div
+        class="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between mb-3"
+      >
         <h2 class="text-lg font-semibold text-[var(--fp-text)]">
           {$tr("Client Integration")}
         </h2>
@@ -562,7 +564,7 @@
                   class="px-1.5 py-0.5 rounded bg-[var(--fp-surface)] border border-[var(--fp-border)] font-mono text-[10px] text-[var(--fp-accent)]"
                   >OpenAI</span
                 >
-                <span class="font-mono text-[var(--fp-text)] truncate"
+                <span class="font-mono text-[var(--fp-text)] min-w-0 break-all"
                   >POST /v1/chat/completions</span
                 >
               </div>
@@ -578,7 +580,7 @@
                   class="px-1.5 py-0.5 rounded bg-[var(--fp-surface)] border border-[var(--fp-border)] font-mono text-[10px] text-[#A78BFA]"
                   >Anthropic</span
                 >
-                <span class="font-mono text-[var(--fp-text)] truncate"
+                <span class="font-mono text-[var(--fp-text)] min-w-0 break-all"
                   >POST /v1/messages</span
                 >
               </div>

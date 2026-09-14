@@ -6,12 +6,11 @@
   import Button from "../components/Button.svelte";
   import Alert from "../components/Alert.svelte";
   import EmptyState from "../components/EmptyState.svelte";
-  import SecurityCard from "../components/SecurityCard.svelte";
+  import AccessSecurityCard from "./settings/AccessSecurityCard.svelte";
   import CommandCenterCard from "../components/CommandCenterCard.svelte";
   import GatewaySettings from "./settings/GatewaySettings.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
   import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
-  import RequireLoginCard from "./settings/RequireLoginCard.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { fetchAPI, postForm, deleteAPI } from "../api/client.js";
   import { adminApi, adminActions } from "../api/paths.js";
@@ -162,7 +161,7 @@
   async function fetchData() {
     // Silent refetch once the form is mounted: flipping `loading` would
     // unmount the cards (wiping e.g. the password success alert after
-    // SecurityCard's onSuccess refresh), and a failed background refresh
+    // AccessSecurityCard's onPasswordSuccess refresh), and a failed background refresh
     // must not wipe a usable form — it keeps stale data instead.
     const firstLoad = data == null;
     if (firstLoad) loading = true;
@@ -448,20 +447,18 @@
     />
   </div>
 
-  <!-- 1. Security + Dashboard access (side by side on desktop) -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-    <SecurityCard onSuccess={fetchData} />
-    <RequireLoginCard
-      {formValues}
-      {rawText}
-      onField={setField}
-      sources={settingSources}
-      onReset={resetSetting}
-      onSaved={overlaySaved}
-      query={filterQuery}
-      onMatchCount={(n) => (accessMatches = n)}
-    />
-  </div>
+  <!-- 1. Access and Security (password + dashboard access) -->
+  <AccessSecurityCard
+    {formValues}
+    {rawText}
+    onField={setField}
+    sources={settingSources}
+    onReset={resetSetting}
+    onSaved={overlaySaved}
+    query={filterQuery}
+    onMatchCount={(n) => (accessMatches = n)}
+    onPasswordSuccess={fetchData}
+  />
 
   <!-- 2. Gateway & Protection (General - live reload) -->
   <GatewaySettings

@@ -459,7 +459,12 @@
           {activeLeases}
         </dd>
       </div>
-      <div class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]">
+      <div
+        class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
+        title={$tr(
+          "Drain uses each account fully before moving to the next. Edit in Settings → Traffic.",
+        )}
+      >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
           {$tr("Strategy")}
         </dt>
@@ -473,7 +478,12 @@
                 : $tr("Random")}
         </dd>
       </div>
-      <div class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]">
+      <div
+        class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
+        title={$tr(
+          "On a 429 the request retries at once on another healthy account. Edit in Settings → Traffic.",
+        )}
+      >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
           {$tr("Failover")}
         </dt>
@@ -486,6 +496,12 @@
         </dd>
       </div>
     </dl>
+    <a
+      href="#settings"
+      class="mt-1 text-[11px] text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:underline"
+    >
+      {$tr("Strategy & failover live in Settings → Traffic")}
+    </a>
   {/snippet}
   {#if actionMessage}
     <Alert tone={actionOK ? "success" : "error"} title={actionMessage} />

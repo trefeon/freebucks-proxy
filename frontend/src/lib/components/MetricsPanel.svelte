@@ -121,27 +121,29 @@
       pad="none"
     >
       {#snippet actions()}
-        <SegmentedControl
-          bind:value={usageRange}
-          options={[
-            { id: "today", label: "Today" },
-            { id: "24h", label: "24h" },
-            { id: "7d", label: "7D" },
-            { id: "30d", label: "30D" },
-            { id: "60d", label: "60D" },
-          ]}
-          ariaLabel={$tr("Usage range")}
-          size="xs"
-        />
-        <SegmentedControl
-          bind:value={usageView}
-          options={[
-            { id: "overview", label: $tr("Overview") },
-            { id: "details", label: $tr("Details") },
-          ]}
-          ariaLabel={$tr("Usage view")}
-          size="xs"
-        />
+        <div class="flex max-w-full flex-wrap items-center gap-2">
+          <SegmentedControl
+            bind:value={usageRange}
+            options={[
+              { id: "today", label: "Today" },
+              { id: "24h", label: "24h" },
+              { id: "7d", label: "7D" },
+              { id: "30d", label: "30D" },
+              { id: "60d", label: "60D" },
+            ]}
+            ariaLabel={$tr("Usage range")}
+            size="xs"
+          />
+          <SegmentedControl
+            bind:value={usageView}
+            options={[
+              { id: "overview", label: $tr("Overview") },
+              { id: "details", label: $tr("Details") },
+            ]}
+            ariaLabel={$tr("Usage view")}
+            size="xs"
+          />
+        </div>
       {/snippet}
       <div class="px-5 py-4">
         {#if usageLoading && !usage}

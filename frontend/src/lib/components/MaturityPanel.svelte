@@ -171,6 +171,11 @@
     if (m?.touch_day && m?.slot_day) return m.touch_day === m.slot_day;
     return !!t?.today_used;
   }
+  // Single shared skipped definition for rows AND the header count: any
+  // ledger skip:* code (including skip:touch-model) reads Skipped.
+  function isSkipped(t) {
+    return String(t?.maturity?.last_result ?? "").startsWith("skip:");
+  }
 
   function slotPast(t) {
     const slot = Date.parse(t?.maturity?.slot ?? "");
@@ -211,20 +216,21 @@
   function rowStatus(t) {
     const m = t?.maturity;
     const result = m?.last_result ?? "";
-    if (result === "skip:today-used") {
-      const when = fmtPacificDay(lastActivity(t));
-      return {
-        kind: "skipped",
-        text: `${$tr("Skipped")} · ${$tr("day already used")}${when ? ` · ${$tr("last activity {day}", { day: when })}` : ""} · ${usageSource(t)} · ${result}`,
-      };
-    }
-    if (result === "skip:client-active") {
-      return {
-        kind: "skipped",
-        text: `${$tr("Skipped")} · ${$tr("you used it today via this proxy")} · ${result}`,
-      };
-    }
-    if (result.startsWith("skip:")) {
+    // Shared skipped gate (see isSkipped): every skip:* code reads Skipped.
+    if (isSkipped(t)) {
+      if (result === "skip:today-used") {
+        const when = fmtPacificDay(lastActivity(t));
+        return {
+          kind: "skipped",
+          text: `${$tr("Skipped")} · ${$tr("day already used")}${when ? ` · ${$tr("last activity {day}", { day: when })}` : ""} · ${usageSource(t)} · ${result}`,
+        };
+      }
+      if (result === "skip:client-active") {
+        return {
+          kind: "skipped",
+          text: `${$tr("Skipped")} · ${$tr("you used it today via this proxy")} · ${result}`,
+        };
+      }
       return { kind: "skipped", text: `${$tr("Skipped")} · ${result}` };
     }
     if (touchedToday(t)) {
@@ -277,7 +283,7 @@
   }
   function countdownText() {
     const w = runWindow();
-    const skipped = coveredTokens().filter((t) => touchedToday(t)).length;
+    const skipped = coveredTokens().filter(isSkipped).length;
     const eligible = coveredTokens().length - skipped;
     const counts = `${eligible} eligible · ${skipped} skipped`;
     const reset = ` · ${$tr("reset")} ${fmtCountdown(nextReset() - nowMs)}`;
@@ -424,9 +430,13 @@
               {#if t.locked}
                 <StatusBadge tone="warn" status={$tr("Locked")} />
               {/if}
-              <span class="fp-num text-[11px] text-[var(--fp-dim)]"
-                >{st.text}</span
-              >
+              {#if st.kind === "skipped"}
+                <StatusBadge tone="warn" status={st.text} />
+              {:else}
+                <span class="fp-num text-[11px] text-[var(--fp-dim)]"
+                  >{st.text}</span
+                >
+              {/if}
               {#if model}
                 <code
                   class="fp-num ml-auto text-[11px] text-[var(--fp-muted)]"

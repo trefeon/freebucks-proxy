@@ -10,6 +10,7 @@
   } from "@lucide/svelte";
   import Button from "./Button.svelte";
   import RefundLines from "./RefundLines.svelte";
+  import StatusBadge from "./StatusBadge.svelte";
   import {
     fallbackModelOptions,
     fetchModelOptions,
@@ -290,6 +291,18 @@
           >
         {/if}
       </div>
+      {#if String(mm.last_result ?? "").startsWith("skip:")}
+        <div class="mb-1">
+          <StatusBadge
+            tone="warn"
+            status={`${$tr("Skipped")} · ${mm.last_result}`}
+          />
+        </div>
+      {:else if mm.last_result === "ok"}
+        <div class="mb-1">
+          <StatusBadge tone="good" status={$tr("Touched")} />
+        </div>
+      {/if}
       <p class="fp-num text-xs text-[var(--fp-dim)]">
         {mm.last_action
           ? `${mm.last_action} → ${mm.last_result ?? "?"}`

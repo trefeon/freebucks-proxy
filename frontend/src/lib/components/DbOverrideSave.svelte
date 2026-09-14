@@ -1,5 +1,4 @@
 <script>
-  import Button from "./Button.svelte";
   import { postAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import { tr } from "../i18n.js";
@@ -45,17 +44,16 @@
   }
 </script>
 
-<div class="flex flex-wrap items-center gap-2">
-  <Button
-    variant="ghost"
-    size="sm"
+<div class="flex flex-wrap items-center justify-end gap-2">
+  <button
+    type="button"
+    class="text-[10px] font-semibold uppercase tracking-wider shrink-0 inline-flex items-center gap-1 text-[var(--fp-muted)] hover:text-[var(--fp-text)] disabled:opacity-50 cursor-pointer"
     onclick={save}
     disabled={saving}
-    loading={saving}
     title={$tr("Save this setting")}
   >
     {$tr("Save")}
-  </Button>
+  </button>
   {#if status}
     <span
       role="status"

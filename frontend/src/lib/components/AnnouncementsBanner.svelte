@@ -126,7 +126,7 @@
           <Megaphone size={13} />
         </span>
         <span
-          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] truncate"
+          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] min-w-0"
         >
           {$tr("Upstream Notices & Broadcasts")}
         </span>
@@ -140,7 +140,7 @@
       <div class="flex items-center gap-1 min-w-0">
         {#if peakHours}
           <div
-            class="flex min-w-0 overflow-hidden items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono whitespace-nowrap max-w-full {peakHours.is_peak
+            class="flex min-w-0 items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono max-w-full break-words {peakHours.is_peak
               ? 'bg-[var(--fp-warning)]/15 text-[var(--fp-warning)] border border-[var(--fp-warning)]/30'
               : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}"
             title={peakHours.is_peak
@@ -153,8 +153,8 @@
                   { local: peakLocal() },
                 )}
           >
-            <Clock size={11} />
-            <span class="truncate min-w-0">
+            <Clock size={11} class="shrink-0" />
+            <span class="min-w-0">
               {peakHours.is_peak
                 ? $tr("Peak ends {local} ({in} left)", {
                     local: peakLocal(),
@@ -193,14 +193,14 @@
           </div>
         {:else}
           <div
-            class="p-3 rounded border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 {notice.tone ===
+            class="p-3 rounded border text-xs flex flex-row items-start justify-between gap-2 sm:items-center sm:gap-3 {notice.tone ===
             'accent'
               ? 'bg-[var(--fp-accent)]/10 border-[var(--fp-accent)]/25'
               : notice.tone === 'warning'
                 ? 'bg-[var(--fp-warning)]/10 border-[var(--fp-warning)]/25'
                 : 'bg-[var(--fp-surface-2)]/70 border-[var(--fp-border)]'}"
           >
-            <div class="flex items-start gap-2.5 min-w-0">
+            <div class="flex items-start gap-2.5 min-w-0 flex-1">
               <div class="shrink-0 mt-0.5">
                 {#if notice.type === "peak_hours"}
                   <Clock size={15} class="text-[var(--fp-warning)]" />
@@ -238,7 +238,7 @@
             </div>
 
             <div
-              class="flex items-center gap-1.5 shrink-0 self-end sm:self-center"
+              class="flex items-center gap-1.5 shrink-0 self-start sm:self-center"
             >
               {#if notice.url}
                 <a
