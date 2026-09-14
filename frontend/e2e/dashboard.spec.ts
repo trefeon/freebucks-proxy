@@ -1253,12 +1253,12 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Client Integration" }),
     ).toBeVisible();
 
-    // /admin/playground maps to Dev Tools (self-gated; shows the disabled notice here)
+    // /admin/playground maps to Dev Tools (fully gated off here: renders
+    // nothing and bounces to Overview).
     await page.goto("http://127.0.0.1:4173/admin/playground");
     await expect(
-      page.getByRole("heading", { name: "Dev Tools", exact: true }),
+      page.getByRole("heading", { name: "Overview", exact: true }),
     ).toBeVisible();
-
     // Unknown tab renders the NotFound fallback, not a blank shell
     await page.goto("http://127.0.0.1:4173/admin/#does-not-exist");
     await expect(page.getByText("Page not found")).toBeVisible();

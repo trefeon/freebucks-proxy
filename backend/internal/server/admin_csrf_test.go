@@ -212,8 +212,9 @@ func TestAdminCSRFCookieOnPageIssued(t *testing.T) {
 }
 
 // TestDevToolsDisabledGate pins the dev-tools gate: with DEVTOOLS_ENABLED=false the
-// smoke and playground POST handlers are gated server-side (404), even for
-// an authenticated dashboard client.
+// smoke, playground chat, token session spawn, playground shell, and
+// devtools/playground page-state handlers are gated server-side (404), even
+// for an authenticated dashboard client. Non-devtools surfaces stay open.
 func TestDevToolsDisabledGate(t *testing.T) {
 	ts := dashboardServer(t, "secret", func(c *config.Config) {
 		c.DevToolsEnabled = false
@@ -241,6 +242,73 @@ func TestDevToolsDisabledGate(t *testing.T) {
 	pb, _ := io.ReadAll(r.Body)
 	if r.StatusCode != http.StatusNotFound || !strings.Contains(string(pb), "devtools_disabled") {
 		t.Errorf("playground with devtools off = %d, want 404 devtools_disabled: %s", r.StatusCode, pb)
+	}
+
+	resp = doTokenAction(t, ts.URL, cookie, "/admin/tokens/0/session")
+	if body := bodyOf(t, resp); resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "devtools_disabled") {
+		t.Errorf("session spawn with devtools off = %d, want 404 devtools_disabled: %s", resp.StatusCode, body)
+	}
+
+	resp = get(t, ts.URL+"/admin/playground", cookie)
+	if body := bodyOf(t, resp); resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "devtools_disabled") {
+		t.Errorf("playground shell with devtools off = %d, want 404 devtools_disabled: %s", resp.StatusCode, body)
+	}
+
+	for _, id := range []string{"devtools", "playground"} {
+		resp = get(t, ts.URL+"/admin/api/pages/"+id, cookie)
+		if body := bodyOf(t, resp); resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "devtools_disabled") {
+			t.Errorf("GET pages/%s with devtools off = %d, want 404 devtools_disabled: %s", id, resp.StatusCode, body)
+		}
+		code, out := settingsDo(t, http.MethodPut, ts.URL+"/admin/api/pages/"+id, cookie, "",
+			map[string]any{"data": map[string]any{"filter": "x"}})
+		if code != http.StatusNotFound || out["code"] != "devtools_disabled" {
+			t.Errorf("PUT pages/%s with devtools off = %d %v, want 404 devtools_disabled", id, code, out)
+		}
+	}
+
+	// Non-devtools surfaces stay open with the knob off: another SPA shell
+	// serves, and an unrelated page snapshot still reads (empty, live-only).
+	resp = get(t, ts.URL+"/admin/tokens", cookie)
+	if code := resp.StatusCode; code != http.StatusOK {
+		t.Errorf("tokens shell with devtools off = %d, want 200", code)
+	}
+	_ = resp.Body.Close()
+	resp = get(t, ts.URL+"/admin/api/pages/tokens", cookie)
+	if body := bodyOf(t, resp); resp.StatusCode != http.StatusOK || !strings.Contains(body, `"data":{}`) {
+		t.Errorf("GET pages/tokens with devtools off = %d, want 200 empty: %s", resp.StatusCode, body)
+	}
+}
+
+// TestDevToolsEnabledGateOpen pins the other half: with DEVTOOLS_ENABLED=true
+// (the test-stack default) none of the gated surfaces 404 on the knob — the
+// gate passes and each handler answers from its own logic.
+func TestDevToolsEnabledGateOpen(t *testing.T) {
+	ts := dashboardServer(t, "secret", nil)
+	defer ts.Close()
+	cookie := authedCookie(t, ts)
+
+	resp := get(t, ts.URL+"/admin/playground", cookie)
+	if body := bodyOf(t, resp); resp.StatusCode != http.StatusOK || strings.Contains(body, "devtools_disabled") {
+		t.Errorf("playground shell with devtools on = %d, want 200: %.200s", resp.StatusCode, body)
+	}
+
+	for _, id := range []string{"devtools", "playground"} {
+		resp = get(t, ts.URL+"/admin/api/pages/"+id, cookie)
+		if body := bodyOf(t, resp); resp.StatusCode != http.StatusOK || strings.Contains(body, "devtools_disabled") {
+			t.Errorf("GET pages/%s with devtools on = %d, want 200: %s", id, resp.StatusCode, body)
+		}
+		// Live-only gateway (no store): the write passes the knob gate and
+		// reaches the store check, which 503s instead of landing nowhere.
+		code, out := settingsDo(t, http.MethodPut, ts.URL+"/admin/api/pages/"+id, cookie, "",
+			map[string]any{"data": map[string]any{"filter": "x"}})
+		if code != http.StatusServiceUnavailable || out["code"] != "pages_unavailable" {
+			t.Errorf("PUT pages/%s with devtools on = %d %v, want 503 pages_unavailable", id, code, out)
+		}
+	}
+
+	resp = doTokenAction(t, ts.URL, cookie, "/admin/tokens/0/session")
+	if body := bodyOf(t, resp); strings.Contains(body, "devtools_disabled") {
+		t.Errorf("session spawn with devtools on gated: %s", body)
 	}
 }
 

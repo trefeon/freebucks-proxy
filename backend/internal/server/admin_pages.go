@@ -53,6 +53,12 @@ func (a *adminHandlers) handlePageStateGet(w http.ResponseWriter, r *http.Reques
 		a.dash.RenderResult(w, http.StatusNotFound, false, "Unknown page "+id+".", "unknown_page")
 		return
 	}
+	// Server-side DEVTOOLS_ENABLED gate: the devtools/playground snapshots
+	// belong to hidden pages; a direct GET must 404 when the knob is off.
+	if (id == "devtools" || id == "playground") && !a.cfgLoad().DevToolsEnabled {
+		a.dash.RenderResult(w, http.StatusNotFound, false, "dev tools are disabled — set DEVTOOLS_ENABLED=true to enable the playground", "devtools_disabled")
+		return
+	}
 	if a.settings == nil {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{}}`))
@@ -73,14 +79,21 @@ func (a *adminHandlers) handlePageStateGet(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *adminHandlers) handlePageStatePut(w http.ResponseWriter, r *http.Request) {
-	if a.settings == nil {
-		a.dash.RenderResult(w, http.StatusServiceUnavailable, false,
-			"Page state store unavailable — the dashboard runs live-only (the DB failed to open at boot).", "pages_unavailable")
-		return
-	}
 	id := r.PathValue("id")
 	if !validPageIDs[id] {
 		a.dash.RenderResult(w, http.StatusNotFound, false, "Unknown page "+id+".", "unknown_page")
+		return
+	}
+	// Server-side DEVTOOLS_ENABLED gate: the devtools/playground snapshots
+	// belong to hidden pages; a direct PUT must 404 when the knob is off.
+	// It leads the store check so the knob wins even on a live-only gateway.
+	if (id == "devtools" || id == "playground") && !a.cfgLoad().DevToolsEnabled {
+		a.dash.RenderResult(w, http.StatusNotFound, false, "dev tools are disabled — set DEVTOOLS_ENABLED=true to enable the playground", "devtools_disabled")
+		return
+	}
+	if a.settings == nil {
+		a.dash.RenderResult(w, http.StatusServiceUnavailable, false,
+			"Page state store unavailable — the dashboard runs live-only (the DB failed to open at boot).", "pages_unavailable")
 		return
 	}
 	// Envelope slack above the 64KB data cap: the cap applies to data, not

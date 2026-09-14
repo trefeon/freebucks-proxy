@@ -30,7 +30,20 @@
   // Dev Tools is an operator-only manual testing surface (issue: dev testing
   // removed from public). Hidden unless DEVTOOLS_ENABLED=true in the proxy
   // config; the page self-checks so a direct #devtools hash can't bypass it.
+  // Gate off renders NOTHING and bounces the deep-link to #overview (never
+  // a disabled-message div).
   let devToolsEnabled = $state(false);
+  // Resolves true once the config gate check completes; the redirect waits
+  // for it so the enabled case (initial false -> true) never bounces away.
+  let gateChecked = $state(false);
+
+  $effect(() => {
+    if (gateChecked && !devToolsEnabled && typeof window !== "undefined") {
+      if (window.location.hash.replace("#", "") === "devtools") {
+        window.location.hash = "overview";
+      }
+    }
+  });
 
   // --- State for Chat Playground ---
   let selectedModel = $state(cheapestFreeOption(fallbackModelOptions));
@@ -107,6 +120,8 @@
         if (devToolsEnabled) recordPageVisit("devtools");
       } catch {
         devToolsEnabled = false;
+      } finally {
+        gateChecked = true;
       }
     })();
     return () => {
@@ -810,19 +825,5 @@
 
     <!-- Section 3: Batch Traffic & Rotation Simulator -->
     <BatchTestPanel {clientKey} />
-  </div>
-{:else}
-  <div class="space-y-6 page-enter">
-    <PageHeader
-      title={$tr("Dev Tools")}
-      description={$tr("Manual testing surface")}
-    />
-    <div
-      class="rounded-sm border border-[var(--fp-border)] p-6 text-sm text-[var(--fp-muted)]"
-    >
-      {$tr(
-        "Dev Tools is disabled. Set DEVTOOLS_ENABLED=true in the proxy configuration to enable it.",
-      )}
-    </div>
   </div>
 {/if}

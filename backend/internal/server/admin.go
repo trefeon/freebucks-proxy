@@ -29,6 +29,7 @@ func (a *adminHandlers) handleSmoke(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(dashboard.SmokeDisabledResponse{Message: "Dev tools are disabled — set DEVTOOLS_ENABLED=true to enable the smoke test."})
+		return
 	}
 	var req smokeRequest
 	// The dashboard form posts urlencoded model=&prompt=&token=; read those
