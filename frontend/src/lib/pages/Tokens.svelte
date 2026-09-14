@@ -439,73 +439,63 @@
     {@const activeLeases = (data?.tokens ?? []).filter(
       (t) => t.session_status === "active",
     ).length}
-    <div class="flex flex-col items-start gap-1 sm:items-end">
-      <dl
-        class="flex flex-wrap items-stretch gap-px bg-[var(--fp-border)] border border-[var(--fp-border)] rounded-[var(--fp-radius-sm)] overflow-hidden font-mono"
-        aria-label={$tr("Pool summary")}
+    <dl
+      class="flex flex-wrap items-stretch gap-px bg-[var(--fp-border)] border border-[var(--fp-border)] rounded-[var(--fp-radius-sm)] overflow-hidden font-mono"
+      aria-label={$tr("Pool summary")}
+    >
+      <div class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]">
+        <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
+          {$tr("Total")}
+        </dt>
+        <dd class="text-sm font-semibold text-[var(--fp-text)] tabular-nums">
+          {data?.token_count ?? 0}
+        </dd>
+      </div>
+      <div class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]">
+        <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
+          {$tr("Active")}
+        </dt>
+        <dd class="text-sm font-semibold text-[var(--fp-accent)] tabular-nums">
+          {activeLeases}
+        </dd>
+      </div>
+      <div
+        class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
+        title={$tr(
+          "Drain uses each account fully before moving to the next. Edit in Settings → Traffic.",
+        )}
       >
-        <div class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]">
-          <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
-            {$tr("Total")}
-          </dt>
-          <dd class="text-sm font-semibold text-[var(--fp-text)] tabular-nums">
-            {data?.token_count ?? 0}
-          </dd>
-        </div>
-        <div class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]">
-          <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
-            {$tr("Active")}
-          </dt>
-          <dd
-            class="text-sm font-semibold text-[var(--fp-accent)] tabular-nums"
-          >
-            {activeLeases}
-          </dd>
-        </div>
-        <div
-          class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
-          title={$tr(
-            "Drain uses each account fully before moving to the next. Edit in Settings → Traffic.",
-          )}
-        >
-          <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
-            {$tr("Strategy")}
-          </dt>
-          <dd class="text-sm font-semibold text-[var(--fp-text)]">
-            {tokenRotation === "drain"
-              ? $tr("Drain")
-              : tokenRotation === "round_robin"
-                ? $tr("Robin")
-                : tokenRotation === "least_used"
-                  ? $tr("Least")
-                  : $tr("Random")}
-          </dd>
-        </div>
-        <div
-          class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
-          title={$tr(
-            "On a 429 the request retries at once on another healthy account. Edit in Settings → Traffic.",
-          )}
-        >
-          <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
-            {$tr("Failover")}
-          </dt>
-          <dd
-            class="text-sm font-semibold {rateLimitFailover
-              ? 'text-[var(--fp-accent)]'
-              : 'text-[var(--fp-dim)]'}"
-          >
-            {rateLimitFailover ? $tr("On") : $tr("Off")}
-          </dd>
-        </div>
-      </dl>
-      <a
-        href="#settings"
-        class="text-[11px] text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:underline"
+        <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
+          {$tr("Strategy")}
+        </dt>
+        <dd class="text-sm font-semibold text-[var(--fp-text)]">
+          {tokenRotation === "drain"
+            ? $tr("Drain")
+            : tokenRotation === "round_robin"
+              ? $tr("Robin")
+              : tokenRotation === "least_used"
+                ? $tr("Least")
+                : $tr("Random")}
+        </dd>
+      </div>
+      <div
+        class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
+        title={$tr(
+          "On a 429 the request retries at once on another healthy account. Edit in Settings → Traffic.",
+        )}
       >
-        {$tr("Strategy & failover live in Settings → Traffic")}
-      </a>
-    </div>
+        <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
+          {$tr("Failover")}
+        </dt>
+        <dd
+          class="text-sm font-semibold {rateLimitFailover
+            ? 'text-[var(--fp-accent)]'
+            : 'text-[var(--fp-dim)]'}"
+        >
+          {rateLimitFailover ? $tr("On") : $tr("Off")}
+        </dd>
+      </div>
+    </dl>
   {/snippet}
   {#if actionMessage}
     <Alert tone={actionOK ? "success" : "error"} title={actionMessage} />
@@ -546,15 +536,23 @@
       {/if}
     </Alert>
   {/if}
-  <div class="flex flex-wrap items-center gap-2">
-    <SegmentedControl
-      bind:value={tab}
-      options={[
-        { id: "accounts", label: $tr("Accounts") },
-        { id: "warming", label: $tr("Warming") },
-      ]}
-      ariaLabel={$tr("Tokens sections")}
-    />
+  <div class="flex flex-col items-start gap-1">
+    <div class="flex flex-wrap items-center gap-2">
+      <SegmentedControl
+        bind:value={tab}
+        options={[
+          { id: "accounts", label: $tr("Accounts") },
+          { id: "warming", label: $tr("Warming") },
+        ]}
+        ariaLabel={$tr("Tokens sections")}
+      />
+    </div>
+    <a
+      href="#settings"
+      class="text-[11px] text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:underline"
+    >
+      {$tr("Strategy & failover live in Settings → Traffic")}
+    </a>
   </div>
 
   {#if tab === "accounts"}
