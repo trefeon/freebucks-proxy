@@ -414,33 +414,36 @@
             {@const st = rowStatus(t)}
             {@const model = resolvedModel(t)}
             <div
-              class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--fp-border)]/60 pt-2"
+              class="flex flex-col gap-1 border-t border-[var(--fp-border)]/60 pt-2"
             >
-              <span class="min-w-0">
-                <span class="fp-num text-xs font-semibold text-[var(--fp-text)]"
-                  >{$tr("Account #{idx}", { idx: idx + 1 })}</span
-                >
-                {#if t.email}
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span class="min-w-0">
                   <span
-                    class="ml-1.5 text-[11px] text-[var(--fp-muted)] truncate"
-                    title={t.email}>{t.email}</span
+                    class="fp-num text-xs font-semibold text-[var(--fp-text)]"
+                    >{$tr("Account #{idx}", { idx: idx + 1 })}</span
+                  >
+                  {#if t.email}
+                    <span
+                      class="ml-1.5 text-[11px] text-[var(--fp-muted)] truncate"
+                      title={t.email}>{t.email}</span
+                    >
+                  {/if}
+                </span>
+                {#if t.locked}
+                  <StatusBadge tone="warn" status={$tr("Locked")} />
+                {/if}
+                {#if model}
+                  <code
+                    class="fp-num ml-auto text-[11px] text-[var(--fp-muted)]"
+                    title={$tr("Touch model for tonight")}>{model}</code
                   >
                 {/if}
-              </span>
-              {#if t.locked}
-                <StatusBadge tone="warn" status={$tr("Locked")} />
-              {/if}
+              </div>
               {#if st.kind === "skipped"}
                 <StatusBadge tone="warn" status={st.text} />
               {:else}
                 <span class="fp-num text-[11px] text-[var(--fp-dim)]"
                   >{st.text}</span
-                >
-              {/if}
-              {#if model}
-                <code
-                  class="fp-num ml-auto text-[11px] text-[var(--fp-muted)]"
-                  title={$tr("Touch model for tonight")}>{model}</code
                 >
               {/if}
             </div>

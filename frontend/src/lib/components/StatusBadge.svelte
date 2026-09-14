@@ -44,10 +44,10 @@
 </script>
 
 <span
-  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[3px] border font-mono text-[11px] uppercase tracking-wider {toneClasses[
+  class="inline-flex max-w-full items-center gap-1 px-1.5 py-0.5 rounded-[3px] border font-mono text-[11px] uppercase tracking-wider break-words {toneClasses[
     resolvedTone
   ]} {pulse ? 'led-pulse' : ''}"
 >
-  <span aria-hidden="true">[{glyphs[resolvedTone]}]</span>
-  <span>{status}</span>
+  <span aria-hidden="true" class="shrink-0">[{glyphs[resolvedTone]}]</span>
+  <span class="min-w-0 break-words">{status}</span>
 </span>

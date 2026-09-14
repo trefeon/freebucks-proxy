@@ -199,7 +199,11 @@ test.describe("streak maintenance", () => {
       });
     });
     await gotoWarming(page);
-    const row = page.getByText("Account #1").locator("..").locator("..");
+    const row = page
+      .getByText("Account #1")
+      .locator("..")
+      .locator("..")
+      .locator("..");
     await expect(row.getByText(/day already used/)).toBeVisible();
     await expect(row.getByText(/last activity Sep 11/)).toBeVisible();
     await expect(row.getByText(/used outside this proxy/)).toBeVisible();
