@@ -49,12 +49,16 @@ export const NAV_ITEMS = [
     label: "Settings",
     icon: SettingsIcon,
   },
+  // Dev Tools - agent-only manual testing surface, hidden from the sidebar
+  // (inSidebar:false) but still mounted by App.svelte via pageComponentFor,
+  // so #devtools deep-link keeps working. Gate stays as the second lock.
   {
     id: "devtools",
     component: DevTools,
     label: "Dev Tools",
     icon: FlaskConical,
     gate: "devtools",
+    inSidebar: false,
   },
   // REVIEW TEMP - agent-only click-through surface, hidden from the sidebar
   // (inSidebar:false) but still mounted by App.svelte via pageComponentFor,
