@@ -178,7 +178,13 @@
     {/snippet}
 
     {#if showPassword}
-      <div class="flex flex-col gap-4">
+      <div class="flex items-center gap-2 text-[var(--fp-dim)]">
+        <Key size={14} />
+        <h3 class="text-xs font-semibold uppercase tracking-wider">
+          {$tr("Admin password")}
+        </h3>
+      </div>
+      <div class="flex flex-col gap-4 pt-3">
         <!-- Password Change Form -->
         <form onsubmit={handleSubmit} class="flex flex-col gap-4">
           {#if hasPassword}
@@ -304,43 +310,45 @@
           {$tr("Dashboard access")}
         </h3>
       </div>
-      <SettingsRow
-        first
-        last
-        label={$tr(LOGIN_LABEL)}
-        description={$tr(LOGIN_DESC)}
-      >
-        {#snippet badge()}
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >DASHBOARD_REQUIRE_LOGIN</code
-          >
-          {#if !env.DASHBOARD_REQUIRE_LOGIN}
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-              >{$tr("default")}</span
+      <div class="pt-1">
+        <SettingsRow
+          first
+          last
+          label={$tr(LOGIN_LABEL)}
+          description={$tr(LOGIN_DESC)}
+        >
+          {#snippet badge()}
+            <code
+              class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+              >DASHBOARD_REQUIRE_LOGIN</code
             >
-          {/if}
-        {/snippet}
-        {#snippet extra()}
-          <DbOverrideSave
-            settingKey="DASHBOARD_REQUIRE_LOGIN"
-            value={formValues.DASHBOARD_REQUIRE_LOGIN ?? "true"}
-            source={sources.DASHBOARD_REQUIRE_LOGIN}
-            {onReset}
-            {onSaved}
-          />
-        {/snippet}
+            {#if !env.DASHBOARD_REQUIRE_LOGIN}
+              <span
+                class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
+                >{$tr("default")}</span
+              >
+            {/if}
+          {/snippet}
+          {#snippet extra()}
+            <DbOverrideSave
+              settingKey="DASHBOARD_REQUIRE_LOGIN"
+              value={formValues.DASHBOARD_REQUIRE_LOGIN ?? "true"}
+              source={sources.DASHBOARD_REQUIRE_LOGIN}
+              {onReset}
+              {onSaved}
+            />
+          {/snippet}
 
-        <div class="flex items-center gap-2.5">
-          <ToggleSwitch
-            checked={requireLogin}
-            ariaLabel="DASHBOARD_REQUIRE_LOGIN"
-            onchange={(v) =>
-              onField("DASHBOARD_REQUIRE_LOGIN", v ? "true" : "false")}
-          />
-        </div>
-      </SettingsRow>
+          <div class="flex items-center gap-2.5">
+            <ToggleSwitch
+              checked={requireLogin}
+              ariaLabel="DASHBOARD_REQUIRE_LOGIN"
+              onchange={(v) =>
+                onField("DASHBOARD_REQUIRE_LOGIN", v ? "true" : "false")}
+            />
+          </div>
+        </SettingsRow>
+      </div>
     {/if}
   </SettingsCard>
 {/if}
