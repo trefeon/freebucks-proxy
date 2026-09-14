@@ -4,7 +4,6 @@
   import SettingsCard from "../../components/SettingsCard.svelte";
   import SettingsRow from "../../components/SettingsRow.svelte";
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
-  import DbBadge from "../../components/DbOverrideBadge.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
   import Button from "../../components/Button.svelte";
   import Alert from "../../components/Alert.svelte";
@@ -322,14 +321,13 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.DASHBOARD_REQUIRE_LOGIN === "db"}
-            <DbBadge settingKey="DASHBOARD_REQUIRE_LOGIN" {onReset} />
-          {/if}
         {/snippet}
         {#snippet extra()}
           <DbOverrideSave
             settingKey="DASHBOARD_REQUIRE_LOGIN"
             value={formValues.DASHBOARD_REQUIRE_LOGIN ?? "true"}
+            source={sources.DASHBOARD_REQUIRE_LOGIN}
+            {onReset}
             {onSaved}
           />
         {/snippet}

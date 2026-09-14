@@ -3,7 +3,6 @@
   import SettingsCard from "../../components/SettingsCard.svelte";
   import SettingsRow from "../../components/SettingsRow.svelte";
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
-  import DbBadge from "../../components/DbOverrideBadge.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
   import NumberStepper from "../../components/NumberStepper.svelte";
   import DurationPicker from "../../components/DurationPicker.svelte";
@@ -251,19 +250,14 @@
                     >{$tr("(needs restart)")}</span
                   >
                 {/if}
-                {#if sources[entry.key] === "db" || sources[entry.key] === "env"}
-                  <DbBadge
-                    settingKey={entry.key}
-                    source={sources[entry.key]}
-                    {onReset}
-                  />
-                {/if}
               {/snippet}
               {#snippet extra()}
                 <DbOverrideSave
                   settingKey={entry.key}
                   value={val(entry.key, entry)}
                   restartOnly={entry.restart_only}
+                  source={sources[entry.key]}
+                  {onReset}
                   {onSaved}
                 />
               {/snippet}

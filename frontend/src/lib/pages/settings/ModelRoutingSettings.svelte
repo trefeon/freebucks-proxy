@@ -2,7 +2,6 @@
   import SettingsCard from "../../components/SettingsCard.svelte";
   import SettingsRow from "../../components/SettingsRow.svelte";
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
-  import DbBadge from "../../components/DbOverrideBadge.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
   import { Cpu } from "@lucide/svelte";
   import { tr } from "../../i18n.js";
@@ -126,19 +125,14 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.MODEL_ALIASES === "db" || sources.MODEL_ALIASES === "env"}
-            <DbBadge
-              settingKey="MODEL_ALIASES"
-              source={sources.MODEL_ALIASES}
-              {onReset}
-            />
-          {/if}
         {/snippet}
 
         {#snippet extra()}
           <DbOverrideSave
             settingKey="MODEL_ALIASES"
             value={modelAliases}
+            source={sources.MODEL_ALIASES}
+            {onReset}
             {onSaved}
           />
         {/snippet}
@@ -176,19 +170,14 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.MODELS_ALLOW === "db" || sources.MODELS_ALLOW === "env"}
-            <DbBadge
-              settingKey="MODELS_ALLOW"
-              source={sources.MODELS_ALLOW}
-              {onReset}
-            />
-          {/if}
         {/snippet}
 
         {#snippet extra()}
           <DbOverrideSave
             settingKey="MODELS_ALLOW"
             value={modelsAllow}
+            source={sources.MODELS_ALLOW}
+            {onReset}
             {onSaved}
           />
         {/snippet}
@@ -227,19 +216,14 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.REASONING_IN_CONTENT === "db" || sources.REASONING_IN_CONTENT === "env"}
-            <DbBadge
-              settingKey="REASONING_IN_CONTENT"
-              source={sources.REASONING_IN_CONTENT}
-              {onReset}
-            />
-          {/if}
         {/snippet}
 
         {#snippet extra()}
           <DbOverrideSave
             settingKey="REASONING_IN_CONTENT"
             value={formValues.REASONING_IN_CONTENT ?? ""}
+            source={sources.REASONING_IN_CONTENT}
+            {onReset}
             {onSaved}
           />
         {/snippet}
@@ -274,19 +258,14 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.MODEL_LOCKS === "db" || sources.MODEL_LOCKS === "env"}
-            <DbBadge
-              settingKey="MODEL_LOCKS"
-              source={sources.MODEL_LOCKS}
-              {onReset}
-            />
-          {/if}
         {/snippet}
 
         {#snippet extra()}
           <DbOverrideSave
             settingKey="MODEL_LOCKS"
             value={modelLocks}
+            source={sources.MODEL_LOCKS}
+            {onReset}
             {onSaved}
           />
         {/snippet}

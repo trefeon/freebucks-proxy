@@ -1,7 +1,6 @@
 <script>
   import SettingsCard from "../../components/SettingsCard.svelte";
   import SettingsRow from "../../components/SettingsRow.svelte";
-  import DbBadge from "../../components/DbOverrideBadge.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
   import NumberStepper from "../../components/NumberStepper.svelte";
@@ -369,18 +368,13 @@
                   >{$tr("default")}</span
                 >
               {/if}
-              {#if sources.ROUTING_SMART === "db" || sources.ROUTING_SMART === "env"}
-                <DbBadge
-                  settingKey="ROUTING_SMART"
-                  source={sources.ROUTING_SMART}
-                  {onReset}
-                />
-              {/if}
             {/snippet}
             {#snippet extra()}
               <DbOverrideSave
                 settingKey="ROUTING_SMART"
                 value={formValues.ROUTING_SMART ?? "true"}
+                source={sources.ROUTING_SMART}
+                {onReset}
                 {onSaved}
               />
             {/snippet}
@@ -413,18 +407,13 @@
                   >{$tr("default")}</span
                 >
               {/if}
-              {#if sources.TOKEN_MAX_CONCURRENT === "db" || sources.TOKEN_MAX_CONCURRENT === "env"}
-                <DbBadge
-                  settingKey="TOKEN_MAX_CONCURRENT"
-                  source={sources.TOKEN_MAX_CONCURRENT}
-                  {onReset}
-                />
-              {/if}
             {/snippet}
             {#snippet extra()}
               <DbOverrideSave
                 settingKey="TOKEN_MAX_CONCURRENT"
                 value={tokenMaxConcurrent}
+                source={sources.TOKEN_MAX_CONCURRENT}
+                {onReset}
                 {onSaved}
               />
             {/snippet}
@@ -465,18 +454,13 @@
                   >{$tr("default")}</span
                 >
               {/if}
-              {#if sources.QUEUE_WAIT === "db" || sources.QUEUE_WAIT === "env"}
-                <DbBadge
-                  settingKey="QUEUE_WAIT"
-                  source={sources.QUEUE_WAIT}
-                  {onReset}
-                />
-              {/if}
             {/snippet}
             {#snippet extra()}
               <DbOverrideSave
                 settingKey="QUEUE_WAIT"
                 value={queueWait}
+                source={sources.QUEUE_WAIT}
+                {onReset}
                 {onSaved}
               />
             {/snippet}
@@ -510,18 +494,13 @@
                   >{$tr("default")}</span
                 >
               {/if}
-              {#if sources.QUEUE_DEPTH === "db" || sources.QUEUE_DEPTH === "env"}
-                <DbBadge
-                  settingKey="QUEUE_DEPTH"
-                  source={sources.QUEUE_DEPTH}
-                  {onReset}
-                />
-              {/if}
             {/snippet}
             {#snippet extra()}
               <DbOverrideSave
                 settingKey="QUEUE_DEPTH"
                 value={queueDepth}
+                source={sources.QUEUE_DEPTH}
+                {onReset}
                 {onSaved}
               />
             {/snippet}
@@ -566,18 +545,13 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.RATE_LIMIT_PER_IP === "db" || sources.RATE_LIMIT_PER_IP === "env"}
-            <DbBadge
-              settingKey="RATE_LIMIT_PER_IP"
-              source={sources.RATE_LIMIT_PER_IP}
-              {onReset}
-            />
-          {/if}
         {/snippet}
         {#snippet extra()}
           <DbOverrideSave
             settingKey="RATE_LIMIT_PER_IP"
             value={rateLimitPerIp}
+            source={sources.RATE_LIMIT_PER_IP}
+            {onReset}
             {onSaved}
           />
         {/snippet}

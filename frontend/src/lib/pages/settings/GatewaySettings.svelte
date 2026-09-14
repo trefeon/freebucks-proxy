@@ -2,7 +2,6 @@
   import SettingsCard from "../../components/SettingsCard.svelte";
   import SettingsRow from "../../components/SettingsRow.svelte";
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
-  import DbBadge from "../../components/DbOverrideBadge.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
   import { ShieldCheck } from "@lucide/svelte";
   import { tr } from "../../i18n.js";
@@ -148,19 +147,14 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.SAFE_MODE === "db" || sources.SAFE_MODE === "env"}
-            <DbBadge
-              settingKey="SAFE_MODE"
-              source={sources.SAFE_MODE}
-              {onReset}
-            />
-          {/if}
         {/snippet}
 
         {#snippet extra()}
           <DbOverrideSave
             settingKey="SAFE_MODE"
             value={formValues.SAFE_MODE ?? "true"}
+            source={sources.SAFE_MODE}
+            {onReset}
             {onSaved}
           />
         {/snippet}
@@ -194,16 +188,15 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.LOG_LEVEL === "db" || sources.LOG_LEVEL === "env"}
-            <DbBadge
-              settingKey="LOG_LEVEL"
-              source={sources.LOG_LEVEL}
-              {onReset}
-            />
-          {/if}
         {/snippet}
         {#snippet extra()}
-          <DbOverrideSave settingKey="LOG_LEVEL" value={logLevel} {onSaved} />
+          <DbOverrideSave
+            settingKey="LOG_LEVEL"
+            value={logLevel}
+            source={sources.LOG_LEVEL}
+            {onReset}
+            {onSaved}
+          />
         {/snippet}
 
         <div class="w-full sm:w-48">
@@ -255,19 +248,14 @@
           <span class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
             >{$tr("(needs restart)")}</span
           >
-          {#if sources.HTTP_READ_TIMEOUT === "db" || sources.HTTP_READ_TIMEOUT === "env"}
-            <DbBadge
-              settingKey="HTTP_READ_TIMEOUT"
-              source={sources.HTTP_READ_TIMEOUT}
-              {onReset}
-            />
-          {/if}
         {/snippet}
         {#snippet extra()}
           <DbOverrideSave
             settingKey="HTTP_READ_TIMEOUT"
             value={httpReadTimeout}
             restartOnly
+            source={sources.HTTP_READ_TIMEOUT}
+            {onReset}
             {onSaved}
           />
         {/snippet}
@@ -316,18 +304,13 @@
               >{$tr("default")}</span
             >
           {/if}
-          {#if sources.BRIDGE_ENABLED === "db" || sources.BRIDGE_ENABLED === "env"}
-            <DbBadge
-              settingKey="BRIDGE_ENABLED"
-              source={sources.BRIDGE_ENABLED}
-              {onReset}
-            />
-          {/if}
         {/snippet}
         {#snippet extra()}
           <DbOverrideSave
             settingKey="BRIDGE_ENABLED"
             value={formValues.BRIDGE_ENABLED ?? "true"}
+            source={sources.BRIDGE_ENABLED}
+            {onReset}
             {onSaved}
           />
         {/snippet}
