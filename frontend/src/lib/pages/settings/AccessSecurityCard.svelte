@@ -178,133 +178,132 @@
     {/snippet}
 
     {#if showPassword}
-      <div class="flex items-center gap-2 text-[var(--fp-dim)]">
-        <Key size={14} />
-        <h3 class="text-xs font-semibold uppercase tracking-wider">
-          {$tr("Admin password")}
-        </h3>
-      </div>
-      <div class="flex flex-col gap-4 pt-3">
-        <!-- Password Change Form -->
-        <form onsubmit={handleSubmit} class="flex flex-col gap-4">
-          {#if hasPassword}
-            <div class="flex flex-col gap-2">
-              <div class="flex items-center justify-between">
-                <label
-                  for="sec-current-password"
-                  class="text-xs sm:text-sm font-medium text-[var(--fp-text)]"
-                >
-                  {$tr("Current Password")}
-                </label>
-                {#if isDefaultAdminToken}
-                  <span
-                    class="text-[11px] text-[var(--fp-warning)] flex items-center gap-1 font-mono"
+      <div class="flex flex-col gap-4 {showLogin ? 'pb-5' : ''}">
+        <div class="flex items-center gap-2 text-[var(--fp-dim)]">
+          <Key size={14} />
+          <h3 class="text-xs font-semibold uppercase tracking-wider">
+            {$tr("Admin password")}
+          </h3>
+        </div>
+        <div class="flex flex-col gap-4 pt-3">
+          <!-- Password Change Form -->
+          <form onsubmit={handleSubmit} class="flex flex-col gap-4">
+            {#if hasPassword}
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <label
+                    for="sec-current-password"
+                    class="text-xs sm:text-sm font-medium text-[var(--fp-text)]"
                   >
-                    {$tr("(Default: 123456)")}
-                  </span>
-                {/if}
+                    {$tr("Current Password")}
+                  </label>
+                  {#if isDefaultAdminToken}
+                    <span
+                      class="text-[11px] text-[var(--fp-warning)] flex items-center gap-1 font-mono"
+                    >
+                      {$tr("(Default: 123456)")}
+                    </span>
+                  {/if}
+                </div>
+                <div class="relative">
+                  <input
+                    id="sec-current-password"
+                    type={showCurrentPassword ? "text" : "password"}
+                    bind:value={currentPassword}
+                    placeholder={$tr("Enter current password")}
+                    class="fp-input pr-10"
+                    autocomplete="current-password"
+                    disabled={submitting}
+                  />
+                  <button
+                    type="button"
+                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] hover:text-[var(--fp-text)] p-1 rounded transition-colors"
+                    onclick={() => (showCurrentPassword = !showCurrentPassword)}
+                    aria-label={showCurrentPassword
+                      ? $tr("Hide password")
+                      : $tr("Show password")}
+                  >
+                    {#if showCurrentPassword}
+                      <EyeOff size={16} />
+                    {:else}
+                      <Eye size={16} />
+                    {/if}
+                  </button>
+                </div>
               </div>
+            {/if}
+
+            <div class="flex flex-col gap-2">
+              <label
+                for="sec-new-password"
+                class="text-xs sm:text-sm font-medium text-[var(--fp-text)]"
+              >
+                {$tr("New Password")}
+              </label>
               <div class="relative">
                 <input
-                  id="sec-current-password"
-                  type={showCurrentPassword ? "text" : "password"}
-                  bind:value={currentPassword}
-                  placeholder={$tr("Enter current password")}
+                  id="sec-new-password"
+                  type={showNewPassword ? "text" : "password"}
+                  bind:value={newPassword}
+                  placeholder={$tr("Enter new password")}
                   class="fp-input pr-10"
-                  autocomplete="current-password"
+                  autocomplete="new-password"
                   disabled={submitting}
                 />
                 <button
                   type="button"
                   class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] hover:text-[var(--fp-text)] p-1 rounded transition-colors"
-                  onclick={() => (showCurrentPassword = !showCurrentPassword)}
-                  aria-label={showCurrentPassword
+                  onclick={() => (showNewPassword = !showNewPassword)}
+                  aria-label={showNewPassword
                     ? $tr("Hide password")
                     : $tr("Show password")}
                 >
-                  {#if showCurrentPassword}
+                  {#if showNewPassword}
                     <EyeOff size={16} />
                   {:else}
                     <Eye size={16} />
                   {/if}
                 </button>
               </div>
+              {#if newPassword && newPassword.length < 6}
+                <p class="text-[11px] text-[var(--fp-warning)]">
+                  {$tr("Minimum 6 characters")}
+                </p>
+              {:else if newPassword === "123456"}
+                <p class="text-[11px] text-[var(--fp-error)]">
+                  {$tr("Cannot be factory default (123456)")}
+                </p>
+              {/if}
             </div>
-          {/if}
-
-          <div class="flex flex-col gap-2">
-            <label
-              for="sec-new-password"
-              class="text-xs sm:text-sm font-medium text-[var(--fp-text)]"
-            >
-              {$tr("New Password")}
-            </label>
-            <div class="relative">
-              <input
-                id="sec-new-password"
-                type={showNewPassword ? "text" : "password"}
-                bind:value={newPassword}
-                placeholder={$tr("Enter new password")}
-                class="fp-input pr-10"
-                autocomplete="new-password"
-                disabled={submitting}
-              />
-              <button
-                type="button"
-                class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] hover:text-[var(--fp-text)] p-1 rounded transition-colors"
-                onclick={() => (showNewPassword = !showNewPassword)}
-                aria-label={showNewPassword
-                  ? $tr("Hide password")
-                  : $tr("Show password")}
-              >
-                {#if showNewPassword}
-                  <EyeOff size={16} />
-                {:else}
-                  <Eye size={16} />
-                {/if}
-              </button>
-            </div>
-            {#if newPassword && newPassword.length < 6}
-              <p class="text-[11px] text-[var(--fp-warning)]">
-                {$tr("Minimum 6 characters")}
-              </p>
-            {:else if newPassword === "123456"}
-              <p class="text-[11px] text-[var(--fp-error)]">
-                {$tr("Cannot be factory default (123456)")}
-              </p>
+            {#if errorMsg}
+              <Alert tone="error">{errorMsg}</Alert>
             {/if}
-          </div>
-          {#if errorMsg}
-            <Alert tone="error">{errorMsg}</Alert>
-          {/if}
-          {#if successMsg}
-            <Alert tone="success">{successMsg}</Alert>
-          {/if}
+            {#if successMsg}
+              <Alert tone="success">{successMsg}</Alert>
+            {/if}
 
-          <div class="pt-2">
-            <Button
-              type="submit"
-              variant="primary"
-              loading={submitting}
-              disabled={!canSubmit || submitting}
-            >
-              <Key size={14} />
-              {$tr("Update Password")}
-            </Button>
-          </div>
-        </form>
+            <div class="pt-2">
+              <Button
+                type="submit"
+                variant="primary"
+                loading={submitting}
+                disabled={!canSubmit || submitting}
+              >
+                <Key size={14} />
+                {$tr("Update Password")}
+              </Button>
+            </div>
+          </form>
+        </div>
       </div>
     {/if}
 
-    {#if showPassword && showLogin}
-      <div
-        role="separator"
-        class="border-t border-[var(--fp-border)] my-5"
-      ></div>
-    {/if}
-
     {#if showLogin}
-      <div class="flex items-center gap-2 text-[var(--fp-dim)]">
+      <div
+        class="flex items-center gap-2 text-[var(--fp-dim)] {showPassword
+          ? 'border-t border-border-subtle pt-5'
+          : ''}"
+      >
         <Lock size={14} />
         <h3 class="text-xs font-semibold uppercase tracking-wider">
           {$tr("Dashboard access")}
