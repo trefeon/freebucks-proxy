@@ -1446,4 +1446,28 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#does-not-exist");
     await expect(page.getByText("Page not found")).toBeVisible();
   });
+  test("Sidebar footer shortens a 40-char build SHA with full id in tooltip", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    const sha = "d088f4468e77c1bcf3814862b42bee9415e5fe6e";
+    await mockDashboard(page, f, {
+      version: { ...f.version, current_version: sha },
+    });
+    await page.goto("http://127.0.0.1:4173/admin/#overview");
+    await expect(
+      page.getByRole("heading", { name: "Overview", exact: true }),
+    ).toBeVisible();
+    // Short id renders in the desktop sidebar footer; the full SHA never
+    // appears as visible text (it would overflow the 224px sidebar) but
+    // stays available as the tooltip.
+    const badge = page.locator("aside span[title]").filter({
+      hasText: "d088f44",
+    });
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveAttribute("title", sha);
+    await expect(
+      page.locator("aside").getByText(sha, { exact: false }),
+    ).toHaveCount(0);
+  });
 });
