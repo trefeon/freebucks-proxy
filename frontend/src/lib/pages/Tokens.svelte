@@ -575,8 +575,8 @@
         bind:value={tab}
         options={[
           { id: "accounts", label: $tr("Accounts") },
-          { id: "controls", label: $tr("Controls") },
           { id: "warming", label: $tr("Warming") },
+          { id: "controls", label: $tr("Controls") },
         ]}
         ariaLabel={$tr("Tokens sections")}
       />
