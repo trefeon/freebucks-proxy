@@ -764,7 +764,9 @@ test.describe("operator interactions (hermetic mocks)", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await metaResp;
-    await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Security", exact: true }),
+    ).toBeVisible();
 
     // Eye toggles reveal the password text.
     const eyes = page.getByRole("button", { name: "Show password" });

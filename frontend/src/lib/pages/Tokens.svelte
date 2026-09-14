@@ -18,9 +18,11 @@
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import MaturityPanel from "../components/MaturityPanel.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
+  import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { fetchAPI, postAPI, csrfHeader } from "../api/client.js";
   import { adminApi, adminActions, tokenActions } from "../api/paths.js";
   import {
+    meta as settingsMeta,
     formValues as settingsFormValues,
     rawText as settingsRawText,
     settingSources as settingsSources,
@@ -790,6 +792,18 @@
       onReset={resetSettingsKey}
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
+    />
+    <AdvancedSettings
+      meta={$settingsMeta}
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      onlyGroups={["pool"]}
+      cardTitle="Pool Tuning"
+      cardDescription="Pool sizing, sessions, streak maintenance, and quota probing."
     />
   {:else if tab === "warming"}
     <MaturityPanel />

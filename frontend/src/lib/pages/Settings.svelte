@@ -91,7 +91,7 @@
   crumb="freebuff-proxy / Admin / settings.conf"
   title={$tr("Settings")}
   description={$tr(
-    "Gateway runtime behavior, protection, and model routing. Live-applying keys take effect on save without restart; restart-marked keys need a container restart.",
+    "Access, protection, and remaining tunables. Live-applying keys take effect on save without restart; restart-marked keys need a container restart.",
   )}
   loading={$loading}
   error={$error}
@@ -292,6 +292,9 @@
     onSaved={overlaySaved}
     query={filterQuery}
     onMatchCount={(n) => (advancedMatches = n)}
+    onlyGroups={["security"]}
+    cardTitle="Security"
+    cardDescription="Remaining security tunables."
   />
 
   {#if allEmpty}

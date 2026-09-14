@@ -8,9 +8,11 @@
   import ModelsPanel from "../components/ModelsPanel.svelte";
   import AllowancesPanel from "../components/AllowancesPanel.svelte";
   import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
+  import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { tr } from "../i18n.js";
   import { recordPageVisit } from "../stores/pageState.js";
   import {
+    meta as settingsMeta,
     formValues as settingsFormValues,
     rawText as settingsRawText,
     settingSources as settingsSources,
@@ -169,6 +171,18 @@
       onReset={resetSettingsKey}
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
+    />
+    <AdvancedSettings
+      meta={$settingsMeta}
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      onlyGroups={["upstream", "quota"]}
+      cardTitle="Upstream & Quota"
+      cardDescription="Upstream behavior, fallbacks, and quotas."
     />
   {:else}
     <div class="flex flex-col gap-5">

@@ -441,7 +441,7 @@ test.describe("dashboard hermetic mocks", () => {
     ).toBeVisible();
   });
 
-  test("Settings renders catalog groups and saves a toggled bool into the .env", async ({
+  test("Settings and pages render catalog groups, toggled bool saves to .env", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -471,9 +471,12 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
+    // Group cards moved to their pages: Settings keeps General (Gateway),
+    // Security leftovers, and the three link-out stubs.
     await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Pool" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Security", exact: true }),
+    ).toBeVisible();
     // A documented bool renders as a switch; effective value drives it.
     const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
     await expect(safeMode).toBeVisible();
@@ -619,6 +622,80 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("link", {
         name: "Manage Usage controls (Usage → Controls tab)",
       }),
+    ).toBeVisible();
+  });
+  test("Pool Controls tab renders pool tuning keys and saves", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    // Pool-group keys moved from Settings Advanced to the Pool Controls
+    // tab: maturity + probing rows render in the Pool Tuning card.
+    await expect(page.getByText("Pool Tuning")).toBeVisible();
+    await expect(
+      page.getByText("MATURITY_ENABLED", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("QUOTA_AUTO_PROBE", { exact: true }).first(),
+    ).toBeVisible();
+    // Settings no longer renders pool rows: only the Security leftover.
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await expect(
+      page.getByText("MATURITY_ENABLED", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("CORS_ALLOWED_ORIGIN", { exact: true }).first(),
+    ).toBeVisible();
+  });
+
+  test("Usage Controls tab renders upstream and quota keys", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    // Upstream/quota-group keys moved from Settings Advanced to Usage.
+    await expect(page.getByText("Upstream & Quota")).toBeVisible();
+    await expect(
+      page.getByText("REGISTRY_REFRESH", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("FALLBACK_AFTER_MS", { exact: true }).first(),
+    ).toBeVisible();
+  });
+
+  test("Logs Logging tab renders logging and diagnostics keys", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await metaResp;
+    await page.getByRole("button", { name: "Logging" }).click();
+    // General-group keys moved from Settings Advanced to Logs.
+    await expect(page.getByText("Logging & Diagnostics")).toBeVisible();
+    await expect(
+      page.getByText("LOG_TABLE_RETENTION", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("LOG_CONSOLE_WINDOW", { exact: true }).first(),
     ).toBeVisible();
   });
 

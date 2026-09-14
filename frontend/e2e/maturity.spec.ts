@@ -345,17 +345,15 @@ test.describe("streak maintenance", () => {
     await expect(page.getByText("Locked").first()).toBeVisible();
   });
 
-  test("settings advanced wires the dry-run toggle and touch model", async ({
+  test("pool controls tab wires the dry-run toggle and touch model", async ({
     page,
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
-    await expect(
-      page.getByRole("heading", { name: "Settings", exact: true }),
-    ).toBeVisible();
-    // Pool knobs live here now: MATURITY_DRY_RUN as a switch,
-    // MATURITY_TOUCH_MODEL as the Auto select.
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Controls" }).click();
+    // Pool knobs moved to the Pool Controls tab: MATURITY_DRY_RUN as a
+    // switch, MATURITY_TOUCH_MODEL as the Auto select.
     await expect(
       page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
     ).toBeVisible();

@@ -33,6 +33,10 @@
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
+   * @prop {Array<string> | null} [onlyGroups] - null renders every group,
+   *   otherwise only the listed catalog group ids (e.g. ["pool"])
+   * @prop {string} [cardTitle] - card heading, translated at render
+   * @prop {string} [cardDescription] - card subheading, translated at render
    */
   let {
     meta = [],
@@ -44,6 +48,9 @@
     onSaved = null,
     query = "",
     onMatchCount = null,
+    onlyGroups = null,
+    cardTitle = "Advanced",
+    cardDescription = "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
   } = $props();
 
   // Keys owned by the curated section components above (Gateway, Traffic —
@@ -77,11 +84,17 @@
     upstream: "Upstream",
     security: "Security",
   };
-
   let env = $derived(parseEnv(rawText));
+
   let rows = $derived(
     (meta ?? []).filter(
-      (e) => e && e.key && !e.hidden && !e.secret && !COVERED.has(e.key),
+      (e) =>
+        e &&
+        e.key &&
+        !e.hidden &&
+        !e.secret &&
+        !COVERED.has(e.key) &&
+        (!onlyGroups || onlyGroups.includes(e.group)),
     ),
   );
   let groups = $derived.by(() => {
@@ -189,12 +202,7 @@
 </script>
 
 {#if !q || filtered.length > 0}
-  <SettingsCard
-    title={$tr("Advanced")}
-    description={$tr(
-      "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
-    )}
-  >
+  <SettingsCard title={$tr(cardTitle)} description={$tr(cardDescription)}>
     {#snippet icon()}
       <SlidersHorizontal size={20} />
     {/snippet}

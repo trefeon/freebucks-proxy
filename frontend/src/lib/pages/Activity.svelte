@@ -9,7 +9,9 @@
   import MetricsPanel from "../components/MetricsPanel.svelte";
   import TracesPanel from "../components/TracesPanel.svelte";
   import LogLevelSettings from "./settings/LogLevelSettings.svelte";
+  import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import {
+    meta as settingsMeta,
     formValues as settingsFormValues,
     rawText as settingsRawText,
     settingSources as settingsSources,
@@ -211,6 +213,18 @@
       onReset={resetSettingsKey}
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
+    />
+    <AdvancedSettings
+      meta={$settingsMeta}
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      onlyGroups={["general"]}
+      cardTitle="Logging & Diagnostics"
+      cardDescription="Log output, retention, console windows, and diagnostics."
     />
   {:else}
     {#if tab === "live"}
