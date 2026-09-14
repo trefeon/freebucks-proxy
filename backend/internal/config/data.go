@@ -180,18 +180,6 @@ func defaultFor(key string) string {
 	return ""
 }
 
-func joinPairs(m map[string]string, sep string) string {
-	if len(m) == 0 {
-		return ""
-	}
-	pairs := make([]string, 0, len(m))
-	for k, v := range m {
-		pairs = append(pairs, k+sep+v)
-	}
-	sort.Strings(pairs)
-	return strings.Join(pairs, ",")
-}
-
 // formatModelLocks renders the parsed MODEL_LOCKS map back to canonical
 // "idx:model,model;..." form (slots ascending) for dashboard display.
 func formatModelLocks(locks map[int][]string) string {
