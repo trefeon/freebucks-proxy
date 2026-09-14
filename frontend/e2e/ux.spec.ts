@@ -838,11 +838,9 @@ test.describe("operator UX journey (hermetic mocks)", () => {
     await expect(page.getByText("running", { exact: true })).toBeVisible();
   });
 
-  // 13. Tokens: Drag and drop handle renders and triggers reorder action
+  // 13. Tokens: rows stay draggable (whole-row handle) and drop triggers reorder
   // ---------------------------------------------------------------------------
-  test("tokens: drag and drop handle renders and triggers move action", async ({
-    page,
-  }) => {
+  test("tokens: row drag and drop triggers move action", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
 
@@ -851,8 +849,9 @@ test.describe("operator UX journey (hermetic mocks)", () => {
       page.getByRole("heading", { name: "Pool Tokens" }),
     ).toBeVisible();
 
-    const grips = page.getByLabel("Drag to reorder");
-    await expect(grips.first()).toBeVisible();
+    // No standalone grip handle: the whole row is the drag handle, with
+    // Move Up / Move Down buttons as the explicit reorder path.
+    await expect(page.getByLabel("Drag to reorder")).toHaveCount(0);
 
     // Verify move action POST payload on drop / move
     let swapPayload: Record<string, any> | null = null;

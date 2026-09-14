@@ -7,7 +7,6 @@
     Unlock,
     Lock,
     Trash2,
-    GripVertical,
   } from "@lucide/svelte";
   import Button from "./Button.svelte";
   import StatusBadge from "./StatusBadge.svelte";
@@ -105,13 +104,6 @@
   <td class="w-[84px]">
     <div class="inline-flex items-center gap-1">
       {#if totalTokens > 1}
-        <div
-          class="cursor-grab active:cursor-grabbing p-1 text-[var(--fp-dim)] hover:text-[var(--fp-accent)] rounded select-none hover:bg-[var(--fp-surface-2)] transition-colors"
-          title={$tr("Drag to reorder account position")}
-          aria-label={$tr("Drag to reorder")}
-        >
-          <GripVertical size={15} />
-        </div>
         <div class="flex flex-col shrink-0 -my-1">
           <button
             type="button"

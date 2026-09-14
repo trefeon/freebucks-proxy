@@ -10,7 +10,6 @@
   } from "@lucide/svelte";
   import Button from "./Button.svelte";
   import RefundLines from "./RefundLines.svelte";
-  import StatusBadge from "./StatusBadge.svelte";
   import {
     fallbackModelOptions,
     fetchModelOptions,
@@ -24,10 +23,11 @@
   import { onMount } from "svelte";
 
   /**
-   * TokenDetailsDrawer — expanded details for one pooled token: the Dev Tools
-   * toolbar (when enabled), the live session countdown, the account-standing
-   * block, and the empty-state message. Shared by the desktop table row
-   * (TokenCard) and the mobile stacked card (TokenCardMobile).
+   * TokenDetailsDrawer — expanded details for one pooled token: the live
+   * session countdown, the account-standing block, and the empty-state
+   * message. Warming lives on the Warming tab only, not here. Shared by
+   * the desktop table row (TokenCard) and the mobile stacked card
+   * (TokenCardMobile).
    *
    * @prop {object} token — dashboard tokenCard payload
    * @prop {string} [spawnModel] — bindable dev-spawn model selection
@@ -276,40 +276,6 @@
       >
         <span>{$tr("Drop Session")}</span>
       </Button>
-    </div>
-  {/if}
-  {#if token.maturity}
-    {@const mm = token.maturity}
-    <div class="mb-2 px-2 py-1.5 rounded bg-[var(--fp-bg)]/40">
-      <div
-        class="flex items-center justify-between gap-2 text-xs font-semibold text-[var(--fp-muted)] uppercase tracking-wider mb-1"
-      >
-        <span>{$tr("Warming")}</span>
-        {#if mm.badge}
-          <span class="fp-num normal-case font-medium text-[var(--fp-dim)]"
-            >{mm.badge}</span
-          >
-        {/if}
-      </div>
-      {#if String(mm.last_result ?? "").startsWith("skip:")}
-        <div class="mb-1">
-          <StatusBadge
-            tone="warn"
-            status={`${$tr("Skipped")} · ${mm.last_result}`}
-          />
-        </div>
-      {:else if mm.last_result === "ok"}
-        <div class="mb-1">
-          <StatusBadge tone="good" status={$tr("Touched")} />
-        </div>
-      {/if}
-      <p class="fp-num text-xs text-[var(--fp-dim)]">
-        {mm.last_action
-          ? `${mm.last_action} → ${mm.last_result ?? "?"}`
-          : $tr("no touch yet")}{mm.last_touch
-          ? ` · ${new Date(mm.last_touch).toLocaleString()}`
-          : ""}
-      </p>
     </div>
   {/if}
   {#if token.has_standing}
