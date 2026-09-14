@@ -298,8 +298,8 @@ test.describe("settings saved values", () => {
     await expect(
       page.getByText("saved value", { exact: true }).first(),
     ).toBeVisible();
-    // Row-anchored: the page now opens with the Dashboard access card,
-    // whose own Save precedes this one in DOM order.
+    // Row-anchored: the locator binds to the MODEL_ALIASES row itself,
+    // so leading cards (Access and Security) cannot shadow its Save.
     const row = page.locator("div.py-4", {
       has: page.locator('input[aria-label="MODEL_ALIASES"]'),
     });
