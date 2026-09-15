@@ -421,13 +421,13 @@ select.fp-input option,
   letter-spacing: 0.06em;
   color: var(--fp-dim);
   text-align: left;
-  padding: 0.625rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--fp-border-bright);
   white-space: nowrap;
 }
 
 .fp-table tbody td {
-  padding: 0.625rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--fp-border);
   color: var(--fp-text);
   vertical-align: middle;

@@ -44,7 +44,7 @@
 </script>
 
 <span
-  class="inline-flex max-w-full items-center gap-1 px-1.5 py-0.5 rounded-[3px] border font-mono text-[11px] uppercase tracking-wider break-words {toneClasses[
+  class="inline-flex max-w-full items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[11px] uppercase tracking-wider break-words {toneClasses[
     resolvedTone
   ]} {pulse ? 'led-pulse' : ''}"
 >
