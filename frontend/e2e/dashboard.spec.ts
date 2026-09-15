@@ -811,6 +811,91 @@ test.describe("dashboard hermetic mocks", () => {
       .toBe(true);
   });
 
+  test("Pool strategy survives a Go-normalized echo in ONE click each way", async ({
+    page,
+  }) => {
+    // Regression for the two-click bug: the gateway used to serve the
+    // Go-normalized effective duration ("1m0s") for saved rows, which the
+    // badge could not round-trip — the first Balance tap landed as Custom
+    // and only the second tap settled. The mock models the real echo by
+    // answering the post-refetch GET with "1m0s" for QUEUE_WAIT; the
+    // frontend compound parser must still read Balance after ONE click,
+    // Drain→Balance→Drain, with reload persistence.
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    const drain = page.getByRole("radio", { name: "Drain", exact: true });
+    const balance = page.getByRole("radio", { name: "Balance", exact: true });
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    // Drain in one click (values + badge agree without a second tap).
+    await drain.click();
+    await expect(drain).toHaveAttribute("aria-checked", "true");
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_DEPTH" && p.value === "1024"),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "300s"),
+      )
+      .toBe(true);
+    await expect(drain).toHaveAttribute("aria-checked", "true");
+    // Back to Balance in one click; the queued post-refetch echoes "1m0s"
+    // (Go-normalized) and the badge must stay Balance regardless.
+    await balance.click();
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_DEPTH" && p.value === "16"),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "60s"),
+      )
+      .toBe(true);
+    await page.route("**/admin/api/settings", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          settings: [
+            { key: "ROUTING_SMART", value: "true", source: "db" },
+            { key: "TOKEN_ROTATION", value: "drain", source: "db" },
+            { key: "RATE_LIMIT_FAILOVER", value: "true", source: "db" },
+            { key: "QUEUE_WAIT", value: "1m0s", source: "db" },
+            { key: "QUEUE_DEPTH", value: "16", source: "db" },
+          ],
+          degraded: false,
+        }),
+      });
+    });
+    await page.reload();
+    await page
+      .waitForResponse(
+        (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+        { timeout: 5000 },
+      )
+      .catch(() => {});
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
   test("Usage Controls tab renders upstream and quota keys", async ({
     page,
   }) => {

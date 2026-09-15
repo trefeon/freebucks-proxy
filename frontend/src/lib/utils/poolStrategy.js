@@ -3,8 +3,8 @@
  *
  * Two named postures over exactly five owned keys; anything else reads as
  * Custom (auto-detected, never selectable). Preset switches write ONLY the
- * five owned keys through the shared batched .env flow — every other knob
- * keeps its value.
+ * five owned keys through the shared instant-save overlay flow — every
+ * other knob keeps its value.
  *
  * - Drain: deep queues per token (300s / 1024 waiters). Safest for a few
  *   accounts: each account drains fully before the pool fails over.
@@ -52,32 +52,51 @@ export const BALANCE_THRESHOLD_DEFAULT_SECS = 60;
 
 /**
  * Parse a Go duration (or a bare number = seconds) to seconds.
- * Returns NaN when unparseable — callers treat that as Custom, never as a
- * preset match.
+ * Accepts compound forms exactly as time.Duration.String emits them
+ * ("1m0s", "5m0s", "1h2m3s", "1m30s") — the settings GET tier serves the
+ * normalized effective value for file/env rows, and older overlay rows may
+ * still hold a compound literal. Returns NaN when unparseable — callers
+ * treat that as Custom, never as a preset match.
  */
+const DURATION_GROUP_RE = /(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/g;
+const DURATION_UNIT_SECS = {
+  h: 3600,
+  m: 60,
+  s: 1,
+  ms: 0.001,
+  us: 1e-6,
+  µs: 1e-6,
+  μs: 1e-6,
+  ns: 1e-9,
+};
 export function parseWaitSecs(raw) {
   const v = String(raw ?? "")
     .trim()
     .toLowerCase();
   if (v === "") return NaN;
-  const m = /^(\d+(\.\d+)?)(ns|us|µs|ms|s|m|h)$/.exec(v);
-  if (m) {
-    const n = Number(m[1]);
-    switch (m[3]) {
-      case "h":
-        return n * 3600;
-      case "m":
-        return n * 60;
-      case "s":
-        return n;
-      case "ms":
-        return n / 1000;
-      default:
-        return n / 1e9;
-    }
+  let body = v;
+  let neg = false;
+  if (body.startsWith("-")) {
+    neg = true;
+    body = body.slice(1);
   }
-  const n = Number(v);
-  return Number.isFinite(n) ? n : NaN;
+  if (body !== "") {
+    DURATION_GROUP_RE.lastIndex = 0;
+    let total = 0;
+    let consumed = 0;
+    let matched = false;
+    let m;
+    while ((m = DURATION_GROUP_RE.exec(body)) !== null) {
+      // Gap or overlap: not a clean duration ("1.5.2s", "10x").
+      if (m.index !== consumed) break;
+      matched = true;
+      consumed = m.index + m[0].length;
+      total += Number(m[1]) * DURATION_UNIT_SECS[m[2]];
+    }
+    if (matched && consumed === body.length) return neg ? -total : total;
+  }
+  const n = Number(neg ? body : v);
+  return Number.isFinite(n) ? (neg ? -n : n) : NaN;
 }
 
 function isOn(raw, fallback) {

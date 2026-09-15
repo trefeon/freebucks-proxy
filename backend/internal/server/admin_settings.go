@@ -106,9 +106,32 @@ func (a *adminHandlers) handleSettingsGet(w http.ResponseWriter, r *http.Request
 		if source == "" {
 			source = "default"
 		}
+		val := values[def.Key].Value
+		if source == "db" {
+			// Echo-stable display for saved rows: report the operator's
+			// saved literal instead of the Go-normalized effective form.
+			// Duration knobs normalize on load (time.Duration.String
+			// rewrites "60s" as "1m0s"), which the dashboard cannot
+			// round-trip: the Pool Strategy badge would read Custom and
+			// the row would re-POST the echo, diverging display from
+			// server until a second tap. The literal is validated at
+			// write and equals the effective value semantically. Bool
+			// spellings still normalize to true/false so toggles keep
+			// one display form.
+			if raw, ok := overlay[def.Key]; ok {
+				raw = strings.TrimSpace(raw)
+				if raw != "" {
+					if def.Kind == "bool" {
+						val = overlayBoolDisplay(raw)
+					} else {
+						val = raw
+					}
+				}
+			}
+		}
 		entries = append(entries, settingsEntry{
 			Key:         def.Key,
-			Value:       values[def.Key].Value,
+			Value:       val,
 			Source:      source,
 			RestartOnly: def.RestartOnly,
 			Secret:      def.Secret,
@@ -302,6 +325,20 @@ func settingsValueString(v any) (string, bool) {
 		return strconv.FormatFloat(t, 'f', -1, 64), true
 	default:
 		return "", false
+	}
+}
+
+// overlayBoolDisplay normalizes a saved bool literal to the "true"/"false"
+// display form. The loader accepts 1/true/yes/on spellings (see
+// ValidateSettingValue), and rows are validated at write, so the literal
+// always parses — this keeps the GET display contract byte-identical for
+// bool rows while duration/text rows echo their saved literal.
+func overlayBoolDisplay(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return "true"
+	default:
+		return "false"
 	}
 }
 
