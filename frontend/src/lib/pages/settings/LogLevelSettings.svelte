@@ -24,8 +24,8 @@
    *   global empty state
    * @prop {boolean} [stub=false] - link-out stub for the Settings page
    *   (same search matching + count, body links to #activity)
-   * @prop {boolean} [degraded=false] - settings store offline: per-key
-   *   overlay saves render an honest offline note, .env flow stays usable
+   * @prop {boolean} [degraded=false] - settings store offline: the row
+   *   renders an honest offline note and stays read-only for saves
    * @prop {string} [cardTitle="Logging"] - card title override (page h1 is
    *   "Logs", so the title must not equal it)
    */
@@ -73,7 +73,7 @@
   <SettingsCard
     title={$tr(cardTitle)}
     description={$tr(
-      "Server log verbosity. Changes apply live without restart.",
+      "Server log verbosity. Saved instantly; applies after a container restart.",
     )}
   >
     {#snippet icon()}
@@ -126,21 +126,20 @@
               >{$tr("default")}</span
             >
           {/if}
+          <span class="text-[10px] text-[var(--fp-dim)] lowercase shrink-0"
+            >{$tr("(needs restart)")}</span
+          >
         {/snippet}
         {#snippet extra()}
-          {#if degraded}
-            <span class="text-[10px] text-[var(--fp-dim)]"
-              >{$tr("Overlay offline — use .env save")}</span
-            >
-          {:else}
-            <DbOverrideSave
-              settingKey="LOG_LEVEL"
-              value={logLevel}
-              source={sources.LOG_LEVEL}
-              {onReset}
-              {onSaved}
-            />
-          {/if}
+          <DbOverrideSave
+            settingKey="LOG_LEVEL"
+            value={logLevel}
+            restartOnly
+            source={sources.LOG_LEVEL}
+            {onReset}
+            {onSaved}
+            {degraded}
+          />
         {/snippet}
 
         <div class="w-full sm:w-48">

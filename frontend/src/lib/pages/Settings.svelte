@@ -1,13 +1,14 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { recordPageVisit } from "../stores/pageState.js";
-  import { RefreshCw, Save, X } from "@lucide/svelte";
+  import { RefreshCw, X } from "@lucide/svelte";
   import PageShell from "../components/PageShell.svelte";
   import Button from "../components/Button.svelte";
   import Alert from "../components/Alert.svelte";
   import EmptyState from "../components/EmptyState.svelte";
   import AccessSecurityCard from "./settings/AccessSecurityCard.svelte";
   import CommandCenterCard from "../components/CommandCenterCard.svelte";
+  import RawEnvEditor from "../components/RawEnvEditor.svelte";
   import GatewaySettings from "./settings/GatewaySettings.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
   import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
@@ -21,18 +22,11 @@
     formValues,
     settingSources,
     settingsDegraded,
-    saving,
     result,
-    dirty,
-    changedKeysCount,
-    restartKeys,
-    liveKeys,
     fetchData,
     resetSetting,
     overlaySaved,
-    saveConfig,
     setField,
-    discard,
   } from "../stores/settings.js";
   import { tr } from "../i18n.js";
 
@@ -58,32 +52,9 @@
       advancedMatches === 0,
   );
 
-  function handleBeforeUnload(e) {
-    if ($dirty) {
-      e.preventDefault();
-      e.returnValue = "";
-    }
-  }
-
-  function handleKeyDown(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-      e.preventDefault();
-      if ($dirty && !$saving) {
-        saveConfig(null, { confirm: false });
-      }
-    }
-  }
-
   onMount(() => {
     recordPageVisit("settings");
     fetchData();
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    window.addEventListener("keydown", handleKeyDown);
-  });
-
-  onDestroy(() => {
-    window.removeEventListener("beforeunload", handleBeforeUnload);
-    window.removeEventListener("keydown", handleKeyDown);
   });
 </script>
 
@@ -91,32 +62,16 @@
   crumb="freebuff-proxy / Admin / settings.conf"
   title={$tr("Settings")}
   description={$tr(
-    "Access, protection, and remaining tunables. Live-applying keys take effect on save without restart; restart-marked keys need a container restart.",
+    "Access, protection, and remaining tunables. Every row saves instantly to the DB overlay; restart-marked keys apply after a container restart.",
   )}
   loading={$loading}
   error={$error}
   onRetry={fetchData}
 >
   {#snippet actions()}
-    {#if $dirty}
-      <Button variant="ghost" onclick={discard} disabled={$saving}>
-        <X size={15} />
-        {$tr("Discard")}
-      </Button>
-    {:else}
-      <Button variant="ghost" onclick={fetchData}>
-        <RefreshCw size={15} />
-        {$tr("Refresh")}
-      </Button>
-    {/if}
-    <Button
-      variant="primary"
-      onclick={saveConfig}
-      disabled={$saving || !$dirty}
-      loading={$saving}
-    >
-      <Save size={15} />
-      {$tr("Save Changes")}
+    <Button variant="ghost" onclick={fetchData}>
+      <RefreshCw size={15} />
+      {$tr("Refresh")}
     </Button>
   {/snippet}
 
@@ -151,51 +106,10 @@
     </Alert>
   {/if}
 
-  {#if $dirty}
-    <Alert tone="warning" title={$tr("Unsaved changes")}>
-      <div
-        class="flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-      >
-        <span
-          >{$tr(
-            "{count} setting(s) modified. Click Save Changes to apply them immediately.",
-            { count: $changedKeysCount },
-          )}</span
-        >
-        <div class="flex items-center gap-2 shrink-0">
-          <Button variant="secondary" size="sm" onclick={discard}>
-            <X size={14} />
-            {$tr("Discard")}
-          </Button>
-        </div>
-      </div>
-      {#if $restartKeys.length > 0 || $liveKeys.length > 0}
-        <div class="flex flex-col gap-0.5 mt-2 text-xs">
-          {#if $restartKeys.length > 0}
-            <span
-              >{$tr("Needs restart ({n}): {keys}", {
-                n: $restartKeys.length,
-                keys: $restartKeys.join(", "),
-              })}</span
-            >
-          {/if}
-          {#if $liveKeys.length > 0}
-            <span class="text-[var(--fp-dim)]"
-              >{$tr("Live-applying ({n}): {keys}", {
-                n: $liveKeys.length,
-                keys: $liveKeys.join(", "),
-              })}</span
-            >
-          {/if}
-        </div>
-      {/if}
-    </Alert>
-  {/if}
-
   {#if $settingsDegraded}
     <Alert tone="warning" title={$tr("DB overlay unavailable")}>
       {$tr(
-        "The settings store is offline — the dashboard runs live-only. Overlay saves and resets will fail; .env saves below still apply.",
+        "The settings store is offline — the dashboard runs live-only. Per-key saves and resets will fail; the emergency .env editor below still applies.",
       )}
     </Alert>
   {/if}
@@ -228,6 +142,7 @@
     query={filterQuery}
     onMatchCount={(n) => (accessMatches = n)}
     onPasswordSuccess={fetchData}
+    degraded={$settingsDegraded}
   />
 
   <!-- 2. Gateway & Protection (General - live reload) -->
@@ -240,6 +155,7 @@
     onSaved={overlaySaved}
     query={filterQuery}
     onMatchCount={(n) => (gatewayMatches = n)}
+    degraded={$settingsDegraded}
   />
 
   <!-- 3. Pool (moved to the Pool page - stub links out to #tokens) -->
@@ -295,6 +211,7 @@
     onlyGroups={["security"]}
     cardTitle="Security"
     cardDescription="Remaining security tunables."
+    degraded={$settingsDegraded}
   />
 
   {#if allEmpty}
@@ -316,6 +233,9 @@
     </EmptyState>
   {/if}
 
-  <!-- 7. Command Center (Lifecycle, updates & rollback) -->
+  <!-- 7. Emergency raw .env editor (break-glass whole-file path) -->
+  <RawEnvEditor />
+
+  <!-- 8. Command Center (Lifecycle, updates & rollback) -->
   <CommandCenterCard />
 </PageShell>

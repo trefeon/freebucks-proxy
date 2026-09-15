@@ -10,6 +10,7 @@
   /**
    * Gateway & Protection settings card (General group).
    * Built using the SettingsCard and SettingsRow template components.
+   * Both rows instant-save to the DB overlay on edit (DbOverrideSave).
    *
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
@@ -21,6 +22,8 @@
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
+   * @prop {boolean} [degraded=false] - settings store offline: rows render
+   *   an honest offline note and stay read-only for saves
    */
   let {
     formValues,
@@ -31,6 +34,7 @@
     onSaved = null,
     query = "",
     onMatchCount = null,
+    degraded = false,
   } = $props();
 
   let env = $derived(parseEnv(rawText));
@@ -141,6 +145,7 @@
             source={sources.SAFE_MODE}
             {onReset}
             {onSaved}
+            {degraded}
           />
         {/snippet}
 
@@ -185,6 +190,7 @@
             source={sources.HTTP_READ_TIMEOUT}
             {onReset}
             {onSaved}
+            {degraded}
           />
         {/snippet}
 

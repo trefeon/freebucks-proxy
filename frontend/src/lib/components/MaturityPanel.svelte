@@ -25,12 +25,11 @@
    * tuning rows below it. The global kill-switch is the master control;
    * dry-run (MATURITY_DRY_RUN) and touch-model (MATURITY_TOUCH_MODEL)
    * moved here from Pool Tuning so the whole streak surface sits on the
-   * Warming tab. Row edits batch through onField (page Save) with per-key
-   * overlay saves beside each control; rows dim while the kill-switch is
-   * off. Ledger rows stay read-only status.
-   *
-   * @prop {Record<string, string>} [formValues={}] - shared settings draft
-   * @prop {(key: string, value: string) => void} [onField] - draft edit
+   * Warming tab. Both rows instant-save to the DB overlay on edit
+   * (DbOverrideSave); rows dim while the kill-switch is off. Ledger rows
+   * stay read-only status.
+   * @prop {Record<string, string>} [formValues={}] - live settings values
+   * @prop {(key: string, value: string) => void} [onField] - value edit
    * @prop {Record<string, string>} [sources={}] - ADR-0019 source tiers
    * @prop {(key: string) => Promise<void>} [onReset=null] - saved-value reset
    * @prop {(() => Promise<void>) | null} [onSaved=null] - parent refetch
@@ -58,7 +57,7 @@
   let globalLoaded = $state(false);
   let savingGlobal = $state(false);
   let dryRun = $state(true);
-  // Editable tuning rows (shared draft; overlay Save beside each control):
+  // Editable tuning rows (instant overlay save beside each control):
   // dry-run defaults true, touch-model defaults "" (= auto, cheapest
   // unmetered). The select shows "auto" for both "" and a literal "auto"
   // (older overlays stored the word), while edits canonicalize Auto back
@@ -443,19 +442,14 @@
             >MATURITY_DRY_RUN</code
           >
           <span class="ml-auto">
-            {#if degraded}
-              <span class="text-[10px] text-[var(--fp-dim)]"
-                >{$tr("Overlay offline — use .env save")}</span
-              >
-            {:else}
-              <DbOverrideSave
-                settingKey="MATURITY_DRY_RUN"
-                value={formValues.MATURITY_DRY_RUN ?? "true"}
-                source={sources.MATURITY_DRY_RUN}
-                {onReset}
-                {onSaved}
-              />
-            {/if}
+            <DbOverrideSave
+              settingKey="MATURITY_DRY_RUN"
+              value={formValues.MATURITY_DRY_RUN ?? "true"}
+              source={sources.MATURITY_DRY_RUN}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
           </span>
         </div>
         <p class="text-[11px] text-[var(--fp-dim)] leading-relaxed">
@@ -487,19 +481,14 @@
             {/each}
           </select>
           <span class="ml-auto">
-            {#if degraded}
-              <span class="text-[10px] text-[var(--fp-dim)]"
-                >{$tr("Overlay offline — use .env save")}</span
-              >
-            {:else}
-              <DbOverrideSave
-                settingKey="MATURITY_TOUCH_MODEL"
-                value={touchVal}
-                source={sources.MATURITY_TOUCH_MODEL}
-                {onReset}
-                {onSaved}
-              />
-            {/if}
+            <DbOverrideSave
+              settingKey="MATURITY_TOUCH_MODEL"
+              value={touchVal}
+              source={sources.MATURITY_TOUCH_MODEL}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
           </span>
         </div>
       </div>

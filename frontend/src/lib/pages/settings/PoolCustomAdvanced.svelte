@@ -15,8 +15,8 @@
    * rotation, smart-routing master switch, and 429 failover — plus the
    * relocated Pool Tuning rows (probe intervals, admission caches,
    * sessions). Values carried over unchanged; only the address moved.
-   * Edits batch through onField into the page Save; per-key overlay saves
-   * stay available on the generic rows.
+   * Every row instant-saves to the DB overlay on edit (DbOverrideSave,
+   * including the routing radiogroup and switches below).
    *
    * @prop {Array} meta - config catalog entries (for relocated-row copy)
    * @prop {Record<string, string>} formValues
@@ -244,20 +244,15 @@
           {/if}
         {/snippet}
         {#snippet extra()}
-          {#if degraded}
-            <span class="text-[10px] text-[var(--fp-dim)]"
-              >{$tr("Overlay offline — use .env save")}</span
-            >
-          {:else}
-            <DbOverrideSave
-              settingKey={key}
-              value={val(key)}
-              restartOnly={e.restart_only}
-              source={sources[key]}
-              {onReset}
-              {onSaved}
-            />
-          {/if}
+          <DbOverrideSave
+            settingKey={key}
+            value={val(key)}
+            restartOnly={e.restart_only}
+            source={sources[key]}
+            {onReset}
+            {onSaved}
+            {degraded}
+          />
         {/snippet}
         {#if e.kind === "bool"}
           <ToggleSwitch
@@ -393,6 +388,16 @@
             {$tr(ROT_RANDOM_BTN)}
           </button>
         </div>
+        <div class="flex justify-end">
+          <DbOverrideSave
+            settingKey="TOKEN_ROTATION"
+            value={tokenRotation}
+            source={sources.TOKEN_ROTATION}
+            {onReset}
+            {onSaved}
+            {degraded}
+          />
+        </div>
 
         <div
           class="fp-inset p-3 rounded text-xs text-[var(--fp-muted)] flex items-start gap-2"
@@ -445,11 +450,21 @@
               </p>
             {/if}
           </div>
-          <ToggleSwitch
-            checked={rateLimitFailover}
-            ariaLabel="Auto Failover on Rate Limit (429)"
-            onchange={(v) => toggleRateLimitFailover(v)}
-          />
+          <div class="flex flex-col items-end gap-1.5 shrink-0">
+            <ToggleSwitch
+              checked={rateLimitFailover}
+              ariaLabel="Auto Failover on Rate Limit (429)"
+              onchange={(v) => toggleRateLimitFailover(v)}
+            />
+            <DbOverrideSave
+              settingKey="RATE_LIMIT_FAILOVER"
+              value={formValues.RATE_LIMIT_FAILOVER ?? "true"}
+              source={sources.RATE_LIMIT_FAILOVER}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
+          </div>
         </div>
         <div
           class="pt-3 border-t border-[var(--fp-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
@@ -468,11 +483,21 @@
               {$tr(SMART_DESC)}
             </p>
           </div>
-          <ToggleSwitch
-            checked={routingSmart}
-            ariaLabel="ROUTING_SMART"
-            onchange={(v) => toggleRoutingSmart(v)}
-          />
+          <div class="flex flex-col items-end gap-1.5 shrink-0">
+            <ToggleSwitch
+              checked={routingSmart}
+              ariaLabel="ROUTING_SMART"
+              onchange={(v) => toggleRoutingSmart(v)}
+            />
+            <DbOverrideSave
+              settingKey="ROUTING_SMART"
+              value={formValues.ROUTING_SMART ?? "true"}
+              source={sources.ROUTING_SMART}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
+          </div>
         </div>
       </div>
     {/if}

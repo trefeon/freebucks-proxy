@@ -18,8 +18,8 @@
    * Rate Limit row and the Bridge Mode row (moved from GatewaySettings
    * for single Pool ownership). Rotation policy, the ROUTING_SMART
    * master switch, and 429 failover live in the Pool Strategy card and
-   * Custom advanced. All keys apply live on reload (none is restart-only).
-   *
+   * Custom advanced. Every row instant-saves to the DB overlay on edit
+   * (DbOverrideSave); all keys apply live on save (none is restart-only).
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
    * @prop {(key: string, value: string) => void} onField
@@ -32,8 +32,8 @@
    *   global empty state
    * @prop {boolean} [stub=false] - link-out stub for the Settings page
    *   (same search matching + count, body links to #tokens)
-   * @prop {boolean} [degraded=false] - settings store offline: per-key
-   *   overlay saves render an honest offline note, .env flow stays usable
+   * @prop {boolean} [degraded=false] - settings store offline: rows render
+   *   an honest offline note and stay read-only for saves
    */
   let {
     formValues,
@@ -219,19 +219,14 @@
                 {/if}
               {/snippet}
               {#snippet extra()}
-                {#if degraded}
-                  <span class="text-[10px] text-[var(--fp-dim)]"
-                    >{$tr("Overlay offline — use .env save")}</span
-                  >
-                {:else}
-                  <DbOverrideSave
-                    settingKey="TOKEN_MAX_CONCURRENT"
-                    value={tokenMaxConcurrent}
-                    source={sources.TOKEN_MAX_CONCURRENT}
-                    {onReset}
-                    {onSaved}
-                  />
-                {/if}
+                <DbOverrideSave
+                  settingKey="TOKEN_MAX_CONCURRENT"
+                  value={tokenMaxConcurrent}
+                  source={sources.TOKEN_MAX_CONCURRENT}
+                  {onReset}
+                  {onSaved}
+                  {degraded}
+                />
               {/snippet}
 
               <div class="w-full sm:w-56">
@@ -273,19 +268,14 @@
                 {/if}
               {/snippet}
               {#snippet extra()}
-                {#if degraded}
-                  <span class="text-[10px] text-[var(--fp-dim)]"
-                    >{$tr("Overlay offline — use .env save")}</span
-                  >
-                {:else}
-                  <DbOverrideSave
-                    settingKey="QUEUE_WAIT"
-                    value={queueWait}
-                    source={sources.QUEUE_WAIT}
-                    {onReset}
-                    {onSaved}
-                  />
-                {/if}
+                <DbOverrideSave
+                  settingKey="QUEUE_WAIT"
+                  value={queueWait}
+                  source={sources.QUEUE_WAIT}
+                  {onReset}
+                  {onSaved}
+                  {degraded}
+                />
               {/snippet}
 
               <div class="w-full sm:w-56">
@@ -320,19 +310,14 @@
                 {/if}
               {/snippet}
               {#snippet extra()}
-                {#if degraded}
-                  <span class="text-[10px] text-[var(--fp-dim)]"
-                    >{$tr("Overlay offline — use .env save")}</span
-                  >
-                {:else}
-                  <DbOverrideSave
-                    settingKey="QUEUE_DEPTH"
-                    value={queueDepth}
-                    source={sources.QUEUE_DEPTH}
-                    {onReset}
-                    {onSaved}
-                  />
-                {/if}
+                <DbOverrideSave
+                  settingKey="QUEUE_DEPTH"
+                  value={queueDepth}
+                  source={sources.QUEUE_DEPTH}
+                  {onReset}
+                  {onSaved}
+                  {degraded}
+                />
               {/snippet}
 
               <div class="w-full sm:w-56">
@@ -377,19 +362,14 @@
             {/if}
           {/snippet}
           {#snippet extra()}
-            {#if degraded}
-              <span class="text-[10px] text-[var(--fp-dim)]"
-                >{$tr("Overlay offline — use .env save")}</span
-              >
-            {:else}
-              <DbOverrideSave
-                settingKey="RATE_LIMIT_PER_IP"
-                value={rateLimitPerIp}
-                source={sources.RATE_LIMIT_PER_IP}
-                {onReset}
-                {onSaved}
-              />
-            {/if}
+            <DbOverrideSave
+              settingKey="RATE_LIMIT_PER_IP"
+              value={rateLimitPerIp}
+              source={sources.RATE_LIMIT_PER_IP}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
           {/snippet}
 
           <div class="w-full sm:w-56">
@@ -431,19 +411,14 @@
             {/if}
           {/snippet}
           {#snippet extra()}
-            {#if degraded}
-              <span class="text-[10px] text-[var(--fp-dim)]"
-                >{$tr("Overlay offline — use .env save")}</span
-              >
-            {:else}
-              <DbOverrideSave
-                settingKey="BRIDGE_ENABLED"
-                value={formValues.BRIDGE_ENABLED ?? "true"}
-                source={sources.BRIDGE_ENABLED}
-                {onReset}
-                {onSaved}
-              />
-            {/if}
+            <DbOverrideSave
+              settingKey="BRIDGE_ENABLED"
+              value={formValues.BRIDGE_ENABLED ?? "true"}
+              source={sources.BRIDGE_ENABLED}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
           {/snippet}
 
           <div class="flex items-center gap-2.5">

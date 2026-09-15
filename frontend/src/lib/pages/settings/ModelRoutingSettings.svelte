@@ -135,19 +135,14 @@
           {/snippet}
 
           {#snippet extra()}
-            {#if degraded}
-              <span class="text-[10px] text-[var(--fp-dim)]"
-                >{$tr("Overlay offline — use .env save")}</span
-              >
-            {:else}
-              <DbOverrideSave
-                settingKey="REASONING_IN_CONTENT"
-                value={formValues.REASONING_IN_CONTENT ?? ""}
-                source={sources.REASONING_IN_CONTENT}
-                {onReset}
-                {onSaved}
-              />
-            {/if}
+            <DbOverrideSave
+              settingKey="REASONING_IN_CONTENT"
+              value={formValues.REASONING_IN_CONTENT ?? ""}
+              source={sources.REASONING_IN_CONTENT}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
           {/snippet}
 
           <div class="flex items-center gap-2.5">

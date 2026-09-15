@@ -14,12 +14,13 @@
 
   /**
    * Pool Strategy preset card (top of Pool → Controls).
-   * Drain / Balance preset buttons write ONLY the five owned keys through
-   * the shared batched flow (onField → page Save); Custom is an
-   * auto-detected badge, never selectable, with one-click reset back to
-   * either preset. The Balance threshold slider (5–300s, default 60s)
-   * renders only in Balance and persists straight to QUEUE_WAIT.
-   *
+   * Drain / Balance preset buttons write ONLY the five owned keys via
+   * onField; each key's row instant-saves to the DB overlay on edit
+   * (DbOverrideSave), so a preset tap lands as five instant writes.
+   * Custom is an auto-detected badge, never selectable, with one-click
+   * reset back to either preset. The Balance threshold slider (5–300s,
+   * default 60s) renders only in Balance and commits to QUEUE_WAIT on
+   * release (the row's write coalescing absorbs the drag ticks).
    * @prop {Record<string, string>} formValues
    * @prop {(key: string, value: string) => void} onField
    * @prop {string} [query] - settings key-search text; hides the card on mismatch
@@ -53,8 +54,8 @@
 
   function applyPreset(preset) {
     // A preset switch writes ONLY its five owned keys — every other knob
-    // keeps its draft value. When the draft already matches, skip so the
-    // form never dirties without a change.
+    // keeps its value. When the values already match, skip so no write
+    // fires without a change.
     const same = Object.entries(preset).every(
       ([k, v]) => String(formValues[k] ?? "") === v,
     );

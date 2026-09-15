@@ -31,6 +31,8 @@
    * @prop {boolean} [hasPassword]
    * @prop {(() => void) | null} [onPasswordSuccess] - parent refetch after a
    *   password change
+   * @prop {boolean} [degraded=false] - settings store offline: the login
+   *   row renders an honest offline note and stays read-only for saves
    */
   let {
     formValues,
@@ -44,6 +46,7 @@
     isDefaultAdminToken = $bindable(false),
     hasPassword = $bindable(true),
     onPasswordSuccess = null,
+    degraded = false,
   } = $props();
 
   // --- Password form state (from SecurityCard, unchanged logic) ---
@@ -332,6 +335,7 @@
                 source={sources.DASHBOARD_REQUIRE_LOGIN}
                 {onReset}
                 {onSaved}
+                {degraded}
               />
             {/snippet}
 

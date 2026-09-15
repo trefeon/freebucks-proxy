@@ -146,6 +146,16 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 		a.dash.RenderResult(w, http.StatusBadRequest, false, "ADMIN_TOKEN is changed via Change password, not as a knob (the session cookie needs refreshing).", "invalid_setting")
 		return
 	}
+	// ADMIN_FORCE_SECURE_COOKIES is .env-only by owner decision: the cookie
+	// reader consults the process environment with a .env fallback on every
+	// request and never the overlay, so a saved row would sit inert while
+	// looking live. It stays hidden from the instant-save UI (Hidden in the
+	// catalog) and a direct knob write 400s with a pointer, like the other
+	// dedicated-surface keys above.
+	if key == "ADMIN_FORCE_SECURE_COOKIES" {
+		a.dash.RenderResult(w, http.StatusBadRequest, false, "ADMIN_FORCE_SECURE_COOKIES is set in the environment or .env file, not as a knob (the cookie reader never consults the overlay).", "invalid_setting")
+		return
+	}
 	val, ok := settingsValueString(req.Value)
 	if !ok {
 		a.dash.RenderResult(w, http.StatusBadRequest, false, "Value must be a string, number, or boolean.", "bad_value")
@@ -209,6 +219,13 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 		restartOnly = []string{key}
 		message = key + " saved. It applies after restart."
 		code = "setting_restart_only"
+	}
+	// Env-shadow honesty: the process environment beats the overlay, so a
+	// saved row for an env-pinned key changes nothing until the process env
+	// is unset. Re-read the winning tiers after the write and say so
+	// instead of implying the save took effect.
+	if config.SettingSources(a.configPath, overlay)[key] == "env" {
+		message += " Overridden by process env: the effective value still comes from the environment."
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(dashboard.SettingsPostResponse{

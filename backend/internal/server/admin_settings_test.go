@@ -513,3 +513,43 @@ func TestSettingsMigrateAbsentLiveOnly(t *testing.T) {
 		t.Errorf("live-only migrate = %v, want absent", mig)
 	}
 }
+
+// TestSettingsPostSecureCookiesEnvOnly pins the owner decision: the cookie
+// reader never consults the overlay, so a direct knob write 400s with a
+// pointer to the environment/.env instead of persisting an inert row.
+func TestSettingsPostSecureCookiesEnvOnly(t *testing.T) {
+	ts, cookie, csrf := settingsTestServer(t)
+	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "ADMIN_FORCE_SECURE_COOKIES", "value": "true"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST ADMIN_FORCE_SECURE_COOKIES = %d %v, want 400", code, res)
+	}
+	if msg, _ := res["message"].(string); !strings.Contains(msg, ".env") {
+		t.Errorf("POST ADMIN_FORCE_SECURE_COOKIES message = %q, want a pointer to the environment/.env", msg)
+	}
+	entries := settingsSources(t, ts, cookie)
+	if entries["ADMIN_FORCE_SECURE_COOKIES"]["source"] == "db" {
+		t.Error("ADMIN_FORCE_SECURE_COOKIES source = db after rejected POST, want no overlay row")
+	}
+}
+
+// TestSettingsPostEnvShadowNote pins env-shadow honesty: with the key pinned
+// by the process environment, the overlay row still persists but the message
+// says the effective value still comes from the environment, and GET keeps
+// reporting source=env.
+func TestSettingsPostEnvShadowNote(t *testing.T) {
+	t.Setenv("SAFE_MODE", "true")
+	ts, cookie, csrf := settingsTestServer(t)
+	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "SAFE_MODE", "value": "false"})
+	if code != http.StatusOK || res["ok"] != true {
+		t.Fatalf("POST env-pinned SAFE_MODE = %d %v, want 200 ok", code, res)
+	}
+	if msg, _ := res["message"].(string); !strings.Contains(msg, "Overridden by process env") {
+		t.Errorf("POST env-pinned message = %q, want the process-env shadow note", msg)
+	}
+	entries := settingsSources(t, ts, cookie)
+	if entries["SAFE_MODE"]["source"] != "env" {
+		t.Errorf("SAFE_MODE source = %v, want env (process env beats the saved row)", entries["SAFE_MODE"]["source"])
+	}
+}

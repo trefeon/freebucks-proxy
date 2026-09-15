@@ -15,8 +15,8 @@
     fetchModelOptions,
     cheapestFreeOption,
   } from "../modelOptions.js";
-  import { fetchAPI, postForm } from "../api/client.js";
-  import { adminApi, adminActions } from "../api/paths.js";
+  import { fetchAPI, postAPI } from "../api/client.js";
+  import { adminApi } from "../api/paths.js";
   import { refreshTokens } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
   import { spawnIntent } from "../utils/freebucks.js";
@@ -58,21 +58,18 @@
     spawnIntent(token, spawnModel || cheapestFreeOption(modelOptions)),
   );
   // --- Per-token model-lock editor (MODEL_LOCKS slot syntax) ---
-  // Reads/writes the canonical .env through the existing config endpoints
-  // (same round-trip as Settings save) and hot-applies via pool.SetConfig —
-  // no new backend route, no restart.
+  // Instant-saves through the settings overlay (POST /admin/api/settings),
+  // the same path every dashboard row uses — no whole-file .env write,
+  // hot-applied via pool.SetConfig, no restart. The current map is read
+  // from the settings endpoint so other slots' pins survive the write.
   let lockSaving = $state(false);
   let lockError = $state("");
   let lockNotice = $state("");
   let pinSelect = $state("");
 
-  function parseLocks(envText) {
+  function parseLocks(serialized) {
     const locks = {};
-    const line = String(envText || "")
-      .split(/\r?\n/)
-      .find((l) => l.startsWith("MODEL_LOCKS="));
-    if (!line) return locks;
-    for (const part of line.slice("MODEL_LOCKS=".length).split(";")) {
+    for (const part of String(serialized || "").split(";")) {
       const i = part.indexOf(":");
       if (i < 0) continue;
       const slot = Number(part.slice(0, i).trim());
@@ -94,21 +91,11 @@
       .join(";");
   }
 
-  function patchEnvLocks(envText, slot, models) {
-    const locks = parseLocks(envText);
+  function patchSlotLocks(serialized, slot, models) {
+    const locks = parseLocks(serialized);
     if (models.length) locks[slot] = models;
     else delete locks[slot];
-    const value = serializeLocks(locks);
-    const lines = String(envText || "").split(/\r?\n/);
-    const at = lines.findIndex((l) => l.startsWith("MODEL_LOCKS="));
-    if (value === "") {
-      if (at >= 0) lines.splice(at, 1);
-    } else if (at >= 0) {
-      lines[at] = `MODEL_LOCKS=${value}`;
-    } else {
-      lines.push(`MODEL_LOCKS=${value}`);
-    }
-    return lines.join("\n");
+    return serializeLocks(locks);
   }
 
   async function saveLocks(models) {
@@ -118,20 +105,22 @@
     lockError = "";
     lockNotice = "";
     try {
-      const cfg = await fetchAPI(adminApi.config);
-      const next = patchEnvLocks(cfg?.env_content || "", slot, models);
-      const res = await postForm(adminActions.configSave, { content: next });
-      const json = await res.json();
-      if (!(res.ok && json?.ok)) {
-        // Fail-loud override/restart-only saves (ok:false with a message):
-        // the file write succeeded but the live config did not move.
-        // Surface as a warning, not a silent success or a red error.
-        if (res.ok && json?.message) {
-          lockNotice = json.message;
-          await refreshTokens();
-          return;
-        }
-        throw new Error(json?.message || "Save rejected");
+      const setRes = await fetchAPI(adminApi.settings);
+      const row = (setRes?.settings ?? []).find((e) => e.key === "MODEL_LOCKS");
+      const value = patchSlotLocks(row?.value ?? "", slot, models);
+      const res = await postAPI(adminApi.settingsSave, {
+        key: "MODEL_LOCKS",
+        value,
+      });
+      if (res && res.ok === false)
+        throw new Error(res.message || "Save rejected");
+      // Caveat-bearing saves (restart-only, env-shadowed) surface the
+      // server message as a warning; plain live saves stay quiet.
+      if (
+        (res && res.code && res.code !== "setting_saved") ||
+        /process env/i.test(res?.message ?? "")
+      ) {
+        lockNotice = res.message;
       }
       pinSelect = "";
       await refreshTokens();

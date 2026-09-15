@@ -32,6 +32,8 @@
    * @prop {string} [cardTitle] - card heading, translated at render
    * @prop {string} [cardDescription] - card subheading, translated at render
    * @prop {boolean} [bridgePossible=true] - BRIDGE_IDLE_EVICT hides unless set
+   * @prop {boolean} [degraded=false] - settings store offline: rows render
+   *   an honest offline note and stay read-only for saves
    */
   let {
     meta = [],
@@ -47,6 +49,7 @@
     cardTitle = "Advanced",
     cardDescription = "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
     bridgePossible = true,
+    degraded = false,
   } = $props();
   // Keys owned by the curated section components above (Gateway, Traffic,
   // ModelRouting, Dashboard access, the Pool Strategy card, Pool Custom
@@ -176,8 +179,8 @@
     pendingFocusKey = "";
     requestAnimationFrame(() => {
       // Scope to the row's own labeled control: the row also hosts the
-      // per-key DbOverrideSave button, so a bare "input, button" selector
-      // would focus the save button instead of the setting control.
+      // per-key DbOverrideSave cluster (Reset + status), so a bare
+      // "input, button" selector would focus Reset instead of the control.
       const el = document.getElementById(`setting-${key}`);
       const control = el?.querySelector(`[aria-label="${CSS.escape(key)}"]`);
       if (!el || !(control instanceof HTMLElement)) return;
@@ -253,6 +256,7 @@
                   source={sources[entry.key]}
                   {onReset}
                   {onSaved}
+                  {degraded}
                 />
               {/snippet}
               {#if entry.kind === "bool"}
