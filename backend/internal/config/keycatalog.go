@@ -133,7 +133,7 @@ var keyCatalog = []KeyDef{
 		Description: `Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset).`},
 	{Key: "MATURITY_ENABLED", Group: GroupPool, Kind: "bool", Essential: true,
 		Default:     "true",
-		Description: `Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is touched automatically once nightly in the 60 minutes before the Pacific-midnight reset. Default true (live touches); set false to disable all automated touches.`},
+		Description: `Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is classified automatically once nightly in the 15 minutes before the Pacific-midnight reset (23:45-00:00), and eligible accounts fire one live touch in the final 5 minutes. Default true (live touches); set false to disable all automated touches.`},
 	{Key: "MATURITY_TARGET_DAYS", Group: GroupPool, Kind: "int", Hidden: true,
 		Default:     "7",
 		Description: `DEPRECATED (hidden): the streak is universally automatic now — per-account targets are dead, every account is touched nightly. Kept parsed for compat; this value is unused.`},

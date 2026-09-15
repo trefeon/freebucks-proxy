@@ -52,17 +52,15 @@ func maturityResult(p *Pool, token int) (action, result string) {
 	return e.maturity.lastAction, e.maturity.lastResult
 }
 
-// windowNow returns a clock inside tonight's maintenance window for firing
-// tests: the real clock when already in-window with room to spare, else
-// 3m before the next Pacific midnight (inside the 15m window, clear of the
-// 1m slot end buffer). Test offsets (+1m ticks) stay inside the window
-// either way.
+// windowNow returns a clock inside tonight's firing gate for firing
+// tests: the real clock when already inside the gate, else 3m before
+// the next Pacific midnight (inside both the 15m window and the 5m fire
+// gate, clear of the 1m slot end buffer). Pre-flight wall time must
+// never leak in: nothing fires there.
 func windowNow() time.Time {
 	now := time.Now()
-	if maturityInWindow(now) {
-		if _, end := maturityWindowFor(now); now.Before(end.Add(-5 * time.Minute)) {
-			return now
-		}
+	if maturityInFireGate(now) {
+		return now
 	}
 	_, end := maturityWindowFor(now)
 	return end.Add(-3 * time.Minute)

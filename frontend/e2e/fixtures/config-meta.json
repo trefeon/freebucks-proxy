@@ -225,7 +225,7 @@
     "restart_only": false,
     "secret": false,
     "essential": true,
-    "description": "Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is touched automatically once nightly in the 60 minutes before the Pacific-midnight reset. Default true (live touches); set false to disable all automated touches."
+    "description": "Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is classified automatically once nightly in the 15 minutes before the Pacific-midnight reset (23:45-00:00), and eligible accounts fire one live touch in the final 5 minutes. Default true (live touches); set false to disable all automated touches."
   },
   {
     "key": "MATURITY_TARGET_DAYS",

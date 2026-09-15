@@ -453,7 +453,7 @@
         {$tr("Nightly window 23:45–00:00 Pacific")}
         ·
         {$tr(
-          "one touch per Pacific day, placed in the final 15 minutes before reset to rescue the expiring day",
+          "one touch per Pacific day, classified from 23:45 and fired in the final 5 minutes before reset to rescue the expiring day",
         )}
         ·
         {$tr("client request activity since the last Pacific reset skips")}

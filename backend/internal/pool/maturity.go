@@ -2,11 +2,18 @@
 // the 15 minutes before the Pacific-midnight reset, replacing the old
 // per-token all-day slots).
 //
+// The window splits in two: T-15m→T-5m is pre-flight (streak refresh,
+// advance accounting, and skip classification run, but nothing fires —
+// fire-ready tokens ledger skip:preflight), and only the final
+// maturityFireGate before the slot end buffer (T-5m→T-1m) fires touches,
+// oldest-streak-first. A token still eligible when the gate closes
+// ledgers skip:window-exhausted instead of silently dropping.
+//
 // Universal automatic: every account is enrolled, gated only by the global
 // MATURITY_ENABLED kill-switch. There is no per-account enrollment — the
 // stored per-token enabled flag is dead input (kept for API compat,
 // ignored by the run). Each account gets one daily low-cost touch inside
-// the pre-reset window unless client traffic already used the account
+// the firing gate unless client traffic already used the account
 // today. No lock transitions anywhere: an operator-manually-locked token
 // is skipped by the run and stays locked.
 //
@@ -28,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -64,6 +72,13 @@ const (
 	// day's final stretch while still fitting 3 sequential touches plus
 	// a backoff retry.
 	maturityRunWindow = 15 * time.Minute
+	// maturityFireGate is the firing tail of the nightly window: touches
+	// fire only in the last 5 minutes before the slot end buffer
+	// (T-5m→T-1m). The window head (T-15m→T-5m) is pre-flight —
+	// classify only, never fire — so every slot lands inside the
+	// expiring day's final stretch while firing stays clear of the
+	// reset.
+	maturityFireGate = 5 * time.Minute
 	// maturity429Backoff pauses the nightly walk after a rate-limited
 	// touch: the walk aborts and no further touch fires until this long
 	// after the 429, instead of hammering a throttled upstream. Kept
@@ -333,6 +348,8 @@ func (p *Pool) maturityTick(ctx context.Context) {
 // maturityTickAt is maturityTick with the clock injected (fake-clock tests).
 // The nightly walk aborts on the first rate-limited touch (429 backoff):
 // remaining tokens keep last night's ledger until the backoff lifts.
+// The sweep walks oldest-streak-first (ascending cached streak): with a
+// short firing gate, the lowest-streak accounts claim firing room first.
 func (p *Pool) maturityTickAt(ctx context.Context, now time.Time) {
 	cfg := p.cfg.Load()
 	if cfg == nil || !cfg.MaturityEnabled {
@@ -345,21 +362,40 @@ func (p *Pool) maturityTickAt(ctx context.Context, now time.Time) {
 	if toks == nil {
 		return
 	}
-	for i, tok := range *toks {
-		if p.maturityTickOne(ctx, cfg.MaturityTouchModel, i, tok, now) {
+	for _, i := range maturitySweepOrder(*toks) {
+		if p.maturityTickOne(ctx, cfg.MaturityTouchModel, i, (*toks)[i], now) {
 			return
 		}
 	}
 }
 
+// maturitySweepOrder returns roster indices in sweep order: ascending
+// cached streak (oldest-streak-first), ties broken by roster index for
+// determinism. A missing cache reads as 0 — the pass refreshes stale
+// readings as it walks, so the key is best-available, never truth.
+func maturitySweepOrder(toks []*tokenEntry) []int {
+	order := make([]int, len(toks))
+	for i := range toks {
+		order[i] = i
+	}
+	streakOf := func(e *tokenEntry) int {
+		if s := e.Streak(); s != nil {
+			return s.Streak
+		}
+		return 0
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return streakOf(toks[order[a]]) < streakOf(toks[order[b]])
+	})
+	return order
+}
+
 // maturityTickOne evaluates and possibly fires one token's nightly touch.
 // It reports whether the touch was rate-limited (429): the nightly walk
 // aborts on the first 429 and backs off instead of hammering.
-//
-// Bookkeeping (streak refresh, advance accounting) runs on every pass, day
-// and night — all local, zero upstream cost. The last-run ledger (skips
-// and touches) is only written inside the nightly window, so the dashboard
-// shows last night's outcome instead of all-day skip spam.
+// Firing is fire-gate only (T-5m→T-1m): pre-flight passes run the same
+// skip classification but ledger skip:preflight instead of firing, and
+// post-gate passes ledger skip:window-exhausted for still-eligible tokens.
 func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, tok *tokenEntry, now time.Time) (rateLimited bool) {
 	// Persist-on-exit: every mutation below (skips, touches) lands in the
 	// maturity_json blob on the way out. Never-touched tokens no-op
@@ -499,6 +535,20 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	}
 	if !lastTouch.IsZero() && now.Sub(lastTouch) < maturityThrottle {
 		p.maturityRecord(tok, "", "skip:throttle", "")
+		return false
+	}
+	// Fire gate: touches fire only inside the firing tail of the window
+	// (T-5m→T-1m). Earlier is pre-flight — the classification above
+	// runs, unarrived slots ledger skip:slot, and fire-ready tokens
+	// ledger skip:preflight — but nothing fires. Past the gate's close
+	// the night is over for unfired tokens: fire-ready ones honestly
+	// ledger skip:window-exhausted instead of silently dropping.
+	if !maturityInFireGate(now) {
+		if _, gateEnd := maturityFireWindowFor(now); !now.Before(gateEnd) {
+			p.maturityRecord(tok, "", "skip:window-exhausted", "")
+		} else {
+			p.maturityRecord(tok, "", "skip:preflight", "")
+		}
 		return false
 	}
 
@@ -900,6 +950,23 @@ func maturityWindowFor(now time.Time) (start, end time.Time) {
 // reset).
 func maturityInWindow(now time.Time) bool {
 	start, end := maturityWindowFor(now)
+	return !now.Before(start) && now.Before(end)
+}
+
+// maturityFireWindowFor returns the firing tail of tonight's window:
+// [end-maturityFireGate, end-maturitySlotEndBuffer) (T-5m→T-1m). Slots
+// draw only up to end-maturitySlotEndBuffer, so every slot arrives at
+// or before the gate's close — a token still unfired past the close is
+// genuinely out of night, never early.
+func maturityFireWindowFor(now time.Time) (start, end time.Time) {
+	_, wend := maturityWindowFor(now)
+	return wend.Add(-maturityFireGate), wend.Add(-maturitySlotEndBuffer)
+}
+
+// maturityInFireGate reports whether touches may fire now: inside the
+// window's final maturityFireGate, clear of the slot end buffer.
+func maturityInFireGate(now time.Time) bool {
+	start, end := maturityFireWindowFor(now)
 	return !now.Before(start) && now.Before(end)
 }
 
