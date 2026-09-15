@@ -183,17 +183,6 @@
           {sessionCountdownLabel(sessionRemaining)}
         </span>
       {/if}
-      {#if token.session_remaining_seconds > 0}
-        <Button
-          variant="danger"
-          size="sm"
-          class="!h-7 !text-xs !px-2"
-          disabled={actionPending}
-          onclick={() => onDropSession?.()}
-        >
-          <span>{$tr("Drop Session")}</span>
-        </Button>
-      {/if}
     </div>
   </td>
   <td>
@@ -208,6 +197,17 @@
       {/if}
       {#if token.session_model}
         <StatusBadge tone="info" status={token.session_model} />
+      {/if}
+      {#if token.session_remaining_seconds > 0}
+        <Button
+          variant="danger"
+          size="sm"
+          class="!h-7 !text-xs !px-2 self-start w-fit"
+          disabled={actionPending}
+          onclick={() => onDropSession?.()}
+        >
+          <span>{$tr("Drop Session")}</span>
+        </Button>
       {/if}
     </div>
   </td>
