@@ -113,8 +113,14 @@ test.describe("per-page persist", () => {
     await expect(table.getByText("Account #1")).toBeVisible({
       timeout: 10_000,
     });
-    // Expanded without any click: the snapshot drove expandedToken.
-    await expect(table.getByText("Active Session:")).toBeVisible();
+    // Expanded without any click: the snapshot drove expandedToken. The
+    // live countdown renders in the status cell; the drawer proves itself
+    // open via Drop Session, not the removed Active Session banner.
+    await expect(table.getByText("Active Session:")).toHaveCount(0);
+    await expect(
+      table.locator('[aria-label^="Session time remaining"]').first(),
+    ).toBeVisible();
+    await expect(table.getByText("Drop Session")).toBeVisible();
   });
 
   test("tokens out-of-range index drops the drawer instead of opening the wrong row", async ({
@@ -129,7 +135,9 @@ test.describe("per-page persist", () => {
       timeout: 10_000,
     });
     // No drawer opened (and the stale index is dropped, never re-persisted).
-    await expect(table.getByText("Active Session:")).toHaveCount(0);
+    // Status-cell timers still render for active rows, so the drawer-absent
+    // proof is Drop Session, not the removed Active Session banner.
+    await expect(table.getByText("Drop Session")).toHaveCount(0);
   });
 
   test("logs full filter set round-trips across reload", async ({ page }) => {

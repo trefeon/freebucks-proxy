@@ -68,9 +68,13 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(expandBtn).toBeVisible();
     await expandBtn.click();
     // Without DEVTOOLS_ENABLED the Dev Session toolbar stays hidden; the
-    // expanded row keeps the active-session line.
+    // live session countdown renders in the status cell under the leased
+    // badge (the drawer Active Session banner is gone).
     await expect(page.getByText("Dev Session:")).not.toBeVisible();
-    await expect(table.getByText("Active Session:")).toBeVisible();
+    await expect(table.getByText("Active Session:")).toHaveCount(0);
+    await expect(
+      table.locator('[aria-label^="Session time remaining"]').first(),
+    ).toBeVisible();
 
     // With DEVTOOLS_ENABLED=true the toolbar appears (per-token session spawn).
     await page.unroute("**/admin/api/config");

@@ -23,11 +23,10 @@
   import { onMount } from "svelte";
 
   /**
-   * TokenDetailsDrawer — expanded details for one pooled token: the live
-   * session countdown, the account-standing block, and the empty-state
-   * message. Warming lives on the Warming tab only, not here. Shared by
-   * the desktop table row (TokenCard) and the mobile stacked card
-   * (TokenCardMobile).
+   * TokenDetailsDrawer — expanded details for one pooled token: the
+   * account-standing block and the empty-state message. The live session
+   * countdown now renders in the status cell (TokenCard +
+   * TokenCardMobile), not here.
    *
    * @prop {object} token — dashboard tokenCard payload
    * @prop {string} [spawnModel] — bindable dev-spawn model selection
@@ -35,7 +34,7 @@
    * @prop {boolean} [devToolsEnabled=false]
    * @prop {(model: string) => void} [onSpawn]
    * @prop {(action: string) => void} [onRefresh]
-   * @prop {number} sessionRemaining — live seconds remaining on the session
+   * @prop {() => void} [onDropSession]
    */
   let {
     token,
@@ -45,7 +44,6 @@
     onSpawn,
     onRefresh,
     onDropSession,
-    sessionRemaining,
   } = $props();
   let modelOptions = $state(fallbackModelOptions);
   onMount(() => {
@@ -140,19 +138,6 @@
   function unpinModel(id) {
     saveLocks((token.allowed_models || []).filter((m) => m !== id));
   }
-
-  function fmtCountdown(totalSeconds) {
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    if (h >= 24) {
-      const d = Math.floor(h / 24);
-      const hr = h % 24;
-      return hr > 0 ? `${d}d ${hr}h remaining` : `${d}d remaining`;
-    }
-    if (h > 0) return `${h}h ${m}m ${s}s remaining`;
-    return `${m}m ${s}s remaining`;
-  }
 </script>
 
 <div class="fp-inset rounded p-3">
@@ -239,14 +224,6 @@
           <span>{$tr("Finish Runs")}</span>
         </Button>
       </div>
-    </div>
-  {/if}
-  {#if token.session_remaining_seconds > 0 && token.session_model}
-    <div
-      class="mb-2 px-2 py-1 rounded bg-[var(--fp-accent)]/10 text-xs text-[var(--fp-accent)] flex items-center justify-between gap-2 flex-wrap"
-    >
-      <span>{$tr("Active Session:")}</span>
-      <span class="fp-num">{fmtCountdown(sessionRemaining)}</span>
     </div>
   {/if}
   <RefundLines

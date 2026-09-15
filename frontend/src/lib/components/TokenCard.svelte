@@ -15,6 +15,7 @@
     statusFor,
     streakBadgeFor,
     cooldownLabel,
+    sessionCountdownLabel,
   } from "../utils/tokenStatus.js";
   import { tr } from "../i18n.js";
 
@@ -172,8 +173,16 @@
     </div>
   </td>
   <td>
-    <div class="flex flex-wrap items-center gap-1.5">
+    <div class="flex flex-col items-start gap-0.5">
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
+      {#if token.session_status === "active" && sessionRemaining > 0}
+        <span
+          class="fp-num text-[11px] text-[var(--fp-accent)] whitespace-nowrap"
+          aria-label={`Session time remaining: ${sessionCountdownLabel(sessionRemaining)}`}
+        >
+          {sessionCountdownLabel(sessionRemaining)}
+        </span>
+      {/if}
     </div>
   </td>
   <td>
@@ -274,7 +283,6 @@
           {onSpawn}
           {onRefresh}
           {onDropSession}
-          {sessionRemaining}
         />
       </div>
     </td>
