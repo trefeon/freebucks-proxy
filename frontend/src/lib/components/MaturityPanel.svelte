@@ -60,12 +60,17 @@
   let dryRun = $state(true);
   // Editable tuning rows (shared draft; overlay Save beside each control):
   // dry-run defaults true, touch-model defaults "" (= auto, cheapest
-  // unmetered). Rows dim while the kill-switch is off.
+  // unmetered). The select shows "auto" for both "" and a literal "auto"
+  // (older overlays stored the word), while edits canonicalize Auto back
+  // to "" so the draft always matches the catalog default. Rows dim while
+  // the kill-switch is off.
   let dryRunDraft = $derived(
     String(formValues.MATURITY_DRY_RUN ?? "true").toLowerCase() !== "false",
   );
   let touchVal = $derived(formValues.MATURITY_TOUCH_MODEL ?? "");
-  let touchSelectVal = $derived(touchVal === "" ? "auto" : touchVal);
+  let touchSelectVal = $derived(
+    touchVal === "" || touchVal === "auto" ? "auto" : touchVal,
+  );
   let maturityOff = $derived(globalLoaded && !globalEnabled);
   let modelRows = $state([]);
   function touchOpts() {
@@ -414,6 +419,9 @@
           ariaLabel={$tr("Streak maintenance")}
           onchange={(next) => setGlobalEnabled(next)}
         />
+        <span class="text-xs font-medium text-[var(--fp-text)]"
+          >{$tr("Streak maintenance")}</span
+        >
       </div>
       <div
         class="flex flex-col gap-2 border-t border-[var(--fp-border)]/60 pt-2.5 {maturityOff
@@ -428,7 +436,7 @@
               onField?.("MATURITY_DRY_RUN", v ? "true" : "false")}
           />
           <span class="text-xs font-medium text-[var(--fp-text)]"
-            >{$tr("Dry run")}</span
+            >{$tr("Dry run (probe only, claims nothing)")}</span
           >
           <code
             class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
@@ -468,8 +476,10 @@
             value={touchSelectVal}
             aria-label="MATURITY_TOUCH_MODEL"
             title={touchSelectVal}
-            onchange={(e) =>
-              onField?.("MATURITY_TOUCH_MODEL", e.currentTarget.value)}
+            onchange={(e) => {
+              const raw = e.currentTarget.value;
+              onField?.("MATURITY_TOUCH_MODEL", raw === "auto" ? "" : raw);
+            }}
           >
             <option value="auto">Auto (cheapest unmetered)</option>
             {#each touchOpts() as opt (opt.id)}

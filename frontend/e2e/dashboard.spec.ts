@@ -635,11 +635,13 @@ test.describe("dashboard hermetic mocks", () => {
     await metaResp;
     await page.getByRole("button", { name: "Controls" }).click();
     // Pool-group keys moved from Settings Advanced to the Pool Controls
-    // tab: maturity + probing rows render in the Pool Tuning card.
+    // tab: probing rows render in the Pool Tuning card, while every
+    // MATURITY_* key lives only on the Warming tab's Streak Maintenance
+    // card (single address, no Pool Tuning dupe).
     await expect(page.getByText("Pool Tuning")).toBeVisible();
     await expect(
-      page.getByText("MATURITY_ENABLED", { exact: true }).first(),
-    ).toBeVisible();
+      page.getByText("MATURITY_ENABLED", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       page.getByText("QUOTA_AUTO_PROBE", { exact: true }).first(),
     ).toBeVisible();

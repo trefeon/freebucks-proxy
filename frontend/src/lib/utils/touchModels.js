@@ -1,6 +1,6 @@
 /**
- * Shared touch-model option helpers (Settings → Advanced →
- * MATURITY_TOUCH_MODEL global select). Priced labels come straight from
+ * Shared touch-model option helpers (Warming → Streak Maintenance →
+ * MATURITY_TOUCH_MODEL select). Priced labels come straight from
  * /admin/api/models rows (price_label/quota/pool) — never invented.
  */
 
@@ -33,15 +33,30 @@ export function touchLabel(m) {
 
 /**
  * Fail-open options: live candidates when the catalog loaded, else the
- * current value alone so the select never empties.
+ * current value alone so the select never empties. The current saved value
+ * is always appended when the catalog omits it (retired/priced since save,
+ * or a stale snapshot): otherwise the select falls back to the first
+ * option and displays a model that was never saved.
  */
 export function touchOptions(modelRows, currentId = "") {
   const cands = touchCandidates(modelRows);
-  if (cands.length > 0) return cands;
-  if (currentId) {
-    return [{ id: currentId, price_label: "", quota: "", pool: "unlimited" }];
+  if (cands.length === 0) {
+    if (currentId) {
+      return [{ id: currentId, price_label: "", quota: "", pool: "unlimited" }];
+    }
+    return [];
   }
-  return [];
+  if (
+    currentId &&
+    currentId !== "auto" &&
+    !cands.some((m) => m?.id === currentId)
+  ) {
+    return [
+      ...cands,
+      { id: currentId, price_label: "", quota: "", pool: "unlimited" },
+    ];
+  }
+  return cands;
 }
 
 /**

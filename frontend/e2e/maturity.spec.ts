@@ -119,14 +119,24 @@ test.describe("streak maintenance", () => {
     });
 
     await gotoWarming(page);
-    await expect(page.getByText("Streak Maintenance")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Streak Maintenance" }),
+    ).toBeVisible();
     // Kill-switch plus the two tuning rows under it: dry-run switch and
-    // touch-model select. Still no Touch-now buttons anywhere.
+    // touch-model select. The two toggles read unambiguously: the master is
+    // Streak maintenance (nightly touches on/off), the second is an
+    // explicitly parenthesized dry run. Still no Touch-now buttons anywhere.
     await expect(
       page.getByRole("switch", { name: "Streak maintenance" }),
     ).toBeVisible();
     await expect(
+      page.getByText("Streak maintenance", { exact: true }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Dry run (probe only, claims nothing)"),
     ).toBeVisible();
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
     await expect(page.getByLabel("Global touch model")).toHaveCount(0);
@@ -405,6 +415,140 @@ test.describe("streak maintenance", () => {
       .click();
     await saveReq;
     expect(posts[0].body).toContain("MATURITY_DRY_RUN");
+  });
+
+  test("touch-model select shows the saved model after save", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    // Stateful config mock: the overlay POST updates the served effective
+    // value, so the post-save refetch returns what was saved (like the
+    // gateway instead of a frozen fixture).
+    let touchSaved = "";
+    await page.unroute("**/admin/api/config");
+    await page.route("**/admin/api/config", async (route) => {
+      const cfg = maintenanceConfig();
+      cfg.effective = cfg.effective.map((e) =>
+        e.key === "MATURITY_TOUCH_MODEL" ? { ...e, value: touchSaved } : e,
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(cfg),
+      });
+    });
+    const posts: Array<{ url: string; body: string }> = [];
+    await page.route("**/admin/api/settings", async (route) => {
+      if (route.request().method() === "POST") {
+        const body = route.request().postData() ?? "";
+        posts.push({ url: route.request().url(), body });
+        try {
+          const parsed = JSON.parse(body);
+          if (parsed?.key === "MATURITY_TOUCH_MODEL")
+            touchSaved = parsed?.value ?? "";
+        } catch {
+          /* non-JSON save payload: keep the last saved value */
+        }
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, message: "saved." }),
+      });
+    });
+    await gotoWarming(page);
+    const select = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await expect(select).toBeVisible();
+    // Default state reads Auto.
+    await expect(select).toHaveValue("auto");
+    // Pick a non-default served model, save the touch row (the row's own
+    // Save, last on the card), then reload: the select must show the saved
+    // model, never the old default. Reloading (instead of trusting the
+    // post-save refetch) also dodges the refetch/edit race where a late
+    // refetch clobbers a newer draft.
+    await select.selectOption("upstage/solar-pro4");
+    // Wait for the draft edit to flush to the row (the select's title binds
+    // the same derived draft the Save button posts) before clicking Save.
+    await expect(select).toHaveAttribute("title", "upstage/solar-pro4");
+    const saveReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+    );
+    await page
+      .getByRole("button", { name: "Save", exact: true })
+      .last()
+      .click();
+    await saveReq;
+    expect(posts[0].body).toContain("MATURITY_TOUCH_MODEL");
+    await page.reload();
+    await gotoWarming(page);
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(
+      "upstage/solar-pro4",
+    );
+    // Back to Auto canonicalizes to the empty catalog default on the
+    // overlay path; reload again and the select still reads Auto.
+    const reselected = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await reselected.selectOption("auto");
+    await expect(reselected).toHaveAttribute("title", "auto");
+    const autoReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+    );
+    await page
+      .getByRole("button", { name: "Save", exact: true })
+      .last()
+      .click();
+    await autoReq;
+    expect(JSON.parse(posts[posts.length - 1].body)).toMatchObject({
+      key: "MATURITY_TOUCH_MODEL",
+      value: "",
+    });
+    await page.reload();
+    await gotoWarming(page);
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue("auto");
+  });
+
+  test("touch-model select keeps a saved model the catalog omits", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    // The saved model retired from the served catalog (stale snapshot):
+    // the select must still display the saved value, never fall back to
+    // the Auto default.
+    await page.unroute("**/admin/api/config");
+    await page.route("**/admin/api/config", async (route) => {
+      const cfg = maintenanceConfig();
+      cfg.effective = cfg.effective.map((e) =>
+        e.key === "MATURITY_TOUCH_MODEL"
+          ? { ...e, value: "retired/old-model" }
+          : e,
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(cfg),
+      });
+    });
+    await gotoWarming(page);
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(
+      "retired/old-model",
+    );
   });
 
   test("no per-account target stepper or model select remains", async ({
