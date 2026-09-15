@@ -102,7 +102,7 @@
       ? 'bg-[var(--fp-accent)]/15 border-y-2 border-[var(--fp-accent)]'
       : ''}"
 >
-  <td class="w-[84px]">
+  <td class="w-[1%] whitespace-nowrap !px-2">
     <div class="inline-flex items-center gap-1">
       {#if totalTokens > 1}
         <div class="flex flex-col shrink-0 -my-1">
