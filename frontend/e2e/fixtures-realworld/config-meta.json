@@ -220,17 +220,6 @@
     "description": "Allow the per-token premium-short touch mode (one short premium admission instead of the unmetered touch). Default false: premium touches burn daily quota and stay opt-in per token."
   },
   {
-    "key": "MATURITY_DRY_RUN",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Maturity touches run only the zero-cost session probe and never claim a session slot (scheduler mechanics validation). Set false after the dry-run log lines prove slots, skips and throttles behave."
-  },
-  {
     "key": "MATURITY_ENABLED",
     "group": "pool",
     "kind": "bool",
@@ -238,7 +227,7 @@
     "restart_only": false,
     "secret": false,
     "essential": true,
-    "description": "Global kill-switch for streak-maturity automation: daily low-cost touches that keep locked tokens' streaks alive until their target. Default true (probes run in dry-run mode); set false to disable all automated touches."
+    "description": "Global kill-switch for streak-maturity automation: daily low-cost touches that keep locked tokens' streaks alive until their target. Default true (live touches); set false to disable all automated touches."
   },
   {
     "key": "MATURITY_TARGET_DAYS",

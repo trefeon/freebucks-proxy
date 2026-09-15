@@ -149,16 +149,11 @@ type Config struct {
 	// never created (issue #97).
 	AdoptCLISession bool
 	// MaturityEnabled is the global kill-switch for streak-maturity automation
-	// (MATURITY_ENABLED; default true). When false, no per-token maturity
-	// touch ever fires regardless of per-token toggles. Default ON with
-	// MATURITY_DRY_RUN=true so dry-run probes run by default while live
-	// slot-claiming touches remain opt-in via dry-run toggle (docs/maturity-plan.md §4).
+	// (MATURITY_ENABLED; default true). When false, no maturity touch ever
+	// fires. When true, touches run live (admit → one minimal turn →
+	// release) on Freebucks, still gated by health gates, today-used,
+	// throttle and 429 backoff.
 	MaturityEnabled bool
-	// MaturityDryRun validates scheduler mechanics with zero side effects
-	// (MATURITY_DRY_RUN; default true): touches run only the zero-cost
-	// session probe and never claim a session slot. Turn it off only after
-	// the dry-run log lines prove slots, skips and throttles behave.
-	MaturityDryRun bool
 	// MaturityTouchModel is the touch-model fallback for maturity touches
 	// (MATURITY_TOUCH_MODEL; default "" = auto). "" (or "auto") resolves
 	// the cheapest served unmetered catalog row per token; an explicit

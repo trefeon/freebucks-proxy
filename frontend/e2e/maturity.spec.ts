@@ -11,7 +11,6 @@ function maintenanceTokens() {
     token_count: 3,
     has_tokens: true,
     maturity_enabled: true,
-    maturity_dry_run: true,
     maturity_window_start: "2026-09-12T06:45:00Z",
     maturity_window_end: "2026-09-12T07:00:00Z",
     tokens: [
@@ -31,7 +30,7 @@ function maintenanceTokens() {
           slot_day: "2026-09-05",
           last_touch: "2026-09-05T07:31:00Z",
           touch_day: "2026-09-05",
-          last_action: "probe",
+          last_action: "admit",
           last_result: "ok",
           last_advanced: "yes",
           effective_touch_model: "mimo/mimo-v2.5",
@@ -79,7 +78,6 @@ function maintenanceConfig() {
     effective: [
       { key: "MATURITY_ENABLED", value: "true", secret: false },
       { key: "MATURITY_TOUCH_MODEL", value: "auto", secret: false },
-      { key: "MATURITY_DRY_RUN", value: "true", secret: false },
     ],
   };
 }
@@ -97,9 +95,7 @@ async function gotoWarming(page) {
 }
 
 test.describe("streak maintenance", () => {
-  test("board carries the switch plus dry-run and touch-model rows", async ({
-    page,
-  }) => {
+  test("board carries the switch plus touch-model row", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
     await page.unroute("**/admin/api/tokens*");
@@ -123,34 +119,33 @@ test.describe("streak maintenance", () => {
     await expect(
       page.getByRole("heading", { name: "Streak Maintenance" }),
     ).toBeVisible();
-    // Kill-switch plus the two tuning rows under it: dry-run switch and
-    // touch-model select. The two toggles read unambiguously: the master is
-    // Streak maintenance (nightly touches on/off), the second is an
-    // explicitly parenthesized dry run. Still no Touch-now buttons anywhere.
+    // Kill-switch plus the touch-model select under it. The master toggle
+    // reads unambiguously: Streak maintenance (nightly touches on/off).
+    // Still no Touch-now buttons anywhere.
     await expect(
       page.getByRole("switch", { name: "Streak maintenance" }),
     ).toBeVisible();
     await expect(
       page.getByText("Streak maintenance", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Dry run (probe only, claims nothing)"),
-    ).toBeVisible();
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
     await expect(page.getByLabel("Global touch model")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Touch now" })).toHaveCount(
       0,
     );
-    // Fixed pre-reset window copy + read-only dry-run badge + countdown.
+    // Dry-run is gone: no switch, no badge, no copy anywhere on the board.
+    await expect(
+      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
+    ).toHaveCount(0);
+    await expect(page.getByText("Dry run")).toHaveCount(0);
+    await expect(
+      page.getByText("Dry run (probe only, claims nothing)"),
+    ).toHaveCount(0);
+    // Fixed pre-reset window copy + countdown.
     await expect(
       page.getByText("Nightly window 23:45–00:00 Pacific"),
     ).toBeVisible();
-    await expect(page.getByText("Dry run").first()).toBeVisible();
     await expect(page.getByLabel("Next maintenance run")).toBeVisible();
-    await expect(page.getByText(/Next run|In window/)).toBeVisible();
     // One row per account: touched with the resolved model id, skipped
     // with the exact ledger reason, pending without a ledger.
     await expect(page.getByText("Touched").first()).toBeVisible();
@@ -186,7 +181,6 @@ test.describe("streak maintenance", () => {
           token_count: 1,
           has_tokens: true,
           maturity_enabled: true,
-          maturity_dry_run: true,
           maturity_window_start: "2026-09-12T06:45:00Z",
           maturity_window_end: "2026-09-12T07:00:00Z",
           tokens: [
@@ -205,7 +199,7 @@ test.describe("streak maintenance", () => {
                 slot: "2026-09-11T06:30:00Z",
                 slot_day: "2026-09-11",
                 last_touch: "2026-09-11T06:56:00Z",
-                last_action: "probe",
+                last_action: "",
                 last_result: "skip:today-used",
                 effective_touch_model: "upstage/solar-pro4",
                 auto_touch_model: "upstage/solar-pro4",
@@ -249,7 +243,6 @@ test.describe("streak maintenance", () => {
           token_count: 1,
           has_tokens: true,
           maturity_enabled: true,
-          maturity_dry_run: true,
           maturity_window_start: "2026-09-12T06:45:00Z",
           maturity_window_end: "2026-09-12T07:00:00Z",
           tokens: [
@@ -267,7 +260,7 @@ test.describe("streak maintenance", () => {
                 slot: "2026-09-11T06:30:00Z",
                 slot_day: "2026-09-11",
                 last_touch: "2026-09-11T06:56:00Z",
-                last_action: "probe",
+                last_action: "",
                 last_result: "skip:today-used",
                 effective_touch_model: "upstage/solar-pro4",
                 auto_touch_model: "upstage/solar-pro4",
@@ -362,9 +355,7 @@ test.describe("streak maintenance", () => {
     await expect(page.getByText("Locked").first()).toBeVisible();
   });
 
-  test("warming tab wires the dry-run toggle and touch model", async ({
-    page,
-  }) => {
+  test("warming tab wires the touch model instant-save", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
     await page.unroute("**/admin/api/tokens*");
@@ -386,24 +377,28 @@ test.describe("streak maintenance", () => {
     const posted: PostedSetting[] = [];
     await mockSettingsOverlay(page, posted);
     await gotoWarming(page);
-    // Streak knobs moved from Pool Tuning to the Warming card, under the
-    // kill-switch: MATURITY_DRY_RUN as a switch, MATURITY_TOUCH_MODEL as
-    // the Auto select, each instant-saving to the overlay on edit.
-    const dryRun = page.getByRole("switch", { name: "MATURITY_DRY_RUN" });
-    await expect(dryRun).toBeVisible();
-    await expect(dryRun).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
-    // Toggling auto-POSTs the overlay path with the key (debounced).
+    // The streak knob on the Warming card, under the kill-switch:
+    // MATURITY_TOUCH_MODEL as the Auto select, instant-saving to the
+    // overlay on edit. No dry-run switch exists anymore.
+    await expect(
+      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
+    ).toHaveCount(0);
+    const select = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await expect(select).toBeVisible();
+    // Picking a model auto-POSTs the overlay path with the key (debounced).
     const saveReq = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10_000 },
     );
-    await dryRun.click();
+    await select.selectOption("upstage/solar-pro4");
     await saveReq;
     await expect
-      .poll(() => posted.filter((p) => p.key === "MATURITY_DRY_RUN").length, {
-        timeout: 10_000,
-      })
+      .poll(
+        () => posted.filter((p) => p.key === "MATURITY_TOUCH_MODEL").length,
+        {
+          timeout: 10_000,
+        },
+      )
       .toBeGreaterThan(0);
   });
 

@@ -11,8 +11,7 @@
 // is skipped by the run and stays locked.
 //
 // Safety posture: global kill-switch (MATURITY_ENABLED, default on with
-// dry-run probes), dry-run default (probe-only, zero
-// session slots claimed), unmetered touch models only (never burns premium
+// live touches), unmetered touch models only (never burns premium
 // quota — the fire path fails closed on priced rows), per-token slots
 // staggered with jitter inside the 15m window, restart-safe idempotency
 // (touchDay/slotDay plus the upstream todayUsed flag), and a 429
@@ -347,7 +346,7 @@ func (p *Pool) maturityTickAt(ctx context.Context, now time.Time) {
 		return
 	}
 	for i, tok := range *toks {
-		if p.maturityTickOne(ctx, cfg.MaturityDryRun, cfg.MaturityTouchModel, i, tok, now) {
+		if p.maturityTickOne(ctx, cfg.MaturityTouchModel, i, tok, now) {
 			return
 		}
 	}
@@ -361,7 +360,7 @@ func (p *Pool) maturityTickAt(ctx context.Context, now time.Time) {
 // and night — all local, zero upstream cost. The last-run ledger (skips
 // and touches) is only written inside the nightly window, so the dashboard
 // shows last night's outcome instead of all-day skip spam.
-func (p *Pool) maturityTickOne(ctx context.Context, dryRun bool, touchModel string, idx int, tok *tokenEntry, now time.Time) (rateLimited bool) {
+func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, tok *tokenEntry, now time.Time) (rateLimited bool) {
 	// Persist-on-exit: every mutation below (skips, touches) lands in the
 	// maturity_json blob on the way out. Never-touched tokens no-op
 	// inside saveMaturity.
@@ -507,7 +506,7 @@ func (p *Pool) maturityTickOne(ctx context.Context, dryRun bool, touchModel stri
 	// when the global is the auto sentinel, else the explicit global
 	// fallback. Empty resolves fail closed in the fire path.
 	effective, _, _ := p.maturityResolveEffective(st, tok, touchModel)
-	if p.maturityFire(ctx, dryRun, effective, idx, tok, label, cached, today, now) {
+	if p.maturityFire(ctx, effective, idx, tok, label, cached, today, now) {
 		p.maturityNoteRateLimit(now)
 		return true
 	}
@@ -552,15 +551,14 @@ func (p *Pool) maturityAccountAdvance(idx int, tok *tokenEntry, cached *upstream
 	}
 }
 
-// maturityFire performs one touch: dry-run probes (zero-cost, never claims
-// a slot); live mode runs admit → one minimal turn → release through the
-// token's own session manager and upstream client — wire-identical to a user
-// opening the CLI and sending one message, because upstream advances streaks
-// on agent-run message rows, not bare admission. It reports whether
-// the touch was rate-limited (429): the nightly walk aborts on the first
-// 429 and backs off. The IsServedModel honeypot rejection and the
-// fail-closed priced-touch skips above stay untouched.
-func (p *Pool) maturityFire(ctx context.Context, dryRun bool, touchModel string, idx int, tok *tokenEntry, label string, cached *upstream.StreakInfo, today string, now time.Time) (rateLimited bool) {
+// maturityFire performs one live touch: admit → one minimal turn → release
+// through the token's own session manager and upstream client —
+// wire-identical to a user opening the CLI and sending one message, because
+// upstream advances streaks on agent-run message rows, not bare admission.
+// It reports whether the touch was rate-limited (429): the nightly walk
+// aborts on the first 429 and backs off. The IsServedModel honeypot
+// rejection and the fail-closed priced-touch skips below stay untouched.
+func (p *Pool) maturityFire(ctx context.Context, touchModel string, idx int, tok *tokenEntry, label string, cached *upstream.StreakInfo, today string, now time.Time) (rateLimited bool) {
 	st := p.maturityCopy(tok)
 	model := touchModel
 	if st.mode == MaturityModePremiumShort {
@@ -579,32 +577,23 @@ func (p *Pool) maturityFire(ctx context.Context, dryRun bool, touchModel string,
 		return
 	}
 	// Meter-aware lane (issue #350 adaptation): the touch rides the
-	// unmetered lane, never the meter. Dry-run probes claim no slot and
-	// stay exempt from this check; a LIVE touch on a model this account
+	// unmetered lane, never the meter. A touch on a model this account
 	// meters (price > 0, no server exemption) skips instead of spending —
 	// maturity preserves streaks, it never buys sessions.
-	if !dryRun {
-		if snap := tok.sessionMgr().Snapshot(); snap.Freebucks != nil {
-			if price, ok := snap.Freebucks.Prices[model]; ok && price > 0 && !snap.Freebucks.QuotaExempt {
-				p.logger.Warn("pool: maturity touch model is metered on this account, skipping",
-					"token", idx+1, "token_label", label, "model", model, "price", price)
-				p.maturityRecord(tok, "admit", "skip:touch-priced", "")
-				p.emitMaturity(idx, "touch", fmt.Sprintf("admit skip:touch-priced model=%s price=%v", model, price))
-				return
-			}
+	if snap := tok.sessionMgr().Snapshot(); snap.Freebucks != nil {
+		if price, ok := snap.Freebucks.Prices[model]; ok && price > 0 && !snap.Freebucks.QuotaExempt {
+			p.logger.Warn("pool: maturity touch model is metered on this account, skipping",
+				"token", idx+1, "token_label", label, "model", model, "price", price)
+			p.maturityRecord(tok, "admit", "skip:touch-priced", "")
+			p.emitMaturity(idx, "touch", fmt.Sprintf("admit skip:touch-priced model=%s price=%v", model, price))
+			return
 		}
 	}
 
 	fire, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	action := "admit"
-	var err error
-	if dryRun {
-		action = "probe"
-		_, err = tok.client.ProbeAccount(fire)
-	} else {
-		err = p.maturityTouchRun(fire, tok, model, idx, label, now)
-	}
+	err := p.maturityTouchRun(fire, tok, model, idx, label, now)
 	result := "ok"
 	if err != nil {
 		result = "error:" + firstLine(err.Error())
@@ -812,7 +801,7 @@ func (p *Pool) MaturityTouchNow(ctx context.Context, token int) (string, string,
 	}
 	today := pacificDayKey(now)
 	effective, _, _ := p.maturityResolveEffective(st, tok, cfg.MaturityTouchModel)
-	p.maturityFire(ctx, cfg.MaturityDryRun, effective, token, tok, tokenEntryLabel(tok), cached, today, now)
+	p.maturityFire(ctx, effective, token, tok, tokenEntryLabel(tok), cached, today, now)
 	p.saveMaturity(token, tok)
 	fin := p.maturityCopy(tok)
 	return fin.lastAction, fin.lastResult, nil

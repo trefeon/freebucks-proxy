@@ -70,7 +70,6 @@ type rawConfig struct {
 	WebhookURL               string          `json:"WEBHOOK_URL"`
 	AdoptCLISession          bool            `json:"ADOPT_CLI_SESSION"`
 	MaturityEnabled          bool            `json:"MATURITY_ENABLED"`
-	MaturityDryRun           bool            `json:"MATURITY_DRY_RUN"`
 	MaturityTouchModel       string          `json:"MATURITY_TOUCH_MODEL"`
 	MaturityTargetDays       *int            `json:"MATURITY_TARGET_DAYS"`
 	QuotaAutoProbe           bool            `json:"QUOTA_AUTO_PROBE"`
@@ -162,8 +161,7 @@ func defaultRawConfig() rawConfig {
 		TokenMaxConcurrent:       ptrInt(2),  // per-token live turns (floor 1; bunker strictness is 1)
 		QueueWait:                "30s",      // FIFO slot-queue wait bound per parked Acquire
 		QueueDepth:               ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
-		MaturityEnabled:          true,       // streak-maturity automation on by default; dry-run probes prove schedule before live touches
-		MaturityDryRun:           true,       // maturity touches probe only until the operator proves the schedule
+		MaturityEnabled:          true,       // streak-maturity automation on by default; touches run live
 		QuotaAutoProbe:           true,       // quota auto-probe scheduler on by default; false restores pre-scheduler behavior
 		QuotaProbeActiveInterval: "60s",      // busy-pool probe cadence
 		QuotaProbeIdleHeartbeat:  "30m",      // idle-pool probe heartbeat (also the 429-backoff ceiling)

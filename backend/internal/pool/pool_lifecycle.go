@@ -347,7 +347,7 @@ func (p *Pool) maintainTick(ctx context.Context) {
 	// Streak-maturity automation rides every pass — including idle
 	// stretches, whose quiet accounts are exactly the ones whose streaks
 	// need keeping. It never fires on unhealthy accounts (banned, cooling,
-	// quarantined, country-blocked) and defaults to dry-run probes.
+	// quarantined, country-blocked) and fires live touches.
 	p.maturityTick(ctx)
 	// Smart quota probe rides every pass alongside maturity — including
 	// idle stretches, whose first tick runs the idle single-probe so quota

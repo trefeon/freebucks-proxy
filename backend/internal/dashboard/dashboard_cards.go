@@ -413,9 +413,6 @@ type tokensData struct {
 	TokenRotation     string         `json:"token_rotation,omitempty"`
 	RateLimitFailover bool           `json:"rate_limit_failover"`
 	MaturityEnabled   bool           `json:"maturity_enabled"`
-	// MaturityDryRun mirrors MATURITY_DRY_RUN for the Streak Maintenance
-	// dry-run badge (probe-only, zero session slots claimed).
-	MaturityDryRun bool `json:"maturity_dry_run"`
 	// MaturityWindowStart/End are tonight's maintenance window (the 60
 	// minutes before the Pacific-midnight reset, RFC3339 absolute
 	// instants): the SPA formats the next-run countdown from these, so
@@ -483,7 +480,6 @@ func (d *Dashboard) tokensData() tokensData {
 		TokenRotation:     cfg.TokenRotation,
 		RateLimitFailover: cfg.RateLimitFailover,
 		MaturityEnabled:   cfg.MaturityEnabled,
-		MaturityDryRun:    cfg.MaturityDryRun,
 	}
 	wStart, wEnd := d.pool.MaturityWindow()
 	if !wStart.IsZero() && !wEnd.IsZero() {

@@ -21,13 +21,12 @@
   import { tr } from "../i18n.js";
 
   /**
-   * Streak Maintenance board: universal automatic, one switch plus the two
-   * tuning rows below it. The global kill-switch is the master control;
-   * dry-run (MATURITY_DRY_RUN) and touch-model (MATURITY_TOUCH_MODEL)
-   * moved here from Pool Tuning so the whole streak surface sits on the
-   * Warming tab. Both rows instant-save to the DB overlay on edit
-   * (DbOverrideSave); rows dim while the kill-switch is off. Ledger rows
-   * stay read-only status.
+   * Streak Maintenance board: universal automatic, one switch plus the
+   * touch-model row below it. The global kill-switch is the master control;
+   * touch-model (MATURITY_TOUCH_MODEL) moved here from Pool Tuning so the
+   * whole streak surface sits on the Warming tab. The row instant-saves to
+   * the DB overlay on edit (DbOverrideSave); it dims while the kill-switch
+   * is off. Ledger rows stay read-only status.
    * @prop {Record<string, string>} [formValues={}] - live settings values
    * @prop {(key: string, value: string) => void} [onField] - value edit
    * @prop {Record<string, string>} [sources={}] - ADR-0019 source tiers
@@ -51,21 +50,15 @@
   let unsubErr = null;
 
   // Global kill-switch (MATURITY_ENABLED, default true): the master streak
-  // control. Dry-run badge below is display-only from the snapshot; the
-  // editable dry-run + touch-model rows read the shared settings draft.
+  // control. The editable touch-model row reads the shared settings draft.
   let globalEnabled = $state(true);
   let globalLoaded = $state(false);
   let savingGlobal = $state(false);
-  let dryRun = $state(true);
-  // Editable tuning rows (instant overlay save beside each control):
-  // dry-run defaults true, touch-model defaults "" (= auto, cheapest
-  // unmetered). The select shows "auto" for both "" and a literal "auto"
-  // (older overlays stored the word), while edits canonicalize Auto back
-  // to "" so the draft always matches the catalog default. Rows dim while
-  // the kill-switch is off.
-  let dryRunDraft = $derived(
-    String(formValues.MATURITY_DRY_RUN ?? "true").toLowerCase() !== "false",
-  );
+  // Editable tuning row (instant overlay save beside the control):
+  // touch-model defaults "" (= auto, cheapest unmetered). The select shows
+  // "auto" for both "" and a literal "auto" (older overlays stored the
+  // word), while edits canonicalize Auto back to "" so the draft always
+  // matches the catalog default. The row dims while the kill-switch is off.
   let touchVal = $derived(formValues.MATURITY_TOUCH_MODEL ?? "");
   let touchSelectVal = $derived(
     touchVal === "" || touchVal === "auto" ? "auto" : touchVal,
@@ -90,9 +83,6 @@
     data = v;
     if (v.maturity_enabled !== undefined) {
       globalEnabled = Boolean(v.maturity_enabled);
-    }
-    if (typeof v.maturity_dry_run === "boolean") {
-      dryRun = v.maturity_dry_run;
     }
     if (typeof v.maturity_window_start === "string") {
       windowStart = v.maturity_window_start;
@@ -396,14 +386,11 @@
   <Card
     title={$tr("Streak Maintenance")}
     description={$tr(
-      "Fully automatic: every account is touched nightly. The switch plus the dry-run and touch-model rows below are the only controls.",
+      "Fully automatic: every account is touched nightly. The switch plus the touch-model row below are the only controls.",
     )}
   >
     {#snippet actions()}
       <span class="flex shrink-0 flex-nowrap items-center gap-1.5">
-        {#if dryRun}
-          <StatusBadge tone="warn" status={$tr("Dry run")} />
-        {/if}
         {#if globalLoaded && !globalEnabled}
           <StatusBadge tone="bad" status={$tr("Off")} />
         {/if}
@@ -427,36 +414,6 @@
           ? 'opacity-60'
           : ''}"
       >
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <ToggleSwitch
-            checked={dryRunDraft}
-            ariaLabel="MATURITY_DRY_RUN"
-            onchange={(v) =>
-              onField?.("MATURITY_DRY_RUN", v ? "true" : "false")}
-          />
-          <span class="text-xs font-medium text-[var(--fp-text)]"
-            >{$tr("Dry run (probe only, claims nothing)")}</span
-          >
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >MATURITY_DRY_RUN</code
-          >
-          <span class="ml-auto">
-            <DbOverrideSave
-              settingKey="MATURITY_DRY_RUN"
-              value={formValues.MATURITY_DRY_RUN ?? "true"}
-              source={sources.MATURITY_DRY_RUN}
-              {onReset}
-              {onSaved}
-              {degraded}
-            />
-          </span>
-        </div>
-        <p class="text-[11px] text-[var(--fp-dim)] leading-relaxed">
-          {$tr(
-            "Zero-cost session probe only — never claims a slot until the schedule is proven.",
-          )}
-        </p>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span class="text-xs font-medium text-[var(--fp-text)]"
             >{$tr("Touch model")}</span
@@ -513,7 +470,7 @@
           title={$tr("Maturity automation is globally off")}
         >
           {$tr(
-            "Turn Streak maintenance on in Settings — the rows below stay put while the kill-switch is off. Dry-run probes stay on until the schedule is proven.",
+            "Turn Streak maintenance on in Settings — the row below stays put while the kill-switch is off.",
           )}
         </Alert>
       {/if}

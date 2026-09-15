@@ -115,7 +115,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.WebhookURL, "WEBHOOK_URL")
 	overrideBool(&raw.AdoptCLISession, "ADOPT_CLI_SESSION")
 	overrideBool(&raw.MaturityEnabled, "MATURITY_ENABLED")
-	overrideBool(&raw.MaturityDryRun, "MATURITY_DRY_RUN")
 	overrideString(&raw.MaturityTouchModel, "MATURITY_TOUCH_MODEL")
 	overrideInt(&raw.MaturityTargetDays, "MATURITY_TARGET_DAYS")
 	overrideBool(&raw.QuotaAutoProbe, "QUOTA_AUTO_PROBE")
@@ -455,7 +454,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		WebhookURL:               strings.TrimSpace(raw.WebhookURL),
 		AdoptCLISession:          raw.AdoptCLISession,
 		MaturityEnabled:          raw.MaturityEnabled,
-		MaturityDryRun:           raw.MaturityDryRun,
 		MaturityTouchModel:       maturityTouchModel,
 		MaturityTargetDays:       maturityTargetDays,
 		QuotaAutoProbe:           raw.QuotaAutoProbe,
@@ -647,7 +645,6 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.WebhookURL, get, "WEBHOOK_URL")
 	overrideBoolFrom(&raw.AdoptCLISession, get, "ADOPT_CLI_SESSION")
 	overrideBoolFrom(&raw.MaturityEnabled, get, "MATURITY_ENABLED")
-	overrideBoolFrom(&raw.MaturityDryRun, get, "MATURITY_DRY_RUN")
 	overrideStringFrom(&raw.MaturityTouchModel, get, "MATURITY_TOUCH_MODEL")
 	overrideIntFrom(&raw.MaturityTargetDays, get, "MATURITY_TARGET_DAYS")
 	overrideBoolFrom(&raw.QuotaAutoProbe, get, "QUOTA_AUTO_PROBE")

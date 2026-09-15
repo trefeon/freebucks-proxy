@@ -143,8 +143,6 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.WaitingRoomChain), false
 	case "MATURITY_ENABLED":
 		return strconv.FormatBool(c.MaturityEnabled), false
-	case "MATURITY_DRY_RUN":
-		return strconv.FormatBool(c.MaturityDryRun), false
 	case "MATURITY_TOUCH_MODEL":
 		return c.MaturityTouchModel, false
 	case "MATURITY_TARGET_DAYS":

@@ -218,16 +218,6 @@
     "description": "Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset)."
   },
   {
-    "key": "MATURITY_DRY_RUN",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Streak-maintenance touches run only the zero-cost session probe and never claim a session slot (nightly-run mechanics validation). Set false after the dry-run log lines prove the window, skips and throttles behave."
-  },
-  {
     "key": "MATURITY_ENABLED",
     "group": "pool",
     "kind": "bool",
@@ -235,7 +225,7 @@
     "restart_only": false,
     "secret": false,
     "essential": true,
-    "description": "Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is touched automatically once nightly in the 60 minutes before the Pacific-midnight reset. Default true (probes run in dry-run mode); set false to disable all automated touches."
+    "description": "Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is touched automatically once nightly in the 60 minutes before the Pacific-midnight reset. Default true (live touches); set false to disable all automated touches."
   },
   {
     "key": "MATURITY_TARGET_DAYS",

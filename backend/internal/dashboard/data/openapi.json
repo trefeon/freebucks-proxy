@@ -2031,9 +2031,6 @@
           "in_bridge": {
             "type": "boolean"
           },
-          "maturity_dry_run": {
-            "type": "boolean"
-          },
           "maturity_enabled": {
             "type": "boolean"
           },
@@ -2088,7 +2085,6 @@
           "bridge_tokens",
           "has_tokens",
           "in_bridge",
-          "maturity_dry_run",
           "maturity_enabled",
           "mode",
           "rate_limit_failover",
