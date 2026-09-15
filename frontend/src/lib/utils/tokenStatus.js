@@ -82,15 +82,16 @@ export function sessionCountdownLabel(totalSeconds) {
 }
 
 /**
- * Little streak chip for the account cell: flame + day count while the
- * upstream streak is alive, dim "no streak" otherwise (never hidden, so a
- * missing streak reads as state, not as a missing widget).
+ * Little streak chip for the account cell: flame + compact day count ("7d")
+ * while the upstream streak is alive, dim "no streak" otherwise (never
+ * hidden, so a missing streak reads as state, not as a missing widget).
+ * The full "Streak 7 days" wording survives on the aria-label.
  */
 export function streakBadgeFor(token) {
   const days = Number(token.streak) || 0;
   if (days > 0) {
     return {
-      label: t()("{days}d streak", { days }),
+      label: t()("{days}d", { days }),
       aria: t()("Streak {days} days", { days }),
       active: true,
     };

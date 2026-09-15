@@ -37,6 +37,7 @@
    * @prop {(action: string) => void} onAction
    * @prop {(model: string) => void} onSpawn
    * @prop {(action: string) => void} onRefresh
+   * @prop {() => void} [onDropSession]
    * @prop {(from: number, to: number) => void} [onSwap]
    */
   let {
@@ -254,6 +255,16 @@
           <span>{$tr("Lock")}</span>
         </Button>
       {/if}
+      {#if token.session_remaining_seconds > 0}
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={actionPending}
+          onclick={() => onDropSession?.()}
+        >
+          <span>{$tr("Drop Session")}</span>
+        </Button>
+      {/if}
       <Button
         variant="danger"
         size="sm"
@@ -290,7 +301,6 @@
         {devToolsEnabled}
         {onSpawn}
         {onRefresh}
-        {onDropSession}
       />
     </div>
   {/if}

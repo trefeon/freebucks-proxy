@@ -147,8 +147,8 @@
         <thead>
           <tr>
             <th class="w-[84px]"></th>
-            <th>{$tr("Account")}</th>
-            <th class="w-40">{$tr("Status")}</th>
+            <th class="w-[1%]">{$tr("Account")}</th>
+            <th class="w-[1%] whitespace-nowrap">{$tr("Status")}</th>
             <th class="w-56">{$tr("Instance")}</th>
             <th class="num w-48">{$tr("Usage")}</th>
             <th class="text-right w-[1%] whitespace-nowrap">{$tr("Actions")}</th

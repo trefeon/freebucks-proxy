@@ -25,8 +25,9 @@
   /**
    * TokenDetailsDrawer — expanded details for one pooled token: the
    * account-standing block and the empty-state message. The live session
-   * countdown now renders in the status cell (TokenCard +
-   * TokenCardMobile), not here.
+   * countdown and its Drop Session kill switch render in the status cell
+   * (TokenCard + TokenCardMobile), not here — the drawer stays for
+   * pins/spawn/refresh, not session kill.
    *
    * @prop {object} token — dashboard tokenCard payload
    * @prop {string} [spawnModel] — bindable dev-spawn model selection
@@ -34,7 +35,6 @@
    * @prop {boolean} [devToolsEnabled=false]
    * @prop {(model: string) => void} [onSpawn]
    * @prop {(action: string) => void} [onRefresh]
-   * @prop {() => void} [onDropSession]
    */
   let {
     token,
@@ -43,7 +43,6 @@
     devToolsEnabled = false,
     onSpawn,
     onRefresh,
-    onDropSession,
   } = $props();
   let modelOptions = $state(fallbackModelOptions);
   onMount(() => {
@@ -231,19 +230,6 @@
     pendingClass="mb-2 px-2 py-1 rounded bg-[var(--fp-warning)]/10 text-xs text-[var(--fp-warning)]"
     settledClass="mb-2 px-2 py-1 rounded bg-[var(--fp-success)]/10 text-xs text-[var(--fp-success)]"
   />
-  {#if token.session_remaining_seconds > 0}
-    <div class="mb-2 flex justify-end">
-      <Button
-        variant="danger"
-        size="sm"
-        class="!h-7 !text-xs !px-2"
-        disabled={actionPending}
-        onclick={() => onDropSession?.()}
-      >
-        <span>{$tr("Drop Session")}</span>
-      </Button>
-    </div>
-  {/if}
   {#if token.has_standing}
     <!-- Standing / trust block (issue #140): level,
          score progress toward the next level, the cap

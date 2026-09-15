@@ -145,9 +145,9 @@
       </button>
     </div>
   </td>
-  <td>
+  <td class="w-[1%]">
     <div class="flex flex-col gap-0.5">
-      <div class="flex items-center justify-between gap-1.5">
+      <div class="flex items-center justify-between gap-1.5 whitespace-nowrap">
         <span
           class="fp-num text-xs font-semibold whitespace-nowrap text-[var(--fp-text)]"
           >Account #{idx + 1}</span
@@ -164,7 +164,7 @@
       </div>
       {#if token.email || token.account_id}
         <span
-          class="text-[11px] text-[var(--fp-muted)] truncate max-w-[160px]"
+          class="text-[11px] text-[var(--fp-muted)] truncate max-w-[112px]"
           title={token.email || token.account_id}
         >
           {token.email || token.account_id}
@@ -172,7 +172,7 @@
       {/if}
     </div>
   </td>
-  <td>
+  <td class="w-[1%] whitespace-nowrap">
     <div class="flex flex-col items-start gap-0.5">
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
       {#if token.session_status === "active" && sessionRemaining > 0}
@@ -182,6 +182,17 @@
         >
           {sessionCountdownLabel(sessionRemaining)}
         </span>
+      {/if}
+      {#if token.session_remaining_seconds > 0}
+        <Button
+          variant="danger"
+          size="sm"
+          class="!h-7 !text-xs !px-2"
+          disabled={actionPending}
+          onclick={() => onDropSession?.()}
+        >
+          <span>{$tr("Drop Session")}</span>
+        </Button>
       {/if}
     </div>
   </td>
@@ -282,7 +293,6 @@
           {devToolsEnabled}
           {onSpawn}
           {onRefresh}
-          {onDropSession}
         />
       </div>
     </td>
