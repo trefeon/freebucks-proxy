@@ -64,3 +64,39 @@ func TestAdminRestart(t *testing.T) {
 		t.Errorf("restartProcess was not called")
 	}
 }
+
+func TestAdminRestartRejectsInvalidConfig(t *testing.T) {
+	var restarted atomic.Bool
+	oldRestart := restartProcess
+	restartProcess = func() {
+		restarted.Store(true)
+	}
+	defer func() {
+		restartProcess = oldRestart
+	}()
+
+	// Break validation through the same env the handler loads: the
+	// restart must abort before responding 200 or exiting.
+	t.Setenv("LOG_LEVEL", "bogus")
+
+	admin := &adminHandlers{
+		cfgLoad: func() *config.Config {
+			return &config.Config{}
+		},
+		logfunc: func() *slog.Logger {
+			return slog.Default()
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/restart", nil)
+	rec := httptest.NewRecorder()
+	admin.handleAdminRestart(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /admin/restart with invalid config = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	if restarted.Load() {
+		t.Errorf("restartProcess was called despite config validation failure")
+	}
+}
