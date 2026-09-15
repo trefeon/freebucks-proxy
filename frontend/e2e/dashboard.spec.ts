@@ -125,7 +125,7 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(second.getByLabel("No streak")).toBeVisible();
   });
 
-  test("Tokens active rows carry Drop Session in the status cell; idle rows carry none", async ({
+  test("Tokens active rows carry Drop Session in the Instance cell; idle rows carry none", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -134,12 +134,17 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const table = page.locator("table.fp-table");
     await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
-    // No expansion: fixture token 0 is leased, so its status cell already
-    // stacks the Drop Session kill switch under the countdown timer.
+    // No expansion: fixture token 0 is leased, so its Instance cell stacks
+    // the Drop Session kill switch under the session_model badge, while the
+    // Status cell keeps only the countdown timer + LEASED badge.
+    // Cells: 0 expand/drag, 1 account, 2 status, 3 instance.
     const active = table.locator("tbody tr").filter({ hasText: "Account #1" });
     await expect(
-      active.getByRole("button", { name: "Drop Session" }),
+      active.locator("td").nth(3).getByRole("button", { name: "Drop Session" }),
     ).toBeVisible();
+    await expect(
+      active.locator("td").nth(2).getByRole("button", { name: "Drop Session" }),
+    ).toHaveCount(0);
     // Fixture token 2 is idle with no remaining session: no kill switch.
     const idle = table.locator("tbody tr").filter({ hasText: "Account #3" });
     await expect(

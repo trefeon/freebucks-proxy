@@ -115,7 +115,7 @@ test.describe("per-page persist", () => {
     });
     // Expanded without any click: the snapshot drove expandedToken. The
     // live countdown renders in the status cell; the drawer proves itself
-    // open via its pin select — Drop Session now lives in the status cell,
+    // open via its pin select — Drop Session lives in the Instance cell,
     // so it can no longer prove the drawer opened.
     await expect(table.getByText("Active Session:")).toHaveCount(0);
     await expect(
@@ -136,7 +136,7 @@ test.describe("per-page persist", () => {
       timeout: 10_000,
     });
     // No drawer opened (and the stale index is dropped, never re-persisted).
-    // Status-cell Drop Session buttons still render for active rows, so the
+    // Instance-cell Drop Session buttons still render for active rows, so the
     // drawer-absent proof is the drawer-only pin select.
     await expect(table.getByLabel("Pin a model to this token")).toHaveCount(0);
   });
