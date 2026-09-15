@@ -334,3 +334,137 @@ export async function mockDashboard(
     }
   });
 }
+
+export type PostedSetting = { key: string; value: string };
+export type OverlaySeed = {
+  key: string;
+  value: string;
+  source?: string;
+  restart_only?: boolean;
+  secret?: boolean;
+};
+export type OverlayMockOptions = {
+  /** Serve GET /admin/api/settings with degraded:true (offline store). */
+  degraded?: boolean;
+  /** Non-200 POST status models a rejected write (default 200). */
+  postStatus?: number;
+  /** Explicit POST success message; defaults mirror the gateway. */
+  postMessage?: string;
+  /** Keys whose success message reads "<KEY> saved. It applies after restart." */
+  restartOnly?: string[];
+  /** Seed rows served by GET (saved-value notes + Reset targets). */
+  seed?: OverlaySeed[];
+};
+
+const OVERLAY_RESTART_ONLY = ["LOG_LEVEL", "LOG_FORMAT", "HTTP_READ_TIMEOUT"];
+
+/**
+ * Stateful /admin/api/settings mock for the instant-save dashboard: GET
+ * serves {settings, degraded}, POST upserts a db row (mirroring the
+ * gateway's live vs restart-only messages plus the env-shadow suffix), and
+ * DELETE /admin/api/settings/:key drops the row so saved-value resets
+ * round-trip. Every successful POST is collected into `posted`, every
+ * DELETE key into the returned `deleted` list.
+ */
+export async function mockSettingsOverlay(
+  page: Page,
+  posted: PostedSetting[] = [],
+  opts: OverlayMockOptions = {},
+): Promise<{ posted: PostedSetting[]; deleted: string[] }> {
+  const deleted: string[] = [];
+  const restartOnly: Record<string, true> = {};
+  for (const k of opts.restartOnly ?? OVERLAY_RESTART_ONLY)
+    restartOnly[k] = true;
+  let live: OverlaySeed[] = (opts.seed ?? []).map((e) => ({ ...e }));
+  await page.route("**/admin/api/settings", async (route) => {
+    if (route.request().method() === "POST") {
+      let key = "";
+      let value = "";
+      try {
+        const parsed = JSON.parse(route.request().postData() ?? "{}");
+        key = String(parsed.key ?? "");
+        value = String(parsed.value ?? "");
+      } catch {
+        /* malformed payload: fall through to a 400 below */
+      }
+      posted.push({ key, value });
+      const status = opts.postStatus ?? 200;
+      if (status !== 200 || !key) {
+        await route.fulfill({
+          status: status !== 200 ? status : 400,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: false,
+            message: "Setting rejected: boom",
+            code: "invalid_setting",
+          }),
+        });
+        return;
+      }
+      const prev = live.find((e) => e.key === key);
+      const source = prev?.source === "env" ? "env" : "db";
+      live = [
+        ...live.filter((e) => e.key !== key),
+        {
+          key,
+          value,
+          source,
+          restart_only: prev?.restart_only ?? restartOnly[key] === true,
+          secret: prev?.secret ?? false,
+        },
+      ];
+      let message =
+        opts.postMessage ??
+        (restartOnly[key] === true
+          ? `${key} saved. It applies after restart.`
+          : `${key} saved and applied live.`);
+      if (source === "env") {
+        message +=
+          " Overridden by process env: the effective value still comes from the environment.";
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          code:
+            restartOnly[key] === true
+              ? "setting_restart_only"
+              : "setting_saved",
+          message,
+          restart_only: restartOnly[key] === true ? [key] : [],
+        }),
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          settings: live,
+          degraded: opts.degraded === true,
+        }),
+      });
+    }
+  });
+  // DELETE /admin/api/settings/:key needs its own glob: Playwright * does
+  // not cross /, so the base pattern above never sees the keyed path.
+  await page.route("**/admin/api/settings/*", async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    const key = new URL(route.request().url()).pathname.split("/").pop() ?? "";
+    deleted.push(key);
+    live = live.filter((e) => e.key !== key);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        code: "setting_deleted",
+        message: "Saved value removed.",
+      }),
+    });
+  });
+  return { posted, deleted };
+}

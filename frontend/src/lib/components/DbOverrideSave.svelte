@@ -2,6 +2,7 @@
   import { onDestroy } from "svelte";
   import { RotateCcw } from "@lucide/svelte";
   import { postAPI } from "../api/client.js";
+  import { notePendingSave, clearPendingSave } from "../stores/settings.js";
   import { adminApi } from "../api/paths.js";
   import { tr } from "../i18n.js";
 
@@ -95,6 +96,11 @@
     inflight = true;
     saving = true;
     status = null;
+    // Pin the display through the post-save refetch: a concurrent row's
+    // refetch can observe a GET that ran before this POST landed and
+    // revert the display to the file default, which this row would then
+    // re-POST. Cleared in the finally once the refetch has settled.
+    notePendingSave(settingKey, v);
     try {
       const res = await postAPI(adminApi.settingsSave, {
         key: settingKey,
@@ -109,6 +115,7 @@
     } catch (e) {
       status = { ok: false, text: e.message || $tr("Save failed") };
     } finally {
+      clearPendingSave(settingKey);
       saving = false;
       inflight = false;
       if (queued !== null && queued !== lastSent) {

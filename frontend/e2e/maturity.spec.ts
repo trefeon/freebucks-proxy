@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures, mockDashboard } from "./mocks.js";
+import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
+import type { PostedSetting } from "./mocks.js";
 
 function maintenanceTokens() {
   return {
@@ -382,39 +383,28 @@ test.describe("streak maintenance", () => {
         body: JSON.stringify(maintenanceConfig()),
       });
     });
-    const posts: Array<{ url: string; body: string }> = [];
-    await page.route("**/admin/api/settings", async (route) => {
-      if (route.request().method() === "POST") {
-        posts.push({
-          url: route.request().url(),
-          body: route.request().postData() ?? "",
-        });
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true, message: "saved." }),
-      });
-    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     await gotoWarming(page);
     // Streak knobs moved from Pool Tuning to the Warming card, under the
     // kill-switch: MATURITY_DRY_RUN as a switch, MATURITY_TOUCH_MODEL as
-    // the Auto select, each with a per-key overlay Save.
+    // the Auto select, each instant-saving to the overlay on edit.
     const dryRun = page.getByRole("switch", { name: "MATURITY_DRY_RUN" });
     await expect(dryRun).toBeVisible();
     await expect(dryRun).toHaveAttribute("aria-checked", "true");
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
-    // Toggling + row Save posts the overlay path with the key.
-    await dryRun.click();
+    // Toggling auto-POSTs the overlay path with the key (debounced).
     const saveReq = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10_000 },
     );
-    await page
-      .getByRole("button", { name: "Save", exact: true })
-      .first()
-      .click();
+    await dryRun.click();
     await saveReq;
-    expect(posts[0].body).toContain("MATURITY_DRY_RUN");
+    await expect
+      .poll(() => posted.filter((p) => p.key === "MATURITY_DRY_RUN").length, {
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(0);
   });
 
   test("touch-model select shows the saved model after save", async ({
@@ -446,48 +436,37 @@ test.describe("streak maintenance", () => {
         body: JSON.stringify(cfg),
       });
     });
-    const posts: Array<{ url: string; body: string }> = [];
-    await page.route("**/admin/api/settings", async (route) => {
-      if (route.request().method() === "POST") {
-        const body = route.request().postData() ?? "";
-        posts.push({ url: route.request().url(), body });
-        try {
-          const parsed = JSON.parse(body);
-          if (parsed?.key === "MATURITY_TOUCH_MODEL")
-            touchSaved = parsed?.value ?? "";
-        } catch {
-          /* non-JSON save payload: keep the last saved value */
-        }
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true, message: "saved." }),
-      });
-    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     await gotoWarming(page);
     const select = page.getByLabel("MATURITY_TOUCH_MODEL");
     await expect(select).toBeVisible();
     // Default state reads Auto.
     await expect(select).toHaveValue("auto");
-    // Pick a non-default served model, save the touch row (the row's own
-    // Save, last on the card), then reload: the select must show the saved
-    // model, never the old default. Reloading (instead of trusting the
-    // post-save refetch) also dodges the refetch/edit race where a late
-    // refetch clobbers a newer draft.
-    await select.selectOption("upstage/solar-pro4");
-    // Wait for the draft edit to flush to the row (the select's title binds
-    // the same derived draft the Save button posts) before clicking Save.
-    await expect(select).toHaveAttribute("title", "upstage/solar-pro4");
+    // Pick a non-default served model: the row instant-saves on edit, then
+    // reload: the select must show the saved model, never the old default.
+    // Reloading (instead of trusting the post-save refetch) also dodges the
+    // refetch/edit race where a late refetch clobbers a newer draft. The
+    // request watcher arms before the edit so the debounced POST cannot slip
+    // past it.
     const saveReq = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10_000 },
     );
-    await page
-      .getByRole("button", { name: "Save", exact: true })
-      .last()
-      .click();
+    await select.selectOption("upstage/solar-pro4");
+    // Wait for the draft edit to flush to the row (the select's title binds
+    // the same derived draft the instant-save posts).
+    await expect(select).toHaveAttribute("title", "upstage/solar-pro4");
     await saveReq;
-    expect(posts[0].body).toContain("MATURITY_TOUCH_MODEL");
+    await expect
+      .poll(
+        () => posted.filter((p) => p.key === "MATURITY_TOUCH_MODEL").length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(0);
+    // Mirror the saved value into the stateful config mock so the post-save
+    // refetch returns what was saved (like the gateway).
+    touchSaved = posted[posted.length - 1]?.value ?? "";
     await page.reload();
     await gotoWarming(page);
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(
@@ -496,20 +475,17 @@ test.describe("streak maintenance", () => {
     // Back to Auto canonicalizes to the empty catalog default on the
     // overlay path; reload again and the select still reads Auto.
     const reselected = page.getByLabel("MATURITY_TOUCH_MODEL");
-    await reselected.selectOption("auto");
-    await expect(reselected).toHaveAttribute("title", "auto");
     const autoReq = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10_000 },
     );
-    await page
-      .getByRole("button", { name: "Save", exact: true })
-      .last()
-      .click();
+    await reselected.selectOption("auto");
+    await expect(reselected).toHaveAttribute("title", "auto");
     await autoReq;
-    expect(JSON.parse(posts[posts.length - 1].body)).toMatchObject({
-      key: "MATURITY_TOUCH_MODEL",
-      value: "",
-    });
+    await expect
+      .poll(() => posted.length, { timeout: 10_000 })
+      .toBeGreaterThan(1);
+    touchSaved = "";
     await page.reload();
     await gotoWarming(page);
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue("auto");

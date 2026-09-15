@@ -75,6 +75,28 @@ function applyOverlayWins(vals) {
   }
   return vals;
 }
+// In-flight instant-save writes (key -> display value). A row registers
+// here before POSTing and unregisters after its post-save refetch settles,
+// so fetchData preserves the display value of a pending key instead of
+// applying file/overlay values. Without this, a refetch triggered by one
+// row's save can observe a GET that ran before a concurrent row's POST
+// landed, revert the display to the file default — and the reverted row
+// would then re-POST the default, clobbering the just-saved value
+// (the Drain preset tap wrote 300s/1024, then re-posted 30s/16 ~400ms
+// later). Entries are transient (pre-POST to post-refetch); everything
+// else keeps the wholesale-apply semantics.
+const pendingSaves = {};
+export function notePendingSave(key, value) {
+  pendingSaves[key] = value;
+}
+export function clearPendingSave(key) {
+  delete pendingSaves[key];
+}
+function applyDisplayValues(base) {
+  const vals = applyOverlayWins(deriveValues(base));
+  for (const [key, value] of Object.entries(pendingSaves)) vals[key] = value;
+  return vals;
+}
 
 export function setField(key, value) {
   formValues.update((vals) => ({ ...vals, [key]: value }));
@@ -104,7 +126,7 @@ export async function fetchData() {
     effectiveMap.set(nextMap);
     const $base = get(baseContent);
     rawText.set($base);
-    formValues.set(applyOverlayWins(deriveValues($base)));
+    formValues.set(applyDisplayValues($base));
     try {
       const setRes = await fetchAPI(adminApi.settings);
       const next = {};
@@ -116,7 +138,7 @@ export async function fetchData() {
       settingSources.set(next);
       settingsDegraded.set(setRes.degraded === true);
       lastOverlayValues = overlayVals;
-      formValues.set(applyOverlayWins(deriveValues($base)));
+      formValues.set(applyDisplayValues($base));
     } catch {
       // Keep last-known sources on background refresh failure.
     }
@@ -128,6 +150,9 @@ export async function fetchData() {
 }
 
 export async function resetSetting(key) {
+  // A save in flight for this key must not survive the delete: its guard
+  // would pin the display to the just-deleted value through the refetch.
+  clearPendingSave(key);
   try {
     const res = await deleteAPI(adminApi.settingsDelete(key));
     result.set({

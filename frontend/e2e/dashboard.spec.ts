@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures, mockDashboard } from "./mocks.js";
+import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
+import type { PostedSetting } from "./mocks.js";
 
 test.describe("dashboard hermetic mocks", () => {
   // The Settings tests render the 58-key catalog; under parallel workers on
@@ -141,17 +142,8 @@ test.describe("dashboard hermetic mocks", () => {
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
-    await page.unroute("**/admin/api/config");
-    await page.route("**/admin/api/config", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          env_content: "AUTH_TOKENS=tok0,tok1\n",
-          has_env_file: true,
-        }),
-      });
-    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const table = page.locator("table.fp-table");
@@ -161,17 +153,17 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByText("Unlocked — serves any model.").first(),
     ).toBeVisible();
 
-    const postReqPromise = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/config"),
-    );
     await table
       .getByLabel("Pin a model to this token")
       .selectOption("mimo/mimo-v2.5");
     await table.getByRole("button", { name: "Pin" }).click();
-    const postReq = await postReqPromise;
-    expect(decodeURIComponent(postReq.postData() ?? "")).toContain(
-      "MODEL_LOCKS=0:mimo/mimo-v2.5",
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
     );
+    await expect
+      .poll(() => posted.find((p) => p.key === "MODEL_LOCKS")?.value ?? "")
+      .toContain("0:mimo/mimo-v2.5");
   });
 
   test("Quota Tracker shows Freebucks empty state, no session quota bars", async ({
@@ -462,6 +454,8 @@ test.describe("dashboard hermetic mocks", () => {
       ],
     };
     await mockDashboard(page, f, { configWithApiKeys: configWithContent });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -489,44 +483,27 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(httpTimeout).toBeVisible();
     await expect(httpTimeout).toHaveValue("60s");
 
-    // Toggling marks the form dirty and surfaces the unsaved-changes banner.
+    // Toggling instant-saves the key to the overlay (debounced ~400ms).
     await safeMode.click();
     await expect(safeMode).toHaveAttribute("aria-checked", "false");
-    await expect(page.getByText("Unsaved changes")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Save Changes", exact: true }),
-    ).toBeEnabled();
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "SAFE_MODE" && p.value === "false"),
+      )
+      .toBe(true);
 
-    // Save posts the built .env: the toggled line plus untouched lines.
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            ok: true,
-            message:
-              "Saved and reloaded. These keys apply after restart only: LOG_LEVEL",
-            restart_only: ["LOG_LEVEL"],
-          }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect(page.getByText(/apply after restart only/)).toBeVisible();
+    // Reload keeps the toggled value: GET reflects the POSTed overlay row.
+    await page.reload();
     await expect(
-      page.getByText("Applies after restart: LOG_LEVEL"),
-    ).toBeVisible();
-    expect(savedBody).toContain("SAFE_MODE=false");
-    expect(savedBody).toContain("AUTH_TOKENS=tok0,tok1");
-    expect(savedBody).toContain("LOG_LEVEL=info");
+      page.getByRole("switch", { name: "SAFE_MODE" }),
+    ).toHaveAttribute("aria-checked", "false");
+    await expect(
+      page.getByRole("combobox", { name: "HTTP_READ_TIMEOUT" }),
+    ).toHaveValue("60s");
   });
 
   test("Pool controls render relocated policy keys and save", async ({
@@ -534,6 +511,8 @@ test.describe("dashboard hermetic mocks", () => {
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -551,30 +530,31 @@ test.describe("dashboard hermetic mocks", () => {
       name: "Auto Failover on Rate Limit (429)",
     });
     await expect(page.getByText("ADMIN_TOKEN", { exact: true })).toHaveCount(0);
-    // Toggling posts the key on save.
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
+    // Toggling instant-saves the key to the overlay (debounced ~400ms).
     await failover.click();
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect.poll(() => savedBody).toContain("RATE_LIMIT_FAILOVER=");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() => posted.some((p) => p.key === "RATE_LIMIT_FAILOVER"))
+      .toBe(true);
+    await expect(
+      page.getByRole("status").filter({ hasText: "RATE_LIMIT_FAILOVER saved" }),
+    ).toBeVisible();
+
+    // Reload keeps the toggled value: GET reflects the POSTed overlay row.
+    await page.reload();
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("switch", { name: "Auto Failover on Rate Limit (429)" }),
+    ).toBeVisible();
   });
   test("Usage controls render routing keys and save", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -594,26 +574,20 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("switch", { name: "REASONING_IN_CONTENT" }),
     ).toBeVisible();
-    // Editing posts the key on save through the shared .env flow.
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
+    // Toggling instant-saves the key to the overlay (debounced ~400ms).
     await page.getByRole("switch", { name: "REASONING_IN_CONTENT" }).click();
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect.poll(() => savedBody).toContain("REASONING_IN_CONTENT=");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() => posted.some((p) => p.key === "REASONING_IN_CONTENT"))
+      .toBe(true);
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "REASONING_IN_CONTENT saved" }),
+    ).toBeVisible();
     // Settings keeps a link-out stub pointing at the Usage page.
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await expect(
@@ -659,6 +633,8 @@ test.describe("dashboard hermetic mocks", () => {
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -671,32 +647,40 @@ test.describe("dashboard hermetic mocks", () => {
     const balance = page.getByRole("radio", { name: "Balance", exact: true });
     await expect(page.getByText("Pool Strategy")).toBeVisible();
     await expect(balance).toHaveAttribute("aria-checked", "true");
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
+    // A Drain tap calls onField for all five owned keys, but rows only
+    // POST changed values (no write without change): exactly QUEUE_WAIT
+    // and QUEUE_DEPTH leave Balance behind.
     await drain.click();
     await expect(drain).toHaveAttribute("aria-checked", "true");
+    await expect
+      .poll(() => posted.filter((p) => p.key === "QUEUE_WAIT").length)
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() => posted.filter((p) => p.key === "QUEUE_DEPTH").length)
+      .toBeGreaterThan(0);
+    const keys = posted.map((p) => p.key);
+    expect(keys).toContain("QUEUE_WAIT");
+    expect(keys).toContain("QUEUE_DEPTH");
+    expect(posted.find((p) => p.key === "QUEUE_WAIT")?.value).toBe("300s");
+    expect(posted.find((p) => p.key === "QUEUE_DEPTH")?.value).toBe("1024");
+    expect(keys).not.toContain("ROUTING_SMART");
+    expect(keys).not.toContain("TOKEN_ROTATION");
+    expect(keys).not.toContain("RATE_LIMIT_FAILOVER");
+    expect(keys).not.toContain("TOKEN_MAX_CONCURRENT");
+
+    // Reload keeps Drain: the rows pin their display through the post-save
+    // refetches, so no stale file default is re-posted after the tap.
+    await page.reload();
     await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    // The preset writes ONLY its five owned keys.
-    await expect.poll(() => savedBody).toContain("ROUTING_SMART=true");
-    expect(savedBody).toContain("TOKEN_ROTATION=drain");
-    expect(savedBody).toContain("RATE_LIMIT_FAILOVER=true");
-    expect(savedBody).toContain("QUEUE_WAIT=300s");
-    expect(savedBody).toContain("QUEUE_DEPTH=1024");
-    expect(savedBody).not.toContain("TOKEN_MAX_CONCURRENT=");
+      .waitForResponse(
+        (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+        { timeout: 5000 },
+      )
+      .catch(() => {});
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Drain", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   test("Balance threshold slider shows only in Balance and persists QUEUE_WAIT", async ({
@@ -704,6 +688,8 @@ test.describe("dashboard hermetic mocks", () => {
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -724,34 +710,29 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("radio", { name: "Balance", exact: true }),
     ).toHaveAttribute("aria-checked", "true");
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect.poll(() => savedBody).toContain("QUEUE_WAIT=90s");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "90s"),
+      )
+      .toBe(true);
+    await expect(
+      page.getByRole("status").filter({ hasText: "QUEUE_WAIT saved" }),
+    ).toBeVisible();
     // Drain hides the slider.
     await page.getByRole("radio", { name: "Drain", exact: true }).click();
     await expect(slider).toHaveCount(0);
   });
-
   test("Editing an owned key flips the badge to Custom with reset", async ({
     page,
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -764,6 +745,15 @@ test.describe("dashboard hermetic mocks", () => {
     ).toHaveAttribute("aria-checked", "true");
     // Hand-editing one owned key (queue depth) flips to Custom.
     await page.locator('input[aria-label="QUEUE_DEPTH"]').fill("32");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_DEPTH" && p.value === "32"),
+      )
+      .toBe(true);
     await expect(
       page.getByRole("button", { name: "Reset to Balance" }),
     ).toBeVisible();
@@ -771,29 +761,22 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("button", { name: "Reset to Drain" }),
     ).toBeVisible();
     // Reset restores the Balance five (threshold back to its 60s default).
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "Reset to Balance" }).click();
     await expect(
       page.getByRole("radio", { name: "Balance", exact: true }),
     ).toHaveAttribute("aria-checked", "true");
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect.poll(() => savedBody).toContain("QUEUE_DEPTH=16");
-    expect(savedBody).toContain("QUEUE_WAIT=60s");
+    await expect
+      .poll(
+        () =>
+          posted.filter((p) => p.key === "QUEUE_DEPTH" && p.value === "16")
+            .length,
+      )
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "60s"),
+      )
+      .toBe(true);
   });
 
   test("Usage Controls tab renders upstream and quota keys", async ({
@@ -838,6 +821,8 @@ test.describe("dashboard hermetic mocks", () => {
   test("Logs card renders log level and saves", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -851,25 +836,21 @@ test.describe("dashboard hermetic mocks", () => {
     // tab: the select lives there now, behind the tab switch.
     await page.getByRole("button", { name: "Logging" }).click();
     const level = page.locator('select[aria-label="LOG_LEVEL"]');
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
     await level.selectOption("debug");
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect.poll(() => savedBody).toContain("LOG_LEVEL=debug");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "debug"),
+      )
+      .toBe(true);
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
+    ).toBeVisible();
     // Settings keeps a link-out stub pointing at the Logs page.
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await expect(
@@ -898,6 +879,8 @@ test.describe("dashboard hermetic mocks", () => {
       ],
     };
     await mockDashboard(page, f, { configWithApiKeys: configWithContent });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
 
     // Legacy '#config' hash still routes to the Settings page.
     const metaRespLegacy = page.waitForResponse(
@@ -923,21 +906,24 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(logLevel).toContainText("trace");
     await logLevel.selectOption("warn");
 
-    // Save posts the built .env line for the edited select.
-    const postReqPromise = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/config"),
+    // The select instant-saves through the overlay (debounced ~400ms).
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
     );
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    const postReq = await postReqPromise;
-    expect(decodeURIComponent(postReq.postData() ?? "")).toContain(
-      "LOG_LEVEL=warn",
-    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "warn"),
+      )
+      .toBe(true);
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
+    ).toBeVisible();
   });
 
-  test("Settings rejected save reverts the form to the server state", async ({
+  test("Settings rejected save keeps the edited value with a Retry affordance", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -958,22 +944,8 @@ test.describe("dashboard hermetic mocks", () => {
       ],
     };
     await mockDashboard(page, f, { configWithApiKeys: configWithContent });
-
-    // The server rejects this write (validation failure) and rolls the file back.
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        await route.fulfill({
-          status: 400,
-          contentType: "application/json",
-          body: JSON.stringify({
-            ok: false,
-            message: "Rejected: invalid value",
-          }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, { postStatus: 400 });
 
     const metaResp = page
       .waitForResponse(
@@ -986,19 +958,28 @@ test.describe("dashboard hermetic mocks", () => {
     const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
     await expect(safeMode).toHaveAttribute("aria-checked", "true");
 
-    // Toggle the bool, accept the confirm dialog, and save.
+    // Toggling instant-saves; the 400 rejection surfaces inline on the row.
     await safeMode.click();
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-
-    // Failure alert shown and the control restored to the server state.
-    await expect(safeMode).toHaveAttribute("aria-checked", "true");
-    // Dirty reverted — Save button disabled again.
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() => posted.filter((p) => p.key === "SAFE_MODE").length)
+      .toBeGreaterThan(0);
     await expect(
-      page.getByRole("button", { name: "Save Changes", exact: true }),
-    ).toBeDisabled();
+      page.getByRole("status").filter({ hasText: "Setting rejected: boom" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    // The control keeps the edited value (no revert to server state).
+    await expect(safeMode).toHaveAttribute("aria-checked", "false");
+
+    // Retry re-POSTs the same key.
+    const before = posted.filter((p) => p.key === "SAFE_MODE").length;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect
+      .poll(() => posted.filter((p) => p.key === "SAFE_MODE").length)
+      .toBeGreaterThan(before);
   });
 
   test("Logs filters by ?msg= and paginates with Next/Prev", async ({
