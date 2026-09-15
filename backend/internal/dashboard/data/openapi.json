@@ -1479,6 +1479,9 @@
                     "mode": {
                       "type": "string"
                     },
+                    "result_day": {
+                      "type": "string"
+                    },
                     "slot": {
                       "type": "string"
                     },

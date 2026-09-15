@@ -145,6 +145,7 @@ type maturityCard struct {
 	LastAction          string `json:"last_action,omitempty"`
 	LastResult          string `json:"last_result,omitempty"`
 	LastAdvanced        string `json:"last_advanced,omitempty"`
+	ResultDay           string `json:"result_day,omitempty"`
 	EffectiveTouchModel string `json:"effective_touch_model,omitempty"`
 	AutoTouchModel      string `json:"auto_touch_model,omitempty"`
 	AutoTouchReason     string `json:"auto_touch_reason,omitempty"`

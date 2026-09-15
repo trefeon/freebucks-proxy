@@ -200,22 +200,30 @@
     return tokens;
   }
 
-  function touchedToday(t) {
-    const m = t?.maturity;
-    if (m?.touch_day && m?.slot_day) return m.touch_day === m.slot_day;
-    return !!t?.today_used;
-  }
-  // Single shared skipped definition for rows AND the header count: any
-  // ledger skip:* code (including skip:touch-model) reads Skipped.
-  function isSkipped(t) {
-    return String(t?.maturity?.last_result ?? "").startsWith("skip:");
-  }
-
   function slotPast(t) {
     const slot = Date.parse(t?.maturity?.slot ?? "");
     return isFinite(slot) && slot <= nowMs;
   }
 
+  function touchedToday(t) {
+    const m = t?.maturity;
+    // Touched only when the touch belongs to the current Pacific day:
+    // last night's touch is history (Pending), not today's status.
+    if (m?.touch_day) return m.touch_day === pacificDayKey(nowMs);
+    return !!t?.today_used;
+  }
+  // Single shared skipped definition for rows AND the header count: a
+  // ledger skip:* reads Skipped only for tonight's run (result_day ==
+  // current Pacific day). Rows without a result day predate the stamp
+  // (pre-upgrade ledger) and read Pending — the panel only ever talks
+  // to its embedded server, so no old-server compat is needed; tonight's
+  // run stamps every write and the last-run ledger below stays historical.
+  function isSkipped(t) {
+    if (!String(t?.maturity?.last_result ?? "").startsWith("skip:"))
+      return false;
+    const day = t?.maturity?.result_day;
+    return !!day && day === pacificDayKey(nowMs);
+  }
   // Pacific-day label for an instant ("Sep 11"): the day key the streak
   // walk counts, so run times read against the reset that matters.
   function fmtPacificDay(iso) {
@@ -227,6 +235,26 @@
       month: "short",
       day: "numeric",
     }).format(d);
+  }
+
+  // Pacific calendar day key for an instant ("2026-09-11"): the day the
+  // streak walk counts. Per-account Skipped/Touched rows scope to this
+  // day via result_day/touch_day; the last-run ledger below stays
+  // historical and keeps its own day label.
+  function pacificDayKey(ts) {
+    const d = new Date(ts);
+    if (isNaN(d)) return "";
+    const [y, m, day] = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .format(d)
+      .split("-")
+      .map(Number);
+    if (!y || !m || !day) return "";
+    return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
 
   // Where today's usage happened: proxy-routed traffic lands in the local
@@ -254,7 +282,10 @@
   function rowStatus(t) {
     const m = t?.maturity;
     const result = m?.last_result ?? "";
-    // Shared skipped gate (see isSkipped): every skip:* code reads Skipped.
+    // Shared skipped gate (see isSkipped): tonight's skip:* codes read
+    // Skipped. A touch-model skip names the served auto reason alongside
+    // the code so the owner sees WHY (e.g. no unmetered row served) and
+    // can pick an explicit model — resolver untouched, display only.
     if (isSkipped(t)) {
       if (result === "skip:today-used") {
         const when = fmtPacificDay(lastActivity(t));
@@ -267,6 +298,13 @@
         return {
           kind: "skipped",
           text: `${$tr("Skipped")} · ${$tr("you used it today via this proxy")} · ${result}`,
+        };
+      }
+      if (result === "skip:touch-model") {
+        const reason = m?.auto_touch_reason;
+        return {
+          kind: "skipped",
+          text: `${$tr("Skipped")} · ${result}${reason ? ` · ${reason}` : ""}`,
         };
       }
       return { kind: "skipped", text: `${$tr("Skipped")} · ${result}` };
@@ -293,10 +331,13 @@
   }
 
   // Last-run ledger summary across covered accounts: latest touch time,
-  // touch count, and skip counts grouped by exact reason.
+  // touch count, and skip counts grouped by exact reason. Fully
+  // historical on purpose: no result_day filter here — stale skips stay
+  // visible with the Pacific day they belong to (latestDay).
   function ledgerSummary(list) {
     let touched = 0;
     let latest = "";
+    let latestDay = "";
     const skips = {};
     for (const t of list) {
       const m = t.maturity;
@@ -308,12 +349,27 @@
       if (m.last_touch && (!latest || m.last_touch > latest)) {
         latest = m.last_touch;
       }
+      if (m.result_day && (!latestDay || m.result_day > latestDay)) {
+        latestDay = m.result_day;
+      }
     }
     const skipped = Object.values(skips).reduce((a, b) => a + b, 0);
     const reasons = Object.entries(skips)
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([reason, n]) => (n > 1 ? `${reason} ×${n}` : reason));
-    return { touched, skipped, reasons, latest };
+    return { touched, skipped, reasons, latest, latestDay };
+  }
+  // Last-run day label: the latest touch time's Pacific day, falling back
+  // to the latest ledger result day — skip-only nights leave no touch
+  // time but still belong to a Pacific day. Noon UTC sits mid-morning in
+  // Los Angeles year-round, so the synthetic instant always formats to
+  // the stamped day.
+  function ledgerDayLabel() {
+    const byTouch = fmtPacificDay(summary.latest);
+    if (byTouch) return byTouch;
+    if (summary.latestDay)
+      return fmtPacificDay(`${summary.latestDay}T12:00:00Z`);
+    return "";
   }
   function nextReset() {
     const r = pacificMidnight(nowMs, 0);
@@ -480,8 +536,8 @@
       >
         <p class="fp-num text-[11px] text-[var(--fp-dim)]">
           {$tr("Last run")}
-          {fmtTime(summary.latest)}{fmtPacificDay(summary.latest)
-            ? ` · ${$tr("for the {day} Pacific day", { day: fmtPacificDay(summary.latest) })}`
+          {fmtTime(summary.latest)}{ledgerDayLabel()
+            ? ` · ${$tr("for the {day} Pacific day", { day: ledgerDayLabel() })}`
             : ""} · {$tr("touched")}
           {summary.touched}
           · {$tr("skipped")}

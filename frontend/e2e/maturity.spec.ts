@@ -2,6 +2,21 @@ import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
 import type { PostedSetting } from "./mocks.js";
 
+// Tonight's Pacific calendar day ("2026-09-11"): status rows scope to
+// this day via result_day/touch_day, so static fixtures must stamp it
+// instead of hardcoding a past date.
+function tonightPacific() {
+  const [y, m, day] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date())
+    .split("-")
+    .map(Number);
+  return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 function maintenanceTokens() {
   return {
     mode: "pooled",
@@ -29,10 +44,11 @@ function maintenanceTokens() {
           slot: "2026-09-05T07:30:00Z",
           slot_day: "2026-09-05",
           last_touch: "2026-09-05T07:31:00Z",
-          touch_day: "2026-09-05",
+          touch_day: tonightPacific(),
           last_action: "admit",
           last_result: "ok",
           last_advanced: "yes",
+          result_day: tonightPacific(),
           effective_touch_model: "mimo/mimo-v2.5",
           auto_touch_model: "mimo/mimo-v2.5",
           auto_touch_reason: "auto:unmetered",
@@ -62,6 +78,7 @@ function maintenanceTokens() {
           touch_day: "2026-09-04",
           last_action: "",
           last_result: "skip:cooling",
+          result_day: tonightPacific(),
           effective_touch_model: "mimo/mimo-v2.5",
           auto_touch_model: "mimo/mimo-v2.5",
           auto_touch_reason: "auto:unmetered",
@@ -201,8 +218,8 @@ test.describe("streak maintenance", () => {
                 last_touch: "2026-09-11T06:56:00Z",
                 last_action: "",
                 last_result: "skip:today-used",
+                result_day: tonightPacific(),
                 effective_touch_model: "upstage/solar-pro4",
-                auto_touch_model: "upstage/solar-pro4",
               },
             },
           ],
@@ -262,8 +279,8 @@ test.describe("streak maintenance", () => {
                 last_touch: "2026-09-11T06:56:00Z",
                 last_action: "",
                 last_result: "skip:today-used",
+                result_day: tonightPacific(),
                 effective_touch_model: "upstage/solar-pro4",
-                auto_touch_model: "upstage/solar-pro4",
               },
             },
           ],
@@ -647,5 +664,163 @@ test.describe("streak maintenance", () => {
         ).length,
     );
     expect(overflow).toBe(0);
+  });
+  // Pacific day key in the spec runner (mirrors the panel helper): keeps
+  // the stale/tonight fixtures deterministic against wall-clock day roll.
+  function specPacificDay(ts, addDays) {
+    const shifted = new Date(ts + addDays * 86400000);
+    const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .format(shifted)
+      .split("-")
+      .map(Number);
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
+  function dayScopedTokens(resultDay, result, autoReason) {
+    return {
+      mode: "pooled",
+      token_count: 2,
+      has_tokens: true,
+      maturity_enabled: true,
+      maturity_window_start: "2026-09-12T06:45:00Z",
+      maturity_window_end: "2026-09-12T07:00:00Z",
+      tokens: [
+        {
+          index: 0,
+          email: "scoped@example.com",
+          session_status: "active",
+          locked: false,
+          streak: 2,
+          today_used: false,
+          maturity: {
+            enabled: true,
+            target: 7,
+            mode: "unmetered",
+            badge: "Warming",
+            slot: "2026-09-05T07:30:00Z",
+            slot_day: "2026-09-05",
+            last_action: "",
+            last_result: result,
+            result_day: resultDay,
+            effective_touch_model: "",
+            auto_touch_model: "",
+            auto_touch_reason: autoReason,
+          },
+        },
+        {
+          index: 1,
+          email: "fresh@example.com",
+          session_status: "active",
+          locked: false,
+        },
+      ],
+    };
+  }
+
+  test("a prior-day skip reads Pending but stays in the last-run ledger", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          dayScopedTokens(
+            specPacificDay(Date.now(), -1),
+            "skip:touch-model",
+            "fallback:no-unmetered-served",
+          ),
+        ),
+      });
+    });
+    await gotoWarming(page);
+    // Stale skip: the row is Pending and tonight's header counts zero
+    // skipped — yesterday's outcome is not tonight's status.
+    await expect(page.getByText("Pending").first()).toBeVisible();
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /2 eligible · 0 skipped/,
+    );
+    // The last-run ledger stays fully historical: the skip and its
+    // Pacific day remain visible with the exact reason.
+    const ledger = page.getByLabel("Last maintenance run");
+    await expect(ledger).toContainText(/touched\s+0/);
+    await expect(ledger).toContainText(/skipped\s+1/);
+    await expect(ledger).toContainText("skip:touch-model");
+    await expect(ledger).toContainText(/Pacific day/);
+  });
+
+  test("tonight's touch-model skip reads Skipped with the auto reason", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          dayScopedTokens(
+            specPacificDay(Date.now(), 0),
+            "skip:touch-model",
+            "fallback:no-unmetered-served",
+          ),
+        ),
+      });
+    });
+    await gotoWarming(page);
+    // Tonight's skip: the row names the code plus the served auto reason
+    // (no resolver change — display only), and the header counts it.
+    await expect(
+      page.getByText(
+        "Skipped · skip:touch-model · fallback:no-unmetered-served",
+      ),
+    ).toBeVisible();
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /1 eligible · 1 skipped/,
+    );
+    const ledger = page.getByLabel("Last maintenance run");
+    await expect(ledger).toContainText(/skipped\s+1/);
+    await expect(ledger).toContainText("skip:touch-model");
+  });
+
+  test("a pre-upgrade skip without result_day reads Pending on first load", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      const payload = dayScopedTokens(
+        specPacificDay(Date.now(), -1),
+        "skip:touch-model",
+        "fallback:no-unmetered-served",
+      );
+      // Pre-upgrade ledger: stamped rows did not exist yet.
+      delete payload.tokens[0].maturity.result_day;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      });
+    });
+    await gotoWarming(page);
+    // The exact complaint: yesterday's unstamped skip must not sit as
+    // today's status — Pending now, Skipped only once tonight stamps.
+    await expect(page.getByText("Pending").first()).toBeVisible();
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /2 eligible · 0 skipped/,
+    );
+    const ledger = page.getByLabel("Last maintenance run");
+    await expect(ledger).toContainText(/skipped\s+1/);
+    await expect(ledger).toContainText("skip:touch-model");
   });
 });

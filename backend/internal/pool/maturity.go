@@ -119,6 +119,11 @@ type MaturitySnapshot struct {
 	LastAction   string `json:"last_action,omitempty"`
 	LastResult   string `json:"last_result,omitempty"`
 	LastAdvanced string `json:"last_advanced,omitempty"`
+	// ResultDay is the Pacific calendar day ("2006-01-02") the last
+	// ledger write belongs to: every maturityRecord stamps it, so the
+	// dashboard can scope per-account Skipped rows to tonight's run
+	// while the last-run ledger stays historical.
+	ResultDay string `json:"result_day,omitempty"`
 	// EffectiveTouchModel is the model the next touch will actually
 	// admit (manual override, premium-short pool head, auto pick, or
 	// explicit global fallback, in that precedence).
@@ -139,13 +144,16 @@ type maturityState struct {
 	mode    string
 	// touchModel overrides the global MATURITY_TOUCH_MODEL for this
 	// token only. Empty means "use the global fallback".
-	touchModel    string
-	slot          time.Time
-	slotDay       string
-	lastTouch     time.Time
-	lastAction    string
-	lastResult    string
-	lastAdvanced  string
+	touchModel   string
+	slot         time.Time
+	slotDay      string
+	lastTouch    time.Time
+	lastAction   string
+	lastResult   string
+	lastAdvanced string
+	// resultDay is the Pacific day of the last ledger write (see
+	// ResultDay on MaturitySnapshot). Empty on pre-upgrade rows.
+	resultDay     string
 	lastStreak    int
 	streakAtTouch int
 	touchDay      string
@@ -165,6 +173,7 @@ type maturityPersisted struct {
 	LastAction    string    `json:"last_action,omitempty"`
 	LastResult    string    `json:"last_result,omitempty"`
 	LastAdvanced  string    `json:"last_advanced,omitempty"`
+	ResultDay     string    `json:"result_day,omitempty"`
 	LastStreak    int       `json:"last_streak,omitempty"`
 	StreakAtTouch int       `json:"streak_at_touch,omitempty"`
 	TouchDay      string    `json:"touch_day,omitempty"`
@@ -182,6 +191,7 @@ func (m maturityState) marshalMaturity() (string, error) {
 		LastAction:    m.lastAction,
 		LastResult:    m.lastResult,
 		LastAdvanced:  m.lastAdvanced,
+		ResultDay:     m.resultDay,
 		LastStreak:    m.lastStreak,
 		StreakAtTouch: m.streakAtTouch,
 		TouchDay:      m.touchDay,
@@ -208,6 +218,7 @@ func unmarshalMaturity(raw string) (maturityState, error) {
 		lastAction:    stored.LastAction,
 		lastResult:    stored.LastResult,
 		lastAdvanced:  stored.LastAdvanced,
+		resultDay:     stored.ResultDay,
 		lastStreak:    stored.LastStreak,
 		streakAtTouch: stored.StreakAtTouch,
 		touchDay:      stored.TouchDay,
@@ -407,13 +418,17 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	st := p.maturityCopy(tok)
 	label := tokenEntryLabel(tok)
 	inWindow := maturityInWindow(now)
+	// today is the Pacific calendar day this pass ledgers under: every
+	// skip below stamps it as its result day. It derives from the
+	// injected now (fake-clock tests), never wall time.
+	today := pacificDayKey(now)
 
 	// Operator lock beats automation: a manually locked token stays out of
 	// both serving rotation (acquire_order.go) and the nightly run, and
 	// the run never locks or unlocks — the lock survives the pass.
 	if tok.locked.Load() {
 		if inWindow {
-			p.maturityRecord(tok, "", "skip:locked", "")
+			p.maturityRecord(tok, "", "skip:locked", "", today)
 		}
 		return false
 	}
@@ -424,26 +439,26 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	p.clearLiftedQuarantine(tok)
 	if q := tok.quarantine.Load(); q != nil {
 		if inWindow {
-			p.maturityRecord(tok, "", "skip:quarantined", "")
+			p.maturityRecord(tok, "", "skip:quarantined", "", today)
 		}
 		return false
 	}
 	rs := tok.runs.Snapshot()
 	if rs.BanError != nil && (rs.BannedUntil.IsZero() || now.Before(rs.BannedUntil)) {
 		if inWindow {
-			p.maturityRecord(tok, "", "skip:banned", "")
+			p.maturityRecord(tok, "", "skip:banned", "", today)
 		}
 		return false
 	}
 	if !rs.CooldownUntil.IsZero() && now.Before(rs.CooldownUntil) {
 		if inWindow {
-			p.maturityRecord(tok, "", "skip:cooling", "")
+			p.maturityRecord(tok, "", "skip:cooling", "", today)
 		}
 		return false
 	}
 	if tok.runs.CountryBlockedError() != nil {
 		if inWindow {
-			p.maturityRecord(tok, "", "skip:country-blocked", "")
+			p.maturityRecord(tok, "", "skip:country-blocked", "", today)
 		}
 		return false
 	}
@@ -458,7 +473,7 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 		cached, err = p.maturityRefreshStreak(ctx, tok)
 		if err != nil || cached == nil {
 			if inWindow {
-				p.maturityRecord(tok, "", "skip:streak-stale", "stale")
+				p.maturityRecord(tok, "", "skip:streak-stale", "stale", today)
 			}
 			return false
 		}
@@ -480,7 +495,7 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	// by the Chat success path: internal probes and warming touches never
 	// record here, so automation can never self-skip every account.
 	if p.dayRequestCount(idx) > 0 {
-		p.maturityRecord(tok, "", "skip:client-active", "")
+		p.maturityRecord(tok, "", "skip:client-active", "", today)
 		return false
 	}
 
@@ -491,8 +506,6 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	// guard holds the re-fire either way, but recording another skip
 	// would overwrite the fire with skip:today-used on every later pass
 	// in the same window, making a touched account read as skipped.
-	loc := maturityLocation("America/Los_Angeles")
-	today := now.In(loc).Format("2006-01-02")
 	tok.maturityMu.Lock()
 	touchedToday := tok.maturity.touchDay == today && !tok.maturity.lastTouch.IsZero()
 	firedToday := touchedToday && !strings.HasPrefix(tok.maturity.lastResult, "skip:")
@@ -501,7 +514,7 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 		return false
 	}
 	if touchedToday {
-		p.maturityRecord(tok, "", "skip:today-used", "")
+		p.maturityRecord(tok, "", "skip:today-used", "", today)
 		return false
 	}
 
@@ -514,6 +527,7 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 		tok.maturity.lastAdvanced = "yes"
 		if tok.maturity.lastResult == "" || strings.HasPrefix(tok.maturity.lastResult, "skip:") {
 			tok.maturity.lastResult = "skip:today-used"
+			tok.maturity.resultDay = today
 		}
 		tok.maturityMu.Unlock()
 		return false
@@ -530,11 +544,11 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	lastTouch := tok.maturity.lastTouch
 	tok.maturityMu.Unlock()
 	if now.Before(slot) {
-		p.maturityRecord(tok, "", "skip:slot", "")
+		p.maturityRecord(tok, "", "skip:slot", "", today)
 		return false
 	}
 	if !lastTouch.IsZero() && now.Sub(lastTouch) < maturityThrottle {
-		p.maturityRecord(tok, "", "skip:throttle", "")
+		p.maturityRecord(tok, "", "skip:throttle", "", today)
 		return false
 	}
 	// Fire gate: touches fire only inside the firing tail of the window
@@ -545,9 +559,9 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	// ledger skip:window-exhausted instead of silently dropping.
 	if !maturityInFireGate(now) {
 		if _, gateEnd := maturityFireWindowFor(now); !now.Before(gateEnd) {
-			p.maturityRecord(tok, "", "skip:window-exhausted", "")
+			p.maturityRecord(tok, "", "skip:window-exhausted", "", today)
 		} else {
-			p.maturityRecord(tok, "", "skip:preflight", "")
+			p.maturityRecord(tok, "", "skip:preflight", "", today)
 		}
 		return false
 	}
@@ -614,7 +628,7 @@ func (p *Pool) maturityFire(ctx context.Context, touchModel string, idx int, tok
 	if st.mode == MaturityModePremiumShort {
 		premium := modelcat.SharedPremiumModels()
 		if len(premium) == 0 {
-			p.maturityRecord(tok, "admit", "skip:no-premium-model", "")
+			p.maturityRecord(tok, "admit", "skip:no-premium-model", "", today)
 			p.emitMaturity(idx, "touch", "admit skip:no-premium-model")
 			return
 		}
@@ -622,7 +636,7 @@ func (p *Pool) maturityFire(ctx context.Context, touchModel string, idx int, tok
 	} else if reason := maturityGuardTouchModel(model); reason != "" {
 		p.logger.Warn("pool: maturity touch misconfigured (not a served unmetered model), skipping",
 			"token", idx+1, "token_label", label, "model", model)
-		p.maturityRecord(tok, "admit", reason, "")
+		p.maturityRecord(tok, "admit", reason, "", today)
 		p.emitMaturity(idx, "touch", fmt.Sprintf("admit %s model=%s", reason, model))
 		return
 	}
@@ -634,7 +648,7 @@ func (p *Pool) maturityFire(ctx context.Context, touchModel string, idx int, tok
 		if price, ok := snap.Freebucks.Prices[model]; ok && price > 0 && !snap.Freebucks.QuotaExempt {
 			p.logger.Warn("pool: maturity touch model is metered on this account, skipping",
 				"token", idx+1, "token_label", label, "model", model, "price", price)
-			p.maturityRecord(tok, "admit", "skip:touch-priced", "")
+			p.maturityRecord(tok, "admit", "skip:touch-priced", "", today)
 			p.emitMaturity(idx, "touch", fmt.Sprintf("admit skip:touch-priced model=%s price=%v", model, price))
 			return
 		}
@@ -653,6 +667,7 @@ func (p *Pool) maturityFire(ctx context.Context, touchModel string, idx int, tok
 	tok.maturity.lastTouch = now
 	tok.maturity.lastAction = action
 	tok.maturity.lastResult = result
+	tok.maturity.resultDay = today
 	tok.maturity.touchDay = today
 	if err == nil {
 		tok.maturity.streakAtTouch = cached.Streak
@@ -821,6 +836,7 @@ func (p *Pool) MaturityTouchNow(ctx context.Context, token int) (string, string,
 	}
 	tok := (*toks)[token]
 	now := time.Now()
+	today := pacificDayKey(now)
 	st := p.maturityCopy(tok)
 	p.clearLiftedQuarantine(tok)
 	if q := tok.quarantine.Load(); q != nil {
@@ -841,15 +857,14 @@ func (p *Pool) MaturityTouchNow(ctx context.Context, token int) (string, string,
 		var err error
 		cached, err = p.maturityRefreshStreak(ctx, tok)
 		if err != nil || cached == nil {
-			p.maturityRecord(tok, "", "skip:streak-stale", "stale")
+			p.maturityRecord(tok, "", "skip:streak-stale", "stale", today)
 			return "", "skip:streak-stale", fmt.Errorf("pool: token %d streak unavailable", token)
 		}
 	}
 	if cached.TodayUsed {
-		p.maturityRecord(tok, "", "skip:today-used", "yes")
+		p.maturityRecord(tok, "", "skip:today-used", "yes", today)
 		return "", "skip:today-used", fmt.Errorf("pool: token %d already used today", token)
 	}
-	today := pacificDayKey(now)
 	effective, _, _ := p.maturityResolveEffective(st, tok, cfg.MaturityTouchModel)
 	p.maturityFire(ctx, effective, token, tok, tokenEntryLabel(tok), cached, today, now)
 	p.saveMaturity(token, tok)
@@ -858,14 +873,22 @@ func (p *Pool) MaturityTouchNow(ctx context.Context, token int) (string, string,
 }
 
 // maturityRecord stores a skip/result marker without touching touch times.
-// Universal automatic: no enabled gate — every account is enrolled.
-func (p *Pool) maturityRecord(tok *tokenEntry, action, result, advanced string) {
+// Universal automatic: no enabled gate — every account is enrolled. Every
+// write stamps today's Pacific day as the result day (from the caller,
+// which owns the clock): the dashboard scopes per-account Skipped rows to
+// tonight's run while the last-run ledger stays historical. Empty today
+// falls back to the wall-clock Pacific day, never a stale stamp.
+func (p *Pool) maturityRecord(tok *tokenEntry, action, result, advanced, today string) {
 	tok.maturityMu.Lock()
 	defer tok.maturityMu.Unlock()
 	if action != "" {
 		tok.maturity.lastAction = action
 	}
 	tok.maturity.lastResult = result
+	if today == "" {
+		today = pacificDayKey(time.Now())
+	}
+	tok.maturity.resultDay = today
 	if advanced != "" {
 		tok.maturity.lastAdvanced = advanced
 	}
@@ -922,6 +945,7 @@ func (p *Pool) maturitySnapshot(tok *tokenEntry, streak int) *MaturitySnapshot {
 		LastAction:          m.lastAction,
 		LastResult:          m.lastResult,
 		LastAdvanced:        m.lastAdvanced,
+		ResultDay:           m.resultDay,
 		EffectiveTouchModel: effective,
 		AutoTouchModel:      auto,
 		AutoTouchReason:     reason,

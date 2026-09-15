@@ -1393,6 +1393,7 @@ export interface components {
           last_result?: string;
           last_touch?: string;
           mode: string;
+          result_day?: string;
           slot?: string;
           slot_day?: string;
           target: number;
