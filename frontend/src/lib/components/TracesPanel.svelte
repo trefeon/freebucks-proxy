@@ -168,15 +168,19 @@
             >
             <thead>
               <tr>
-                <th scope="col">{$tr("Time")}</th>
-                <th scope="col">{$tr("Account")}</th>
-                <th scope="col">{$tr("Model")}</th>
-                <th scope="col">{$tr("Tokens")}</th>
-                <th scope="col">{$tr("Status")}</th>
-                <th scope="col" class="num">{$tr("Latency")}</th>
+                <th scope="col" class="w-[1%]">{$tr("Time")}</th>
+                <th scope="col" class="w-[1%]">{$tr("Account")}</th>
+                <th scope="col" class="w-48">{$tr("Model")}</th>
+                <th scope="col" class="w-[1%]">{$tr("Tokens")}</th>
+                <th scope="col" class="w-[1%] whitespace-nowrap"
+                  >{$tr("Status")}</th
+                >
+                <th scope="col" class="num w-[1%]">{$tr("Latency")}</th>
                 <th scope="col">{$tr("Phases")}</th>
                 <th scope="col">{$tr("Error")}</th>
-                <th scope="col"><span class="sr-only">{$tr("Links")}</span></th>
+                <th scope="col" class="text-right w-[1%]"
+                  ><span class="sr-only">{$tr("Links")}</span></th
+                >
               </tr>
             </thead>
             <tbody>
@@ -187,10 +191,10 @@
                 {@const usage = tokLine(t)}
                 <tr class={highlightRow(t) ? "bg-amber-500/5" : ""}>
                   <td
-                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
+                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)] w-[1%]"
                     >{formatTime(t.time)}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap">
                     {#if tidx !== null}
                       <button
                         type="button"
@@ -233,7 +237,9 @@
                     {/if}
                   </td>
                   <td class="font-mono text-[11px]"
-                    >{t.model || "—"}
+                    ><span class="block truncate max-w-full" title={t.model}
+                      >{t.model || "—"}</span
+                    >
                     {#if t.agent}
                       <span
                         class="block text-[10px] text-[var(--fp-dim)]"
@@ -242,12 +248,12 @@
                     {/if}
                   </td>
                   <td
-                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
+                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)] w-[1%]"
                     title={usage
                       ? $tr("Input / cached / output / total LLM tokens")
                       : ""}>{usage || "—"}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap">
                     <span
                       class={t.status === "error"
                         ? "text-[var(--fp-error)] font-semibold"
@@ -256,7 +262,9 @@
                       {t.status || "ok"}
                     </span>
                   </td>
-                  <td class="num">{t.ms ? t.ms : "—"}</td>
+                  <td class="num w-[1%] whitespace-nowrap"
+                    >{t.ms ? t.ms : "—"}</td
+                  >
                   <td>
                     {#if t.phases?.length}
                       <div class="flex flex-wrap gap-1">
@@ -277,7 +285,7 @@
                     class="text-[var(--fp-error)] text-[11px] max-w-[200px] truncate"
                     >{t.error || ""}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap text-right">
                     <button
                       type="button"
                       onclick={() => onOpenLogs?.(reqId ? String(reqId) : "")}

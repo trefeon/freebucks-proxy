@@ -646,24 +646,26 @@
             <table class="fp-table">
               <thead>
                 <tr>
-                  <th scope="col">Token</th>
-                  <th scope="col">Status</th>
+                  <th scope="col" class="w-[1%] whitespace-nowrap">Token</th>
+                  <th scope="col" class="w-[1%] whitespace-nowrap">Status</th>
                   <th scope="col">Active Session</th>
                   <th scope="col">Select Model</th>
-                  <th scope="col" class="text-right">Actions</th>
+                  <th scope="col" class="text-right w-[1%] whitespace-nowrap"
+                    >Actions</th
+                  >
                 </tr>
               </thead>
               <tbody>
                 {#each tokensData.tokens as token (token.index)}
                   {@const idx = token.index}
                   <tr>
-                    <td
+                    <td class="w-[1%] whitespace-nowrap"
                       ><span
                         class="fp-num text-xs font-bold text-[var(--fp-text)]"
                         >#{idx}</span
                       ></td
                     >
-                    <td>
+                    <td class="w-[1%] whitespace-nowrap">
                       <span class="inline-flex items-center gap-1.5">
                         <span
                           class="led {token.session_status === 'active'
@@ -679,7 +681,8 @@
                     <td>
                       {#if token.session_model}
                         <span
-                          class="fp-num text-xs text-[var(--fp-accent)] font-semibold"
+                          class="fp-num text-xs text-[var(--fp-accent)] font-semibold block truncate max-w-full"
+                          title={token.session_model}
                           >{token.session_model}</span
                         >
                         {#if token.session_remaining_seconds > 0}

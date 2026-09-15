@@ -713,13 +713,13 @@
         <table class="w-full text-left font-mono text-[11px]">
           <thead>
             <tr class="border-b border-[var(--fp-border)]">
-              <th class="p-1">key</th>
-              <th class="p-1">group</th>
-              <th class="p-1">kind</th>
-              <th class="p-1">effective value</th>
-              <th class="p-1">source</th>
-              <th class="p-1">restart-only</th>
-              <th class="p-1">edit</th>
+              <th class="px-3 py-2">key</th>
+              <th class="px-3 py-2">group</th>
+              <th class="px-3 py-2">kind</th>
+              <th class="px-3 py-2">effective value</th>
+              <th class="px-3 py-2">source</th>
+              <th class="px-3 py-2">restart-only</th>
+              <th class="px-3 py-2">edit</th>
             </tr>
           </thead>
           <tbody>
@@ -727,10 +727,10 @@
               {@const eff =
                 effectiveMap.get(entry.key)?.value ?? entry.default ?? ""}
               <tr class="border-b border-[var(--fp-border)] align-top">
-                <td class="p-1 font-bold break-all">{entry.key}</td>
-                <td class="p-1">{entry.group}</td>
-                <td class="p-1">{entry.kind}</td>
-                <td class="max-w-56 p-1 break-all">
+                <td class="px-3 py-2 font-bold break-all">{entry.key}</td>
+                <td class="px-3 py-2">{entry.group}</td>
+                <td class="px-3 py-2">{entry.kind}</td>
+                <td class="max-w-56 px-3 py-2 break-all">
                   {#if entry.secret}
                     <!-- REVIEW TEMP: secret masked, never displayed -->
                     <span title="secret value hidden">••••••••</span>
@@ -738,9 +738,9 @@
                     {String(eff)}
                   {/if}
                 </td>
-                <td class="p-1">{settingSources[entry.key] ?? "—"}</td>
-                <td class="p-1">{entry.restart_only ? "yes" : "no"}</td>
-                <td class="p-1">
+                <td class="px-3 py-2">{settingSources[entry.key] ?? "—"}</td>
+                <td class="px-3 py-2">{entry.restart_only ? "yes" : "no"}</td>
+                <td class="px-3 py-2">
                   {#if liveEditable(entry)}
                     {#if entry.kind === "bool"}
                       <select

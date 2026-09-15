@@ -142,9 +142,12 @@
         <thead>
           <tr>
             <th scope="col">{$tr("Model ID")}</th>
-            <th scope="col">{$tr("Served")}</th>
-            <th scope="col">{$tr("Agent")}</th>
-            <th scope="col">{$tr("Price")}</th>
+            <th scope="col" class="w-[1%] whitespace-nowrap">{$tr("Served")}</th
+            >
+            <th scope="col" class="w-[1%] whitespace-nowrap">{$tr("Agent")}</th>
+            <th scope="col" class="text-right w-[1%] whitespace-nowrap"
+              >{$tr("Price")}</th
+            >
           </tr>
         </thead><tbody>
           {#each orderedModels as m (m.id)}
@@ -200,17 +203,17 @@
                   </div>
                 </div>
               </td>
-              <td>
+              <td class="w-[1%] whitespace-nowrap">
                 <StatusBadge status={$tr(st)} tone={modelTone(st)} />
               </td>
-              <td>
+              <td class="w-[1%] whitespace-nowrap">
                 {#if bound}
                   <span class="fp-mono text-[var(--fp-muted)]">{m.agent}</span>
                 {:else}
                   <span class="text-[var(--fp-dim)]">—</span>
                 {/if}
               </td>
-              <td>
+              <td class="w-[1%] whitespace-nowrap text-right">
                 <span class="inline-flex items-center gap-1.5">
                   <span
                     class="fp-num text-xs font-semibold {effectivePrice ===

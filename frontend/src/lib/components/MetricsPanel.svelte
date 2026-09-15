@@ -206,21 +206,26 @@
                   >
                   <thead>
                     <tr>
-                      <th scope="col">{$tr("Time")}</th>
-                      <th scope="col">{$tr("Model")}</th>
-                      <th scope="col" class="num">{$tr("Input")}</th>
-                      <th scope="col" class="num">{$tr("Cached")}</th>
-                      <th scope="col" class="num">{$tr("Output")}</th>
-                      <th scope="col" class="num">{$tr("Total")}</th>
+                      <th scope="col" class="w-[1%]">{$tr("Time")}</th>
+                      <th scope="col" class="w-48">{$tr("Model")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Input")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Cached")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Output")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Total")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {#each usage.entries as e (e.req_id ?? e.ts_ms)}
                       <tr>
-                        <td class="font-mono text-xs whitespace-nowrap"
+                        <td class="font-mono text-xs whitespace-nowrap w-[1%]"
                           >{new Date(Number(e.ts_ms ?? 0)).toLocaleString()}</td
                         >
-                        <td class="font-mono text-xs">{e.model ?? "—"}</td>
+                        <td class="font-mono text-xs"
+                          ><span
+                            class="block truncate max-w-full"
+                            title={e.model}>{e.model ?? "—"}</span
+                          ></td
+                        >
                         <td class="num"
                           >{Number(e.input ?? 0).toLocaleString()}</td
                         >
@@ -338,21 +343,23 @@
             <thead>
               <tr>
                 <th scope="col">{$tr("Token")}</th>
-                <th scope="col" class="num">{$tr("Requests (24h)")}</th>
-                <th scope="col" class="num hidden sm:table-cell"
+                <th scope="col" class="num w-[1%]">{$tr("Requests (24h)")}</th>
+                <th scope="col" class="num w-[1%] hidden sm:table-cell"
                   >{$tr("Transient retries")}</th
                 >
-                <th scope="col" class="num hidden sm:table-cell"
+                <th scope="col" class="num w-[1%] hidden sm:table-cell"
                   >{$tr("Fingerprint rotations")}</th
                 >
-                <th scope="col" class="num">{$tr("Spend")}</th>
-                <th scope="col"><span class="sr-only">{$tr("Links")}</span></th>
+                <th scope="col" class="num w-[1%]">{$tr("Spend")}</th>
+                <th scope="col" class="text-right w-[1%]"
+                  ><span class="sr-only">{$tr("Links")}</span></th
+                >
               </tr>
             </thead>
             <tbody>
               {#each data.per_tokens as p (p.token)}
                 <tr>
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap">
                     <button
                       type="button"
                       onclick={() => onOpenToken?.(p.token)}
@@ -373,7 +380,7 @@
                   <td class="num"
                     >{Number(p.spend_day ?? 0).toLocaleString()}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap text-right">
                     <button
                       type="button"
                       onclick={() => onOpenLogs?.("")}

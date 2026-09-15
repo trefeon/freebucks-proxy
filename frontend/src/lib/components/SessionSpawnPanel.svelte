@@ -56,7 +56,7 @@
   }
 </script>
 
-<td>
+<td class="w-[1%]">
   <select
     bind:value={spawnModel}
     class="fp-input !text-xs !py-1 !pl-2.5 !h-8 !w-48"
@@ -85,7 +85,7 @@
     </p>
   {/if}
 </td>
-<td class="text-right">
+<td class="text-right w-[1%] whitespace-nowrap">
   <div class="inline-flex items-center gap-1.5 justify-end">
     <Button
       variant="primary"
