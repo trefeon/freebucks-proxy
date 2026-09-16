@@ -57,6 +57,37 @@ func SetCooldownTuning(defaultD, countryBlock, ceiling time.Duration, ipMaxReadm
 	}
 }
 
+// TuningSnapshot captures the live cooldown tuning values. Tests that push
+// nonzero values through pool.New/SetConfig snapshot first and Restore on
+// cleanup: the tuning vars are package globals and would otherwise leak
+// across tests in the same binary. Production code never calls these.
+type TuningSnapshot struct {
+	Default, CountryBlock, Ceiling time.Duration
+	IPMaxReadmits                  int
+	IPJitterRatio                  float64
+}
+
+// SnapshotTuning captures the current cooldown tuning values.
+func SnapshotTuning() TuningSnapshot {
+	return TuningSnapshot{
+		Default:       DefaultCooldown,
+		CountryBlock:  countryBlockCooldown,
+		Ceiling:       cooldownCeiling,
+		IPMaxReadmits: maxIpCappedReAdmitsPerDay,
+		IPJitterRatio: ipCappedCooldownJitter,
+	}
+}
+
+// Restore re-applies a captured snapshot, bypassing SetCooldownTuning's
+// non-positive guards so a saved zero jitter ratio (disabled) round-trips.
+func (s TuningSnapshot) Restore() {
+	DefaultCooldown = s.Default
+	countryBlockCooldown = s.CountryBlock
+	cooldownCeiling = s.Ceiling
+	maxIpCappedReAdmitsPerDay = s.IPMaxReadmits
+	ipCappedCooldownJitter = s.IPJitterRatio
+}
+
 // cappedAfter returns now.Add(d) clamped to at most now+cooldownCeiling.
 func cappedAfter(now time.Time, d time.Duration) time.Time {
 	if d > cooldownCeiling {

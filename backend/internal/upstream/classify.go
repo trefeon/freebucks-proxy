@@ -332,6 +332,37 @@ func SetCooldownTuning(fanout, invalidModel, opaque, loadShed, peakHours, ceilin
 	}
 }
 
+// TuningSnapshot captures the live bounded-cooldown values. Tests that push
+// nonzero values through pool.New/SetConfig snapshot first and Restore on
+// cleanup: the tuning vars are package globals and would otherwise leak
+// across tests in the same binary. Production code never calls these.
+type TuningSnapshot struct {
+	Fanout, InvalidModel, Opaque, LoadShed, PeakHours, Ceiling time.Duration
+}
+
+// SnapshotTuning captures the current bounded-cooldown values.
+func SnapshotTuning() TuningSnapshot {
+	return TuningSnapshot{
+		Fanout:       FanoutCooldown,
+		InvalidModel: InvalidModelCooldown,
+		Opaque:       opaqueRateLimitBackoff,
+		LoadShed:     LoadShedCooldown,
+		PeakHours:    PeakHoursCooldown,
+		Ceiling:      MaxCooldown,
+	}
+}
+
+// Restore re-applies a captured snapshot unconditionally (unlike
+// SetCooldownTuning, which ignores non-positive values).
+func (s TuningSnapshot) Restore() {
+	FanoutCooldown = s.Fanout
+	InvalidModelCooldown = s.InvalidModel
+	opaqueRateLimitBackoff = s.Opaque
+	LoadShedCooldown = s.LoadShed
+	PeakHoursCooldown = s.PeakHours
+	MaxCooldown = s.Ceiling
+}
+
 // CooldownFromMillis converts an upstream retryAfterMs value to a cooldown
 // duration clamped to MaxCooldown. The overflow guard runs BEFORE the
 // multiply: time.Duration(ms)*time.Millisecond wraps for ms >=
