@@ -869,21 +869,23 @@ func TestSessionParsesClaimableGrantAndUpgrade(t *testing.T) {
 	fb := st.Freebucks
 	if fb == nil {
 		t.Fatal("Freebucks is nil, want parsed block")
-	}
-	if fb.ClaimableGrant != 4.0 {
-		t.Errorf("ClaimableGrant = %v, want 4.0", fb.ClaimableGrant)
-	}
-	if got := fb.Spendable(); got != 5.5 {
-		t.Errorf("Spendable = %v, want 5.5 (balance + claimable)", got)
-	}
-	if fb.Upgrade == nil {
-		t.Fatal("Upgrade is nil, want parsed nudge")
-	}
-	if fb.Upgrade.Kind != "limited_offer" || fb.Upgrade.CTA != "Get 50% off" || fb.Upgrade.ModelID != "deepseek/deepseek-v4-flash" {
-		t.Errorf("Upgrade = %+v, want limited_offer nudge for flash", fb.Upgrade)
-	}
-	if !strings.Contains(fb.Upgrade.Tooltip, "Half-price") {
-		t.Errorf("Upgrade.Tooltip = %q, want full promise", fb.Upgrade.Tooltip)
+	} else {
+		if fb.ClaimableGrant != 4.0 {
+			t.Errorf("ClaimableGrant = %v, want 4.0", fb.ClaimableGrant)
+		}
+		if got := fb.Spendable(); got != 5.5 {
+			t.Errorf("Spendable = %v, want 5.5 (balance + claimable)", got)
+		}
+		if fb.Upgrade == nil {
+			t.Fatal("Upgrade is nil, want parsed nudge")
+		} else {
+			if fb.Upgrade.Kind != "limited_offer" || fb.Upgrade.CTA != "Get 50% off" || fb.Upgrade.ModelID != "deepseek/deepseek-v4-flash" {
+				t.Errorf("Upgrade = %+v, want limited_offer nudge for flash", fb.Upgrade)
+			}
+			if !strings.Contains(fb.Upgrade.Tooltip, "Half-price") {
+				t.Errorf("Upgrade.Tooltip = %q, want full promise", fb.Upgrade.Tooltip)
+			}
+		}
 	}
 }
 
@@ -946,15 +948,16 @@ func TestEndSessionRefundReceipt(t *testing.T) {
 		}
 		if rcpt == nil {
 			t.Fatal("receipt is nil, want parsed ended receipt")
-		}
-		if rcpt.Status != "ended" {
-			t.Errorf("receipt status = %q, want ended", rcpt.Status)
-		}
-		if rcpt.Refund == nil || *rcpt.Refund != 2.5 {
-			t.Errorf("receipt refund = %+v, want 2.5", rcpt.Refund)
-		}
-		if rcpt.Pending {
-			t.Error("receipt pending = true, want false")
+		} else {
+			if rcpt.Status != "ended" {
+				t.Errorf("receipt status = %q, want ended", rcpt.Status)
+			}
+			if rcpt.Refund == nil || *rcpt.Refund != 2.5 {
+				t.Errorf("receipt refund = %+v, want 2.5", rcpt.Refund)
+			}
+			if rcpt.Pending {
+				t.Error("receipt pending = true, want false")
+			}
 		}
 	})
 
