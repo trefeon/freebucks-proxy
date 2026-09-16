@@ -31,6 +31,14 @@ import { getMCPToolData } from './mcp'
 import { getAgentStreamFromTemplate } from './prompt-agent-stream'
 import { isThinkOnlyResponse } from './util/think-tags'
 import {
+  TODO_LOOP_RECOVERY_MESSAGE,
+  TODO_LOOP_RECOVERY_TAG,
+  TODO_LOOP_RECOVERY_THRESHOLD,
+  TODO_LOOP_STOP_THRESHOLD,
+  TodoLoopError,
+  trailingIdenticalTodoCalls,
+} from './util/todo-loop'
+import {
   clearProgrammaticRunState,
   runProgrammaticStep,
 } from './run-programmatic-step'
@@ -556,6 +564,28 @@ export const runAgentStep = async (
   toolResults.push(...newToolResults)
 
   fullResponse = fullResponseAfterStream
+
+  // A successful no-op is not progress. GLM can keep emitting the same to-do
+  // list (even while acknowledging the loop in prose) until the general step
+  // budget is exhausted. Give it a chance to recover, then fail explicitly.
+  if (
+    !hadToolCallError &&
+    toolCalls.length > 0 &&
+    toolCalls.every((call) => call.toolName === 'write_todos')
+  ) {
+    const consecutive = trailingIdenticalTodoCalls(agentState.messageHistory)
+    if (consecutive >= TODO_LOOP_STOP_THRESHOLD) {
+      throw new TodoLoopError()
+    }
+    if (consecutive >= TODO_LOOP_RECOVERY_THRESHOLD) {
+      agentState.messageHistory.push(
+        userMessage({
+          content: withSystemTags(TODO_LOOP_RECOVERY_MESSAGE),
+          tags: [TODO_LOOP_RECOVERY_TAG],
+        }),
+      )
+    }
+  }
 
   agentState.messageHistory = expireMessages(
     agentState.messageHistory,
@@ -1092,12 +1122,12 @@ export async function loopAgentSteps(
 
       // Mechanical compaction: no model call, so it costs nothing but the
       // prompt-cache break that rewriting the history forces anyway. The
-      // budget is sized to the model in use (see contextPrunerBudgetForModel),
-      // which is the same budget base2 hands the context-pruner agent.
+      // budget is sized to the model in use, including fixed request overhead.
+      // Preserve the fresh tool exchange; only older history becomes a summary.
       //
-      // Fires once per turn at most: compaction stamps every surviving message
-      // with a fresh sentAt and drops the assistant messages that preceded the
-      // live prompt, so the cache gap it measured is gone on the next step.
+      // Cache expiry fires once per turn. Size-triggered compaction can fire
+      // again after any tool batch, so its output must fit without erasing the
+      // results the model has not had a chance to consume yet.
       if (agentTemplate.compactContext) {
         const compacted = maybeCompactHistory({
           // The option object is exactly the tunable subset, so it forwards
@@ -1107,6 +1137,12 @@ export async function loopAgentSteps(
             : {}),
           messages: currentAgentState.messageHistory,
           contextTokenCount: currentAgentState.contextTokenCount,
+          fixedTokenCount:
+            countTokens(system) +
+            countTokensJson(toolsForTokenCount) +
+            (stepPrompt
+              ? countTokensMessages([userMessage({ content: stepPrompt })])
+              : 0),
           maxContextLength:
             (typeof agentTemplate.compactContext === 'object'
               ? agentTemplate.compactContext.maxContextLength
@@ -1375,9 +1411,12 @@ export async function loopAgentSteps(
     const apiErrorDetails = extractApiErrorDetails(error)
     const isIdleTimeout = isFetchIdleTimeoutError(error)
     const isNetworkError = !isIdleTimeout && isTransientNetworkError(error)
+    const isTodoLoop = error instanceof TodoLoopError
     const hasServerMessage = apiErrorDetails.message !== undefined
     let fallbackMessage: string
-    if (isIdleTimeout) {
+    if (isTodoLoop) {
+      fallbackMessage = error.message
+    } else if (isIdleTimeout) {
       fallbackMessage = FETCH_IDLE_TIMEOUT_USER_MESSAGE
     } else if (isNetworkError) {
       fallbackMessage = TRANSIENT_NETWORK_ERROR_USER_MESSAGE
@@ -1416,7 +1455,7 @@ export async function loopAgentSteps(
       output: {
         type: 'error',
         message:
-          hasServerMessage || isIdleTimeout || isNetworkError
+          hasServerMessage || isIdleTimeout || isNetworkError || isTodoLoop
             ? errorMessage
             : 'Agent run error: ' + errorMessage,
         ...(statusCode !== undefined && { statusCode }),
