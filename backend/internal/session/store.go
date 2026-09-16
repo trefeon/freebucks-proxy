@@ -562,6 +562,18 @@ func cloneFreebucksInfo(fb *upstream.FreebucksInfo) *upstream.FreebucksInfo {
 	if len(fb.PriceChanges) > 0 {
 		out.PriceChanges = append([]upstream.FreebucksPriceChange(nil), fb.PriceChanges...)
 	}
+	if fb.FirstTabDiscount != nil {
+		d := *fb.FirstTabDiscount
+		if fb.FirstTabDiscount.Holder != nil {
+			h := *fb.FirstTabDiscount.Holder
+			if fb.FirstTabDiscount.Holder.InstanceID != nil {
+				id := *fb.FirstTabDiscount.Holder.InstanceID
+				h.InstanceID = &id
+			}
+			d.Holder = &h
+		}
+		out.FirstTabDiscount = &d
+	}
 	return &out
 }
 

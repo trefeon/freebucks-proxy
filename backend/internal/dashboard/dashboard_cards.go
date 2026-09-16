@@ -162,6 +162,9 @@ type freebucksWindowCard struct {
 	Remaining   float64 `json:"remaining"`
 	ResetAt     string  `json:"reset_at,omitempty"`
 	PercentUsed float64 `json:"percent_used"`
+	// ResetTimeZone is the IANA zone the pool refills in (vendor 6cd8970);
+	// empty on older servers, which refill at Pacific midnight.
+	ResetTimeZone string `json:"reset_time_zone,omitempty"`
 }
 
 // freebucksCard is the dashboard view of upstream.FreebucksInfo (issue #232,
@@ -184,6 +187,19 @@ type freebucksCard struct {
 	// QuotaExempt is the server-authorized quota exemption (wire drift
 	// 2026-09-05, issue #350): new sessions stay usable at zero balance.
 	QuotaExempt bool `json:"quota_exempt,omitempty"`
+	// FirstTabDiscount is the account-wide first-tab offer (vendor 6cd8970).
+	// Nil when the server sends none — the SPA renders no discount line
+	// rather than a zero that would read as an offer.
+	FirstTabDiscount *freebucksFirstTabCard `json:"first_tab_discount,omitempty"`
+}
+
+// freebucksFirstTabCard is the dashboard view of the first-tab offer:
+// amount off one session at a time while available, plus the holding
+// surface when the offer is currently in use by another session.
+type freebucksFirstTabCard struct {
+	Amount        float64 `json:"amount"`
+	Available     bool    `json:"available"`
+	HolderSurface string  `json:"holder_surface,omitempty"`
 }
 
 // freebucksWalletCard is the dashboard view of the never-expiring Freebucks

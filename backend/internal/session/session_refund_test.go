@@ -71,6 +71,26 @@ func TestStatusErrorTerminalRefusals(t *testing.T) {
 			t.Errorf("body = %q, want status code name", ue.Body)
 		}
 	})
+	t.Run("first_tab_discount_changed carries vendor copy", func(t *testing.T) {
+		st := &upstream.SessionState{Status: "first_tab_discount_changed", HTTPStatus: http.StatusConflict}
+		err := statusError("first_tab_discount_changed", st)
+		if err == nil {
+			t.Fatal("statusError = nil, want terminal refusal")
+		}
+		ue, ok := err.(*upstream.UpstreamError)
+		if !ok {
+			t.Fatalf("err type = %T, want *upstream.UpstreamError (no cooldown)", err)
+		}
+		if ue.Status != http.StatusConflict {
+			t.Errorf("status = %d, want 409", ue.Status)
+		}
+		if !strings.Contains(ue.Body, "first-tab discount") || !strings.Contains(ue.Body, "first_tab_discount_changed") {
+			t.Errorf("body = %q, want vendor copy plus code", ue.Body)
+		}
+		if ue.Retryable {
+			t.Error("Retryable = true, want terminal (CLI retry:null)")
+		}
+	})
 }
 
 // TestRefreshTerminalRefusals drives the new statuses end to end through
@@ -83,6 +103,7 @@ func TestRefreshTerminalRefusals(t *testing.T) {
 		want   string
 	}{
 		{"consent_required", `{"status":"consent_required","walletConsent":{"price":5,"walletSpend":2},"freebucks":null}`, "consent_required"},
+		{"first_tab_discount_changed", `{"status":"first_tab_discount_changed","accessTier":"full","freebucks":{"balance":10,"daily":{"limit":20,"spent":5,"remaining":15,"resetAt":"2030-01-01T00:00:00Z"},"prices":{"openai/gpt-5.6-luna":2}}}`, "first-tab discount"},
 		{"purchase_in_use", `{"status":"purchase_in_use","message":"hour in use elsewhere"}`, "hour in use"},
 		{"purchase_capacity", `{"status":"purchase_capacity"}`, "purchase_capacity"},
 		{"purchase_claim_released", `{"status":"purchase_claim_released","message":"claim released"}`, "claim released"},

@@ -11,6 +11,10 @@ type FreebucksWindow struct {
 	Spent     float64   `json:"spent"`
 	Remaining float64   `json:"remaining"`
 	ResetAt   time.Time `json:"resetAt"`
+	// ResetTimeZone is the IANA zone the daily pool refills in (vendor
+	// 6cd8970, FreebuffFreebucksWindow.resetTimeZone): the account's zone,
+	// no longer always Pacific. "" on older servers.
+	ResetTimeZone string `json:"resetTimeZone,omitempty"`
 }
 
 // FreebucksWallet is the never-expiring Freebucks store (issue #321 wire
@@ -63,6 +67,27 @@ type FreebucksUpgrade struct {
 	ModelID string `json:"modelId,omitempty"`
 }
 
+// FreebucksFirstTabDiscountHolder identifies the session holding the
+// account-wide first-tab offer (vendor 6cd8970): the offer re-arms when the
+// holding session ends. InstanceID is nil for a JSON null (unbound offer).
+// Display/quote state only — the proxy never matches holders.
+type FreebucksFirstTabDiscountHolder struct {
+	InstanceID *string `json:"instanceId"`
+	Surface    string  `json:"surface"`
+	ExpiresAt  string  `json:"expiresAt"`
+}
+
+// FreebucksFirstTabDiscount is the account-wide first-tab offer (vendor
+// 6cd8970, FreebuffFreebucksInfo.firstTabDiscount): Amount off one session
+// at a time while Available. The server already folds it into prices, so
+// this is display state, never a second subtraction. Pointer in
+// FreebucksInfo: absent on servers that predate it.
+type FreebucksFirstTabDiscount struct {
+	Amount    float64                          `json:"amount"`
+	Available bool                             `json:"available"`
+	Holder    *FreebucksFirstTabDiscountHolder `json:"holder,omitempty"`
+}
+
 // FreebucksInfo is the caller's Freebucks position (issue #232, shape
 // issue #321): spendable balance (= daily.remaining + wallet.balance) +
 // the daily pool + the never-expiring wallet + the USD spend ceiling +
@@ -96,6 +121,10 @@ type FreebucksInfo struct {
 	// Upgrade mirrors the upgrade nudge (vendor af898dc); nil when the
 	// server sends none.
 	Upgrade *FreebucksUpgrade `json:"upgrade,omitempty"`
+	// FirstTabDiscount mirrors the account-wide first-tab offer (vendor
+	// 6cd8970); nil when the server sends none. Display state only: the
+	// server already folds an available offer into prices.
+	FirstTabDiscount *FreebucksFirstTabDiscount `json:"firstTabDiscount,omitempty"`
 }
 
 // Spendable is the admission-time spendable amount: the server-computed
@@ -110,11 +139,23 @@ func (f *FreebucksInfo) Spendable() float64 {
 	return f.Balance + f.ClaimableGrant
 }
 
+// DiscountedSessionPrice mirrors discountedSessionPrice in
+// freebuff-price-changes.ts (vendor 6cd8970): the session price minus the
+// available first-tab amount, floored at zero.
+func DiscountedSessionPrice(price, discount float64) float64 {
+	if out := price - discount; out > 0 {
+		return out
+	}
+	return 0
+}
+
 // ApplyFreebucksPriceChanges applies the server's announced repricing
 // schedule to already-parsed info (mirrors applyFreebucksPriceChanges in
 // freebuff-price-changes.ts): due changes (at <= now) apply in chronological
 // order, reprice only models already on the meter, refresh their notice
 // copy, and are consumed; future changes are kept for the next call.
+// A due repricing lands discount-adjusted while the first-tab offer is
+// available (vendor 6cd8970).
 func ApplyFreebucksPriceChanges(fb *FreebucksInfo, now time.Time) {
 	if fb == nil || len(fb.PriceChanges) == 0 {
 		return
@@ -147,17 +188,22 @@ func ApplyFreebucksPriceChanges(fb *FreebucksInfo, now time.Time) {
 		if _, ok := fb.Prices[c.ModelID]; !ok {
 			continue
 		}
-		fb.Prices[c.ModelID] = c.Price
+		discount := 0.0
+		if fb.FirstTabDiscount != nil && fb.FirstTabDiscount.Available {
+			discount = fb.FirstTabDiscount.Amount
+		}
+		fb.Prices[c.ModelID] = DiscountedSessionPrice(c.Price, discount)
 		fb.PriceNotices[c.ModelID] = c.Tagline
 	}
 	fb.PriceChanges = pending
 }
 
 type rawFreebucksWindow struct {
-	Limit     float64 `json:"limit"`
-	Spent     float64 `json:"spent"`
-	Remaining float64 `json:"remaining"`
-	ResetAt   any     `json:"resetAt"`
+	Limit         float64 `json:"limit"`
+	Spent         float64 `json:"spent"`
+	Remaining     float64 `json:"remaining"`
+	ResetAt       any     `json:"resetAt"`
+	ResetTimeZone string  `json:"resetTimeZone"`
 }
 
 type rawFreebucksWallet struct {
@@ -177,6 +223,22 @@ type rawFreebucksMonthlyAllowance struct {
 	ResetAt      any     `json:"resetAt"`
 }
 
+// rawFreebucksFirstTabDiscountHolder mirrors the holder arm of
+// FreebuffFreebucksInfo.firstTabDiscount (vendor 6cd8970).
+type rawFreebucksFirstTabDiscountHolder struct {
+	InstanceID *string `json:"instanceId"`
+	Surface    string  `json:"surface"`
+	ExpiresAt  string  `json:"expiresAt"`
+}
+
+// rawFreebucksFirstTabDiscount mirrors
+// FreebuffFreebucksInfo.firstTabDiscount (vendor 6cd8970).
+type rawFreebucksFirstTabDiscount struct {
+	Amount    float64                             `json:"amount"`
+	Available bool                                `json:"available"`
+	Holder    *rawFreebucksFirstTabDiscountHolder `json:"holder"`
+}
+
 // rawFreebucksUpgrade mirrors FreebuffFreebucksUpgrade (vendor af898dc).
 type rawFreebucksUpgrade struct {
 	Kind    string `json:"kind"`
@@ -192,18 +254,19 @@ type rawFreebucksUpgrade struct {
 // the monthly allowance + the plan id + the quota exemption + per-model
 // price-notice copy + the announced repricing schedule.
 type rawFreebucks struct {
-	Balance        float64                       `json:"balance"`
-	ClaimableGrant float64                       `json:"claimableGrantFreebucks"`
-	Daily          rawFreebucksWindow            `json:"daily"`
-	Wallet         *rawFreebucksWallet           `json:"wallet"`
-	Spend          *rawFreebucksSpendCeiling     `json:"spend"`
-	Monthly        *rawFreebucksMonthlyAllowance `json:"monthly"`
-	PlanID         *string                       `json:"planId"`
-	QuotaExempt    *bool                         `json:"quotaExempt"`
-	Prices         map[string]float64            `json:"prices"`
-	PriceNotices   map[string]string             `json:"priceNotices"`
-	PriceChanges   []rawFreebucksPriceChange     `json:"priceChanges"`
-	Upgrade        *rawFreebucksUpgrade          `json:"upgrade"`
+	Balance          float64                       `json:"balance"`
+	ClaimableGrant   float64                       `json:"claimableGrantFreebucks"`
+	Daily            rawFreebucksWindow            `json:"daily"`
+	Wallet           *rawFreebucksWallet           `json:"wallet"`
+	Spend            *rawFreebucksSpendCeiling     `json:"spend"`
+	Monthly          *rawFreebucksMonthlyAllowance `json:"monthly"`
+	PlanID           *string                       `json:"planId"`
+	QuotaExempt      *bool                         `json:"quotaExempt"`
+	Prices           map[string]float64            `json:"prices"`
+	PriceNotices     map[string]string             `json:"priceNotices"`
+	PriceChanges     []rawFreebucksPriceChange     `json:"priceChanges"`
+	Upgrade          *rawFreebucksUpgrade          `json:"upgrade"`
+	FirstTabDiscount *rawFreebucksFirstTabDiscount `json:"firstTabDiscount"`
 }
 
 // rawFreebucksPriceChange mirrors FreebuffPriceChange (issue #350).
@@ -215,7 +278,7 @@ type rawFreebucksPriceChange struct {
 }
 
 func windowFromRaw(w rawFreebucksWindow) FreebucksWindow {
-	out := FreebucksWindow{Limit: w.Limit, Spent: w.Spent, Remaining: w.Remaining}
+	out := FreebucksWindow{Limit: w.Limit, Spent: w.Spent, Remaining: w.Remaining, ResetTimeZone: w.ResetTimeZone}
 	if t, err := parseFlexTime(w.ResetAt); err == nil {
 		out.ResetAt = t
 	}

@@ -555,3 +555,42 @@ func TestSortModelRowsByPrice(t *testing.T) {
 		t.Errorf("empty prices ordered %v, want display-name order", plain)
 	}
 }
+
+// TestCardFromSnapshotFirstTabDiscount pins the vendor 6cd8970 first-tab
+// discount card mapping: an available offer (amount + holder surface) and
+// the daily reset timezone ride the freebucks card, and a snapshot without
+// the block leaves both zero-valued (omitempty).
+func TestCardFromSnapshotFirstTabDiscount(t *testing.T) {
+	card := cardFromSnapshot(pool.TokenSnapshot{
+		Token: 0,
+		Freebucks: &upstream.FreebucksInfo{
+			Balance: 17.5,
+			Daily: upstream.FreebucksWindow{
+				Limit: 20, Spent: 5, Remaining: 15, ResetTimeZone: "America/New_York",
+			},
+			Prices: map[string]float64{"openai/gpt-5.6-luna": 2},
+			FirstTabDiscount: &upstream.FreebucksFirstTabDiscount{
+				Amount: 3, Available: true,
+				Holder: &upstream.FreebucksFirstTabDiscountHolder{Surface: "single"},
+			},
+		},
+	})
+	if card.Freebucks == nil {
+		t.Fatal("Freebucks card = nil, want mapped block")
+	}
+	if card.Freebucks.Daily.ResetTimeZone != "America/New_York" {
+		t.Errorf("Daily.ResetTimeZone = %q, want America/New_York", card.Freebucks.Daily.ResetTimeZone)
+	}
+	d := card.Freebucks.FirstTabDiscount
+	if d == nil {
+		t.Fatal("FirstTabDiscount card = nil, want mapped offer")
+	}
+	if d.Amount != 3 || !d.Available || d.HolderSurface != "single" {
+		t.Errorf("FirstTabDiscount card = %+v, want amount 3 available single", d)
+	}
+
+	bare := cardFromSnapshot(pool.TokenSnapshot{Token: 1})
+	if bare.Freebucks != nil {
+		t.Errorf("Freebucks card = %+v without a block, want nil", bare.Freebucks)
+	}
+}

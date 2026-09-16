@@ -177,3 +177,89 @@ func TestApplyFreebucksPriceChangesUnit(t *testing.T) {
 	empty := &FreebucksInfo{}
 	ApplyFreebucksPriceChanges(empty, now) // must not panic
 }
+
+// TestParseFreebucksFirstTabDiscount pins the vendor 6cd8970 first-tab
+// discount wire shape: the daily window carries its reset timezone and the
+// block carries the account-wide first-tab offer (amount, availability,
+// holder). Absent holder stays nil; absent block stays nil.
+func TestParseFreebucksFirstTabDiscount(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"active","instanceId":"inst-ftd","model":"openai/gpt-5.6-luna","expiresAt":"2030-01-01T00:00:00Z","freebucks":{"balance":17.5,"daily":{"limit":20,"spent":5,"remaining":15,"resetAt":"2026-09-01T07:00:00Z","resetTimeZone":"America/New_York"},"prices":{"openai/gpt-5.6-luna":2},"firstTabDiscount":{"amount":3,"available":true,"holder":{"instanceId":null,"surface":"single","expiresAt":"2030-01-01T00:00:00Z"}}}}`))
+	}
+
+	client, err := NewForAuth(testConfig(mock.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := client.ProbeAccount(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Freebucks == nil {
+		t.Fatal("Freebucks = nil, want parsed block")
+	}
+	fb := st.Freebucks
+	if fb.Daily.ResetTimeZone != "America/New_York" {
+		t.Errorf("Daily.ResetTimeZone = %q, want America/New_York", fb.Daily.ResetTimeZone)
+	}
+	if fb.FirstTabDiscount == nil {
+		t.Fatal("FirstTabDiscount = nil, want parsed offer")
+	}
+	d := fb.FirstTabDiscount
+	if d.Amount != 3 || !d.Available {
+		t.Errorf("FirstTabDiscount = %+v, want amount 3 available", d)
+	}
+	if d.Holder == nil || d.Holder.Surface != "single" {
+		t.Errorf("Holder = %+v, want single-surface holder", d.Holder)
+	}
+	if d.Holder.InstanceID != nil {
+		t.Errorf("Holder.InstanceID = %q, want nil (JSON null)", *d.Holder.InstanceID)
+	}
+}
+
+// TestApplyFreebucksPriceChangesFirstTabDiscount pins the vendor 6cd8970
+// price-changes parity: a due repricing lands discount-adjusted (price minus
+// the available first-tab amount, floored at zero), mirroring
+// discountedSessionPrice in freebuff-price-changes.ts. Without an available
+// discount the full scheduled price still applies.
+func TestApplyFreebucksPriceChangesFirstTabDiscount(t *testing.T) {
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	newFB := func() *FreebucksInfo {
+		return &FreebucksInfo{
+			Prices: map[string]float64{"m": 2},
+			PriceChanges: []FreebucksPriceChange{
+				{At: "2020-05-05T00:00:00Z", ModelID: "m", Price: 5, Tagline: "repriced"},
+			},
+			FirstTabDiscount: &FreebucksFirstTabDiscount{Amount: 3, Available: true},
+		}
+	}
+	fb := newFB()
+	ApplyFreebucksPriceChanges(fb, now)
+	if fb.Prices["m"] != 2 {
+		t.Errorf("Prices[m] = %v, want 2 (5 scheduled minus 3 discount)", fb.Prices["m"])
+	}
+	if fb.PriceNotices["m"] != "repriced" {
+		t.Errorf("PriceNotices[m] = %q, want repriced", fb.PriceNotices["m"])
+	}
+
+	fb = newFB()
+	fb.FirstTabDiscount.Available = false
+	ApplyFreebucksPriceChanges(fb, now)
+	if fb.Prices["m"] != 5 {
+		t.Errorf("Prices[m] = %v, want 5 (unavailable discount changes nothing)", fb.Prices["m"])
+	}
+
+	fb = newFB()
+	fb.FirstTabDiscount.Amount = 99
+	ApplyFreebucksPriceChanges(fb, now)
+	if fb.Prices["m"] != 0 {
+		t.Errorf("Prices[m] = %v, want 0 (discount floors at zero)", fb.Prices["m"])
+	}
+}

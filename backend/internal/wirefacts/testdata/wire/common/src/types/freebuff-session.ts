@@ -148,7 +148,7 @@ export interface FreebuffSubscriptionUsage {
  */
 /** The daily Freebucks pool, as the client should render it. */
 export interface FreebuffFreebucksWindow {
-  /** Freebucks granted for the Pacific day: the access tier's free pool, or
+  /** Freebucks granted for the account's day: the access tier's free pool, or
    *  the plan's daily pool for a subscriber (the plan REPLACES the free
    *  figure rather than stacking on it). */
   limit: number
@@ -158,6 +158,7 @@ export interface FreebuffFreebucksWindow {
   remaining: number
   /** ISO instant the pool refills. */
   resetAt: string
+  resetTimeZone?: string
 }
 
 /**
@@ -266,6 +267,16 @@ export interface FreebuffFreebucksInfo {
   planId: string | null
   /** Session price per model id. Only models on the meter appear here. */
   prices: Record<string, number>
+  /** Account-wide first-tab offer. Prices already include it when available. */
+  firstTabDiscount?: {
+    amount: number
+    available: boolean
+    holder?: {
+      instanceId: string | null
+      surface: 'desktop' | 'single'
+      expiresAt: string
+    }
+  }
   /** Copy resolved with the price, overriding the static model tagline.
    *  A client that renders `peak` as a badge should ignore the entry for a
    *  model in `peak.modelIds` — that entry is the same fact as prose, kept
@@ -453,6 +464,7 @@ export type FreebuffSessionRateLimitByModel = Record<
 
 /** Timing needed by multi-session clients to show the active session window. */
 export interface FreebuffActiveSessionInfo {
+  instanceId?: string
   model: string
   admittedAt: string
   expiresAt: string
@@ -751,6 +763,11 @@ export interface FreebuffWalletConsent {
 }
 
 export type FreebuffSessionAdmissionResponse = (
+  | {
+      status: 'first_tab_discount_changed'
+      accessTier?: FreebuffAccessTier
+      freebucks: FreebuffFreebucksInfo | null
+    }
   | {
       status: 'consent_required'
       accessTier?: FreebuffAccessTier
@@ -1102,8 +1119,11 @@ export interface FreebuffDesktopRefundInfo {
   /** Refunded bonus retired in the same settlement; absent on older APIs. */
   expiredBonusAmount?: number
   refundedAt: string
-  /** Original debit's accounting instant; identifies the daily pool restored. */
+  /** Original debit's accounting instant; legacy receipts use Pacific dates. */
   poolDate: string
+  /** Immutable pool opening date (YYYY-MM-DD) in its historical reset timezone.
+   * Absent for legacy Pacific debits and older APIs. */
+  poolLocalDate?: string
 }
 
 export interface FreebuffDesktopPurchaseInfo {

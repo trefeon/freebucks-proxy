@@ -1,5 +1,5 @@
 {
-  "upstream_sha": "b609d730c74b41740d82c1dd0ea1eaa04e86705f",
+  "upstream_sha": "6cd897087694d199aa6c9e8eacc679e824a4b030",
   "vendor_version": "0.0.175",
   "files": [
     {
@@ -28,11 +28,11 @@
     },
     {
       "path": "cli/src/components/freebuff-model-selector.tsx",
-      "sha256": "1c01bc7753a32214646cadc9ca63fda1befc6b80743b9e9cecb175a158ad2006"
+      "sha256": "f3e7f02148babfd420de484405872e3e70b1445a649e9810ffe04cb367edd06f"
     },
     {
       "path": "common/src/types/freebuff-session.ts",
-      "sha256": "740b97ca05cdc0063ee05cead86a8bf965f9dc5d79b3624875c644988267edc1"
+      "sha256": "e126b12ca89fb5046ee274a13f1e1f4636ce8e02b3aa4efdaf2cde7532a91f68"
     },
     {
       "path": "packages/agent-runtime/src/constants.ts",

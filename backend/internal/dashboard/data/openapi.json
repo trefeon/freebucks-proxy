@@ -1102,6 +1102,9 @@
                         "reset_at": {
                           "type": "string"
                         },
+                        "reset_time_zone": {
+                          "type": "string"
+                        },
                         "spent": {
                           "type": "number"
                         }
@@ -1111,6 +1114,25 @@
                         "percent_used",
                         "remaining",
                         "spent"
+                      ],
+                      "type": "object"
+                    },
+                    "first_tab_discount": {
+                      "nullable": true,
+                      "properties": {
+                        "amount": {
+                          "type": "number"
+                        },
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "holder_surface": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "available"
                       ],
                       "type": "object"
                     },
@@ -1127,6 +1149,9 @@
                           "type": "number"
                         },
                         "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_time_zone": {
                           "type": "string"
                         },
                         "spent": {
@@ -1329,6 +1354,9 @@
                         "reset_at": {
                           "type": "string"
                         },
+                        "reset_time_zone": {
+                          "type": "string"
+                        },
                         "spent": {
                           "type": "number"
                         }
@@ -1338,6 +1366,25 @@
                         "percent_used",
                         "remaining",
                         "spent"
+                      ],
+                      "type": "object"
+                    },
+                    "first_tab_discount": {
+                      "nullable": true,
+                      "properties": {
+                        "amount": {
+                          "type": "number"
+                        },
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "holder_surface": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "available"
                       ],
                       "type": "object"
                     },
@@ -1354,6 +1401,9 @@
                           "type": "number"
                         },
                         "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_time_zone": {
                           "type": "string"
                         },
                         "spent": {
@@ -1890,6 +1940,9 @@
                         "reset_at": {
                           "type": "string"
                         },
+                        "reset_time_zone": {
+                          "type": "string"
+                        },
                         "spent": {
                           "type": "number"
                         }
@@ -1899,6 +1952,25 @@
                         "percent_used",
                         "remaining",
                         "spent"
+                      ],
+                      "type": "object"
+                    },
+                    "first_tab_discount": {
+                      "nullable": true,
+                      "properties": {
+                        "amount": {
+                          "type": "number"
+                        },
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "holder_surface": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "available"
                       ],
                       "type": "object"
                     },
@@ -1915,6 +1987,9 @@
                           "type": "number"
                         },
                         "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_time_zone": {
                           "type": "string"
                         },
                         "spent": {

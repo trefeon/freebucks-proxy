@@ -181,12 +181,14 @@ func parseGenericToolNames(src []byte, commit string) ([]string, error) {
 // flow admission shapes (78a7ab4); they ride the default TokenOK path at
 // runtime, never a WireCode. consent_required (af898dc) is the 409
 // wallet-consent admission shape, handled from the parsed session status.
+// first_tab_discount_changed (6cd8970) is the 409 first-tab re-quote,
+// handled the same way.
 var pinnedSessionStatuses = []string{
 	"none", "active", "ended", "country_blocked", "model_locked",
 	"model_unavailable", "banned", "ip_capped", "rate_limited",
 	"spend_limited", "premium_slot_taken", "superseded",
 	"purchase_claim_released", "purchase_in_use", "purchase_capacity",
-	"consent_required",
+	"consent_required", "first_tab_discount_changed",
 }
 
 // verifySessionStatuses checks the status envelope; it emits nothing and

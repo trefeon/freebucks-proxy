@@ -283,6 +283,21 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 			if raw.Freebucks.QuotaExempt != nil {
 				fb.QuotaExempt = *raw.Freebucks.QuotaExempt
 			}
+			if raw.Freebucks.FirstTabDiscount != nil {
+				rd := raw.Freebucks.FirstTabDiscount
+				d := &FreebucksFirstTabDiscount{Amount: rd.Amount, Available: rd.Available}
+				if rd.Holder != nil {
+					d.Holder = &FreebucksFirstTabDiscountHolder{
+						Surface:   rd.Holder.Surface,
+						ExpiresAt: rd.Holder.ExpiresAt,
+					}
+					if rd.Holder.InstanceID != nil {
+						id := *rd.Holder.InstanceID
+						d.Holder.InstanceID = &id
+					}
+				}
+				fb.FirstTabDiscount = d
+			}
 			for _, c := range raw.Freebucks.PriceChanges {
 				fb.PriceChanges = append(fb.PriceChanges, FreebucksPriceChange(c))
 			}

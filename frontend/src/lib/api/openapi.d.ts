@@ -1285,13 +1285,20 @@ export interface components {
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_time_zone?: string;
             spent: number;
           };
+          first_tab_discount?: {
+            amount: number;
+            available: boolean;
+            holder_surface?: string;
+          } | null;
           monthly?: {
             limit: number;
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_time_zone?: string;
             spent: number;
           } | null;
           plan_id?: string;
@@ -1349,13 +1356,20 @@ export interface components {
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_time_zone?: string;
             spent: number;
           };
+          first_tab_discount?: {
+            amount: number;
+            available: boolean;
+            holder_surface?: string;
+          } | null;
           monthly?: {
             limit: number;
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_time_zone?: string;
             spent: number;
           } | null;
           plan_id?: string;
@@ -1495,13 +1509,20 @@ export interface components {
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_time_zone?: string;
             spent: number;
           };
+          first_tab_discount?: {
+            amount: number;
+            available: boolean;
+            holder_surface?: string;
+          } | null;
           monthly?: {
             limit: number;
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_time_zone?: string;
             spent: number;
           } | null;
           plan_id?: string;

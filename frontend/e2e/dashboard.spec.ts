@@ -349,6 +349,67 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByTestId("reset-strip")).toContainText("resets in");
   });
 
+  test("Accounts row renders the first-tab discount line when offered", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    // Vendor 6cd8970 first-tab offer: an available offer renders the
+    // discount line with the amount; accounts without the block render
+    // no line.
+    const discountTokens = JSON.parse(JSON.stringify(f.tokens));
+    discountTokens.tokens[0].freebucks = {
+      balance: 50,
+      daily: {
+        remaining: 30,
+        limit: 75,
+        reset_at: "2030-01-01T00:00:00Z",
+        reset_time_zone: "America/New_York",
+      },
+      wallet: { balance: 20 },
+      prices: {},
+      first_tab_discount: { amount: 3, available: true },
+    };
+    await mockDashboard(page, f, { tokens: discountTokens });
+
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await page.getByRole("button", { name: "Accounts" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Account #1" }),
+    ).toBeVisible();
+    const line = page.getByTestId("first-tab-discount").first();
+    await expect(line).toContainText("First-tab discount");
+    await expect(line).toContainText("up to 3 Freebucks off one session");
+    await expect(line).toContainText("prices shown include it");
+  });
+
+  test("Accounts row renders the in-use copy while another session holds the offer", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    const heldTokens = JSON.parse(JSON.stringify(f.tokens));
+    heldTokens.tokens[0].freebucks = {
+      balance: 50,
+      daily: { remaining: 30, limit: 75, reset_at: "2030-01-01T00:00:00Z" },
+      wallet: { balance: 20 },
+      prices: {},
+      first_tab_discount: {
+        amount: 3,
+        available: false,
+        holder_surface: "desktop",
+      },
+    };
+    await mockDashboard(page, f, { tokens: heldTokens });
+
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await page.getByRole("button", { name: "Accounts" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Account #1" }),
+    ).toBeVisible();
+    const line = page.getByTestId("first-tab-discount").first();
+    await expect(line).toContainText("First-tab discount in use");
+    await expect(line).toContainText("parallel sessions pay the regular price");
+  });
+
   test("Accounts row renders the tier prefix and pending-refund line", async ({
     page,
   }) => {

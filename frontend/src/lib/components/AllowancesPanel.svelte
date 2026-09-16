@@ -119,6 +119,16 @@
     }
     return parts.join(" · ");
   }
+  // First-tab offer line (vendor 6cd8970 firstTabDiscountCopy, condensed
+  // for the account card): the server already folds an available offer
+  // into prices, so this is display state only.
+  function discountLine(d) {
+    if (d == null) return "";
+    if (d.available) {
+      return `${$tr("First-tab discount")}: ${$tr("up to {amount} off one session", { amount: `${formatFreebucks(d.amount)} Freebucks` })} · ${$tr("prices shown include it")}`;
+    }
+    return `${$tr("First-tab discount in use")} · ${$tr("parallel sessions pay the regular price")}`;
+  }
 
   function quotaExempt(token) {
     return Boolean(
@@ -243,6 +253,14 @@
               <span class="text-[var(--fp-accent)]"
                 >{formatFreebucks(balance)}</span
               >
+            </p>
+          {/if}
+          {#if token.freebucks?.first_tab_discount}
+            <p
+              class="fp-num text-[11px] text-[var(--fp-muted)] tabular-nums"
+              data-testid="first-tab-discount"
+            >
+              {discountLine(token.freebucks.first_tab_discount)}
             </p>
           {/if}
           {#if daily}

@@ -121,6 +121,21 @@ func statusError(status string, st *upstream.SessionState) error {
 			msg = "upstream purchase flow blocked admission (" + status + ")"
 		}
 		return &upstream.UpstreamError{Status: code, Body: msg}
+	case "first_tab_discount_changed":
+		// First-tab discount re-quote (vendor 6cd8970): the account-wide
+		// offer moved mid-admission, so the quoted price is stale and no
+		// Freebucks were charged. Terminal for the request — the CLI drops
+		// to the picker with retry:null (use-freebuff-session.ts
+		// nextDelayMs) showing FIRST_TAB_DISCOUNT_CHANGED_MESSAGE — so
+		// surface that copy with no cooldown and no retry.
+		code := st.HTTPStatus
+		if code == 0 {
+			code = http.StatusConflict
+		}
+		return &upstream.UpstreamError{
+			Status: code,
+			Body:   "Your first-tab discount changed. Review the model menu and choose again. No Freebucks were charged. (first_tab_discount_changed)",
+		}
 	}
 	return nil
 }
