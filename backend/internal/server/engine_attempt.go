@@ -288,6 +288,27 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 			if attempts > 1 {
 				return nil, nil, err
 			}
+		case errors.Is(err, upstream.ErrWaitingRoom):
+			// waiting_room_queued (endsTheSession:false — transient admit race,
+			// the row was caught mid-admit; upstream/freebuff freebuff-session.ts
+			// FREEBUFF_GATE_CODES). PARK: the cached session is fine, so release
+			// the lease with NO invalidation and NO cooldown; the single
+			// re-acquire (fresh lease, same slot) rides out the race instead of
+			// dropping it. attempts > 1 surfaces for writeError's 503.
+			release()
+			if attempts > 1 {
+				return nil, nil, err
+			}
+		case errors.Is(err, upstream.ErrSessionLimitReached):
+			// 409 session_limit_reached (endsTheSession:false — the ACCOUNT is
+			// over its concurrent-tab budget but this session's row is fine).
+			// PARK: never refresh/recreate the session, no cooldown; the single
+			// re-acquire may land a token whose account still has budget.
+			// attempts > 1 surfaces for writeError's 409.
+			release()
+			if attempts > 1 {
+				return nil, nil, err
+			}
 		case errors.Is(err, upstream.ErrSessionSuperseded):
 			// #159: 409 session_superseded — another instance took over
 			// the account; this session's row is GONE (endsTheSession:true
@@ -333,6 +354,11 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 			release()
 			return nil, nil, err
 		case errors.Is(err, upstream.ErrRateLimited):
+			// Turn-time 429 split (never collapse all 429s): free_mode_rate_limited
+			// carries a countdown → park with cooldown plus the failover retry
+			// below. turn_spend_limit is classified separately (ErrTurnSpendLimited,
+			// handled above: breaker, keep session, no retry) and must never land
+			// here — classifyError matches the literal status-agnostically.
 			var rle *upstream.RateLimitError
 			if errors.As(err, &rle) {
 				backend.CooldownRateLimit(lease, rle)
