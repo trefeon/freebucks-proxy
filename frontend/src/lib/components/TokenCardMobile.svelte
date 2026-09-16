@@ -108,39 +108,41 @@
       ? 'border-[var(--fp-accent)] ring-2 ring-[var(--fp-accent)] bg-[var(--fp-accent)]/5'
       : ''}"
 >
-  <!-- Header: identity, status cluster and email share one wrap row;
-       reorder chevrons sit right. The whole card is the drag handle. -->
+  <!-- Header: identity + status share one wrap row; the email is capped
+       tight (120px) so a long address never stretches the card. -->
   <div class="flex items-center justify-between gap-2">
-    <div class="min-w-0 flex items-center gap-1.5 flex-wrap">
-      <span class="fp-num text-xs font-semibold text-[var(--fp-text)]"
-        >Account #{idx + 1}</span
-      >
-      <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
-      {#if token.session_status === "active" && sessionRemaining > 0}
-        <span
-          class="fp-num text-[11px] text-[var(--fp-accent)] whitespace-nowrap"
-          aria-label={`Session time remaining: ${sessionCountdownLabel(sessionRemaining)}`}
+    <div class="min-w-0 flex-1 flex flex-col gap-0.5">
+      <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
+        <span class="fp-num text-xs font-semibold text-[var(--fp-text)]"
+          >Account #{idx + 1}</span
         >
-          {sessionCountdownLabel(sessionRemaining)}
+        <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
+        {#if token.session_status === "active" && sessionRemaining > 0}
+          <span
+            class="fp-num text-[11px] text-[var(--fp-accent)] whitespace-nowrap"
+            aria-label={`Session time remaining: ${sessionCountdownLabel(sessionRemaining)}`}
+          >
+            {sessionCountdownLabel(sessionRemaining)}
+          </span>
+        {/if}
+        <span
+          class="inline-flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0 {streak.active
+            ? 'text-[var(--fp-accent)]'
+            : 'text-[var(--fp-dim)]'}"
+          aria-label={streak.aria}
+        >
+          <Flame size={11} aria-hidden="true" />
+          {streak.label}
         </span>
-      {/if}
+      </div>
       {#if token.email || token.account_id}
         <span
-          class="text-[11px] text-[var(--fp-muted)] truncate max-w-[160px]"
+          class="text-[11px] text-[var(--fp-muted)] truncate max-w-[120px]"
           title={token.email || token.account_id}
         >
           {token.email || token.account_id}
         </span>
       {/if}
-      <span
-        class="inline-flex items-center gap-1 text-[11px] {streak.active
-          ? 'text-[var(--fp-accent)]'
-          : 'text-[var(--fp-dim)]'}"
-        aria-label={streak.aria}
-      >
-        <Flame size={11} aria-hidden="true" />
-        {streak.label}
-      </span>
     </div>
     <div class="flex items-center gap-1 shrink-0">
       {#if totalTokens > 1}

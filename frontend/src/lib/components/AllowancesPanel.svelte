@@ -212,7 +212,10 @@
       {resetCountdown} · {$tr("shared for all accounts")}
     </p>
   {/if}
-  <ul class="flex flex-col gap-2.5" aria-label={$tr("Accounts")}>
+  <ul
+    class="grid grid-cols-1 lg:grid-cols-2 gap-2.5"
+    aria-label={$tr("Accounts")}
+  >
     {#each data.tokens as token, ti (token.index ?? ti)}
       {@const idx = token.index ?? ti}
       {@const daily = dailyWin(token)}
