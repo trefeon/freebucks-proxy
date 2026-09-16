@@ -255,7 +255,7 @@
           <span>{$tr("Lock")}</span>
         </Button>
       {/if}
-      {#if token.session_remaining_seconds > 0 && token.session_model}
+      {#if token.session_status === "active" && token.session_instance && token.session_remaining_seconds > 0 && token.session_model}
         <Button
           variant="danger"
           size="sm"

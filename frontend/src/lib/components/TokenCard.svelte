@@ -204,7 +204,7 @@
         {#if token.session_model}
           <StatusBadge tone="info" status={token.session_model} />
         {/if}
-        {#if token.session_remaining_seconds > 0 && token.session_model}
+        {#if token.session_status === "active" && token.session_instance && token.session_remaining_seconds > 0 && token.session_model}
           <Button
             variant="danger"
             size="sm"

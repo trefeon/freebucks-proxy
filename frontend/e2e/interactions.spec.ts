@@ -213,6 +213,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     const state = {
       tokens: [
         tokenRow(0, {
+          session_status: "active",
           session_instance: "inst-live-1",
           session_model: "openai/gpt-5.6-luna",
           session_remaining_seconds: 1800,
