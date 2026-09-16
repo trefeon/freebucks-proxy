@@ -72,6 +72,13 @@ type Lease struct {
 	// (ROUTING_SMART off), when the cap is unlimited, or for synthetic
 	// leases.
 	routeSlot *routeSlotPermit
+	// QueueWait is how long this lease's request sat parked in the
+	// account's FIFO live-turn queue before the slot was granted (zero
+	// when it never parked, or when the slot was free immediately). It is
+	// the value the pool also records as the request's queue_wait_ms
+	// phase; callers log it so an operator can tell a queued admission
+	// from a slow one.
+	QueueWait time.Duration
 	// AcquiredAt is when this lease was handed out (per acquire attempt,
 	// not per run — a chat retry re-acquires and gets a fresh timestamp).
 	// The chat success path uses it to clear unfit marks that PREDATE this
@@ -101,6 +108,17 @@ type TokenSnapshot struct {
 	ActiveRuns       int
 	Requests         int
 	Messages24h      int // successful chats in the last 24h (dashboard display; upstream quota/429 is the enforcement)
+	// LiveTurns is how many chat turns currently hold this account's
+	// smart-routing live-turn slot (TOKEN_MAX_CONCURRENT, route_smart.go);
+	// QueuedWaiters is how many requests are parked on its FIFO live-turn
+	// queue, and OldestWaiterMS is how long the longest-parked waiter has
+	// been waiting (0 when none). Together they are the "this account is
+	// saturated" signal — a request waiting with live turns at the cap is
+	// queued, not slow. Zero on the legacy path (ROUTING_SMART off) or
+	// when the cap is unlimited (no counter, no queue).
+	LiveTurns      int   `json:"live_turns"`
+	QueuedWaiters  int   `json:"queued_waiters"`
+	OldestWaiterMS int64 `json:"oldest_waiter_ms"`
 	// RequestsPerDay is the per-token successful-chat count in the current
 	// Pacific day, rolling at Pacific midnight. Read by the dashboard
 	// per-day display and the maturity client-active skip.

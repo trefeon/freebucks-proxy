@@ -2,8 +2,10 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -194,37 +196,103 @@ func TestCatalogSecretFlags(t *testing.T) {
 	}
 }
 
-// TestConfigMetaFixtureParity asserts that the frontend e2e mock fixture
-// frontend/e2e/fixtures/config-meta.json stays byte-exact in sync with
-// Catalog(). Run with FP_REGEN_FIXTURE=1 to regenerate the fixture.
+// configMetaFixtures are the frontend e2e mock packs that must each carry
+// Catalog() exactly: the shared dashboard pack and the real-world pack
+// (realworld.spec.ts / flows.spec.ts). A pack that drifts from the catalog
+// renders dead rows the backend cannot apply and hides live knobs, while the
+// spec consuming it stays green — which is why every pack is pinned here.
+var configMetaFixtures = []struct{ name, path string }{
+	{"fixtures", filepath.Join("..", "..", "..", "frontend", "e2e", "fixtures", "config-meta.json")},
+	{"fixtures-realworld", filepath.Join("..", "..", "..", "frontend", "e2e", "fixtures-realworld", "config-meta.json")},
+}
+
+// TestConfigMetaFixtureParity asserts that every frontend e2e mock fixture in
+// configMetaFixtures decodes to exactly Catalog(). Run with FP_REGEN_FIXTURE=1
+// to regenerate the fixtures (writes the canonical Go-marshaled JSON; the
+// real-world pack is prettier-formatted, so follow it with `npm run format`).
+//
+// Packs are compared by decoded value rather than byte-for-byte: a JSON
+// formatter may reflow them (frontend/.prettierignore covers e2e/fixtures/
+// only), and whitespace drift says nothing about whether the rows the
+// dashboard renders still exist in the backend.
 func TestConfigMetaFixtureParity(t *testing.T) {
-	data, err := json.MarshalIndent(Catalog(), "", "  ")
+	catalog := Catalog()
+	data, err := json.MarshalIndent(catalog, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	data = append(data, '\n')
-	fixturePath := filepath.Join("..", "..", "..", "frontend", "e2e", "fixtures", "config-meta.json")
 
-	if os.Getenv("FP_REGEN_FIXTURE") != "" {
-		if err := os.WriteFile(fixturePath, data, 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		t.Logf("regenerated %s", fixturePath)
-		return
-	}
+	for _, fixture := range configMetaFixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			if os.Getenv("FP_REGEN_FIXTURE") != "" {
+				if err := os.WriteFile(fixture.path, data, 0o644); err != nil {
+					t.Fatalf("write fixture: %v", err)
+				}
+				t.Logf("regenerated %s", fixture.path)
+				return
+			}
 
-	existing, err := os.ReadFile(fixturePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			t.Skip("fixture does not exist; skipping parity check")
+			raw, err := os.ReadFile(fixture.path)
+			if err != nil {
+				if os.IsNotExist(err) {
+					t.Skip("fixture does not exist; skipping parity check")
+				}
+				t.Fatal(err)
+			}
+			var got []KeyDef
+			dec := json.NewDecoder(strings.NewReader(string(raw)))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&got); err != nil {
+				t.Fatalf("fixture %s does not decode as a config catalog: %v", fixture.path, err)
+			}
+			if diff := catalogFixtureDiff(catalog, got); diff != "" {
+				t.Errorf("frontend e2e fixture %s is out of date with Catalog():\n%s\nre-run with FP_REGEN_FIXTURE=1 (then `npm run format`) to regenerate", fixture.path, diff)
+			}
+		})
+	}
+}
+
+// catalogFixtureDiff describes how a decoded fixture diverges from the
+// catalog: keys the catalog dropped but the fixture still renders, live keys
+// the fixture cannot render, order drift, and per-key field drift. It returns
+// "" when the two are equal.
+func catalogFixtureDiff(want, got []KeyDef) string {
+	var b strings.Builder
+	wantAt := make(map[string]int, len(want))
+	gotAt := make(map[string]int, len(got))
+	for i, def := range want {
+		wantAt[def.Key] = i
+	}
+	for i, def := range got {
+		gotAt[def.Key] = i
+	}
+	for _, def := range want {
+		if _, ok := gotAt[def.Key]; !ok {
+			fmt.Fprintf(&b, "  missing key %s\n", def.Key)
 		}
-		t.Fatal(err)
 	}
-	normExisting := strings.ReplaceAll(string(existing), "\r\n", "\n")
-	normData := string(data)
-	if normExisting != normData {
-		t.Errorf("frontend e2e fixture %s is out of date with Catalog(); re-run with FP_REGEN_FIXTURE=1 to regenerate", fixturePath)
+	for _, def := range got {
+		if _, ok := wantAt[def.Key]; !ok {
+			fmt.Fprintf(&b, "  dead key %s\n", def.Key)
+		}
 	}
+	for i, def := range want {
+		j, ok := gotAt[def.Key]
+		if !ok {
+			continue
+		}
+		if i != j {
+			fmt.Fprintf(&b, "  key %s is at index %d, want %d\n", def.Key, j, i)
+		}
+		if reflect.DeepEqual(def, got[j]) {
+			continue
+		}
+		wantJSON, _ := json.Marshal(def)
+		gotJSON, _ := json.Marshal(got[j])
+		fmt.Fprintf(&b, "  key %s differs:\n    want %s\n    got  %s\n", def.Key, wantJSON, gotJSON)
+	}
+	return b.String()
 }
 
 func contains(list []string, s string) bool {

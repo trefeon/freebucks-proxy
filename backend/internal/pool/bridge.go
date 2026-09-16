@@ -156,17 +156,28 @@ func (p *Pool) AcquireBridge(ctx context.Context, clientToken, model string) (*L
 	// Skipped entirely when ROUTING_SMART is off: bridge then keeps its
 	// per-entry single-flight as the only pacing.
 	var routeSlot *routeSlotPermit
+	// queueWait is this attempt's park duration: set only when the request
+	// actually parked AND the slot was granted (a timed-out or cancelled
+	// waiter held no slot and reports nothing).
+	var queueWait time.Duration
 	if cfg.RoutingSmart {
 		// TOKEN_MAX_CONCURRENT=0 skips slot gating entirely: no counter,
 		// no queue — the upstream quota/429 is the brake.
 		if slotCap, slotDepth, slotWait := routeSlotParams(cfg); slotCap > 0 {
-			permit, _, slotErr := p.routeSlotAcquire(ctx, entry, 0, slotCap, slotDepth, slotWait)
+			parkStart := time.Now()
+			permit, parked, slotErr := p.routeSlotAcquire(ctx, entry, 0, slotCap, slotDepth, slotWait)
 			if slotErr != nil {
 				if routeIsQueueExhausted(slotErr) {
 					p.logger.Debug("pool: bridge live-turn queue exhausted", "token", bridgeTokenLabel(entry), "err", slotErr)
 					return nil, routeQueueRateLimit(slotErr.(*routeQueueExhaustedError), model, slotCap, p.routeSlotLive(entry))
 				}
 				return nil, slotErr
+			}
+			// Queue-wait telemetry: the park rides the request's phase
+			// accumulator and the lease (see acquire_route.go).
+			if parked {
+				queueWait = time.Since(parkStart)
+				phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, parkStart)
 			}
 			routeSlot = permit
 		}
@@ -392,8 +403,14 @@ sessionReady:
 		entry.runs.Release(run)
 		return nil, fmt.Errorf("bridge: entry evicted during admission; retry the request")
 	}
-	p.logger.Debug("pool: bridge lease acquired", "model", effectiveModel, "agent", effectiveAgentID, "instance_id", ss.InstanceID,
-		"country", ss.CountryCode)
+	bridgeLeaseAttrs := []any{"model", effectiveModel, "agent", effectiveAgentID, "instance_id", ss.InstanceID,
+		"country", ss.CountryCode}
+	if queueWait > 0 {
+		// Queue-wait telemetry: a granted park used to be invisible (only
+		// the timeout/exhausted path logged anything).
+		bridgeLeaseAttrs = append(bridgeLeaseAttrs, "queue_wait_ms", queueWait.Milliseconds(), "queue_parked", true)
+	}
+	p.logger.Debug("pool: bridge lease acquired", bridgeLeaseAttrs...)
 	// Track the activity and end any idle-maintenance pause, mirroring
 	// Acquire: without this, IDLE_ROTATION_TIMEOUT was dead config in
 	// bridge mode — lastActive stayed zero forever, so the pool never
@@ -406,7 +423,7 @@ sessionReady:
 	p.lastActiveMu.Unlock()
 	slotLeased = true // the lease owns the slot now; the defer must not release it
 	return &Lease{Token: -1, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: ss.InstanceID,
-		Bridge: entry, routeSlot: routeSlot, AcquiredAt: time.Now()}, nil
+		Bridge: entry, routeSlot: routeSlot, QueueWait: queueWait, AcquiredAt: time.Now()}, nil
 }
 
 // ProbeNewToken validates a NOT-yet-added token against upstream with a

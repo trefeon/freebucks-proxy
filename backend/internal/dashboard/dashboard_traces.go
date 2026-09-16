@@ -154,6 +154,7 @@ var phaseNames = map[string]bool{
 	phasetiming.AcquireMS:        true,
 	phasetiming.SessionRefreshMS: true,
 	phasetiming.RunAcquireMS:     true,
+	phasetiming.QueueWaitMS:      true,
 	phasetiming.UpstreamTTFBMS:   true,
 	phasetiming.TotalMS:          true,
 }
