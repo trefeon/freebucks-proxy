@@ -246,7 +246,7 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 	// HTTP2_UPSTREAM=false restores the previous h1-only behavior.
 	if c.http2Upstream {
 		if stealthProf != nil {
-			h2t := &http2.Transport{
+			h2t := &http2.Transport{ //lint:ignore SA1019 stdlib http.Transport cannot dispatch HTTP/2 over *utls.UConn; custom h2t dials with the same utls dialer (see block comment above)
 				DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 					return stealth.Dialer(c.dialProfileFor(ctx), baseDial, false, h2ALPN())(ctx, network, addr)
 				},
