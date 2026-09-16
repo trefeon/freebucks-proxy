@@ -812,6 +812,103 @@
         ],
         "type": "object"
       },
+      "logsExportDoc": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "exported_at": {
+            "type": "integer"
+          },
+          "log_entries": {
+            "items": {
+              "properties": {
+                "fields": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "integer"
+                },
+                "level": {
+                  "type": "string"
+                },
+                "msg": {
+                  "type": "string"
+                },
+                "req_id": {
+                  "type": "string"
+                },
+                "ts": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fields",
+                "id",
+                "level",
+                "msg",
+                "req_id",
+                "ts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "request_records": {
+            "items": {
+              "properties": {
+                "endpoint": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "req_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "token_idx": {
+                  "type": "integer"
+                },
+                "ts": {
+                  "type": "integer"
+                },
+                "ttfb_ms": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "endpoint",
+                "error",
+                "model",
+                "req_id",
+                "status",
+                "token_idx",
+                "ts",
+                "ttfb_ms"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "exported_at",
+          "log_entries",
+          "request_records",
+          "version"
+        ],
+        "type": "object"
+      },
       "logsHistoryData": {
         "properties": {
           "enabled": {
@@ -850,6 +947,184 @@
         "required": [
           "enabled",
           "entries"
+        ],
+        "type": "object"
+      },
+      "logsImportReport": {
+        "properties": {
+          "imported": {
+            "type": "integer"
+          },
+          "rejected": {
+            "type": "integer"
+          },
+          "skipped_duplicate": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "imported",
+          "rejected",
+          "skipped_duplicate"
+        ],
+        "type": "object"
+      },
+      "logsRollupData": {
+        "properties": {
+          "bucket_ms": {
+            "type": "integer"
+          },
+          "buckets": {
+            "items": {
+              "properties": {
+                "errors": {
+                  "type": "integer"
+                },
+                "ok": {
+                  "type": "integer"
+                },
+                "total": {
+                  "type": "integer"
+                },
+                "ts": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "errors",
+                "ok",
+                "total",
+                "ts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "by_error": {
+            "items": {
+              "properties": {
+                "errors": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "errors",
+                "name",
+                "total"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "by_model": {
+            "items": {
+              "properties": {
+                "errors": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "errors",
+                "name",
+                "total"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "by_token": {
+            "items": {
+              "properties": {
+                "errors": {
+                  "type": "integer"
+                },
+                "token_idx": {
+                  "type": "integer"
+                },
+                "total": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "errors",
+                "token_idx",
+                "total"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "error_rate": {
+            "type": "number"
+          },
+          "errors": {
+            "type": "integer"
+          },
+          "ok": {
+            "type": "integer"
+          },
+          "since": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "ttfb": {
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "p50": {
+                "type": "integer"
+              },
+              "p90": {
+                "type": "integer"
+              },
+              "p99": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "p50",
+              "p90",
+              "p99"
+            ],
+            "type": "object"
+          },
+          "until": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket_ms",
+          "buckets",
+          "by_error",
+          "by_model",
+          "by_token",
+          "enabled",
+          "error_rate",
+          "errors",
+          "ok",
+          "since",
+          "total",
+          "ttfb",
+          "until"
         ],
         "type": "object"
       },
@@ -3144,6 +3419,52 @@
         ]
       }
     },
+    "/admin/api/logs/export": {
+      "get": {
+        "operationId": "exportLogs",
+        "parameters": [
+          {
+            "description": "Unix-millis lower bound (default 0, clamped to 168h)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix-millis upper bound (default now)",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/logsExportDoc"
+                }
+              }
+            },
+            "description": "Streamed versioned export of request_records plus log_entries"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Streamed versioned export of request_records plus log_entries",
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/admin/api/logs/history": {
       "get": {
         "operationId": "getLogsHistory",
@@ -3221,6 +3542,87 @@
           }
         ],
         "summary": "Persisted log records",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/admin/api/logs/import": {
+      "post": {
+        "operationId": "importLogs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/logsImportReport"
+                }
+              }
+            },
+            "description": "Gap-fill restore of an export document (INSERT OR IGNORE, 64MB cap)"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Gap-fill restore of an export document (INSERT OR IGNORE, 64MB cap)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/admin/api/logs/rollup": {
+      "get": {
+        "operationId": "getLogsRollup",
+        "parameters": [
+          {
+            "description": "Unix-millis lower bound (default 0, clamped to 168h)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix-millis upper bound (default now)",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time-bucket width in millis (default 300000)",
+            "in": "query",
+            "name": "bucket_ms",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/logsRollupData"
+                }
+              }
+            },
+            "description": "Request-outcome rollup: counts, group-bys, error rate, TTFB percentiles, time buckets"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Request-outcome rollup: counts, group-bys, error rate, TTFB percentiles, time buckets",
         "tags": [
           "views"
         ]

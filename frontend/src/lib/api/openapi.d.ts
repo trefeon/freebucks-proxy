@@ -140,6 +140,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/admin/api/logs/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Streamed versioned export of request_records plus log_entries */
+    get: operations["exportLogs"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/api/logs/history": {
     parameters: {
       query?: never;
@@ -149,6 +166,40 @@ export interface paths {
     };
     /** Persisted log records */
     get: operations["getLogsHistory"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/api/logs/import": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Gap-fill restore of an export document (INSERT OR IGNORE, 64MB cap) */
+    post: operations["importLogs"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/api/logs/rollup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Request-outcome rollup: counts, group-bys, error rate, TTFB percentiles, time buckets */
+    get: operations["getLogsRollup"];
     put?: never;
     post?: never;
     delete?: never;
@@ -1225,6 +1276,29 @@ export interface components {
       truncated: boolean;
       window: string;
     };
+    logsExportDoc: {
+      enabled: boolean;
+      exported_at: number;
+      log_entries: {
+        fields: string;
+        id: number;
+        level: string;
+        msg: string;
+        req_id: string;
+        ts: number;
+      }[];
+      request_records: {
+        endpoint: string;
+        error: string;
+        model: string;
+        req_id: string;
+        status: string;
+        token_idx: number;
+        ts: number;
+        ttfb_ms: number;
+      }[];
+      version: number;
+    };
     logsHistoryData: {
       enabled: boolean;
       entries: {
@@ -1234,6 +1308,48 @@ export interface components {
         req_id?: string;
         ts: number;
       }[];
+    };
+    logsImportReport: {
+      imported: number;
+      rejected: number;
+      skipped_duplicate: number;
+    };
+    logsRollupData: {
+      bucket_ms: number;
+      buckets: {
+        errors: number;
+        ok: number;
+        total: number;
+        ts: number;
+      }[];
+      by_error: {
+        errors: number;
+        name: string;
+        total: number;
+      }[];
+      by_model: {
+        errors: number;
+        name: string;
+        total: number;
+      }[];
+      by_token: {
+        errors: number;
+        token_idx: number;
+        total: number;
+      }[];
+      enabled: boolean;
+      error_rate: number;
+      errors: number;
+      ok: number;
+      since: number;
+      total: number;
+      ttfb: {
+        count: number;
+        p50: number;
+        p90: number;
+        p99: number;
+      };
+      until: number;
     };
     maturityHistoryData: {
       enabled: boolean;
@@ -1954,6 +2070,31 @@ export interface operations {
       };
     };
   };
+  exportLogs: {
+    parameters: {
+      query?: {
+        /** @description Unix-millis lower bound (default 0, clamped to 168h) */
+        since?: string;
+        /** @description Unix-millis upper bound (default now) */
+        until?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Streamed versioned export of request_records plus log_entries */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["logsExportDoc"];
+        };
+      };
+    };
+  };
   getLogsHistory: {
     parameters: {
       query?: {
@@ -1983,6 +2124,53 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["logsHistoryData"];
+        };
+      };
+    };
+  };
+  importLogs: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Gap-fill restore of an export document (INSERT OR IGNORE, 64MB cap) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["logsImportReport"];
+        };
+      };
+    };
+  };
+  getLogsRollup: {
+    parameters: {
+      query?: {
+        /** @description Unix-millis lower bound (default 0, clamped to 168h) */
+        since?: string;
+        /** @description Unix-millis upper bound (default now) */
+        until?: string;
+        /** @description Time-bucket width in millis (default 300000) */
+        bucket_ms?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Request-outcome rollup: counts, group-bys, error rate, TTFB percentiles, time buckets */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["logsRollupData"];
         };
       };
     };
