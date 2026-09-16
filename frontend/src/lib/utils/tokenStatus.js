@@ -91,7 +91,7 @@ export function streakBadgeFor(token) {
   const days = Number(token.streak) || 0;
   if (days > 0) {
     return {
-      label: t()("{days}d", { days }),
+      label: t()("{days}d streak", { days }),
       aria: t()("Streak {days} days", { days }),
       active: true,
     };

@@ -119,8 +119,7 @@ test.describe("dashboard hermetic mocks", () => {
     // Fixture token 0 carries streak 7; token 1 carries none.
     const first = table.locator("tbody tr").filter({ hasText: "Account #1" });
     await expect(first.getByLabel("Streak 7 days")).toBeVisible();
-    await expect(first.getByLabel("Streak 7 days")).toContainText("7d");
-    await expect(first.getByLabel("Streak 7 days")).not.toContainText("streak");
+    await expect(first.getByLabel("Streak 7 days")).toContainText("7d streak");
     const second = table.locator("tbody tr").filter({ hasText: "Account #2" });
     await expect(second.getByLabel("No streak")).toBeVisible();
   });

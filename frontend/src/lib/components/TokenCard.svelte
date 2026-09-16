@@ -146,7 +146,7 @@
     </div>
   </td>
   <td>
-    <div class="flex min-w-[200px] flex-col gap-0.5">
+    <div class="flex min-w-0 flex-col gap-0.5">
       <div class="flex items-center justify-between gap-1.5 whitespace-nowrap">
         <span
           class="fp-num text-xs font-semibold whitespace-nowrap text-[var(--fp-text)]"
@@ -185,29 +185,33 @@
       {/if}
     </div>
   </td>
-  <td>
-    <div class="flex flex-col items-start gap-1 min-w-0">
-      {#if token.session_instance}
-        <code
-          class="fp-num text-xs text-[var(--fp-muted)] truncate block max-w-full select-all"
-          title={token.session_instance}>{token.session_instance}</code
-        >
+  <td class="w-[1%] whitespace-nowrap">
+    <div class="flex flex-col items-start gap-1 min-w-[280px]">
+      {#if token.session_instance || (token.session_remaining_seconds > 0 && token.session_model)}
+        <div class="flex items-center gap-2 min-w-0 w-full">
+          {#if token.session_instance}
+            <code
+              class="fp-num text-xs text-[var(--fp-muted)] truncate flex-1 min-w-0 max-w-full select-all"
+              title={token.session_instance}>{token.session_instance}</code
+            >
+          {/if}
+          {#if token.session_remaining_seconds > 0 && token.session_model}
+            <Button
+              variant="danger"
+              size="sm"
+              class="!h-7 !text-xs !px-2 w-fit shrink-0"
+              disabled={actionPending}
+              onclick={() => onDropSession?.()}
+            >
+              <span>{$tr("Drop Session")}</span>
+            </Button>
+          {/if}
+        </div>
       {:else if !token.session_model}
         <span class="text-xs text-[var(--fp-dim)]">—</span>
       {/if}
       {#if token.session_model}
         <StatusBadge tone="info" status={token.session_model} />
-      {/if}
-      {#if token.session_remaining_seconds > 0}
-        <Button
-          variant="danger"
-          size="sm"
-          class="!h-7 !text-xs !px-2 self-start w-fit"
-          disabled={actionPending}
-          onclick={() => onDropSession?.()}
-        >
-          <span>{$tr("Drop Session")}</span>
-        </Button>
       {/if}
     </div>
   </td>
