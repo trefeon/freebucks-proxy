@@ -389,21 +389,26 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 		attrs = append(attrs, "model", model)
 	}
 
-	if code == "rate_limited" {
+	if code == "rate_limited" || code == "session_superseded" {
 		// D6 dedupe: identical (token, code, window) logs fire on the 1st +
 		// every 50th; the counter always increments and the response is
-		// always written.
+		// always written. session_superseded shares the ledger (its window
+		// is "" so the key is stable per token): while a competing instance
+		// holds the seat every chat 409s, and one row per request would
+		// flood the logs history table.
 		key := tokenLabel(lease) + "|" + code + "|" + window
 		if !s.rateLimitWarnShouldLog(key) {
 			s.writeClientError(w, r, status, message, code, retryAfter)
 			return
 		}
 	}
-	// Routine 429 rate_limited (upstream pool refusal) is expected churn,
-	// not an operator-actionable fault: log at Info. Every
-	// upstream-class failure stays Warn (5xx, upstream_unavailable, bans;
-	// the upstream-class 429 variants carry their own codes above).
-	if code == "rate_limited" {
+	// Routine 429 rate_limited (upstream pool refusal) and 503
+	// session_superseded (another instance holds the seat — terminal per
+	// FREEBUFF_GATE_CODES endsTheSession:true, not an operator-actionable
+	// fault) are expected churn: log at Info. Every other upstream-class
+	// failure stays Warn (5xx, upstream_unavailable, bans; the
+	// upstream-class 429 variants carry their own codes above).
+	if code == "rate_limited" || code == "session_superseded" {
 		s.logger.Info("request failed", attrs...)
 	} else {
 		s.logger.Warn("request failed", attrs...)

@@ -88,6 +88,56 @@ func TestRequestFailedWarnDedupe(t *testing.T) {
 	})
 }
 
+// TestRequestFailedSupersededQuiesced pins the session_superseded log-flood
+// fix: 100 identical session_superseded errors (a competing instance holding
+// the seat, so every chat 409s) produce <=4 `request failed` rows at INFO
+// (1st + every 50th, sharing the D6 ledger with rate_limited) while the
+// per-key ledger still counts every occurrence and the 503 + code response
+// is written on every call. Pre-fix this logged a WARN per request, flooding
+// the logs history table for the whole contention window.
+func TestRequestFailedSupersededQuiesced(t *testing.T) {
+	ring := logring.NewHandler(slog.NewTextHandler(io.Discard, nil), 500)
+	s := &Server{logger: slog.New(ring)}
+	sse := &upstream.SessionSupersededError{Status: http.StatusConflict, Body: `{"error":"session_superseded","message":"another CLI took over"}`}
+	var gotStatus int
+	var firstBody string
+	for i := range 100 {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		s.writeError(w, r, sse, "deepseek/deepseek-v4-flash", nil)
+		gotStatus = w.Code
+		if i == 0 {
+			firstBody = w.Body.String()
+		}
+	}
+	if gotStatus != http.StatusServiceUnavailable {
+		t.Errorf("response status = %d, want 503 even on suppressed INFOs", gotStatus)
+	}
+	if !strings.Contains(firstBody, "session_superseded") {
+		t.Errorf("response body missing session_superseded: %s", firstBody)
+	}
+	entries := ring.Recent(500)
+	if n := countRequestFailedCode(entries, "code=session_superseded"); n > 4 {
+		t.Errorf("`request failed` rows = %d, want <= 4 for 100 identical session_superseded errors", n)
+	}
+	for _, e := range entries {
+		if e.Message != "request failed" {
+			continue
+		}
+		for _, f := range e.Fields {
+			if f == "code=session_superseded" && e.Level != "INFO" {
+				t.Errorf("session_superseded `request failed` level = %q, want INFO", e.Level)
+			}
+		}
+	}
+	s.rateLimitDedupe.mu.Lock()
+	n := s.rateLimitDedupe.m["bridge|session_superseded|"]
+	s.rateLimitDedupe.mu.Unlock()
+	if n != 100 {
+		t.Errorf("dedupe ledger count = %d, want 100 (counter always increments)", n)
+	}
+}
+
 // TestRequestFailedStructuredFields pins T6: the `request failed` WARN
 // carries req_id, retry_after, reset_at, token and model when the caller and
 // the error provide them.
