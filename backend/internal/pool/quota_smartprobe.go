@@ -66,8 +66,10 @@ const (
 const quotaProbeWarmInterval = 5 * time.Minute
 
 // quotaProbeMaxInterval caps the effective interval: 429 backoff doubling
-// never sleeps longer than the idle heartbeat itself.
-const quotaProbeMaxInterval = 30 * time.Minute
+// never sleeps longer than the idle heartbeat itself. Tunable via
+// SMART_PROBE_BACKOFF_MAX_MS (live-applied from pool.SetConfig); the
+// default preserves the 30m cap.
+var quotaProbeMaxInterval = 30 * time.Minute
 
 // Scheduler knob defaults (mirrored in config defaults + catalog).
 const (

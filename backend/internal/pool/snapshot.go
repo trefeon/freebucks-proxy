@@ -231,9 +231,8 @@ type PoolSnapshot struct {
 	RequestsServed       uint64
 	Tokens               []TokenSnapshot
 	// Quarantined is the count of fixed pooled tokens currently in
-	// terminal-quarantine (banned / country_blocked / 401 invalid). Surfaced
-	// so the operator can see at a glance how many accounts the pool has
-	// permanently stopped leasing.
+	// terminal-quarantine (live bans). Surfaced so the operator can see at
+	// a glance how many accounts the pool has permanently stopped leasing.
 	Quarantined int
 }
 

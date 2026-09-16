@@ -880,6 +880,31 @@ func TestCooldownIpCappedCapsReAdmits(t *testing.T) {
 	}
 }
 
+// TestIpCappedZeroJitterNoPanic pins the integrate fix: a zero jitter ratio
+// (COOLDOWN_IP_JITTER_RATIO=0 disables jitter, or a zero-value test config
+// pushed through SetCooldownTuning) must degrade to a jitter-free window,
+// never an integer divide-by-zero in the modulo below.
+func TestIpCappedZeroJitterNoPanic(t *testing.T) {
+	prev := ipCappedCooldownJitter
+	defer func() { ipCappedCooldownJitter = prev }()
+	SetCooldownTuning(0, 0, 0, 0, 0)
+	if got := ipCappedJitter(5 * time.Minute); got != 0 {
+		t.Errorf("ipCappedJitter(5m) with ratio 0 = %v, want 0 (jitter disabled)", got)
+	}
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr, _ := newTestManager(t, mock, time.Hour)
+	ice := &upstream.IpCappedError{RetryAfter: 5 * time.Minute, Body: `{"status":"ip_capped"}`}
+	mgr.CooldownIpCapped(ice) // panicked pre-fix: u % uint64(5m*0)
+	until := mgr.CooldownUntil()
+	if !time.Now().Before(until) {
+		t.Fatal("cooldown already expired with jitter disabled, want now+retryAfterMs")
+	}
+	if time.Until(until) > ice.RetryAfter+time.Second {
+		t.Errorf("window %v exceeds retryAfterMs %v with jitter disabled", time.Until(until), ice.RetryAfter)
+	}
+}
+
 func TestSingleFlightRunAcquisition(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()

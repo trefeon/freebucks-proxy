@@ -81,18 +81,20 @@ const (
 	// expiring day's final stretch while firing stays clear of the
 	// reset.
 	maturityFireGate = 5 * time.Minute
-	// maturity429Backoff pauses the nightly walk after a rate-limited
-	// touch: the walk aborts and no further touch fires until this long
-	// after the 429, instead of hammering a throttled upstream. Kept
-	// well under the window so one 429 still leaves retry room the
-	// same night.
-	maturity429Backoff = 3 * time.Minute
 	// maturitySlotEndBuffer reserves the final stretch before the reset
 	// from slot starts: a touch carries a 30s upstream timeout, so a
 	// slot opening with less than a minute to midnight could bleed
 	// past the reset and credit the wrong day.
 	maturitySlotEndBuffer = time.Minute
 )
+
+// maturity429Backoff pauses the nightly walk after a rate-limited
+// touch: the walk aborts and no further touch fires until this long
+// after the 429, instead of hammering a throttled upstream. Kept
+// well under the window so one 429 still leaves retry room the
+// same night. Tunable via MATURITY_BACKOFF_MS (live-applied from
+// pool.SetConfig); the default preserves the 3m pause.
+var maturity429Backoff = 3 * time.Minute
 
 // MaturitySnapshot is the dashboard-ready per-token maturity view. Nil on
 // TokenSnapshot until maturity is first enabled for the token, so tokens

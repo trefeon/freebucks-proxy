@@ -220,10 +220,10 @@ type TokenSnapshot struct {
 	// operator; Acquire never selects a locked token.
 	Locked bool `json:"locked"`
 	// Quarantined is set when the token's account hit a terminal state
-	// (banned / country_blocked / 401 invalid) and the pool has permanently
-	// stopped leasing it (anti-ban contract). QuarantineReason names the
-	// state ("banned", "country_blocked", "invalid"). Both are surfaced so
-	// the operator sees exactly which fixed token is dead and why.
+	// (a live ban) and the pool has permanently stopped leasing it
+	// (anti-ban contract). QuarantineReason names the state ("banned").
+	// Both are surfaced so the operator sees exactly which fixed token is
+	// dead and why.
 	Quarantined      bool   `json:"quarantined,omitempty"`
 	QuarantineReason string `json:"quarantine_reason,omitempty"`
 	// AllowedModels is the slot's MODEL_LOCKS allowlist (issue #325); nil
@@ -487,9 +487,9 @@ type tokenEntry struct {
 	allowlistSkips atomic.Int64
 
 	// quarantine, when non-nil, marks this fixed pooled token permanently
-	// ineligible for leasing: its account reached a terminal state (banned,
-	// country_blocked, or 401 invalid) that the pool must never revive —
-	// no re-admission attempts, no automatic unban. Stored on the entry (not
+	// ineligible for leasing: its account reached a terminal state (a live
+	// ban) that the pool must never revive — no re-admission attempts, no
+	// automatic unban. Stored on the entry (not
 	// an index-keyed slice) so a concurrent RemoveLastToken index-reuse can
 	// never quarantine the wrong account. Set exactly once per terminal
 	// refusal (CompareAndSwap) and cleared either by UnlockToken or by the
@@ -604,9 +604,8 @@ func (p *Pool) SetTokenAccountInfo(index int, email, accountID string) {
 }
 
 // quarantineState is the terminal account state that permanently removes one
-// fixed pooled token from rotation (anti-ban contract). reason is one of
-// "banned", "country_blocked", or "invalid"; err carries the typed upstream
-// error for failover-bucket aggregation (nil for a 401, which has no bucket);
+// fixed pooled token from rotation (anti-ban contract). reason is "banned";
+// err carries the typed upstream ban error for failover-bucket aggregation;
 // detail is the human-readable error string for logging/dashboards.
 type quarantineState struct {
 	reason string
@@ -614,9 +613,8 @@ type quarantineState struct {
 	detail string
 	// liftAt is when a time-limited terminal state (a temporary upstream
 	// ban with a future resumes_at) auto-lifts; zero means the state is
-	// permanent (hard ban, country block, 401 invalid) and only an
-	// operator action (UnlockToken) or an AUTH_TOKENS slot replacement
-	// clears it.
+	// permanent (hard ban) and only an operator action (UnlockToken) or an
+	// AUTH_TOKENS slot replacement clears it.
 	liftAt time.Time
 }
 
@@ -667,6 +665,9 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), unfit: make(map[unfitKey]unfitEntry), bridgeCreateGate: make(chan struct{}, 4), lastTokenByModel: make(map[string]int), admissions: make(map[string]int), modelAdmissionGate: make(map[string]*admissionGate)}
 	p.probeCtx, p.probeCancel = context.WithCancel(context.Background())
 	p.cfg.Store(cfg)
+	// Push the operator's cooldown tuning (COOLDOWN_*/SESSION_* backoffs)
+	// into runs/upstream/pool enforcement points; re-pushed by SetConfig.
+	p.applyCooldownTuning(cfg)
 	toks := make([]*tokenEntry, 0, len(cfg.AuthTokens))
 	for i := range cfg.AuthTokens {
 		if sessions[i] == nil || clients[i] == nil {
@@ -676,6 +677,11 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 		sess.SetReAdmitLead(cfg.SessionReAdmitLead)
 		sess.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		sess.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
+		// SessionPreserve seam: push the session-park gate next to the
+		// other per-manager knobs (no-op when their branch merges first
+		// with the Manager method; guarded call keeps this branch
+		// compiling standalone until the integrate step).
+		pushParkConfig(sess, cfg)
 		entry := &tokenEntry{
 			session: sess,
 			runs:    runs.NewRunManagerOpts(clients[i], sess, runOptions(cfg)),
@@ -706,6 +712,9 @@ func runOptions(cfg *config.Config) runs.Options {
 // Acquire/maintain pass without rebuilding the pool, except that an AUTH_TOKENS slot change rebuilds that entry (see below).
 func (p *Pool) SetConfig(cfg *config.Config) {
 	p.cfg.Store(cfg)
+	// Re-push live cooldown tuning (COOLDOWN_*/SESSION_POLL_* backoffs and
+	// the session-park threshold) after every reload.
+	p.applyCooldownTuning(cfg)
 
 	// Runtime-adjustable knobs: the session re-admit lead / probe cache TTL
 	// (#99/#60) follow config reloads.
@@ -714,12 +723,14 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 		tok.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 		tok.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		tok.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
+		pushParkConfig(tok.session, cfg)
 	}
 	p.bridgeMu.Lock()
 	for _, entry := range p.bridge {
 		entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 		entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
+		pushParkConfig(entry.session, cfg)
 	}
 	p.bridgeMu.Unlock()
 
@@ -876,6 +887,7 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 	sess.SetReAdmitLead(cfg.SessionReAdmitLead)
 	sess.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 	sess.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
+	pushParkConfig(sess, cfg)
 	entry := &tokenEntry{
 		session: sess,
 		runs:    runs.NewRunManagerOpts(client, sess, runOptions(cfg)),

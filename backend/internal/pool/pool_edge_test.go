@@ -11,15 +11,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestLiveFailoverMatrix drives the LIVE failover path end-to-end for every
@@ -395,6 +395,52 @@ func TestBridgeDeadTokenEvictDefersWhenBusy(t *testing.T) {
 	}
 	if mock.SessionEnds != 1 {
 		t.Errorf("session ends = %d, want 1 (idle sweep EndSession)", mock.SessionEnds)
+	}
+}
+
+// TestBridgeSweepParksShortCooldown pins the threshold-aware sweep gate: an
+// idle bridge entry riding out a short (within-threshold) cooldown stays
+// cached so the next request reuses its session once the window lapses. The
+// terminal side (30m auth-rejection past the 15m threshold evicts on idle)
+// is pinned by TestBridgeDeadTokenEvictDefersWhenBusy.
+func TestBridgeSweepParksShortCooldown(t *testing.T) {
+	saveCooldownTuning(t)
+	mock := testutil.NewMock()
+	defer mock.Close()
+	cfg := &config.Config{
+		RotationInterval:   time.Hour,
+		RequestTimeout:     15 * time.Minute,
+		SessionCallTimeout: 5 * time.Second,
+		RegistryRefresh:    6 * time.Hour,
+		UpstreamBaseURL:    mock.URL(),
+		// Park-ON is the point of this test: without the flag the pool runs
+		// the park-OFF path and the entry below evicts (see
+		// TestHandBuiltConfigDisablesPark).
+		SessionParkEnabledFlag: true,
+	}
+	reg := registry.New(cfg, nil)
+	reg.LoadFallback()
+	p, err := New(cfg, nil, nil, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := p.AcquireBridge(context.Background(), "park-tok", modelA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Short transient: a 5m ip_capped window sits inside the default 15m
+	// park threshold, so the sweep must keep the entry.
+	p.CooldownBridgeIpCapped(lease, &upstream.IpCappedError{RetryAfter: 5 * time.Minute, Body: "ip_capped"})
+	p.LeaseRelease(lease)
+	entry := p.bridgeToken("park-tok")
+	if entry == nil {
+		t.Fatal("park entry missing before sweep")
+		return
+	}
+	entry.lastUsed = time.Now().Add(-defaultBridgeIdleEvict - time.Minute)
+	p.bridgeMaintain(context.Background(), false)
+	if got := p.bridgeToken("park-tok"); got == nil {
+		t.Error("short-cooldown entry evicted by the sweep, want kept (park window)")
 	}
 }
 

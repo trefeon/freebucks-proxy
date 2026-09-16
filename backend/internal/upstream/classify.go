@@ -261,8 +261,9 @@ func errClassName(err error) string {
 // concurrent-run counter clears as the account's other runs drain (seconds,
 // not a day), and re-hitting it feeds a ban-grade sweep signal — so the token
 // backs off for a minute rather than being locked until Pacific midnight.
-// Used only when the refusal carries no Retry-After header.
-const FanoutCooldown = 60 * time.Second
+// Used only when the refusal carries no Retry-After header. Tunable via
+// COOLDOWN_FANOUT_MS; the default preserves the 60s behavior.
+var FanoutCooldown = 60 * time.Second
 
 // InvalidModelCooldown bounds a free_mode_invalid_agent_model refusal
 // (issue #140): the pair is not in the allowlist until the registry
@@ -270,34 +271,97 @@ const FanoutCooldown = 60 * time.Second
 // accounts to banned in the v0.11.3 incident. A minute per hit gives the
 // live registry refresh time to land while keeping the token available for
 // other models. Used only when the refusal carries no Retry-After header.
-const InvalidModelCooldown = 60 * time.Second
+// Tunable via COOLDOWN_INVALID_MODEL_MS; the default preserves the 60s
+// behavior.
+var InvalidModelCooldown = 60 * time.Second
 
 // LoadShedCooldown bounds a 429 load-saturation refusal (issue #133): the
 // upstream sheds load for minutes, not a day, so the token re-probes after
 // ~90s instead of being locked until Pacific midnight by the no-timestamp
-// parseRateLimit default.
-const LoadShedCooldown = 90 * time.Second
+// parseRateLimit default. Tunable via COOLDOWN_LOADSHED_MS; the default
+// preserves the 90s behavior.
+var LoadShedCooldown = 90 * time.Second
 
 // PeakHoursCooldown bounds a 429 peak-hours refusal (issue #133): the peak
 // window lasts hours and its end is not in the body; 30 minutes is a
 // conservative floor that re-probes long before the daily-cap lock would
-// have lifted.
-const PeakHoursCooldown = 30 * time.Minute
+// have lifted. Tunable via COOLDOWN_PEAK_HOURS_MS; the default preserves
+// the 30m behavior.
+var PeakHoursCooldown = 30 * time.Minute
 
 // opaqueRateLimitBackoff bounds a 429 with no timestamp, no daily-reset
 // signal, and no Retry-After header (issue #140): a fully opaque body
 // must never lock the token until Pacific midnight over a minutes-scale
 // transient, so it gets the same bounded cooldown the other no-timestamp
-// refusals get.
-const opaqueRateLimitBackoff = 60 * time.Second
+// refusals get. Tunable via COOLDOWN_OPAQUE_MS; the default preserves the
+// 60s behavior.
+var opaqueRateLimitBackoff = 60 * time.Second
 
 // MaxCooldown is the ceiling for any cooldown derived from upstream retry
-// fields (retryAfterMs, Retry-After, resetAt): 7 days. Those fields are
-// untrusted input; without a ceiling an absurd value could overflow the
-// int64-nanosecond duration multiply — wrapping to a multi-year positive
-// window (time.Duration(ms)*time.Millisecond wraps for ms >= ~9.2e12) — or
-// lock a token for decades on a misbehaving upstream.
-const MaxCooldown = 7 * 24 * time.Hour
+// fields (retryAfterMs, Retry-After, resetAt): 7 days. Tunable via
+// COOLDOWN_CEILING_MS (shared with the runs package ceiling); the default
+// preserves the 7d behavior. Those fields are untrusted input; without a
+// ceiling an absurd value could overflow the int64-nanosecond duration
+// multiply — wrapping to a multi-year positive window
+// (time.Duration(ms)*time.Millisecond wraps for ms >= ~9.2e12) — or lock a
+// token for decades on a misbehaving upstream.
+var MaxCooldown = 7 * 24 * time.Hour
+
+// SetCooldownTuning overrides the bounded-cooldown durations from operator
+// config (pool.SetConfig pushes the live values on boot and every reload).
+// Non-positive values are ignored so a zero-value or partial config keeps
+// the defaults.
+func SetCooldownTuning(fanout, invalidModel, opaque, loadShed, peakHours, ceiling time.Duration) {
+	if fanout > 0 {
+		FanoutCooldown = fanout
+	}
+	if invalidModel > 0 {
+		InvalidModelCooldown = invalidModel
+	}
+	if opaque > 0 {
+		opaqueRateLimitBackoff = opaque
+	}
+	if loadShed > 0 {
+		LoadShedCooldown = loadShed
+	}
+	if peakHours > 0 {
+		PeakHoursCooldown = peakHours
+	}
+	if ceiling > 0 {
+		MaxCooldown = ceiling
+	}
+}
+
+// TuningSnapshot captures the live bounded-cooldown values. Tests that push
+// nonzero values through pool.New/SetConfig snapshot first and Restore on
+// cleanup: the tuning vars are package globals and would otherwise leak
+// across tests in the same binary. Production code never calls these.
+type TuningSnapshot struct {
+	Fanout, InvalidModel, Opaque, LoadShed, PeakHours, Ceiling time.Duration
+}
+
+// SnapshotTuning captures the current bounded-cooldown values.
+func SnapshotTuning() TuningSnapshot {
+	return TuningSnapshot{
+		Fanout:       FanoutCooldown,
+		InvalidModel: InvalidModelCooldown,
+		Opaque:       opaqueRateLimitBackoff,
+		LoadShed:     LoadShedCooldown,
+		PeakHours:    PeakHoursCooldown,
+		Ceiling:      MaxCooldown,
+	}
+}
+
+// Restore re-applies a captured snapshot unconditionally (unlike
+// SetCooldownTuning, which ignores non-positive values).
+func (s TuningSnapshot) Restore() {
+	FanoutCooldown = s.Fanout
+	InvalidModelCooldown = s.InvalidModel
+	opaqueRateLimitBackoff = s.Opaque
+	LoadShedCooldown = s.LoadShed
+	PeakHoursCooldown = s.PeakHours
+	MaxCooldown = s.Ceiling
+}
 
 // CooldownFromMillis converts an upstream retryAfterMs value to a cooldown
 // duration clamped to MaxCooldown. The overflow guard runs BEFORE the

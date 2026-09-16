@@ -71,16 +71,16 @@ func (p *Pool) CooldownTokenBan(token int, be *upstream.BanError) {
 }
 
 // CooldownTokenCountryBlocked applies a country-block cooldown to token
-// (remembered so Acquire surfaces the region-block error during the ~15m
-// window instead of re-hitting upstream).
+// (remembered so Acquire surfaces the region-block error during the window
+// instead of re-hitting upstream). Time-bound park only, never a terminal
+// quarantine: short region/egress transients ride out the window and the
+// cooldown expiry revives the token automatically.
 func (p *Pool) CooldownTokenCountryBlocked(token int, cbe *upstream.CountryBlockedError) {
 	toks := p.roster.Load()
 	if token < 0 || token >= len(*toks) || cbe == nil {
 		return
 	}
-	tok := (*toks)[token]
-	tok.runs.CooldownCountryBlocked(cbe)
-	p.quarantineToken(tok, "country_blocked", cbe)
+	(*toks)[token].runs.CooldownCountryBlocked(cbe)
 }
 
 // indexOfEntry resolves entry's CURRENT 0-based roster position (-1 when
@@ -152,14 +152,13 @@ func (p *Pool) CooldownLeaseBan(lease *Lease, be *upstream.BanError) {
 }
 
 // CooldownLeaseCountryBlocked applies a country-block cooldown to the
-// lease's own entry (swap-safe — see CooldownLeaseBan).
+// lease's own entry (swap-safe — see CooldownLeaseBan). Time-bound park
+// only, never a terminal quarantine (see CooldownTokenCountryBlocked).
 func (p *Pool) CooldownLeaseCountryBlocked(lease *Lease, cbe *upstream.CountryBlockedError) {
 	if lease == nil || lease.entry == nil || cbe == nil {
 		return
 	}
-	tok := lease.entry
-	tok.runs.CooldownCountryBlocked(cbe)
-	p.quarantineToken(tok, "country_blocked", cbe)
+	lease.entry.runs.CooldownCountryBlocked(cbe)
 }
 
 // CooldownBridge puts the bridge entry's token in a cooldown window of
@@ -235,10 +234,10 @@ func (p *Pool) notifyBan(tokenIndex int, model string) {
 }
 
 // classifyTarget selects the mode-specific recovery policy in
-// classifyAndCooldown (issue #260): pooled quarantines a terminal account
-// (banned / country_blocked / 401 invalid) while bridge evicts a dead token
-// on 401 and never quarantines (per-request client tokens are never marked
-// terminal).
+// classifyAndCooldown (issue #260): pooled quarantines a live-banned
+// account while bridge evicts a dead token on 401 and never quarantines
+// (per-request client tokens are never marked terminal). Country blocks
+// and 401 invalids are time-bound parks, never quarantine.
 
 // classifiedError carries the classification result of one upstream error:
 // the mode-agnostic recovery policy is applied first (Cooldown*), and the
@@ -382,14 +381,15 @@ func (p *Pool) UnlockToken(token int) error {
 }
 
 // quarantineToken marks the fixed pooled token entry permanently
-// ineligible for leasing: its account reached a terminal state (banned,
-// country_blocked, or 401 invalid) that the pool must never revive. The
-// marker survives across Acquire calls (the failover loop skips it every
-// pass, so no re-admission attempts) and is cleared only by UnlockToken or
-// by the entry rebuild an AUTH_TOKENS change triggers (SetConfig replaces
-// the whole entry). It is a no-op for bridge entries (per-request tokens
-// are never quarantined — a bridge refusal surfaces to the client as
-// today).
+// ineligible for leasing: its account reached a terminal state (a live ban)
+// that the pool must never revive. Country blocks and 401 invalids are
+// time-bound parks, never quarantine (see CooldownTokenCountryBlocked and
+// the acquire paths). The marker survives across Acquire calls (the
+// failover loop skips it every pass, so no re-admission attempts) and is
+// cleared by ban-expiry lift, by UnlockToken, or by the entry rebuild an
+// AUTH_TOKENS change triggers (SetConfig replaces the whole entry). It is
+// a no-op for bridge entries (per-request tokens are never quarantined — a
+// bridge refusal surfaces to the client as today).
 //
 // The caller passes the ENTRY it holds, not an index: an index could be
 // reused by a concurrent RemoveLastToken+AddToken, and quarantining by
@@ -410,8 +410,9 @@ func (p *Pool) quarantineToken(tok *tokenEntry, reason string, err error) {
 		// banView renders it as "temporary"). Record the lift on the marker
 		// so it expires with the window and the pool re-admits after the
 		// unban, exactly as the "quarantine only while the ban is still
-		// live" caller comments state. Hard bans (no resumes_at), country
-		// blocks, and 401 invalids stay permanent (liftAt zero).
+		// live" caller comments state. Hard bans (no resumes_at) stay
+		// permanent (liftAt zero). The "country_blocked" and "invalid"
+		// reasons below are legacy: no caller produces them anymore.
 		var be *upstream.BanError
 		if reason == "banned" && errors.As(err, &be) && !be.ResumesAt.IsZero() && be.ResumesAt.After(time.Now()) {
 			rec.liftAt = be.ResumesAt
@@ -426,9 +427,9 @@ func (p *Pool) quarantineToken(tok *tokenEntry, reason string, err error) {
 // clearLiftedQuarantine clears the quarantine marker of a token whose
 // time-limited terminal state (temporary ban) has lifted: the upstream
 // unban is automatic at resumes_at, so the account is serviceable again and
-// the pool must not keep treating it as terminal. Permanent states (hard
-// ban, country block, 401 invalid) keep their marker — only an operator
-// action (UnlockToken) or an AUTH_TOKENS slot replacement clears those.
+// the pool must not keep treating it as terminal. A hard ban keeps its
+// marker — only an operator action (UnlockToken) or an AUTH_TOKENS slot
+// replacement clears it.
 // Returns true when a marker was cleared. CompareAndSwap-guarded:
 // concurrent callers race harmlessly and exactly one logs the lift.
 func (p *Pool) clearLiftedQuarantine(tok *tokenEntry) bool {

@@ -272,7 +272,13 @@ admitRetry:
 		c := p.classifyAndCooldown(entry.runs, err)
 		if c.authRejected {
 			p.logger.Debug("pool: bridge entry cooling down", "duration", runs.DefaultCooldown.String())
-			p.bridgeEvictToken(clientToken)
+			// Park short 401 cooldowns (keep the entry so the
+			// CooldownUntil skip above surfaces the refusal without
+			// re-hitting upstream); evict only longer ones — the entry
+			// is dead weight past the park threshold.
+			if !shouldPark(cfg, runs.DefaultCooldown) {
+				p.bridgeEvictToken(clientToken)
+			}
 		}
 		if rle := c.rateLimited; rle != nil {
 			if c.spendLimited {
@@ -364,8 +370,11 @@ sessionReady:
 		c := p.classifyAndCooldown(entry.runs, err)
 		if c.authRejected {
 			p.logger.Debug("pool: bridge entry cooling down", "duration", runs.DefaultCooldown.String())
-			// immediate eviction — the token is dead.
-			p.bridgeEvictToken(clientToken)
+			// Park short 401 cooldowns, evict past the threshold —
+			// see the admission path above.
+			if !shouldPark(cfg, runs.DefaultCooldown) {
+				p.bridgeEvictToken(clientToken)
+			}
 		}
 		if rle := c.rateLimited; rle != nil {
 			// Issue #122: count run-start spend_limited refusals on the

@@ -4,16 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"sync"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"net/http"
+	"sync"
+	"testing"
+	"time"
 )
 
 // Test models must map to agents with EXCLUSIVE ownership in the registry
@@ -45,6 +44,11 @@ func newTestPoolCfg(t *testing.T, mut func(*config.Config), mocks ...*testutil.M
 		SessionCallTimeout: 5 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    "https://www.codebuff.com",
+		// Park-OFF pins the historical path: a hand-built Config zero-values
+		// the flag while production Load defaults it ON (see
+		// TestHandBuiltConfigDisablesPark); park-ON is covered by
+		// TestBridgeSweepParksShortCooldown.
+		SessionParkEnabledFlag: false,
 	}
 	if mut != nil {
 		mut(cfg)
@@ -134,6 +138,9 @@ func newBridgePool(t *testing.T, mock *testutil.MockUpstream) *Pool {
 		SessionCallTimeout: 5 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    mock.URL(),
+		// Park-OFF like newTestPoolCfg above (hand-built Config zero-values
+		// the flag; production Load defaults ON).
+		SessionParkEnabledFlag: false,
 	}
 	reg := registry.New(cfg, nil)
 	reg.LoadFallback()
