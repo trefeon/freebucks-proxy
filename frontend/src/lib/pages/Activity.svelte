@@ -2,25 +2,11 @@
   import { onMount } from "svelte";
   import { RefreshCw } from "@lucide/svelte";
   import PageShell from "../components/PageShell.svelte";
-  import Alert from "../components/Alert.svelte";
   import Button from "../components/Button.svelte";
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import LiveConsole from "../components/LiveConsole.svelte";
   import MetricsPanel from "../components/MetricsPanel.svelte";
   import TracesPanel from "../components/TracesPanel.svelte";
-  import LogLevelSettings from "./settings/LogLevelSettings.svelte";
-  import AdvancedSettings from "./settings/AdvancedSettings.svelte";
-  import {
-    meta as settingsMeta,
-    formValues as settingsFormValues,
-    rawText as settingsRawText,
-    settingSources as settingsSources,
-    settingsDegraded,
-    fetchData as fetchSettings,
-    resetSetting as resetSettingsKey,
-    overlaySaved as settingsOverlaySaved,
-    setField as setSettingsField,
-  } from "../stores/settings.js";
   import { tr } from "../i18n.js";
   import { recordPageVisit } from "../stores/pageState.js";
 
@@ -59,16 +45,12 @@
 
   onMount(() => {
     recordPageVisit("logs");
-    // Shared settings draft (same store as Settings): hydrates the inline
-    // Logging card; silent when Settings already loaded it.
-    fetchSettings();
     // One-shot deep-link tab (set by the shell's legacy-hash redirect);
     // consumed on mount so back-navigation keeps the operator's own tab.
     try {
       const t = sessionStorage.getItem("fp-page-tab:activity") || "";
       sessionStorage.removeItem("fp-page-tab:activity");
-      if (t === "live" || t === "metrics" || t === "traces" || t === "logging")
-        tab = t;
+      if (t === "live" || t === "metrics" || t === "traces") tab = t;
     } catch {
       // Storage unavailable — stay on the default Live tab.
     }
@@ -88,7 +70,6 @@
           { id: "live", label: $tr("Live") },
           { id: "metrics", label: $tr("Metrics") },
           { id: "traces", label: $tr("Traces") },
-          { id: "logging", label: $tr("Logging") },
         ]}
         ariaLabel={$tr("Activity view")}
       />
@@ -103,56 +84,18 @@
       </Button>
     </div>
   {/snippet}
-  {#if tab === "logging"}
-    {#if $settingsDegraded}
-      <Alert tone="warning" title={$tr("DB overlay unavailable")}>
-        {$tr(
-          "The settings store is offline — per-key saves are disabled. Changes cannot be saved right now.",
-        )}
-      </Alert>
-    {/if}
-    <LogLevelSettings
-      cardTitle="Logging"
-      formValues={$settingsFormValues}
-      rawText={$settingsRawText}
-      onField={setSettingsField}
-      sources={$settingsSources}
-      onReset={resetSettingsKey}
-      onSaved={settingsOverlaySaved}
-      degraded={$settingsDegraded}
-    />
-    <AdvancedSettings
-      meta={$settingsMeta}
-      formValues={$settingsFormValues}
-      rawText={$settingsRawText}
-      onField={setSettingsField}
-      sources={$settingsSources}
-      onReset={resetSettingsKey}
-      onSaved={settingsOverlaySaved}
-      onlyGroups={["general"]}
-      cardTitle="Logging & Diagnostics"
-      cardDescription="Log output and diagnostics."
-      degraded={$settingsDegraded}
-    />
-  {:else}
-    {#if tab === "live"}
-      {#key liveKey}
-        <LiveConsole
-          {cursor}
-          initialFilter={liveInitial}
-          {onOpenTrace}
-          {onOpenToken}
-        />
-      {/key}
-    {:else if tab === "metrics"}
-      <MetricsPanel {cursor} {onOpenToken} {onOpenLogs} />
-    {:else}
-      <TracesPanel
+  {#if tab === "live"}
+    {#key liveKey}
+      <LiveConsole
         {cursor}
-        focusReqId={traceFocus}
+        initialFilter={liveInitial}
+        {onOpenTrace}
         {onOpenToken}
-        {onOpenLogs}
       />
-    {/if}
+    {/key}
+  {:else if tab === "metrics"}
+    <MetricsPanel {cursor} {onOpenToken} {onOpenLogs} />
+  {:else}
+    <TracesPanel {cursor} focusReqId={traceFocus} {onOpenToken} {onOpenLogs} />
   {/if}
 </PageShell>

@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { RefreshCw } from "@lucide/svelte";
+  import { ChevronDown, ChevronRight, RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
   import {
     push as pushToast,
@@ -133,9 +133,101 @@
     const l = rateList(t);
     return l.length ? Number(l[0]) : null;
   }
+
+  // ── Dense cells ──────────────────────────────────────────────────────
+  // The ring is 200 rows deep, so every cell is one line: the visible form
+  // stays short and the exact values ride `title` plus the row's expanded
+  // detail, which is reachable by keyboard and by touch.
+
+  // 276,467 → 276.5k. Locale-grouped digits would triple the cell width.
+  function compactNum(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "0";
+    if (Math.abs(v) < 1000) return String(v);
+    const [div, suffix] = Math.abs(v) >= 1e6 ? [1e6, "M"] : [1e3, "k"];
+    return `${(v / div).toFixed(1).replace(/\.0$/, "")}${suffix}`;
+  }
+  // Total LLM tokens for the row; older rows that logged no total fall back
+  // to input + output.
+  function tokCompact(t) {
+    if (t?.total != null) return compactNum(t.total);
+    return compactNum(Number(t?.input ?? 0) + Number(t?.output ?? 0));
+  }
+
+  // Phases arrive as an ordered list built by the backend (acquire_ms,
+  // session_refresh_ms, run_acquire_ms, upstream_ttfb_ms, total_ms, and
+  // whatever a later release adds): never keyed to a fixed set here, so a new
+  // phase renders on its own.
+  const PHASES_INLINE = 2;
+  function phaseLine(ph) {
+    return `${ph.name} ${ph.ms}ms`;
+  }
+  function phaseList(t) {
+    return (t?.phases || []).filter((ph) => ph?.name);
+  }
+  // Pipeline order, every phase: what the title and the expanded row show.
+  function phasesFull(t) {
+    return phaseList(t).map(phaseLine).join(" · ");
+  }
+  // Dominant first, so a summary the cell has to clip keeps the phases that
+  // actually ate the wall clock; the tail is one expand (or `+N`) away.
+  function phasesSummary(t) {
+    return phaseList(t)
+      .map((ph, i) => ({ ph, i }))
+      .sort((a, b) => Number(b.ph.ms) - Number(a.ph.ms) || a.i - b.i)
+      .slice(0, PHASES_INLINE)
+      .map(({ ph }) => phaseLine(ph))
+      .join(" · ");
+  }
+  function phasesRest(t) {
+    return Math.max(0, phaseList(t).length - PHASES_INLINE);
+  }
+  // Whether the row's detail has anything the one-line cells left out.
+  function hasDetail(t) {
+    return Boolean(
+      phaseList(t).length || hasUsage(t) || t?.agent || t?.error || rowReqId(t),
+    );
+  }
+
+  // One row's detail open at a time. The table and the stacked cards share
+  // the state, so a resize keeps the open row open.
+  let expandedIndex = $state(-1);
+  function toggleRow(i) {
+    expandedIndex = expandedIndex === i ? -1 : i;
+  }
 </script>
 
 <div class="space-y-6">
+  <!-- Everything the one-line cells leave out: the phase list in pipeline
+       order, the exact token counts, the serving agent and the request id,
+       rendered by the desktop detail row and the mobile card alike. -->
+  {#snippet traceDetail(t)}
+    <div
+      class="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-[var(--fp-muted)]"
+    >
+      {#if phaseList(t).length}
+        <span
+          >{$tr("Phases (pipeline order): {list}", {
+            list: phasesFull(t),
+          })}</span
+        >
+      {/if}
+      {#if hasUsage(t)}
+        <span>{$tr("Tokens: {list}", { list: tokLine(t) })}</span>
+      {/if}
+      {#if t.agent}
+        <span>{$tr("Agent: {name}", { name: t.agent })}</span>
+      {/if}
+      {#if rowReqId(t)}
+        <span>{$tr("req_id: {id}", { id: rowReqId(t) })}</span>
+      {/if}
+      {#if t.error}
+        <span class="text-[var(--fp-error)]"
+          >{$tr("Error: {msg}", { msg: t.error })}</span
+        >
+      {/if}
+    </div>
+  {/snippet}
   {#if loading}
     <div class="space-y-6" aria-busy="true">
       <div class="skeleton skeleton-card h-64"></div>
@@ -172,8 +264,14 @@
       pad="none"
     >
       {#if visibleTraces?.length}
-        <div class="overflow-x-auto hidden md:block">
-          <table class="fp-table w-full min-w-[640px]">
+        <!-- table-fixed holds the card off a horizontal scroller at every
+             width: each column owns its content, so the wide cells (model,
+             phases) truncate instead of widening the table. Below lg the
+             stacked cards take over. -->
+        <div class="hidden lg:block">
+          <table
+            class="fp-table w-full table-fixed [&_td:not([colspan])]:!px-2 [&_th]:!px-2"
+          >
             <caption class="sr-only"
               >{$tr(
                 "Chat traces — time, account, model, tokens, status, latency and phases",
@@ -181,17 +279,16 @@
             >
             <thead>
               <tr>
-                <th scope="col" class="w-[1%]">{$tr("Time")}</th>
-                <th scope="col" class="w-[1%]">{$tr("Account")}</th>
-                <th scope="col" class="w-48">{$tr("Model")}</th>
-                <th scope="col" class="w-[1%]">{$tr("Tokens")}</th>
-                <th scope="col" class="w-[1%] whitespace-nowrap"
+                <th scope="col" class="w-[70px]">{$tr("Time")}</th>
+                <th scope="col" class="w-[44px]">{$tr("Account")}</th>
+                <th scope="col" class="w-[18%]">{$tr("Model")}</th>
+                <th scope="col" class="num w-[64px]">{$tr("Tokens")}</th>
+                <th scope="col" class="w-[160px] whitespace-nowrap"
                   >{$tr("Status")}</th
                 >
-                <th scope="col" class="num w-[1%]">{$tr("Latency")}</th>
+                <th scope="col" class="num w-[68px]">{$tr("Latency")}</th>
                 <th scope="col">{$tr("Phases")}</th>
-                <th scope="col">{$tr("Error")}</th>
-                <th scope="col" class="text-right w-[1%]"
+                <th scope="col" class="w-[44px] text-right"
                   ><span class="sr-only">{$tr("Links")}</span></th
                 >
               </tr>
@@ -202,12 +299,13 @@
                 {@const reqId = rowReqId(t)}
                 {@const limited = rateFirst(t)}
                 {@const usage = tokLine(t)}
+                {@const open = expandedIndex === i}
                 <tr class={highlightRow(t) ? "bg-amber-500/5" : ""}>
                   <td
-                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)] w-[1%]"
+                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
                     >{formatTime(t.time)}</td
                   >
-                  <td class="w-[1%] whitespace-nowrap">
+                  <td class="whitespace-nowrap">
                     {#if tidx !== null}
                       <button
                         type="button"
@@ -249,56 +347,75 @@
                       <span class="fp-num font-mono text-xs">—</span>
                     {/if}
                   </td>
-                  <td class="font-mono text-[11px]"
-                    ><span class="block truncate max-w-full" title={t.model}
-                      >{t.model || "—"}</span
+                  <td class="font-mono text-[11px]">
+                    <span
+                      class="block truncate max-w-full"
+                      title={t.agent
+                        ? $tr("{model} · agent {agent}", {
+                            model: t.model || "—",
+                            agent: t.agent,
+                          })
+                        : t.model}>{t.model || "—"}</span
                     >
-                    {#if t.agent}
-                      <span
-                        class="block text-[10px] text-[var(--fp-dim)]"
-                        title={$tr("Serving agent")}>{t.agent}</span
-                      >
-                    {/if}
                   </td>
                   <td
-                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)] w-[1%]"
+                    class="num whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
                     title={usage
                       ? $tr("Input / cached / output / total LLM tokens")
-                      : ""}>{usage || "—"}</td
+                      : ""}
                   >
-                  <td class="w-[1%] whitespace-nowrap">
-                    <span
-                      class={t.status === "error"
-                        ? "text-[var(--fp-error)] font-semibold"
-                        : "text-[var(--fp-success)]"}
-                    >
-                      {t.status || "ok"}
+                    {#if usage}<span class="sr-only">{usage}</span>{tokCompact(
+                        t,
+                      )}{:else}—{/if}
+                  </td>
+                  <!-- The error rides the status cell, so a row without one
+                       reserves no space and the other cells never move. -->
+                  <td class="whitespace-nowrap">
+                    <span class="flex items-center gap-1.5 min-w-0">
+                      <span
+                        class={t.status === "error"
+                          ? "text-[var(--fp-error)] font-semibold"
+                          : "text-[var(--fp-success)]"}
+                      >
+                        {t.status || "ok"}
+                      </span>
+                      {#if t.error}
+                        <span
+                          class="truncate text-[11px] text-[var(--fp-error)]"
+                          title={t.error}>{t.error}</span
+                        >
+                      {/if}
                     </span>
                   </td>
-                  <td class="num w-[1%] whitespace-nowrap"
-                    >{t.ms ? t.ms : "—"}</td
-                  >
-                  <td>
-                    {#if t.phases?.length}
-                      <div class="flex flex-wrap gap-1">
-                        {#each t.phases as ph, j (ph.name + "|" + j)}
-                          <span
-                            class="px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] bg-[var(--fp-surface-2)] text-[10px] font-mono text-[var(--fp-muted)]"
+                  <td class="num whitespace-nowrap">{t.ms ? t.ms : "—"}</td>
+                  <td class="min-w-0">
+                    {#if phaseList(t).length}
+                      <button
+                        type="button"
+                        onclick={() => toggleRow(i)}
+                        aria-expanded={open}
+                        title={$tr("All phases in pipeline order: {list}", {
+                          list: phasesFull(t),
+                        })}
+                        class="flex w-full min-w-0 items-center gap-1 text-left font-mono text-[11px] text-[var(--fp-muted)] cursor-pointer bg-transparent border-0 p-0 hover:text-[var(--fp-text)]"
+                      >
+                        {#if open}
+                          <ChevronDown size={11} class="shrink-0" />
+                        {:else}
+                          <ChevronRight size={11} class="shrink-0" />
+                        {/if}
+                        <span class="truncate min-w-0">{phasesSummary(t)}</span>
+                        {#if phasesRest(t)}
+                          <span class="shrink-0 text-[var(--fp-dim)]"
+                            >+{phasesRest(t)}</span
                           >
-                            {ph.name}
-                            {ph.ms}ms
-                          </span>
-                        {/each}
-                      </div>
+                        {/if}
+                      </button>
                     {:else}
                       <span class="text-[var(--fp-dim)]">—</span>
                     {/if}
                   </td>
-                  <td
-                    class="text-[var(--fp-error)] text-[11px] max-w-[200px] truncate"
-                    >{t.error || ""}</td
-                  >
-                  <td class="w-[1%] whitespace-nowrap text-right">
+                  <td class="whitespace-nowrap text-right">
                     <button
                       type="button"
                       onclick={() => onOpenLogs?.(reqId ? String(reqId) : "")}
@@ -313,12 +430,17 @@
                     >
                   </td>
                 </tr>
+                {#if open}
+                  <tr class="bg-[var(--fp-surface-2)]">
+                    <td colspan={8}>{@render traceDetail(t)}</td>
+                  </tr>
+                {/if}
               {/each}
             </tbody>
           </table>
         </div>
         <ul
-          class="md:hidden flex flex-col gap-2.5 p-3.5"
+          class="lg:hidden flex flex-col gap-2.5 p-3.5"
           aria-label={$tr("Chat traces")}
         >
           {#each visibleTraces as t, i (t.time + "|" + (rowReqId(t) ?? "") + "|" + i)}
@@ -326,18 +448,27 @@
             {@const reqId = rowReqId(t)}
             {@const limited = rateFirst(t)}
             {@const usage = tokLine(t)}
-            <li class="fp-inset rounded p-3 flex flex-col gap-2 min-w-0">
+            {@const open = expandedIndex === i}
+            <li class="fp-inset rounded px-3 py-2 flex flex-col gap-1 min-w-0">
               <div class="flex items-center justify-between gap-2 min-w-0">
                 <span
                   class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
                   >{formatTime(t.time)}</span
                 >
-                <span
-                  class={t.status === "error"
-                    ? "text-[var(--fp-error)] font-semibold text-xs"
-                    : "text-[var(--fp-success)] text-xs"}
-                >
-                  {t.status || "ok"}
+                <span class="flex items-center gap-2 min-w-0">
+                  {#if t.error}
+                    <span
+                      class="truncate text-[11px] text-[var(--fp-error)]"
+                      title={t.error}>{t.error}</span
+                    >
+                  {/if}
+                  <span
+                    class={t.status === "error"
+                      ? "text-[var(--fp-error)] font-semibold text-xs"
+                      : "text-[var(--fp-success)] text-xs"}
+                  >
+                    {t.status || "ok"}
+                  </span>
                 </span>
               </div>
               <div class="flex items-center gap-1.5 min-w-0 text-xs">
@@ -388,48 +519,63 @@
                     >{/if}</code
                 >
               </div>
-              {#if usage}
+              {#if phaseList(t).length}
                 <div
-                  class="fp-num text-[11px] text-[var(--fp-muted)]"
-                  title={$tr("Input / cached / output / total LLM tokens")}
-                  aria-label={$tr("LLM token usage: {usage}", { usage })}
+                  class="flex items-center gap-1 min-w-0 font-mono text-[11px] text-[var(--fp-muted)]"
                 >
-                  {usage}
-                </div>
-              {/if}
-              <div class="flex items-center justify-between gap-2 text-xs">
-                <span class="fp-num text-[var(--fp-muted)]"
-                  >{t.ms ? t.ms : "—"}</span
-                >
-                <button
-                  type="button"
-                  onclick={() => onOpenLogs?.(reqId ? String(reqId) : "")}
-                  title={reqId
-                    ? $tr("Open logs for trace {id}", { id: reqId })
-                    : $tr("No request id for this entry")}
-                  aria-label={reqId
-                    ? $tr("Open logs for trace {id}", { id: reqId })
-                    : $tr("Open logs")}
-                  class="font-mono text-[11px] text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 whitespace-nowrap"
-                  >{$tr("Logs")}</button
-                >
-              </div>
-              {#if t.phases?.length}
-                <div class="flex flex-wrap gap-1">
-                  {#each t.phases as ph, j (ph.name + "|" + j)}
-                    <span
-                      class="px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] bg-[var(--fp-surface-2)] text-[10px] font-mono text-[var(--fp-muted)]"
+                  <span class="truncate min-w-0" title={phasesFull(t)}
+                    >{phasesSummary(t)}</span
+                  >
+                  {#if phasesRest(t)}
+                    <span class="shrink-0 text-[var(--fp-dim)]"
+                      >+{phasesRest(t)}</span
                     >
-                      {ph.name}
-                      {ph.ms}ms
-                    </span>
-                  {/each}
+                  {/if}
                 </div>
               {/if}
-              {#if t.error}
-                <p class="text-[var(--fp-error)] text-[11px] break-words">
-                  {t.error}
-                </p>
+              <div
+                class="flex items-center gap-2 min-w-0 font-mono text-[11px] text-[var(--fp-muted)]"
+              >
+                <span class="ml-auto flex shrink-0 items-center gap-2">
+                  {#if usage}
+                    <span
+                      class="fp-num"
+                      title={$tr("Input / cached / output / total LLM tokens")}
+                      ><span class="sr-only">{usage}</span>{tokCompact(t)}</span
+                    >
+                  {/if}
+                  <span class="fp-num">{t.ms ? t.ms : "—"}</span>
+                  <button
+                    type="button"
+                    onclick={() => onOpenLogs?.(reqId ? String(reqId) : "")}
+                    title={reqId
+                      ? $tr("Open logs for trace {id}", { id: reqId })
+                      : $tr("No request id for this entry")}
+                    aria-label={reqId
+                      ? $tr("Open logs for trace {id}", { id: reqId })
+                      : $tr("Open logs")}
+                    class="font-mono text-[11px] text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 whitespace-nowrap"
+                    >{$tr("Logs")}</button
+                  >
+                  {#if hasDetail(t)}
+                    <button
+                      type="button"
+                      onclick={() => toggleRow(i)}
+                      aria-expanded={open}
+                      aria-label={$tr("Show trace detail")}
+                      class="flex items-center cursor-pointer bg-transparent border-0 p-0 text-[var(--fp-muted)] hover:text-[var(--fp-text)]"
+                    >
+                      {#if open}
+                        <ChevronDown size={12} />
+                      {:else}
+                        <ChevronRight size={12} />
+                      {/if}
+                    </button>
+                  {/if}
+                </span>
+              </div>
+              {#if open}
+                <div class="pt-1">{@render traceDetail(t)}</div>
               {/if}
             </li>
           {/each}

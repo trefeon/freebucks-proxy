@@ -24,10 +24,11 @@ import type { PostedSetting } from "./mocks.js";
 // Usage (#plans: Quota/Models/Controls)
 //   saved notes + persist ........ page-state.spec
 //   reset strip / exempt chip .... flows.spec
-// Logs (#activity: Console/Logging/Metrics/Traces)
-//   LOG_LEVEL round-trip ......... THIS FILE (seed -> POST -> reload -> GET)
+// Logs (#activity: Live/Metrics/Traces)
+//   tab set: no Logging surface .. THIS FILE (group has 3 tabs, no LOG_LEVEL)
 //   console/filters/paging ....... dashboard + interactions.spec
 // Settings (#settings)
+//   LOG_LEVEL round-trip ......... THIS FILE (seed -> POST -> reload -> GET)
 //   search + empty + Clear ....... THIS FILE (security group row)
 //   restart confirm/cancel ....... THIS FILE (alertdialog + POST + toast)
 //   update check ................. ux.spec (render)
@@ -586,11 +587,12 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       seed: [{ key: "LOG_LEVEL", value: "debug", source: "db" }],
     });
 
-    await page.goto(admin("activity"));
+    // LOG_LEVEL's only live control is the Settings card (the Logs page
+    // carries Live/Metrics/Traces only).
+    await page.goto(admin("settings"));
     await expect(
-      page.getByRole("heading", { name: "Logs", exact: true }),
+      page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Logging" }).click();
     const level = page.locator('select[aria-label="LOG_LEVEL"]');
     await expect(level).toHaveValue("debug");
 
@@ -608,11 +610,37 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     // new value (DB-first persistence, no env involved).
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: "Logs", exact: true }),
+      page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: "Logging" }).click();
     await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toHaveValue(
       "warn",
     );
+  });
+
+  test("@smoke Logs page carries no Logging settings surface", async ({
+    page,
+  }) => {
+    await mockDashboard(page, loadFixtures());
+    await page.goto(admin("activity"));
+    await expect(
+      page.getByRole("heading", { name: "Logs", exact: true }),
+    ).toBeVisible();
+
+    // The Logs page is telemetry only: exactly three tabs, no Logging entry.
+    const tabs = page.getByRole("group", { name: "Activity view" });
+    await expect(tabs.getByRole("button")).toHaveCount(3);
+    await expect(tabs.getByRole("button", { name: "Live" })).toBeVisible();
+    await expect(tabs.getByRole("button", { name: "Metrics" })).toBeVisible();
+    await expect(tabs.getByRole("button", { name: "Traces" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Logging" })).toHaveCount(0);
+
+    // Neither Logs card came along: the LOG_LEVEL editor lives on Settings,
+    // and the general-group "Logging & Diagnostics" card no longer renders
+    // here. The page description stays truthful to the remaining tabs.
+    await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toHaveCount(0);
+    await expect(page.getByText("Logging & Diagnostics")).toHaveCount(0);
+    await expect(
+      page.getByText("Live traffic, metrics, and traces."),
+    ).toBeVisible();
   });
 });
