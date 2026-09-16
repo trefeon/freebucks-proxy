@@ -137,7 +137,9 @@
       pad="none"
     >
       {#snippet actions()}
-        <div class="flex max-w-full flex-wrap items-center gap-2">
+        <div
+          class="flex min-w-0 max-w-full flex-wrap items-center gap-2 [&>*]:min-w-0 [&>*]:shrink"
+        >
           <SegmentedControl
             bind:value={usageRange}
             options={[

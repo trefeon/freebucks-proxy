@@ -26,8 +26,9 @@
     <header
       class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pt-4"
     >
-      <!-- Title block flexes and wraps; the actions span stays shrink-0 so
-        the two never collide (Maturity account title vs status badges).
+      <!-- Title block flexes and wraps; the actions span keeps min-w-0 and
+        flex-wrap (no shrink-0) so it shrinks to the wrapped line width and
+        wraps its controls instead of bleeding past the viewport.
         basis-full stacks the header below sm; sm:basis-28 (~title width)
         shares the row wherever the status fits, wrapping instead of
         crowding where it does not. -->
@@ -43,7 +44,7 @@
       </div>
       {#if actions}
         <div
-          class="flex min-w-0 shrink-0 flex-wrap items-center justify-start gap-2 sm:justify-end"
+          class="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end"
         >
           {@render actions()}
         </div>
