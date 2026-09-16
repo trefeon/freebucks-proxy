@@ -887,6 +887,7 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 	sess.SetReAdmitLead(cfg.SessionReAdmitLead)
 	sess.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 	sess.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
+	pushParkConfig(sess, cfg)
 	entry := &tokenEntry{
 		session: sess,
 		runs:    runs.NewRunManagerOpts(client, sess, runOptions(cfg)),
