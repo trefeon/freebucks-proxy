@@ -96,7 +96,7 @@ func printHelpFlag(name string) {
 }
 
 func main() {
-	configPath := flag.String("config", "", "path to an optional JSON config file (keys mirror env names). Dashboard: Settings page plus raw .env editor; apply with POST /admin/reload")
+	configPath := flag.String("config", "", "path to an optional JSON config file (keys mirror env names). Dashboard: Settings page; apply with POST /admin/reload")
 	verbose := flag.Bool("v", false, "verbose (debug) logging. Dashboard: Logs viewer plus the Settings log level")
 	showVersion := flag.Bool("version", false, "print version and exit. Dashboard: Overview status line shows the same version")
 	showDoctor := flag.Bool("doctor", false, "run environment and configuration diagnostics. Dashboard: POST /admin/diag covers the same checks on a running server")

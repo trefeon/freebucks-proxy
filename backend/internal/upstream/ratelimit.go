@@ -89,8 +89,13 @@ func rateLimitInfo(body string, err error) (code, window string) {
 // rateLimitCode extracts the upstream refusal code from the body's
 // "error"/"type" field (free_mode_rate_limited, insufficient_quota,
 // limit_burst_rate, ip_capped, spend_limited, rate_limited, ...), falling
-// back to the classified error type when the body carries no code key.
+// back to the classified error type when the body carries no code key. A
+// distinguishable window refusal wins over both: its kind IS the ledger code,
+// so /metrics never counts a freebucks-window refusal as a plain rate limit.
 func rateLimitCode(body string, err error) string {
+	if kind := rateLimitKind(err); kind != "" {
+		return kind
+	}
 	if code := bodyCode(body); code != "" {
 		return code
 	}
@@ -104,6 +109,15 @@ func rateLimitCode(body string, err error) string {
 			return e.Status // load_shedding | peak_hours
 		}
 		return string(WireCodeRateLimited)
+	}
+	return ""
+}
+
+// rateLimitKind returns the distinguishable window kind of a classification
+// ("" for every other refusal): only a RateLimitError can carry one.
+func rateLimitKind(err error) string {
+	if rle, ok := err.(*RateLimitError); ok {
+		return rle.WindowKind()
 	}
 	return ""
 }
@@ -172,7 +186,9 @@ func rateLimitFields(err error) (time.Duration, time.Time) {
 
 // logRateLimitClassified emits the rate-limit ledger Debug line. The body is logged
 // in FULL (the 200-rune truncation applies to the HTTP error response only)
-// and must already be redacted by the caller.
+// and must already be redacted by the caller. A distinguishable window
+// refusal adds kind + window_hours next to its code, so the operator reading
+// the line sees WHY the cooldown is ~20h without opening the body.
 func logRateLimitClassified(status int, body, code, window string, err error) {
 	attrs := []any{
 		"status", status,
@@ -180,11 +196,18 @@ func logRateLimitClassified(status int, body, code, window string, err error) {
 		"window", window,
 		"body", body,
 	}
-	if retryAfter, resetAt := rateLimitFields(err); retryAfter > 0 {
-		attrs = append(attrs, "retry_after", int(retryAfter.Seconds()))
-		if !resetAt.IsZero() {
-			attrs = append(attrs, "reset_at", resetAt.UTC().Format(time.RFC3339))
+	if kind := rateLimitKind(err); kind != "" {
+		attrs = append(attrs, "kind", kind)
+		if rle, ok := err.(*RateLimitError); ok && rle.WindowHours > 0 {
+			attrs = append(attrs, "window_hours", rle.WindowHours)
 		}
+	}
+	retryAfter, resetAt := rateLimitFields(err)
+	if retryAfter > 0 {
+		attrs = append(attrs, "retry_after", int(retryAfter.Seconds()))
+	}
+	if !resetAt.IsZero() {
+		attrs = append(attrs, "reset_at", resetAt.UTC().Format(time.RFC3339))
 	}
 	slog.Debug("upstream rate limit classified", attrs...)
 }

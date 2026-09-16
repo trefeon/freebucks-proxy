@@ -137,20 +137,20 @@ func (a *adminHandlers) handleTokenAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// adminSaveMu serializes the pool mutation + persist + reload with the
-	// other .env writers (config editor, token remove, mode switch) so a
+	// other .env writers (API-key save, token remove, mode switch) so a
 	// concurrent save cannot interleave and lose a token from .env.
 	a.adminSaveMu.Lock()
 	defer a.adminSaveMu.Unlock()
 
 	cfg := a.cfgLoad()
-	// Divergence guard (mirrors handleTokenRemove): a config-editor
-	// AUTH_TOKENS edit or /admin/reload can diverge cfg.AuthTokens from the
+	// Divergence guard (mirrors handleTokenRemove): an AUTH_TOKENS .env
+	// edit or /admin/reload can diverge cfg.AuthTokens from the
 	// live pool. Adding to a stale list would persist cfg.AuthTokens+new to
 	// .env while the pool holds its own list, leaving pool/.env/cfg
 	// permanently divergent — and the next remove is rejected by the same
 	// guard, stranding the operator until restart.
 	if len(cfg.AuthTokens) != a.pool.TokenCount() {
-		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the Config editor or restart.")
+		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the .env file or restart.")
 		return
 	}
 	// Tier gate: reject dead accounts before they enter the pool. The probe
@@ -203,12 +203,12 @@ func (a *adminHandlers) handleTokenRemove(w http.ResponseWriter, r *http.Request
 	defer a.adminSaveMu.Unlock()
 
 	cfg := a.cfgLoad()
-	// A config-editor AUTH_TOKENS edit or /admin/reload can diverge
+	// An AUTH_TOKENS .env edit or /admin/reload can diverge
 	// cfg.AuthTokens from the live pool; removing "the last token" from a
 	// stale list would persist the wrong .env and leave pool/.env/cfg
 	// permanently inconsistent.
 	if len(cfg.AuthTokens) != a.pool.TokenCount() {
-		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the Config editor or restart.")
+		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the .env file or restart.")
 		return
 	}
 	// The SPA sends the token INDEX it wants removed (values stay masked
@@ -269,7 +269,7 @@ func (a *adminHandlers) handleTokenSwap(w http.ResponseWriter, r *http.Request) 
 
 	cfg := a.cfgLoad()
 	if len(cfg.AuthTokens) != a.pool.TokenCount() {
-		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the Config editor or restart.")
+		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the .env file or restart.")
 		return
 	}
 

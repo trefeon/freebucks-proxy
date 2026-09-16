@@ -259,7 +259,7 @@ func (a *adminHandlers) handleModeSwitch(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		// adminSaveMu serializes the persist → verify → rollback sequence
-		// with the other .env writers (config editor, token add/remove) so a
+		// with the other .env writers (API-key save, token add/remove) so a
 		// concurrent save cannot interleave between the write and the reload.
 		// The live-pool drain stays outside the lock, after the reload is
 		// verified (persist → verify → drain).

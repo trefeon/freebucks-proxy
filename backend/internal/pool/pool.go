@@ -90,10 +90,22 @@ type Lease struct {
 
 // TokenSnapshot is one token's healthz view.
 type TokenSnapshot struct {
-	Token                   int
-	Email                   string `json:"email,omitempty"`
-	AccountID               string `json:"account_id,omitempty"`
-	CooldownUntil           time.Time
+	Token         int
+	Email         string `json:"email,omitempty"`
+	AccountID     string `json:"account_id,omitempty"`
+	CooldownUntil time.Time
+	// CooldownKind / CooldownWindowHours / CooldownResetsAt answer WHY a
+	// token is cooling down when upstream's refusal was a distinguishable
+	// window refusal (upstream.WindowKindFreebucks → "freebucks_window", the
+	// vendor's daily freebucks ceiling). CooldownKind is "" for every other
+	// cooldown (plain retry-after rate limit, ip_capped, ban, auth) and
+	// CooldownWindowHours/CooldownResetsAt stay zero unless upstream declared
+	// them, so existing consumers see exactly the old shape. CooldownResetsAt
+	// is upstream's own window refill instant; the proxy deadline remains
+	// CooldownUntil — the two are different facts and both are reported.
+	CooldownKind            string
+	CooldownWindowHours     int
+	CooldownResetsAt        time.Time
 	SessionStatus           string
 	SessionInstanceID       string
 	SessionQueuePosition    int
@@ -713,9 +725,9 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 
 	// AUTH_TOKENS slot reconciliation. A quarantine is bound to the exact
 	// account string an entry was built from; when a reload replaces the
-	// account at a slot (operator edited AUTH_TOKENS in the Config editor
-	// or .env), the old entry's terminal state no longer describes the
-	// account now configured there — and keeping the entry would keep
+	// account at a slot (operator edited AUTH_TOKENS in .env), the old
+	// entry's terminal state no longer describes the account now
+	// configured there — and keeping the entry would keep
 	// leasing the OLD account while the replacement token sat idle until a
 	// restart. The slot is therefore REBUILT end-to-end: the old entry is
 	// retired and drained (runs FINISHed, admitted session ended — exactly

@@ -1,7 +1,6 @@
-import { writable, derived, get } from "svelte/store";
-import { fetchAPI, postForm, deleteAPI } from "../api/client.js";
-import { adminApi, adminActions } from "../api/paths.js";
-import { confirmAction } from "./confirm.js";
+import { writable, get } from "svelte/store";
+import { fetchAPI, deleteAPI } from "../api/client.js";
+import { adminApi } from "../api/paths.js";
 import { refreshTokens } from "./tokens.js";
 import { parseEnv } from "../utils/env.js";
 import { push as pushToast, dismiss as dismissToast } from "./toast.js";
@@ -16,11 +15,13 @@ function t(key, params) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared settings state: the .env document (read-only outside the emergency
-// editor) plus the DB-overlay instant-save path. Every tunable row writes
-// its key straight to the overlay via DbOverrideSave the moment it is
-// touched — there is no batched draft, so setField only updates the live
-// display value and never marks anything dirty.
+// Shared settings state: the .env document — displayed, never written here.
+// Writes go through the DB-overlay instant-save path (DbOverrideSave POSTs the
+// one key it owns); the whole-file .env write lives only in the Client API
+// Keys editor (POST /admin/config, used to add/remove API_KEYS). Every tunable
+// row writes its key straight to the overlay the moment it is touched — there
+// is no batched draft, so setField only updates the live display value and
+// never marks anything dirty.
 // ---------------------------------------------------------------------------
 export const meta = writable([]);
 export const configData = writable(null);
@@ -33,7 +34,6 @@ export const formValues = writable({});
 export const effectiveMap = writable(new Map());
 export const settingSources = writable({});
 export const settingsDegraded = writable(false);
-export const saving = writable(false);
 export const result = writable(null);
 
 // Last-known overlay values (key -> saved display value) for source=db
@@ -124,11 +124,6 @@ export function setField(key, value) {
   formValues.update((vals) => ({ ...vals, [key]: value }));
 }
 
-export const dirty = derived(
-  [rawText, baseContent],
-  ([$raw, $base]) => $raw !== $base,
-);
-
 export async function fetchData() {
   const firstLoad = get(configData) == null;
   if (firstLoad) loading.set(true);
@@ -200,60 +195,4 @@ export async function resetSetting(key) {
 export async function overlaySaved() {
   await fetchData();
   refreshTokens();
-}
-
-// Emergency whole-file .env save only (the RawEnvEditor stages the edited
-// document into rawText, then calls this). Per-key rows never come here —
-// they POST the overlay directly through DbOverrideSave.
-export async function saveConfig(e, opts = {}) {
-  if (get(saving) || !get(dirty)) return;
-  if (opts.confirm !== false) {
-    const ok = await confirmAction({
-      title: t("Save Configuration"),
-      message: t("Save these settings and reload the proxy with the changes?"),
-      confirmText: t("Save & Reload"),
-      tone: "warn",
-    });
-    if (!ok) return;
-  }
-  saving.set(true);
-  result.set(null);
-  notifyResult(null);
-  try {
-    const res = await postForm(adminActions.configSave, {
-      content: get(rawText),
-    });
-    const json = await res.json();
-    const ok = res.ok && json.ok;
-    const saveOutcome = {
-      ok,
-      message:
-        json.message ||
-        (res.ok ? t("Configuration saved and reloaded.") : t("Save failed")),
-      restart_only: Array.isArray(json.restart_only) ? json.restart_only : [],
-    };
-    result.set(saveOutcome);
-    notifyResult(saveOutcome);
-    if (ok) {
-      await fetchData();
-      refreshTokens();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("fp-config-saved"));
-      }
-    } else {
-      const $base = get(baseContent);
-      rawText.set($base);
-      formValues.set(applyOverlayWins(deriveValues($base)));
-    }
-  } catch (e) {
-    const saveFailure = {
-      ok: false,
-      message: e.message || t("Network error saving configuration"),
-      restart_only: [],
-    };
-    result.set(saveFailure);
-    notifyResult(saveFailure);
-  } finally {
-    saving.set(false);
-  }
 }

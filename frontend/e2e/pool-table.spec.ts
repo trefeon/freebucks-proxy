@@ -10,9 +10,9 @@ import { loadFixtures, mockDashboard } from "./mocks.js";
  * regression here breaks silently:
  *
  *  - an idle account (no live session) shows a bare em dash in Instance, and
- *    that column hugs it instead of reserving a 280px band (the pre-#569
- *    `min-w-[280px]` floor squeezed Usage to 36px of content, wrapped
- *    "3 msgs 24h" over five lines and inflated the row to 133px),
+ *    that column hugs it instead of reserving a band (the pre-#569
+ *    fixed width floor on that column squeezed Usage to 36px of content,
+ *    wrapped "3 msgs 24h" over five lines and inflated the row to 133px),
  *  - rows stay slim,
  *  - the table never pushes its card into horizontal scroll at any supported
  *    desktop width, and the stacked mobile cards never scroll at 390,
@@ -184,8 +184,8 @@ test.describe("Pool accounts table geometry", () => {
     );
     const m = await tableMetrics(page);
 
-    // The pre-change floor reserved 280px + padding (304-311px measured) for
-    // an 11px em dash.
+    // The pre-change floor plus padding (measured range) reserved a wide
+    // band for an em dash.
     const instance = column(m, "Instance");
     expect(instance.cellText).toBe("—");
     expect(instance.cellTextWidth).toBeLessThan(20);

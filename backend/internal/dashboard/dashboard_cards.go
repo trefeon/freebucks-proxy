@@ -81,12 +81,21 @@ type tokenCard struct {
 	// turns hold this account's slot, how many requests are parked on its
 	// FIFO queue, and how long the oldest one has waited. They are the
 	// "saturated vs free" signal the Logs console reads off the payload.
-	LiveTurns           int     `json:"live_turns"`
-	QueuedWaiters       int     `json:"queued_waiters"`
-	OldestWaiterMS      int64   `json:"oldest_waiter_ms"`
-	RequestsPerDay      int     `json:"requests_per_day"`
-	CooldownActive      bool    `json:"cooldown_active"`
-	CooldownUntil       string  `json:"cooldown_until"`
+	LiveTurns      int    `json:"live_turns"`
+	QueuedWaiters  int    `json:"queued_waiters"`
+	OldestWaiterMS int64  `json:"oldest_waiter_ms"`
+	RequestsPerDay int    `json:"requests_per_day"`
+	CooldownActive bool   `json:"cooldown_active"`
+	CooldownUntil  string `json:"cooldown_until"`
+	// CooldownKind / CooldownResetsAt / CooldownWindowHours (additive) name a
+	// distinguishable window refusal — upstream.WindowKindFreebucks
+	// ("freebucks_window", the vendor's daily freebucks ceiling, which is
+	// what produced the ~20h cooldowns) — plus upstream's window refill
+	// instant (RFC3339) and the window length it declared. Empty/zero for
+	// every other cooldown, so the SPA keeps rendering the old row.
+	CooldownKind        string  `json:"cooldown_kind,omitempty"`
+	CooldownResetsAt    string  `json:"cooldown_resets_at,omitempty"`
+	CooldownWindowHours int     `json:"cooldown_window_hours,omitempty"`
 	Locked              bool    `json:"locked"`
 	BanType             string  `json:"ban_type,omitempty"`
 	BannedUntil         string  `json:"banned_until,omitempty"`

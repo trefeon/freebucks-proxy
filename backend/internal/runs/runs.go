@@ -79,6 +79,18 @@ type RunSnapshot struct {
 	// while now < BannedUntil (mirrors BanError()'s time check). The pool
 	// gates its ban risk label on it so an expired ban is not sticky.
 	BannedUntil time.Time
+	// RateLimitKind / RateLimitWindowHours / RateLimitResetsAt expose WHY the
+	// token is cooling down when upstream's refusal was a distinguishable
+	// window refusal (upstream.WindowKindFreebucks, the freebucks ceiling):
+	// the kind, the window length upstream declared, and the instant upstream
+	// says the window refills. CooldownRateLimit remembers the whole
+	// RateLimitError, so the reset instant is never re-derived — these fields
+	// are just that memory, and they are filled only while the cooldown is
+	// live (mirroring RateLimitError()). Empty/zero for every other cooldown
+	// (plain retry-after rate limit, ip_capped, ban, auth).
+	RateLimitKind        string
+	RateLimitWindowHours int
+	RateLimitResetsAt    time.Time
 }
 
 // RunManager owns the current runs (one per agent) plus the draining list
@@ -561,6 +573,14 @@ func (m *RunManager) Snapshot() RunSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := RunSnapshot{ActiveRuns: len(m.runs), CooldownUntil: m.cooldownUntil, Requests: m.totalRequests, BanError: m.ban, BannedUntil: m.banUntil}
+	// Window evidence rides the same live-window gate as RateLimitError():
+	// the remembered refusal is the cooldown memory, and a lifted cooldown
+	// must never keep rendering as the current reason.
+	if m.rateLimit != nil && time.Now().Before(m.cooldownUntil) {
+		s.RateLimitKind = m.rateLimit.WindowKind()
+		s.RateLimitWindowHours = m.rateLimit.WindowHours
+		s.RateLimitResetsAt = m.rateLimit.ResetAt
+	}
 	return s
 }
 

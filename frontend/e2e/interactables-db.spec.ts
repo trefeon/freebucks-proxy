@@ -51,7 +51,6 @@ import type { PostedSetting } from "./mocks.js";
 // .env instead of the overlay (NOT DB-first, listed for follow-up):
 //   - Client API Keys generate/delete (POST /admin/config form, API_KEYS)
 //   - Token add/remove (POST /admin/config form, AUTH_TOKENS)
-//   - Emergency raw .env editor (POST /admin/config)
 //   - DevTools gate value itself (reads DEVTOOLS_ENABLED from the config
 //     document; the mock serves it, prod reads .env)
 // ---------------------------------------------------------------------------
@@ -112,8 +111,8 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     await expect
       .poll(() => posted.find((p) => p.key === "RATE_LIMIT_FAILOVER")?.value)
       .toBe("false");
-    // Per-row saves stay inline by design (HEAD #563 only moved reset /
-    // emergency-editor outcomes to the global toaster): the row reports
+    // Per-row saves stay inline by design (HEAD #563 only moved reset
+    // outcomes to the global toaster): the row reports
     // saved-and-live and no toast appears.
     const row = page.locator("div.py-4", { has: failover }).first();
     await expect(
@@ -147,7 +146,7 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       .toBeGreaterThan(0);
     // Row-level error contract: the row keeps the edited value with an
     // inline Retry affordance; a per-row failure never raises a toast
-    // (HEAD #563 only toasts reset/emergency-editor outcomes).
+    // (HEAD #563 only toasts reset outcomes).
     const row = page.locator("div.py-4", { has: failover }).first();
     await expect(row.getByRole("button", { name: "Retry" })).toBeVisible();
     await expect(toasts(page).getByRole("alert")).toHaveCount(0);
@@ -408,7 +407,13 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     });
 
     await page.goto(admin("overview"));
-    await expect(page.getByText("Client API Keys")).toBeVisible();
+    // Scoped to the card heading: the bare text locator also matches the
+    // card's own empty-state paragraph ("No client API keys configured…")
+    // while its config fetch is still in flight, which made this assertion
+    // race-dependent (strict-mode violation on a slow bundle).
+    await expect(
+      page.getByRole("heading", { name: "Client API Keys" }),
+    ).toBeVisible();
     // Seeded .env key renders masked, never in the clear.
     await expect(page.getByText(/sk-fb-•/).first()).toBeVisible();
 
@@ -471,7 +476,9 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     });
 
     await page.goto(admin("overview"));
-    await expect(page.getByText("Client API Keys")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Client API Keys" }),
+    ).toBeVisible();
     const keyRow = page.locator("div.fp-inset", { hasText: "sk-fb-" }).first();
     await expect(keyRow).toBeVisible();
 

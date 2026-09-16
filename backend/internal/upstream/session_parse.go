@@ -99,6 +99,15 @@ type SessionState struct {
 	// needing a fresh purchase is refused rather than charged for an hour
 	// it could not be issued. False when the response omits it.
 	PurchasesPaused bool
+	// WindowHours / FreebucksShortfall mirror the error-body window evidence
+	// (RateLimitError.WindowHours / FreebucksShortfall): a session status
+	// response reporting the vendor's freebucks ceiling carries the same two
+	// markers, and the poll/admission status paths build their
+	// RateLimitError from this state — without them a window refusal would
+	// silently degrade to a plain rate limit on its way to the cooldown
+	// memory.
+	WindowHours        int
+	FreebucksShortfall bool
 }
 
 // WalletConsent is the upstream wallet-consent demand: the admission price
@@ -186,6 +195,10 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 		FreebucksRefund        *float64          `json:"freebucksRefund"`
 		FreebucksRefundPending bool              `json:"freebucksRefundPending"`
 		WalletConsent          *rawWalletConsent `json:"walletConsent"`
+		// Window evidence for the freebucks ceiling, same markers as the
+		// error-body parse (windowHours + freebucksShortfall).
+		WindowHours        int `json:"windowHours"`
+		FreebucksShortfall any `json:"freebucksShortfall"`
 	}
 	if err := json.Unmarshal([]byte(body), &raw); err == nil && raw.Status != "" {
 		state := &SessionState{
@@ -208,6 +221,8 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 			Limit:              raw.Limit,
 			RecentCount:        raw.RecentCount,
 			RetryAfterMs:       raw.RetryAfterMs,
+			WindowHours:        raw.WindowHours,
+			FreebucksShortfall: freebucksShortfallPresent(raw.FreebucksShortfall),
 			AvailableHours:     raw.AvailableHours,
 			Message:            raw.Message,
 			GlmPromo:           string(raw.GlmPromo),

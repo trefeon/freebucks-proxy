@@ -312,7 +312,7 @@ func (a *adminHandlers) applyReloadedConfig(cfg *config.Config) {
 
 func (a *adminHandlers) handleReload(w http.ResponseWriter, r *http.Request) {
 	a.logfunc().Info("admin reload requested", "remote", remoteHost(r), "path", r.URL.Path)
-	// Serialize with the .env writers (config editor, token add/remove,
+	// Serialize with the .env writers (API-key save, token add/remove,
 	// mode switch): the reload re-reads the SAME files those writers mutate,
 	// and applying a load raced against a save could store stale config
 	// over a just-saved one (disk NEW, memory OLD).
