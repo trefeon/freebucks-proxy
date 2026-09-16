@@ -121,6 +121,52 @@ func Serve(configPath string, verbose bool, version string) int {
 			}
 		}
 	}
+	// One-time persisted-state carry (the vps-sg update lesson), BEFORE the
+	// env-to-DB import below: the same legacy candidates fold their operator
+	// state — settings overlay (config: rows, credentials included),
+	// pages_state, sessions_persist, tokens, pool_state — into a fresh live
+	// store so a recreate never strands state. Order is load-bearing: the
+	// env import upserts every catalog key, so running it first would fill
+	// settings and make the carry skip the table, stranding dashboard-only
+	// knobs. Carry-first, the legacy overlay (including the
+	// config:migrated_env_v1 marker) lands verbatim and the env import
+	// no-ops; explicit process env still wins at runtime by precedence.
+	// Per-table empty gate (populated tables are skipped, never merged),
+	// staged read-only counting for the skip report, secrets as opaque DB
+	// values with table names + row counts logged only. Steady-state boots
+	// just walk cheap COUNT(*) no-ops. Warn-only, legacy files stay.
+	if histStore != nil {
+		stateCarriedFrom := ""
+		for _, legacyState := range history.LegacyHistoryCandidates(history.DBPathFromEnv(), cfg.SessionStateFile) {
+			n, err := history.ImportLegacyPersistedState(histStore, history.DBPathFromEnv(), legacyState)
+			if err != nil {
+				logger.Warn("legacy state carry skipped", "file", legacyState, "err", err)
+				continue
+			}
+			if n > 0 {
+				logger.Info("carried legacy state into dashboard store", "file", legacyState, "rows", n)
+				if stateCarriedFrom == "" {
+					stateCarriedFrom = legacyState
+				}
+				continue
+			}
+			if stateCarriedFrom == "" {
+				continue
+			}
+			counts, cerr := history.CountLegacyPersistedRows(histStore, legacyState)
+			if cerr != nil {
+				logger.Warn("legacy state carry skipped; later era left in place unreadable (no cross-table merge)", "file", legacyState, "carried_from", stateCarriedFrom, "err", cerr)
+				continue
+			}
+			var skipped int64
+			for _, c := range counts {
+				skipped += c
+			}
+			if skipped > 0 {
+				logger.Warn("legacy state skipped: store already carries an earlier era; later file left in place (no cross-table merge)", "file", legacyState, "carried_from", stateCarriedFrom, "rows", skipped, "settings", counts["settings"], "pages_state", counts["pages_state"], "sessions_persist", counts["sessions_persist"], "tokens", counts["tokens"], "pool_state", counts["pool_state"])
+			}
+		}
+	}
 	// Boot smart migration, in order: the store open above already ran the
 	// pending goose chain for the detected data generation ((a) no DB file:
 	// fresh init, (b) legacy pre-goose stamp: baseline + remainder, (c)
