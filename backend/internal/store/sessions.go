@@ -24,13 +24,15 @@ func (s *Store) SaveSession(tokenHash, sessionData, runsData string) error {
 	if sessionData == "" && runsData == "" {
 		return s.DeleteSession(tokenHash)
 	}
-	if _, err := s.db.Exec(
-		`INSERT INTO sessions_persist(token_hash, session_data, runs_data, updated_at) VALUES(?, ?, ?, ?)
-		 ON CONFLICT(token_hash) DO UPDATE SET session_data=excluded.session_data, runs_data=excluded.runs_data, updated_at=excluded.updated_at`,
-		tokenHash, sessionData, runsData, Millis(time.Now())); err != nil {
-		return fmt.Errorf("store: save session: %w", err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(
+			`INSERT INTO sessions_persist(token_hash, session_data, runs_data, updated_at) VALUES(?, ?, ?, ?)
+			 ON CONFLICT(token_hash) DO UPDATE SET session_data=excluded.session_data, runs_data=excluded.runs_data, updated_at=excluded.updated_at`,
+			tokenHash, sessionData, runsData, Millis(time.Now())); err != nil {
+			return fmt.Errorf("store: save session: %w", err)
+		}
+		return nil
+	})
 }
 
 // LoadSession returns the raw session + runs blobs for tokenHash.
@@ -56,13 +58,15 @@ func (s *Store) SaveSessionRuns(tokenHash, runsData string) error {
 	if tokenHash == "" {
 		return errors.New("store: session token hash cannot be empty")
 	}
-	if _, err := s.db.Exec(
-		`INSERT INTO sessions_persist(token_hash, session_data, runs_data, updated_at) VALUES(?, '', ?, ?)
-		 ON CONFLICT(token_hash) DO UPDATE SET runs_data=excluded.runs_data, updated_at=excluded.updated_at`,
-		tokenHash, runsData, Millis(time.Now())); err != nil {
-		return fmt.Errorf("store: save session runs: %w", err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(
+			`INSERT INTO sessions_persist(token_hash, session_data, runs_data, updated_at) VALUES(?, '', ?, ?)
+			 ON CONFLICT(token_hash) DO UPDATE SET runs_data=excluded.runs_data, updated_at=excluded.updated_at`,
+			tokenHash, runsData, Millis(time.Now())); err != nil {
+			return fmt.Errorf("store: save session runs: %w", err)
+		}
+		return nil
+	})
 }
 
 // DeleteSession drops the row for tokenHash (mirrors Remove).
@@ -70,6 +74,14 @@ func (s *Store) DeleteSession(tokenHash string) error {
 	if tokenHash == "" {
 		return errors.New("store: session token hash cannot be empty")
 	}
+	return s.withWrite(func() error { return s.deleteSessionLocked(tokenHash) })
+}
+
+// deleteSessionLocked is the row delete behind DeleteSession and the
+// empty-blobs save path. It assumes the caller already holds the store write
+// boundary (the lock is not reentrant, so SaveSession must not take it
+// twice).
+func (s *Store) deleteSessionLocked(tokenHash string) error {
 	if _, err := s.db.Exec(`DELETE FROM sessions_persist WHERE token_hash = ?`, tokenHash); err != nil {
 		return fmt.Errorf("store: delete session: %w", err)
 	}
