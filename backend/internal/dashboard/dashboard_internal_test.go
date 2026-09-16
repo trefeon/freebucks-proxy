@@ -584,9 +584,10 @@ func TestCardFromSnapshotFirstTabDiscount(t *testing.T) {
 	d := card.Freebucks.FirstTabDiscount
 	if d == nil {
 		t.Fatal("FirstTabDiscount card = nil, want mapped offer")
-	}
-	if d.Amount != 3 || !d.Available || d.HolderSurface != "single" {
-		t.Errorf("FirstTabDiscount card = %+v, want amount 3 available single", d)
+	} else {
+		if d.Amount != 3 || !d.Available || d.HolderSurface != "single" {
+			t.Errorf("FirstTabDiscount card = %+v, want amount 3 available single", d)
+		}
 	}
 
 	bare := cardFromSnapshot(pool.TokenSnapshot{Token: 1})
