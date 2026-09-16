@@ -271,10 +271,26 @@ func (m *Manager) Poll(ctx context.Context) error {
 				slog.Warn("session dropped during poll", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", instanceID)
 			}
 		}
+		// Park: any other poll GET error holds the slot — the row stays
+		// cached (never commit(nil)/Invalidate/ClearQueued/DELETE) and the
+		// consecutive-failure count paces the re-GET with the vendor
+		// failedPollDelayMs shape (ParkDelay: 20s doubling, 300s cap,
+		// Retry-After floor). The pool's own failure backoff schedules the
+		// actual wait; the count here keeps the session layer's view in
+		// step and visible in logs.
+		m.mu.Lock()
+		m.pollFailures++
+		failures := m.pollFailures
+		m.mu.Unlock()
+		slog.Debug("session parked during poll", "instance_id", instanceID, "failures", failures,
+			"backoff_ms", ParkDelay(failures, ParkRetryAfter(err)).Milliseconds(), "err", err)
 		return err
 	}
 	m.mu.Lock()
-	// A successful GET confirms the cached state: refresh the probe window.
+	// A successful GET confirms the cached state: refresh the probe window
+	// and reset the transient-failure count (transport is healthy; any
+	// status mapping below is a typed refusal, not a poll failure).
+	m.pollFailures = 0
 	m.lastAdmitted = time.Now()
 	m.mu.Unlock()
 	if serr := statusError(st.Status, st); serr != nil {

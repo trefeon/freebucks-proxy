@@ -542,6 +542,31 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				// once-per-expiry guard prevents a retry storm.
 				return errors.New("session: pre-emptive re-admit refused (old session still active)")
 			}
+			if status == "ended" && st.InstanceID != "" {
+				// Park-in-grace (mirror Poll): an ended row that still
+				// carries its instance id is inside the vendor grace drain
+				// and stays usable — adopt it instead of dropping plus
+				// burning a fresh billable admission. The EnsureSession
+				// loop re-checks usability and serves it until grace
+				// closes. superseded/none carry no live row: always drop.
+				if graceEnd := graceEndFromState(st.ExpiresAt, st.GracePeriodEndsAt); !graceEnd.IsZero() && time.Now().Before(graceEnd) {
+					model := st.Model
+					if model == "" {
+						model = targetModel
+					}
+					m.mu.Lock()
+					m.commit(&cachedState{
+						status:            "ended",
+						instanceID:        st.InstanceID,
+						model:             model,
+						expiresAt:         st.ExpiresAt,
+						gracePeriodEndsAt: graceEnd,
+					})
+					m.mu.Unlock()
+					slog.Debug("session parked in grace during refresh", "status", status, "instance_id", st.InstanceID)
+					return nil
+				}
+			}
 			m.mu.Lock()
 			m.commit(nil)
 			m.mu.Unlock()

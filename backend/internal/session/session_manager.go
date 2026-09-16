@@ -74,6 +74,17 @@ type Manager struct {
 	// redundant poll GET within the TTL.
 	probeTTL     time.Duration
 	lastAdmitted time.Time
+	// parkEnabled + parkThreshold (SESSION_PARK_ENABLED default true,
+	// SESSION_PARK_THRESHOLD_MS default 15m): short-cooldown preservation —
+	// a park-set error whose computed cooldown is at-or-below the threshold
+	// holds the slot with backoff instead of dropping it. Wired by the pool
+	// from the live config via SetParkConfig (see session_park.go).
+	parkEnabled   bool
+	parkThreshold time.Duration
+	// pollFailures counts consecutive transient poll GET failures for the
+	// failedPollDelayMs-shaped park backoff (ParkDelay); reset on any
+	// successful GET. Guarded by mu.
+	pollFailures int
 	// unavailableTTL + modelUnavailable cache model_unavailable refusals per
 	// model (issue #158); entry.until = min(next window opening, now+TTL).
 	unavailableTTL   time.Duration
@@ -117,7 +128,7 @@ func NewManagerWithStore(client *upstream.Client, store *Store) *Manager {
 	if client == nil {
 		panic("session: nil client")
 	}
-	m := &Manager{client: client, store: store, now: time.Now}
+	m := &Manager{client: client, store: store, now: time.Now, parkEnabled: defaultParkEnabled, parkThreshold: defaultParkThreshold}
 	m.key = client.TokenKey()
 	return m
 }
