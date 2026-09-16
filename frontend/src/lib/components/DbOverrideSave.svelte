@@ -74,6 +74,16 @@
     }
     if (degraded) return;
     if (v === lastSent) return;
+    // A blank display with no overlay row is the post-reset state (or an
+    // untouched default): POSTing it can never succeed — the gateway 400s
+    // empty writes — so adopt it instead of firing a doomed save that
+    // would resurrect the just-deleted row as an error. Rows that still
+    // hold a saved value keep the honest 400 path in fire() below.
+    if ((v ?? "").trim() === "" && source !== "db") {
+      lastSent = v;
+      status = null;
+      return;
+    }
     schedule(v);
   });
 
@@ -86,9 +96,16 @@
       if (!suppress && !degraded && v !== lastSent) fire(v);
     }, WRITE_DELAY_MS);
   }
-
   async function fire(v) {
     if (degraded) return;
+    // Same guard as the watcher: a blank with no overlay row (e.g. the
+    // source tier flipped db -> default between schedule and fire) must
+    // never POST — adopt it instead.
+    if ((v ?? "").trim() === "" && source !== "db") {
+      lastSent = v;
+      status = null;
+      return;
+    }
     if (inflight) {
       queued = v;
       return;

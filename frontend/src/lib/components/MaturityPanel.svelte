@@ -509,6 +509,19 @@
             title={touchSelectVal}
             onchange={(e) => {
               const raw = e.currentTarget.value;
+              // Auto means "no override": DELETE the overlay row instead of
+              // POSTing "" (the gateway 400s empty writes). The select is
+              // value-controlled, so snap it back at once: otherwise Svelte
+              // re-renders it to the bound saved value while the DELETE +
+              // refetch land, and the Auto choice never visibly sticks.
+              if (raw === "auto") {
+                e.currentTarget.value = "auto";
+                onField?.("MATURITY_TOUCH_MODEL", "");
+                if (onReset && sources.MATURITY_TOUCH_MODEL === "db") {
+                  onReset("MATURITY_TOUCH_MODEL");
+                  return;
+                }
+              }
               onField?.("MATURITY_TOUCH_MODEL", raw === "auto" ? "" : raw);
             }}
           >

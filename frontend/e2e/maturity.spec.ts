@@ -484,23 +484,63 @@ test.describe("streak maintenance", () => {
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(
       "upstage/solar-pro4",
     );
-    // Back to Auto canonicalizes to the empty catalog default on the
-    // overlay path; reload again and the select still reads Auto.
+    // Back to Auto with no overlay row issues no request at all: there is
+    // nothing to delete, and POSTing "" can never succeed (the gateway 400s
+    // empty writes). The select just reads Auto again after reload.
     const reselected = page.getByLabel("MATURITY_TOUCH_MODEL");
-    const autoReq = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
-      { timeout: 10_000 },
-    );
     await reselected.selectOption("auto");
     await expect(reselected).toHaveAttribute("title", "auto");
-    await autoReq;
-    await expect
-      .poll(() => posted.length, { timeout: 10_000 })
-      .toBeGreaterThan(1);
+    // Settle past the 400ms instant-save debounce so a stray write would
+    // have landed in `posted` by now (repo precedent: explicit settle
+    // waits for debounce quiescence).
+    await page.waitForTimeout(700);
+    await expect.poll(() => posted.length, { timeout: 10_000 }).toBe(1);
     touchSaved = "";
     await page.reload();
     await gotoWarming(page);
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue("auto");
+  });
+  test("touch-model Auto with a saved row deletes the overlay row (never POSTs empty)", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    const posted: PostedSetting[] = [];
+    const { deleted } = await mockSettingsOverlay(page, posted, {
+      seed: [
+        {
+          key: "MATURITY_TOUCH_MODEL",
+          value: "upstage/solar-pro4",
+          source: "db",
+        },
+      ],
+    });
+    await gotoWarming(page);
+    const select = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await expect(select).toBeVisible();
+    await expect(select).toHaveValue("upstage/solar-pro4");
+    // Picking Auto must DELETE the overlay row like Reset does — the
+    // gateway 400s an empty POST ("use DELETE to reset the key"), which
+    // used to leave the row stuck on error + Retry.
+    const delReq = page.waitForRequest(
+      (r) =>
+        r.method() === "DELETE" && r.url().includes("/admin/api/settings/"),
+      { timeout: 10_000 },
+    );
+    await select.selectOption("auto");
+    await delReq;
+    expect(deleted).toEqual(["MATURITY_TOUCH_MODEL"]);
+    expect(posted.filter((p) => p.key === "MATURITY_TOUCH_MODEL")).toEqual([]);
+    await expect(select).toHaveValue("auto");
+    await expect(page.getByText("Saved value removed.")).toBeVisible();
   });
 
   test("touch-model select keeps a saved model the catalog omits", async ({

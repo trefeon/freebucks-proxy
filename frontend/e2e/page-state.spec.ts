@@ -208,7 +208,7 @@ test.describe("settings saved values", () => {
     await mockSettingsOverlay(page, posted, {
       seed: [
         { key: "LOG_LEVEL", value: "info", source: "db" },
-        { key: "REASONING_IN_CONTENT", value: "true", source: "db" },
+        { key: "REASONING_IN_CONTENT", value: "false", source: "db" },
       ],
     });
     await mockPageState(page);
@@ -229,9 +229,10 @@ test.describe("settings saved values", () => {
     const rowSwitch = row.getByRole("switch", {
       name: "REASONING_IN_CONTENT",
     });
-    await expect(rowSwitch).toHaveAttribute("aria-checked", "true");
-    // Instant-save: toggling the switch auto-POSTs after the debounce —
-    // no per-key Save button exists anymore.
+    await expect(rowSwitch).toHaveAttribute("aria-checked", "false");
+    // Instant-save: toggling the switch on auto-POSTs after the debounce —
+    // no per-key Save button exists anymore. (Toggling off DELETEs the row
+    // instead; covered by the test below.)
     const saveReq = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10_000 },
@@ -251,8 +252,8 @@ test.describe("settings saved values", () => {
         hasText: "saved and applied live",
       }),
     ).toBeVisible({ timeout: 10_000 });
-    await expect(rowSwitch).toHaveAttribute("aria-checked", "false");
-    // Reload: the overlay GET reflects the POST, so the switch stays off.
+    await expect(rowSwitch).toHaveAttribute("aria-checked", "true");
+    // Reload: the overlay GET reflects the POST, so the switch stays on.
     await page.reload();
     await expect(
       page.getByRole("heading", { name: "Usage", exact: true }),
@@ -267,7 +268,7 @@ test.describe("settings saved values", () => {
           has: page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
         })
         .getByRole("switch", { name: "REASONING_IN_CONTENT" }),
-    ).toHaveAttribute("aria-checked", "false");
+    ).toHaveAttribute("aria-checked", "true");
   });
   test("a rejected saved value surfaces inline on the row", async ({
     page,
@@ -345,6 +346,44 @@ test.describe("settings saved values", () => {
     await delReq;
     expect(deleted).toEqual(["REASONING_IN_CONTENT"]);
     await expect(page.getByText("saved value", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Saved value removed.")).toBeVisible();
+  });
+  test("toggling REASONING_IN_CONTENT off deletes the overlay row (never POSTs empty)", async ({
+    page,
+  }) => {
+    await mockDashboard(page, loadFixtures());
+    const posted: PostedSetting[] = [];
+    const { deleted } = await mockSettingsOverlay(page, posted, {
+      seed: [{ key: "REASONING_IN_CONTENT", value: "true", source: "db" }],
+    });
+    await mockPageState(page);
+    await page.goto(admin("plans"));
+    await expect(
+      page.getByRole("heading", { name: "Usage", exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Controls" }).click();
+    const input = page.locator('input[aria-label="REASONING_IN_CONTENT"]');
+    await expect(input).toBeVisible();
+    const row = page.locator("div.py-4", { has: input });
+    const rowSwitch = row.getByRole("switch", {
+      name: "REASONING_IN_CONTENT",
+    });
+    await expect(rowSwitch).toHaveAttribute("aria-checked", "true");
+    // Toggle-off must DELETE the overlay row like Reset does — the gateway
+    // 400s an empty POST ("use DELETE to reset the key"), which used to
+    // leave the row stuck on error + Retry.
+    const delReq = page.waitForRequest(
+      (r) =>
+        r.method() === "DELETE" && r.url().includes("/admin/api/settings/"),
+      { timeout: 10_000 },
+    );
+    await rowSwitch.click();
+    await delReq;
+    expect(deleted).toEqual(["REASONING_IN_CONTENT"]);
+    expect(posted.filter((p) => p.key === "REASONING_IN_CONTENT")).toEqual([]);
+    // The row returns to DEFAULT cleanly: switch off, no error, no Retry.
+    await expect(rowSwitch).toHaveAttribute("aria-checked", "false");
+    await expect(row.getByRole("button", { name: "Retry" })).toHaveCount(0);
     await expect(page.getByText("Saved value removed.")).toBeVisible();
   });
 

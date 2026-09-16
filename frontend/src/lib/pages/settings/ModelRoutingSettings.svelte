@@ -149,7 +149,14 @@
             <ToggleSwitch
               checked={reasoningInContent}
               ariaLabel="REASONING_IN_CONTENT"
-              onchange={(v) => onField("REASONING_IN_CONTENT", v ? "true" : "")}
+              onchange={(v) => {
+                // Off means "no override": DELETE the overlay row instead of
+                // POSTing "" (the gateway 400s empty writes). Non-db sources
+                // post an explicit "false" so they never save empty either.
+                if (!v && onReset && sources.REASONING_IN_CONTENT === "db")
+                  onReset("REASONING_IN_CONTENT");
+                else onField("REASONING_IN_CONTENT", v ? "true" : "false");
+              }}
             />
           </div>
         </SettingsRow>
