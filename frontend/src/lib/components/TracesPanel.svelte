@@ -37,12 +37,19 @@
   // Local focus dismissal: the parent sets focusReqId (log→trace link); the
   // "Clear" chip below resets to the full list without round-tripping.
   let clearedFocus = $state(false);
+
+  // Trace-log display cap: the backend serves up to 200 rows; the table
+  // shows the first 20 with a footer control to reveal the rest.
+  const TRACE_DEFAULT_LIMIT = 20;
+  let showAll = $state(false);
   let effectiveFocus = $derived(focusReqId && !clearedFocus ? focusReqId : "");
 
   // A newly arrived focus always re-arms, even after a previous Clear.
+  // A new focus also collapses the list back to the default 20 rows.
   $effect(() => {
     void focusReqId;
     clearedFocus = false;
+    showAll = false;
   });
 
   async function fetchData() {
@@ -74,6 +81,23 @@
     if (!effectiveFocus || !rowsHaveReqId) return all;
     return all.filter((t) => String(rowReqId(t)) === String(effectiveFocus));
   });
+
+  // Display slice only — the full dataset stays in memory (no fetch or
+  // ring change); existing order/filter are untouched, only the row count
+  // rendered is capped until the footer control reveals the rest.
+  let traceTotal = $derived(visibleTraces.length);
+  let traceShown = $derived(
+    showAll ? traceTotal : Math.min(TRACE_DEFAULT_LIMIT, traceTotal),
+  );
+  let displayTraces = $derived(
+    showAll ? visibleTraces : visibleTraces.slice(0, TRACE_DEFAULT_LIMIT),
+  );
+  let traceDescription = $derived(
+    $tr("Showing {shown} of {total} chat traces from the in-memory log ring.", {
+      shown: traceShown,
+      total: traceTotal,
+    }),
+  );
   // Fallback highlight when rows carry no req_id: match token/time instead.
   function highlightRow(t) {
     if (!effectiveFocus || rowsHaveReqId) return false;
@@ -228,6 +252,28 @@
       {/if}
     </div>
   {/snippet}
+  {#snippet tracesFooter()}
+    <div
+      class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-4 py-3"
+    >
+      <span class="fp-num text-xs text-[var(--fp-muted)]" role="status">
+        {$tr("Showing {shown} of {total}", {
+          shown: traceShown,
+          total: traceTotal,
+        })}
+      </span>
+      <Button
+        variant="secondary"
+        size="sm"
+        aria-expanded={showAll}
+        onclick={() => (showAll = !showAll)}
+      >
+        {showAll
+          ? $tr("Show fewer")
+          : $tr("Show all {total}", { total: traceTotal })}
+      </Button>
+    </div>
+  {/snippet}
   {#if loading}
     <div class="space-y-6" aria-busy="true">
       <div class="skeleton skeleton-card h-64"></div>
@@ -260,7 +306,8 @@
     {/if}
     <Card
       title={$tr("Trace log")}
-      description={$tr("Last 200 chat traces from the in-memory log ring.")}
+      description={traceDescription}
+      footer={traceTotal > TRACE_DEFAULT_LIMIT ? tracesFooter : undefined}
       pad="none"
     >
       {#if visibleTraces?.length}
@@ -294,7 +341,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each visibleTraces as t, i (t.time + "|" + (rowReqId(t) ?? "") + "|" + i)}
+              {#each displayTraces as t, i (t.time + "|" + (rowReqId(t) ?? "") + "|" + i)}
                 {@const tidx = accIndex(t.token)}
                 {@const reqId = rowReqId(t)}
                 {@const limited = rateFirst(t)}
@@ -443,7 +490,7 @@
           class="lg:hidden flex flex-col gap-2.5 p-3.5"
           aria-label={$tr("Chat traces")}
         >
-          {#each visibleTraces as t, i (t.time + "|" + (rowReqId(t) ?? "") + "|" + i)}
+          {#each displayTraces as t, i (t.time + "|" + (rowReqId(t) ?? "") + "|" + i)}
             {@const tidx = accIndex(t.token)}
             {@const reqId = rowReqId(t)}
             {@const limited = rateFirst(t)}

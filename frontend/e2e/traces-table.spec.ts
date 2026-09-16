@@ -79,6 +79,17 @@ async function openTraces(page: Page, width: number) {
   });
   await page.goto("/admin/#activity");
   await page.getByRole("button", { name: "Traces" }).click();
+  // A repeat visit in the width loop is a same-document nav: no reload, so
+  // a previous iteration's Show-all expansion persists. Collapse first so
+  // the capped first paint below is deterministic.
+  const showFewer = page.getByRole("button", { name: "Show fewer" });
+  if (await showFewer.isVisible()) {
+    await showFewer.click();
+  }
+  // The ring serves 200 rows but the capped paint shows 20; the footer
+  // control reveals the rest.
+  await expect(page.locator("table tbody tr")).toHaveCount(20);
+  await page.getByRole("button", { name: "Show all 200" }).click();
   await expect(page.locator("table tbody tr")).toHaveCount(200);
 }
 
@@ -128,6 +139,43 @@ test.describe("traces table density", () => {
         `page does not scroll sideways at ${width}px`,
       ).toBeLessThanOrEqual(measured.pageInner);
     }
+  });
+
+  test("the list caps at 20 rows until Show all reveals the ring", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const fixtures = loadFixtures();
+    await mockDashboard(page, fixtures);
+    await page.unroute("**/admin/api/traces");
+    await page.route("**/admin/api/traces", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(makeTraces(200)),
+      });
+    });
+    await page.goto("/admin/#activity");
+    await page.getByRole("button", { name: "Traces" }).click();
+    const rows = page.locator("table tbody tr");
+
+    // Capped first paint: card subtitle and footer status agree.
+    await expect(rows).toHaveCount(20);
+    await expect(page.getByText("Showing 20 of 200")).toHaveCount(2);
+    const toggle = page.getByRole("button", { name: "Show all 200" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Keyboard reachable: focus, Enter, read the whole ring.
+    await toggle.focus();
+    await toggle.press("Enter");
+    await expect(rows).toHaveCount(200);
+    await expect(page.getByText("Showing 200 of 200")).toHaveCount(2);
+    const fewer = page.getByRole("button", { name: "Show fewer" });
+    await expect(fewer).toHaveAttribute("aria-expanded", "true");
+
+    await fewer.click();
+    await expect(rows).toHaveCount(20);
+    await expect(page.getByText("Showing 20 of 200")).toHaveCount(2);
   });
 
   test("numbers stay right-aligned, tokens read short, status keeps its tone", async ({
