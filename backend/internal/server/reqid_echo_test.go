@@ -5,12 +5,11 @@ package server_test
 // line carries the serving token's label for abusive-key triage.
 
 import (
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"regexp"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 var reqIDEchoUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -41,24 +40,24 @@ func TestAccessResponseEchoesMintedReqID(t *testing.T) {
 	if !reqIDEchoUUIDRe.MatchString(hdr) {
 		t.Errorf("X-Request-Id = %q, want UUIDv4 shape", hdr)
 	}
-	var access *struct{ req, crid string }
+	var clientReqID string
+	found := false
 	for _, e := range ring.Recent(100) {
 		if e.Message != "access" {
 			continue
 		}
 		if entryField(e, "req_id") == hdr {
-			r, c := entryField(e, "req_id"), entryField(e, "client_request_id")
-			access = &struct{ req, crid string }{r, c}
+			clientReqID = entryField(e, "client_request_id")
+			found = true
 			break
 		}
 	}
-	if access == nil {
+	if !found {
 		t.Fatalf("no access entry with req_id = header %q", hdr)
 	}
-	if got := access.crid; got != "abc" {
-		t.Errorf("access client_request_id = %q, want abc (inbound preserved, not adopted)", got)
+	if clientReqID != "abc" {
+		t.Errorf("access client_request_id = %q, want abc (inbound preserved, not adopted)", clientReqID)
 	}
-
 	// Same inbound id on a second request mints a FRESH req_id.
 	resp2, data2 := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA),
 		map[string]string{"X-Request-Id": "abc"})
