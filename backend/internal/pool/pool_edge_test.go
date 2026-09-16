@@ -11,16 +11,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 // TestLiveFailoverMatrix drives the LIVE failover path end-to-end for every
@@ -405,14 +404,18 @@ func TestBridgeDeadTokenEvictDefersWhenBusy(t *testing.T) {
 // terminal side (30m auth-rejection past the 15m threshold evicts on idle)
 // is pinned by TestBridgeDeadTokenEvictDefersWhenBusy.
 func TestBridgeSweepParksShortCooldown(t *testing.T) {
+	saveCooldownTuning(t)
 	mock := testutil.NewMock()
 	defer mock.Close()
 	cfg := &config.Config{
-		RotationInterval:       time.Hour,
-		RequestTimeout:         15 * time.Minute,
-		SessionCallTimeout:     5 * time.Second,
-		RegistryRefresh:        6 * time.Hour,
-		UpstreamBaseURL:        mock.URL(),
+		RotationInterval:   time.Hour,
+		RequestTimeout:     15 * time.Minute,
+		SessionCallTimeout: 5 * time.Second,
+		RegistryRefresh:    6 * time.Hour,
+		UpstreamBaseURL:    mock.URL(),
+		// Park-ON is the point of this test: without the flag the pool runs
+		// the park-OFF path and the entry below evicts (see
+		// TestHandBuiltConfigDisablesPark).
 		SessionParkEnabledFlag: true,
 	}
 	reg := registry.New(cfg, nil)

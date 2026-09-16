@@ -4,22 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 func TestNewLengthMismatch(t *testing.T) {
-	cfg := &config.Config{AuthTokens: []string{"a", "b"}, RotationInterval: time.Hour}
+	cfg := &config.Config{AuthTokens: []string{"a", "b"}, RotationInterval: time.Hour, SessionParkEnabledFlag: false}
 	if _, err := New(cfg, nil, nil, registry.New(cfg, nil)); err == nil {
 		t.Fatal("want error for client/session count mismatch")
 		return

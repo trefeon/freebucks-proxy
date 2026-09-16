@@ -5,19 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"sync/atomic"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/notify"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
 )
 
 // probeActiveHandler serves the two session shapes bridge entries need in
@@ -88,6 +87,9 @@ func TestBridgeWaitingRoomChainFiresBeforeCreate(t *testing.T) {
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    srv.URL,
 		WaitingRoomChain:   true,
+		// Park-OFF: hand-built Config zero-values the flag (production Load
+		// defaults ON); this test pins the waiting-room chain, not the park.
+		SessionParkEnabledFlag: false,
 	}
 	clientCfg := *cfg
 	clientCfg.UpstreamBaseURL = srv.URL

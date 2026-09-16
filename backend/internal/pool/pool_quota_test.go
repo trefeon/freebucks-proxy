@@ -5,6 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,12 +18,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 func TestPoolSnapshotQuotaByModel(t *testing.T) {
@@ -269,6 +268,9 @@ func TestPoolSnapshotTransientRetryCounters(t *testing.T) {
 		UpstreamBaseURL:    mock.URL(),
 		TransientRetries:   1,
 		TLSFingerprint:     "chrome126",
+		// Park-OFF: hand-built Config zero-values the flag (production Load
+		// defaults ON); this test pins transient retries, not the park.
+		SessionParkEnabledFlag: false,
 	}
 	client, err := upstream.New("tok-0", cfg)
 	if err != nil {
