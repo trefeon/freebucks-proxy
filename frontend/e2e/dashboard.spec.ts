@@ -1906,16 +1906,34 @@ test.describe("dashboard hermetic mocks", () => {
       "true",
     );
 
-    // KPI stats from fixtures/metrics.json
+    // KPI stats from fixtures/metrics.json (Models served card removed).
     await expect(page.getByText("Requests served")).toBeVisible();
-    await expect(page.getByText("Models served")).toBeVisible();
+    await expect(page.getByText("Models served")).toHaveCount(0);
     // Sparkline SVG embedded from the API payload
     await expect(page.locator('svg[role="img"]').first()).toBeVisible();
     // Per-token table rows carry the fixture requests_24h counts (2 and 4).
     await expect(
       page.getByRole("heading", { name: "Per-token metrics" }),
     ).toBeVisible();
-    const metricRows = page.locator("table tbody tr");
+    const perTokenTable = page.locator("table", {
+      has: page.getByRole("columnheader", { name: "Requests (24h)" }),
+    });
+    await expect(
+      perTokenTable.getByRole("columnheader", { name: "Token" }),
+    ).toBeVisible();
+    await expect(
+      perTokenTable.getByRole("columnheader", { name: "Requests (24h)" }),
+    ).toBeVisible();
+    for (const gone of [
+      "Spend",
+      "Transient retries",
+      "Fingerprint rotations",
+    ]) {
+      await expect(
+        perTokenTable.getByRole("columnheader", { name: gone }),
+      ).toHaveCount(0);
+    }
+    const metricRows = perTokenTable.locator("tbody tr");
     await expect(metricRows.nth(0)).toContainText("2");
     await expect(metricRows.nth(1)).toContainText("4");
     await expect(metricRows).toHaveCount(2);

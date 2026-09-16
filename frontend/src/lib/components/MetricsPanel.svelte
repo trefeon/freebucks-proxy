@@ -269,7 +269,7 @@
     </Card>
 
     <!-- KPI row -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       <Card class="p-4">
         <Stat
           label={$tr("Requests served")}
@@ -292,13 +292,6 @@
           label={$tr("Fingerprint rotations")}
           value={(data.fingerprint_rotations ?? 0).toLocaleString()}
           tone={(data.fingerprint_rotations ?? 0) > 0 ? "warn" : "default"}
-        />
-      </Card>
-      <Card class="p-4">
-        <Stat
-          label={$tr("Models served")}
-          value={data.models ?? 0}
-          hint={$tr("trend {trend}", { trend: trendText(data.requests_trend) })}
         />
       </Card>
     </div>
@@ -351,21 +344,12 @@
         <div class="overflow-x-auto">
           <table class="fp-table">
             <caption class="sr-only"
-              >{$tr(
-                "Per-token metrics — requests, retries, rotations and spend",
-              )}</caption
+              >{$tr("Per-token metrics — requests")}</caption
             >
             <thead>
               <tr>
                 <th scope="col">{$tr("Token")}</th>
                 <th scope="col" class="num w-[1%]">{$tr("Requests (24h)")}</th>
-                <th scope="col" class="num w-[1%] hidden sm:table-cell"
-                  >{$tr("Transient retries")}</th
-                >
-                <th scope="col" class="num w-[1%] hidden sm:table-cell"
-                  >{$tr("Fingerprint rotations")}</th
-                >
-                <th scope="col" class="num w-[1%]">{$tr("Spend")}</th>
                 <th scope="col" class="text-right w-[1%]"
                   ><span class="sr-only">{$tr("Links")}</span></th
                 >
@@ -385,15 +369,6 @@
                   </td>
                   <td class="num"
                     >{Number(p.requests_24h ?? 0).toLocaleString()}</td
-                  >
-                  <td class="num hidden sm:table-cell"
-                    >{Number(p.transient_retries ?? 0).toLocaleString()}</td
-                  >
-                  <td class="num hidden sm:table-cell"
-                    >{Number(p.fingerprint_rotations ?? 0).toLocaleString()}</td
-                  >
-                  <td class="num"
-                    >{Number(p.spend_day ?? 0).toLocaleString()}</td
                   >
                   <td class="w-[1%] whitespace-nowrap text-right">
                     <button
