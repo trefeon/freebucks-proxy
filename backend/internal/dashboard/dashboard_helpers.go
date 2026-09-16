@@ -22,6 +22,9 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 		ActiveRuns:       t.ActiveRuns,
 		Requests:         t.Requests,
 		Messages24h:      t.Messages24h,
+		LiveTurns:        t.LiveTurns,
+		QueuedWaiters:    t.QueuedWaiters,
+		OldestWaiterMS:   t.OldestWaiterMS,
 		RequestsPerDay:   t.RequestsPerDay,
 		TransientRetries: t.TransientRetries,
 		AllowlistSkips:   t.AllowlistSkips,
@@ -121,14 +124,21 @@ func maturityCardFromSnapshot(m *pool.MaturitySnapshot) *maturityCard {
 // standing_*, referral_*) ride the once-per-mount full fetch; the SPA merges
 // them back by index. The Freebucks card stays live: it changes mid-session.
 type tokenLiveCard struct {
-	Index            int    `json:"index"`
-	SessionStatus    string `json:"session_status"`
-	AccessTier       string `json:"access_tier,omitempty"`
-	QueuePosition    int    `json:"queue_position"`
-	QueueDepth       int    `json:"queue_depth"`
-	ActiveRuns       int    `json:"active_runs"`
-	Requests         int    `json:"requests"`
-	Messages24h      int    `json:"messages_24h"`
+	Index         int    `json:"index"`
+	SessionStatus string `json:"session_status"`
+	AccessTier    string `json:"access_tier,omitempty"`
+	QueuePosition int    `json:"queue_position"`
+	QueueDepth    int    `json:"queue_depth"`
+	ActiveRuns    int    `json:"active_runs"`
+	Requests      int    `json:"requests"`
+	Messages24h   int    `json:"messages_24h"`
+	// LiveTurns / QueuedWaiters / OldestWaiterMS are live by nature (they
+	// change every second), so they ride the hot poll exactly like
+	// ActiveRuns: the console's "who is waiting" view must not wait for a
+	// full fetch.
+	LiveTurns        int    `json:"live_turns"`
+	QueuedWaiters    int    `json:"queued_waiters"`
+	OldestWaiterMS   int64  `json:"oldest_waiter_ms"`
 	RequestsPerDay   int    `json:"requests_per_day"`
 	CooldownActive   bool   `json:"cooldown_active"`
 	CooldownUntil    string `json:"cooldown_until"`
@@ -163,6 +173,9 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 		ActiveRuns:       t.ActiveRuns,
 		Requests:         t.Requests,
 		Messages24h:      t.Messages24h,
+		LiveTurns:        t.LiveTurns,
+		QueuedWaiters:    t.QueuedWaiters,
+		OldestWaiterMS:   t.OldestWaiterMS,
 		RequestsPerDay:   t.RequestsPerDay,
 		TransientRetries: t.TransientRetries,
 		Locked:           t.Locked,

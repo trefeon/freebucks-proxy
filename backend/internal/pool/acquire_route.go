@@ -286,12 +286,17 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		// expiry returns as-is (today's gate behavior). Skipped entirely
 		// when ROUTING_SMART is off (legacy path untouched).
 		var routeSlot *routeSlotPermit
+		// queueWait is this attempt's park duration: set only when the
+		// request actually parked AND the slot was granted. A waiter that
+		// timed out or was cancelled held no slot and reports nothing.
+		var queueWait time.Duration
 		if cfg.RoutingSmart {
 			slotCap, slotDepth, slotWait := routeSlotParams(cfg)
 			// TOKEN_MAX_CONCURRENT=0 skips slot gating entirely: no
 			// counter, no queue — the upstream quota/429 is the brake.
 			if slotCap > 0 {
-				permit, _, slotErr := p.routeSlotAcquire(ctx, tok, idx+1, slotCap, slotDepth, slotWait)
+				parkStart := time.Now()
+				permit, parked, slotErr := p.routeSlotAcquire(ctx, tok, idx+1, slotCap, slotDepth, slotWait)
 				if slotErr != nil {
 					if routeIsQueueExhausted(slotErr) {
 						live := p.routeSlotLive(tok)
@@ -301,6 +306,14 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 						continue
 					}
 					return nil, slotErr
+				}
+				// Queue-wait telemetry: the park duration rides the
+				// request's phase accumulator (the server puts it on the
+				// chat trace, inside the console's request card) and the
+				// lease. Never recorded for a request that did not park.
+				if parked {
+					queueWait = time.Since(parkStart)
+					phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, parkStart)
 				}
 				routeSlot = permit
 			}
@@ -508,15 +521,23 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			routeSlot.Release()
 			continue
 		}
-		p.logger.Debug("pool: lease acquired", "token", idx+1, "model", effectiveModel, "agent", effectiveAgentID, "instance_id", instanceID,
-			"country", ss.CountryCode)
+		leaseAttrs := []any{"token", idx + 1, "model", effectiveModel, "agent", effectiveAgentID, "instance_id", instanceID,
+			"country", ss.CountryCode}
+		if queueWait > 0 {
+			// Queue-wait telemetry: this admission parked in the account's
+			// FIFO live-turn queue before a slot was granted. Before this
+			// line existed, a granted park was invisible — only the
+			// timeout/exhausted path logged anything at all.
+			leaseAttrs = append(leaseAttrs, "queue_wait_ms", queueWait.Milliseconds(), "queue_parked", true)
+		}
+		p.logger.Debug("pool: lease acquired", leaseAttrs...)
 		if cur := p.roster.Load(); idx < 0 || idx >= len(*cur) || (*cur)[idx] != tok {
 			tok.runs.Release(run)
 			routeSlot.Release()
 			continue
 		}
 		lease := &Lease{Token: idx, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: instanceID,
-			entry: tok, routeSlot: routeSlot, AcquiredAt: time.Now()}
+			entry: tok, routeSlot: routeSlot, QueueWait: queueWait, AcquiredAt: time.Now()}
 		if cfg.RoutingSmart {
 			p.routeNoteGranted(tok)
 		}

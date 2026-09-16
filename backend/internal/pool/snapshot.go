@@ -139,6 +139,8 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			streakUpdated = st.UpdatedAt
 		}
 
+		liveTurns, queuedWaiters, oldestWait := p.routeSlotStats(tok)
+
 		out = append(out, TokenSnapshot{
 			Token:                   i,
 			Email:                   tok.Email(),
@@ -147,6 +149,9 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			ActiveRuns:              rs.ActiveRuns,
 			Requests:                rs.Requests,
 			Messages24h:             msgs,
+			LiveTurns:               liveTurns,
+			QueuedWaiters:           queuedWaiters,
+			OldestWaiterMS:          oldestWait.Milliseconds(),
 			RequestsPerDay:          p.dayRequestCount(i),
 			SessionStatus:           sessionStatus,
 			SessionInstanceID:       ss.InstanceID,

@@ -84,6 +84,7 @@ func PhaseList(phases map[string]int64) []PhaseKV {
 		phasetiming.AcquireMS,
 		phasetiming.SessionRefreshMS,
 		phasetiming.RunAcquireMS,
+		phasetiming.QueueWaitMS,
 		phasetiming.UpstreamTTFBMS,
 		phasetiming.TotalMS,
 	}
