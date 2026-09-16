@@ -29,6 +29,9 @@
    *   global empty state
    * @prop {Array<string> | null} [onlyGroups] - null renders every group,
    *   otherwise only the listed catalog group ids (e.g. ["pool"])
+   * @prop {Array<string> | null} [onlyKeys] - explicit white-list of catalog
+   *   keys this card owns; it WINS over the COVERED set, the group filter,
+   *   the bridge gate, and the catalog `hidden` flag (secrets never render)
    * @prop {string} [cardTitle] - card heading, translated at render
    * @prop {string} [cardDescription] - card subheading, translated at render
    * @prop {boolean} [bridgePossible=true] - BRIDGE_IDLE_EVICT hides unless set
@@ -46,6 +49,7 @@
     query = "",
     onMatchCount = null,
     onlyGroups = null,
+    onlyKeys = null,
     cardTitle = "Advanced",
     cardDescription = "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
     bridgePossible = true,
@@ -92,16 +96,19 @@
   // BRIDGE_IDLE_EVICT only makes sense while bridge mode can serve: hidden
   // unless the parent reports bridge as possible (BRIDGE_ENABLED on).
   let rows = $derived(
-    (meta ?? []).filter(
-      (e) =>
-        e &&
-        e.key &&
+    (meta ?? []).filter((e) => {
+      if (!e || !e.key || e.secret) return false;
+      // An explicit white-list wins over every other rule: the caller names
+      // the exact keys its card owns, so COVERED, the group filter, the
+      // bridge gate, and the catalog `hidden` flag cannot drop them.
+      if (onlyKeys) return onlyKeys.includes(e.key);
+      return (
         !e.hidden &&
-        !e.secret &&
         !COVERED.has(e.key) &&
         (e.key !== "BRIDGE_IDLE_EVICT" || bridgePossible) &&
-        (!onlyGroups || onlyGroups.includes(e.group)),
-    ),
+        (!onlyGroups || onlyGroups.includes(e.group))
+      );
+    }),
   );
   let groups = $derived.by(() => {
     const seen = [];

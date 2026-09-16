@@ -70,10 +70,11 @@ test.describe("instant-save dashboard", () => {
     ).toBeVisible();
     await assertNoBatchSaveButtons(page);
 
-    await page.goto(admin("activity"));
-    await page.getByRole("button", { name: "Logging" }).click();
+    // LOG_LEVEL's live card sits on Settings (the Logs page has no Logging
+    // tab any more); its Settings card title names the key.
+    await page.goto(admin("settings"));
     await expect(
-      page.getByRole("heading", { name: "Logging", exact: true }),
+      page.getByRole("heading", { name: "Server Log Level", exact: true }),
     ).toBeVisible();
     await assertNoBatchSaveButtons(page);
   });
@@ -102,9 +103,9 @@ test.describe("instant-save dashboard", () => {
     await mockDashboard(page, loadFixtures());
     await mockSettingsOverlay(page, posted);
 
-    // LOG_LEVEL lives on the Logs page Logging tab (Settings holds a stub).
-    await page.goto(admin("activity"));
-    await page.getByRole("button", { name: "Logging" }).click();
+    // LOG_LEVEL now lives on Settings (the Logs page dropped its Logging
+    // tab; Settings renders the live card instead of a link-out stub).
+    await page.goto(admin("settings"));
     const logLevel = page.getByRole("combobox", { name: "LOG_LEVEL" });
     await expect(logLevel).toBeVisible();
     const logLevelPost = waitSettingsPost(page);
@@ -117,9 +118,8 @@ test.describe("instant-save dashboard", () => {
         .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
     ).toBeVisible();
 
-    // HTTP_READ_TIMEOUT lives on Settings (Gateway card); 120s is a real
+    // HTTP_READ_TIMEOUT lives in the Settings Gateway card; 120s is a real
     // catalog option (30s is not — the select only offers listed values).
-    await page.goto(admin("settings"));
     const readTimeout = page.getByRole("combobox", {
       name: "HTTP_READ_TIMEOUT",
     });
@@ -135,10 +135,7 @@ test.describe("instant-save dashboard", () => {
     ).toBeVisible();
 
     // LOG_FORMAT is not on the LOG_LEVEL "Logging" card: it renders in the
-    // "Logging & Diagnostics" card (AdvancedSettings general group) on the
-    // same Logs → Logging tab.
-    await page.goto(admin("activity"));
-    await page.getByRole("button", { name: "Logging" }).click();
+    // "Logging & Diagnostics" card (Settings, general-group keys).
     const logFormat = page.getByRole("combobox", { name: "LOG_FORMAT" });
     await expect(logFormat).toBeVisible();
     const formatPost = waitSettingsPost(page);

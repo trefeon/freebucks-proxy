@@ -739,9 +739,9 @@ test.describe("dashboard hermetic mocks", () => {
     const balance = page.getByRole("radio", { name: "Balance", exact: true });
     await expect(page.getByText("Pool Strategy")).toBeVisible();
     await expect(balance).toHaveAttribute("aria-checked", "true");
-    // A Drain tap calls onField for all five owned keys, but rows only
-    // POST changed values (no write without change): exactly QUEUE_WAIT
-    // and QUEUE_DEPTH leave Balance behind.
+    // A Drain tap calls onField for all five owned keys, but the card's own
+    // rows only POST changed values (no write without change): exactly
+    // QUEUE_WAIT and QUEUE_DEPTH leave Balance behind.
     await drain.click();
     await expect(drain).toHaveAttribute("aria-checked", "true");
     await expect
@@ -773,6 +773,14 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("radio", { name: "Drain", exact: true }),
     ).toHaveAttribute("aria-checked", "true");
+    // The owned rows are the card's own editors now, and they carry the
+    // saved Drain values after the reload.
+    await expect(page.locator('input[aria-label="QUEUE_WAIT"]')).toHaveValue(
+      "300s",
+    );
+    await expect(page.locator('input[aria-label="QUEUE_DEPTH"]')).toHaveValue(
+      "1024",
+    );
   });
 
   test("Balance threshold slider shows only in Balance and persists QUEUE_WAIT", async ({
@@ -814,6 +822,12 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("status").filter({ hasText: "QUEUE_WAIT saved" }),
     ).toBeVisible();
+    // The slider and the picker are two inputs onto the ONE QUEUE_WAIT row
+    // in the strategy card: the drag lands as that row's value (one writer),
+    // it does not spawn a second POST path.
+    await expect(page.locator('input[aria-label="QUEUE_WAIT"]')).toHaveValue(
+      "90s",
+    );
     // Drain hides the slider.
     await page.getByRole("radio", { name: "Drain", exact: true }).click();
     await expect(slider).toHaveCount(0);
@@ -869,6 +883,13 @@ test.describe("dashboard hermetic mocks", () => {
         posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "60s"),
       )
       .toBe(true);
+    // The card's own rows display the restored preset values.
+    await expect(page.locator('input[aria-label="QUEUE_DEPTH"]')).toHaveValue(
+      "16",
+    );
+    await expect(page.locator('input[aria-label="QUEUE_WAIT"]')).toHaveValue(
+      "60s",
+    );
   });
 
   test("Pool strategy survives a Go-normalized echo in ONE click each way", async ({
@@ -956,6 +977,248 @@ test.describe("dashboard hermetic mocks", () => {
     ).toHaveAttribute("aria-checked", "true");
   });
 
+  test("Pool strategy badge reads the loader defaults for blank queue rows", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    // Blank / whitespace overlay rows are what the gateway loader is
+    // zero-tolerant about: QUEUE_WAIT falls back to 30s and QUEUE_DEPTH to
+    // 16 (backend/internal/config/config_load.go), so a stock install
+    // still reads Balance — never Custom.
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, {
+      seed: [
+        { key: "QUEUE_WAIT", value: "   ", source: "db" },
+        { key: "QUEUE_DEPTH", value: "", source: "db" },
+      ],
+    });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(page.getByTestId("strategy-rows")).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+    await expect(
+      page.getByRole("button", { name: "Reset to Balance" }),
+    ).toHaveCount(0);
+  });
+
+  test("Pool strategy badge reads the loader defaults for unparseable queue rows", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    // Neither "not-a-duration" (QUEUE_WAIT) nor "lots" (QUEUE_DEPTH) is a
+    // value the loader would keep, so the badge reports the defaults it
+    // would run with instead of falling to Custom.
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, {
+      seed: [
+        { key: "QUEUE_WAIT", value: "not-a-duration", source: "db" },
+        { key: "QUEUE_DEPTH", value: "lots", source: "db" },
+      ],
+    });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("the five strategy keys have exactly one editor each, in the strategy card", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    const rows = page.getByTestId("strategy-rows");
+    await expect(rows).toBeVisible();
+    // One editor per owned key, anywhere on the Controls tab...
+    await expect(page.locator('input[aria-label="QUEUE_WAIT"]')).toHaveCount(1);
+    await expect(page.locator('input[aria-label="QUEUE_DEPTH"]')).toHaveCount(
+      1,
+    );
+    await expect(
+      page.getByRole("switch", { name: "ROUTING_SMART" }),
+    ).toHaveCount(1);
+    await expect(
+      page.getByRole("switch", { name: "Auto Failover on Rate Limit (429)" }),
+    ).toHaveCount(1);
+    await expect(
+      page.getByRole("radio", { name: "Round Robin (1:1)" }),
+    ).toHaveCount(1);
+    // ...and that editor is the strategy card's own row.
+    await expect(rows.locator('input[aria-label="QUEUE_WAIT"]')).toHaveCount(1);
+    await expect(rows.locator('input[aria-label="QUEUE_DEPTH"]')).toHaveCount(
+      1,
+    );
+    await expect(
+      rows.getByRole("switch", { name: "ROUTING_SMART" }),
+    ).toHaveCount(1);
+    await expect(
+      rows.getByRole("switch", { name: "Auto Failover on Rate Limit (429)" }),
+    ).toHaveCount(1);
+    await expect(
+      rows.getByRole("radio", { name: "Round Robin (1:1)" }),
+    ).toHaveCount(1);
+    // The rotation radios are the sole editor for the modes the presets
+    // never write (they only ever set drain); picking one lands as a save
+    // of that key and reads out of preset, with the one-click resets.
+    await rows.getByRole("radio", { name: "Round Robin (1:1)" }).click();
+    await expect
+      .poll(() => posted.find((p) => p.key === "TOKEN_ROTATION")?.value)
+      .toBe("round_robin");
+    await expect(
+      page.getByRole("button", { name: "Reset to Balance" }),
+    ).toBeVisible();
+    // No catalog key has a second editor anywhere on the tab either: every
+    // row renders its key as one <code> chip, so a duplicate chip is a
+    // duplicate owner.
+    const meta = f.configMeta;
+    if (!Array.isArray(meta))
+      throw new Error("config-meta fixture is not an array");
+    const keys = meta.flatMap((e) =>
+      e && typeof e === "object" && "key" in e ? [String(e.key)] : [],
+    );
+    const dupes = await page.evaluate((ks) => {
+      const chips = Array.from(document.querySelectorAll("code")).map((c) =>
+        (c.textContent ?? "").trim(),
+      );
+      return ks.filter((k) => chips.filter((t) => t === k).length > 1);
+    }, keys);
+    expect(dupes).toEqual([]);
+  });
+
+  test("Pool header queue posture agrees with the strategy card badge", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    // Prod shape: rotation drains while the queue posture is Balance
+    // (QUEUE_WAIT=60s / QUEUE_DEPTH=16). The header must not stand a
+    // rotation-only label where a queue posture is expected.
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, {
+      seed: [
+        { key: "TOKEN_ROTATION", value: "drain", source: "db" },
+        { key: "QUEUE_WAIT", value: "60s", source: "db" },
+        { key: "QUEUE_DEPTH", value: "16", source: "db" },
+      ],
+    });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    const rotationChip = page.getByTestId("rotation-chip").locator("dd");
+    const queueChip = page.getByTestId("queue-chip").locator("dd");
+    // The rotation chip reports the snapshot rotation honestly; the queue
+    // chip reports the posture from the same five-key source as the card
+    // badge (the tokens snapshot carries no posture field yet).
+    await expect(rotationChip).toHaveText("Drain");
+    await expect(queueChip).toHaveText("Balance");
+    await page.getByRole("button", { name: "Controls" }).click();
+    const balance = page.getByRole("radio", { name: "Balance", exact: true });
+    const drain = page.getByRole("radio", { name: "Drain", exact: true });
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    // One tap on the card moves both surfaces together: same source.
+    await drain.click();
+    await expect(drain).toHaveAttribute("aria-checked", "true");
+    await expect(queueChip).toHaveText("Drain");
+    await balance.click();
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    await expect(queueChip).toHaveText("Balance");
+  });
+
+  test("Pool header queue posture stays unclassified while the store is offline", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    // With the overlay unreachable we cannot know whether saved rows move
+    // the five strategy keys, so the chip must stay unclassified instead
+    // of guessing a posture from file/default values.
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, { degraded: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await expect(page.getByTestId("rotation-chip").locator("dd")).toHaveText(
+      "Drain",
+    );
+    await expect(page.getByTestId("queue-chip").locator("dd")).toHaveText("—");
+  });
+
+  test("the strategy card shows the honest pool ceiling (cap × accounts)", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    // TOKEN_MAX_CONCURRENT ships at 2 (the approved anti-ban pacing) and
+    // the tokens snapshot reports the pooled account count.
+    const snapshot = f.tokens;
+    const accounts = Number(
+      snapshot && typeof snapshot === "object" && "token_count" in snapshot
+        ? snapshot.token_count
+        : 0,
+    );
+    expect(accounts).toBeGreaterThan(0);
+    await expect(page.getByTestId("pool-ceiling")).toContainText(
+      `2 per account × ${accounts} accounts = ${2 * accounts} concurrent turns`,
+    );
+  });
+
+  test("the pool ceiling line reports an unlimited cap honestly", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, {
+      seed: [{ key: "TOKEN_MAX_CONCURRENT", value: "0", source: "db" }],
+    });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(page.getByTestId("pool-ceiling")).toContainText(
+      "unlimited per account",
+    );
+  });
+
   test("Usage Controls tab renders upstream and quota keys", async ({
     page,
   }) => {
@@ -978,7 +1241,7 @@ test.describe("dashboard hermetic mocks", () => {
     ).toBeVisible();
   });
 
-  test("Logs Logging tab renders logging and diagnostics keys", async ({
+  test("Settings hosts the logging keys: LOG_LEVEL plus diagnostics", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -987,15 +1250,36 @@ test.describe("dashboard hermetic mocks", () => {
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
     );
-    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
     await metaResp;
-    await page.getByRole("button", { name: "Logging" }).click();
-    // General-group keys moved from Settings Advanced to Logs.
-    await expect(page.getByText("Logging & Diagnostics")).toBeVisible();
+    // The log keys are homed on Settings: the working LOG_LEVEL control plus
+    // the diagnostics card whose rows the Logs tab's card used to render.
+    await expect(
+      page.getByRole("heading", { name: "Server Log Level" }),
+    ).toBeVisible();
     await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toBeVisible();
+    await expect(page.getByText("Logging & Diagnostics")).toBeVisible();
+    for (const key of [
+      "DEBUG_DUMP",
+      "DEVTOOLS_ENABLED",
+      "LOG_ACCESS",
+      "LOG_FORMAT",
+    ]) {
+      await expect(page.getByText(key, { exact: true }).first()).toBeVisible();
+    }
+    // The Logs → Logging destination no longer exists, so no copy on
+    // Settings may point at it.
+    await expect(
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Server log level now lives under the Logs page's Logging tab.",
+      ),
+    ).toHaveCount(0);
   });
 
-  test("Logs card renders log level and saves", async ({ page }) => {
+  test("Settings card renders log level and saves", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
     const posted: PostedSetting[] = [];
@@ -1004,14 +1288,13 @@ test.describe("dashboard hermetic mocks", () => {
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
     );
-    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
     await metaResp;
     await expect(
-      page.getByRole("heading", { name: "Logs", exact: true }),
+      page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
-    // Log level moved from Settings General to the Logs page's Logging
-    // tab: the select lives there now, behind the tab switch.
-    await page.getByRole("button", { name: "Logging" }).click();
+    // LOG_LEVEL's only functional control is here now: the select instant-
+    // saves to the overlay and the row keeps its restart-only honesty.
     const level = page.locator('select[aria-label="LOG_LEVEL"]');
     await level.selectOption("debug");
     await page.waitForRequest(
@@ -1028,14 +1311,13 @@ test.describe("dashboard hermetic mocks", () => {
         .getByRole("status")
         .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
     ).toBeVisible();
-    // Settings keeps a link-out stub pointing at the Logs page.
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    // The old link-out to the Logs page's Logging tab is gone with it.
     await expect(
       page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
   });
 
-  test("Logs select saves via shared .env flow (legacy #config alias routes to Settings)", async ({
+  test("Settings log level saves via the overlay (legacy #config alias routes to Settings)", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -1070,13 +1352,11 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
 
-    // LOG_LEVEL moved to the Logs page's Logging tab: the stub links out
-    // to #activity, and the live select edits from the Logs inline card.
+    // LOG_LEVEL is homed on Settings now: the select edits in place, and the
+    // old link-out to the Logs page's Logging tab no longer exists.
     await expect(
       page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
-    ).toBeVisible();
-    await page.goto("http://127.0.0.1:4173/admin/#activity");
-    await page.getByRole("button", { name: "Logging" }).click();
+    ).toHaveCount(0);
     const logLevel = page.getByRole("combobox", { name: "LOG_LEVEL" });
     await expect(logLevel).toBeVisible();
     await expect(logLevel).toContainText("debug");
@@ -1098,6 +1378,54 @@ test.describe("dashboard hermetic mocks", () => {
         .getByRole("status")
         .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
     ).toBeVisible();
+  });
+
+  test("no catalog key renders twice on the Settings page", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await metaResp;
+    // Every rendered catalog row carries its key as a <code> chip, so a key
+    // owned by two cards would show up here as a duplicate chip.
+    const meta = f.configMeta;
+    if (!Array.isArray(meta))
+      throw new Error("config-meta fixture is not an array");
+    const keys = meta.flatMap((e) =>
+      e && typeof e === "object" && "key" in e ? [String(e.key)] : [],
+    );
+    expect(keys.length).toBeGreaterThan(0);
+    const dupes = await page.evaluate((ks) => {
+      const chips = Array.from(document.querySelectorAll("code")).map((c) =>
+        (c.textContent ?? "").trim(),
+      );
+      return ks.filter((k) => chips.filter((t) => t === k).length > 1);
+    }, keys);
+    expect(dupes).toEqual([]);
+    // The search placeholder names the settings this page actually filters,
+    // not the whole catalog (most of which is homed on other surfaces).
+    const placeholder = await page
+      .locator("#settings-search")
+      .getAttribute("placeholder");
+    const named = Number(/Search (\d+) settings…/.exec(placeholder ?? "")?.[1]);
+    // 13 catalog rows the page renders or names (1 access + 2 general +
+    // 3 named by the Pool link-out stub + 1 by the routing stub + 1 log
+    // level + 4 diagnostics + 1 security) plus the non-catalog admin
+    // password row — not the 65-key catalog, and not the old "70".
+    expect(named).toBe(14);
+    const rendered = await page.evaluate(
+      () =>
+        Array.from(document.querySelectorAll("code")).filter((c) =>
+          /^[A-Z][A-Z0-9_]*$/.test((c.textContent ?? "").trim()),
+        ).length,
+    );
+    expect(named).toBeGreaterThanOrEqual(rendered);
+    expect(named).toBeLessThan(keys.length);
   });
 
   test("Settings rejected save keeps the edited value with a Retry affordance", async ({
@@ -1537,16 +1865,9 @@ test.describe("dashboard hermetic mocks", () => {
     // Check that at least one element has aria-live or aria-describedby
     const liveCount = await page.locator("[aria-live]").count();
     expect(liveCount).toBeGreaterThanOrEqual(0);
-    // Logs page exposes the accessible LOG_LEVEL select behind the
-    // Logging tab; Settings keeps SAFE_MODE inline plus a link-out stub.
-    await page.goto("http://127.0.0.1:4173/admin/#activity");
-    await page.getByRole("button", { name: "Logging" }).click();
-    await expect(
-      page.getByRole("combobox", { name: "LOG_LEVEL" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
-    ).toHaveCount(0);
+    // LOG_LEVEL's accessible select is homed on Settings (the Logs page no
+    // longer hosts a Logging tab, and the old link-out stub is gone), next
+    // to the inline SAFE_MODE switch.
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await page
       .waitForResponse((r) => r.url().includes("/admin/api/config"), {
@@ -1554,8 +1875,11 @@ test.describe("dashboard hermetic mocks", () => {
       })
       .catch(() => {});
     await expect(
-      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
+      page.getByRole("combobox", { name: "LOG_LEVEL" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
+    ).toHaveCount(0);
     await expect(page.getByRole("switch", { name: "SAFE_MODE" })).toBeVisible();
   });
 

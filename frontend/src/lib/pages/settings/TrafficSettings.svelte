@@ -4,22 +4,21 @@
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
   import ToggleSwitch from "../../components/ToggleSwitch.svelte";
   import NumberStepper from "../../components/NumberStepper.svelte";
-  import DurationPicker from "../../components/DurationPicker.svelte";
   import { Activity } from "@lucide/svelte";
   import { tr } from "../../i18n.js";
   import { parseEnv } from "../../utils/env.js";
 
   /**
-   * Traffic & Rate Limiting settings card (Pool group).
+   * Pool Controls settings card (Pool group).
    * Built using the SettingsCard and SettingsRow template components.
-   * Holds the curated Smart routing queue rows (TOKEN_MAX_CONCURRENT,
-   * QUEUE_WAIT, QUEUE_DEPTH) — dimmed, never disabled, while smart
-   * routing is off or turns are unlimited — followed by the Client IP
-   * Rate Limit row and the Bridge Mode row (moved from GatewaySettings
-   * for single Pool ownership). Rotation policy, the ROUTING_SMART
-   * master switch, and 429 failover live in the Pool Strategy card and
-   * Custom advanced. Every row instant-saves to the DB overlay on edit
-   * (DbOverrideSave); all keys apply live on save (none is restart-only).
+   * Holds the per-token live-turn cap (TOKEN_MAX_CONCURRENT) followed by
+   * the Client IP Rate Limit row and the Bridge Mode row (moved from
+   * GatewaySettings for single Pool ownership). The five strategy keys —
+   * rotation policy, the ROUTING_SMART master switch, 429 failover,
+   * QUEUE_WAIT, and QUEUE_DEPTH — are owned and rendered by the Pool
+   * Strategy card above, so no key has a second editor here. Every row
+   * instant-saves to the DB overlay on edit (DbOverrideSave); all keys
+   * apply live on save (none is restart-only).
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
    * @prop {(key: string, value: string) => void} onField
@@ -54,8 +53,6 @@
     String(formValues.ROUTING_SMART ?? "true").toLowerCase() !== "false",
   );
   let tokenMaxConcurrent = $derived(formValues.TOKEN_MAX_CONCURRENT ?? "2");
-  let queueWait = $derived(formValues.QUEUE_WAIT ?? "30s");
-  let queueDepth = $derived(formValues.QUEUE_DEPTH ?? "16");
   let bridgeEnabled = $derived(formValues.BRIDGE_ENABLED !== "false");
 
   // ---------------------------------------------------------------------------
@@ -67,23 +64,16 @@
     "Maximum requests per second allowed from any single client IP address. Prevents rapid agent loops from depleting the pool. Set to 0 for no cap.";
   const RL_IP_HINT = "0 = no cap (recommended for a single-user gateway)";
 
-  // Queue posture copy (curated Pool rows: TOKEN_MAX_CONCURRENT et al. —
-  // all live-apply, none restart-only). Rotation policy, the smart-routing
-  // master switch, and 429 failover moved to the Pool Strategy card and
-  // Custom advanced; this card keeps the queue rows, which dim (never
-  // disable) while smart routing is off or turns are unlimited.
+  // Per-token cap copy (live-apply, never restart-only). The queue rows
+  // (QUEUE_WAIT/QUEUE_DEPTH), rotation policy, the smart-routing master
+  // switch, and 429 failover are owned by the Pool Strategy card; this row
+  // dims (never disables) while smart routing is off, since the cap cannot
+  // matter then.
   const SMART_SECTION = "Smart routing";
   const MAXC_LABEL = "Max Concurrent Turns per Token";
   const MAXC_DESC =
     "Cap on concurrent live turns per pooled token (default 2, the approved anti-ban pacing). Excess waiters park FIFO until Queue Wait elapses.";
   const MAXC_HINT = "0 = unlimited (no slot gating at all)";
-  const QWAIT_LABEL = "Queue Wait";
-  const QWAIT_DESC =
-    "How long one acquire parks on a full token's FIFO live-turn queue before failing over (Go duration, e.g. 5s, 30s). Empty or non-positive falls back to 30s.";
-  const QDEPTH_LABEL = "Queue Depth";
-  const QDEPTH_DESC =
-    "Cap on parked FIFO waiters per token. A full queue fails over at once with the existing 429 shape.";
-  const QDEPTH_HINT = "0 = no queueing (fail over at once)";
   const BRIDGE_LABEL = "Allow Client-Provided Tokens (Bridge Mode)";
   const BRIDGE_DESC =
     "Enforces hybrid access: client apps can pass their personal FreeBuff account tokens via the Authorization header, saving your server's shared pool quota.";
@@ -103,12 +93,6 @@
       MAXC_HINT,
     ),
   );
-  let showQueueWait = $derived(
-    hit("QUEUE_WAIT", SMART_SECTION, QWAIT_LABEL, QWAIT_DESC),
-  );
-  let showQueueDepth = $derived(
-    hit("QUEUE_DEPTH", SMART_SECTION, QDEPTH_LABEL, QDEPTH_DESC, QDEPTH_HINT),
-  );
   let showIp = $derived(
     hit("RATE_LIMIT_PER_IP", RL_IP_LABEL, RL_IP_DESC, RL_IP_HINT),
   );
@@ -116,8 +100,6 @@
   let visibleKeys = $derived(
     [
       showMaxConc ? "TOKEN_MAX_CONCURRENT" : null,
-      showQueueWait ? "QUEUE_WAIT" : null,
-      showQueueDepth ? "QUEUE_DEPTH" : null,
       showIp ? "RATE_LIMIT_PER_IP" : null,
       showBridge ? "BRIDGE_ENABLED" : null,
     ].filter((k) => k !== null),
@@ -127,9 +109,9 @@
     onMatchCount?.(visible);
   });
 
-  // Queue rows dim (never disable) while smart routing is off — the
-  // master switch moved to Custom advanced — or while turns are
-  // unlimited (0 = no slot gating, so nothing ever parks).
+  // The cap row dims (never disables) while smart routing is off — the
+  // master switch lives in the Pool Strategy card — or while turns are
+  // unlimited (0 = no slot gating, so the cap itself is inert).
   let queueParked = $derived(!routingSmart || Number(tokenMaxConcurrent) === 0);
 
   // Whole-file flow: every edit batches through onField into the shared
@@ -144,7 +126,7 @@
   <SettingsCard
     title={$tr(cardTitle)}
     description={$tr(
-      "Queue posture, client IP limits, and bridge mode for the token pool. Strategy presets sit in the card above; hand-tuning lives in Custom advanced below. Changes apply live without restart.",
+      "Per-token live-turn cap, client IP limits, and bridge mode for the token pool. The strategy presets and the queue rows sit in the card above; hand-tuning lives in Custom advanced below. Changes apply live without restart.",
     )}
   >
     {#snippet icon()}
@@ -155,7 +137,7 @@
         <span
           role="status"
           class="text-[11px] font-mono text-[var(--fp-dim)] shrink-0"
-          >{$tr("{visible} of {total}", { visible, total: 5 })}</span
+          >{$tr("{visible} of {total}", { visible, total: 3 })}</span
         >
       {/if}
     {/snippet}
@@ -182,8 +164,9 @@
         </a>
       </div>
     {:else}
-      {#if showMaxConc || showQueueWait || showQueueDepth}
-        <!-- Smart routing queue rows (master switch lives in Custom advanced) -->
+      {#if showMaxConc}
+        <!-- Per-token live-turn cap (the queue rows and the master switch
+             are owned by the Pool Strategy card above). -->
         <div class="pt-4">
           <p
             class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] pb-1"
@@ -193,7 +176,7 @@
           {#if queueParked}
             <p class="text-[11px] text-[var(--fp-dim)] leading-relaxed pb-1">
               {$tr(
-                "Parked: smart routing is off or turns are unlimited (0) — these rows do nothing until re-enabled in Custom advanced.",
+                "Parked: smart routing is off (ROUTING_SMART in the Pool Strategy card) or this cap is 0 (no slot gating) — the pool serves turns without parking waiters.",
               )}
             </p>
           {/if}
@@ -243,97 +226,6 @@
                 />
                 <p class="text-[10px] text-[var(--fp-dim)] mt-1">
                   {$tr(MAXC_HINT)}
-                </p>
-              </div>
-            </SettingsRow>
-          {/if}
-          {#if showQueueWait}
-            <SettingsRow
-              class={queueParked ? "opacity-60" : ""}
-              first={visibleKeys[0] === "QUEUE_WAIT"}
-              last={visibleKeys[visibleKeys.length - 1] === "QUEUE_WAIT"}
-              label={$tr(QWAIT_LABEL)}
-              description={$tr(QWAIT_DESC)}
-            >
-              {#snippet badge()}
-                <code
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-                  >QUEUE_WAIT</code
-                >
-                {#if !env.QUEUE_WAIT}
-                  <span
-                    class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-                    >{$tr("default")}</span
-                  >
-                {/if}
-              {/snippet}
-              {#snippet extra()}
-                <DbOverrideSave
-                  settingKey="QUEUE_WAIT"
-                  value={queueWait}
-                  source={sources.QUEUE_WAIT}
-                  {onReset}
-                  {onSaved}
-                  {degraded}
-                />
-              {/snippet}
-
-              <div class="w-full sm:w-56">
-                <DurationPicker
-                  value={queueWait}
-                  presets={["5s", "15s", "30s", "1m", "5m"]}
-                  ariaLabel="QUEUE_WAIT"
-                  placeholder="30s"
-                  oninput={(v) => onField("QUEUE_WAIT", v)}
-                />
-              </div>
-            </SettingsRow>
-          {/if}
-          {#if showQueueDepth}
-            <SettingsRow
-              class={queueParked ? "opacity-60" : ""}
-              first={visibleKeys[0] === "QUEUE_DEPTH"}
-              last={visibleKeys[visibleKeys.length - 1] === "QUEUE_DEPTH"}
-              label={$tr(QDEPTH_LABEL)}
-              description={$tr(QDEPTH_DESC)}
-            >
-              {#snippet badge()}
-                <code
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-                  >QUEUE_DEPTH</code
-                >
-                {#if !env.QUEUE_DEPTH}
-                  <span
-                    class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-                    >{$tr("default")}</span
-                  >
-                {/if}
-              {/snippet}
-              {#snippet extra()}
-                <DbOverrideSave
-                  settingKey="QUEUE_DEPTH"
-                  value={queueDepth}
-                  source={sources.QUEUE_DEPTH}
-                  {onReset}
-                  {onSaved}
-                  {degraded}
-                />
-              {/snippet}
-
-              <div class="w-full sm:w-56">
-                <NumberStepper
-                  value={queueDepth}
-                  min={0}
-                  step={1}
-                  ariaLabel="QUEUE_DEPTH"
-                  placeholder="16"
-                  oninput={(v) => {
-                    const val = v.trim();
-                    onField("QUEUE_DEPTH", val === "" ? "16" : val);
-                  }}
-                />
-                <p class="text-[10px] text-[var(--fp-dim)] mt-1">
-                  {$tr(QDEPTH_HINT)}
                 </p>
               </div>
             </SettingsRow>

@@ -13,9 +13,13 @@
  *
  * Detection is a pure function over the owned set so the badge, the
  * threshold slider, and the e2e contract all read one source of truth.
- * Balance accepts any in-range threshold (not just the 60s default), so
- * moving the slider never flips the badge to Custom; the shipped catalog
- * defaults (30s / 16) already read as Balance.
+ * Values the loader would not keep are resolved to the loader's own
+ * zero-tolerant fallbacks BEFORE classification — QUEUE_WAIT falls back
+ * to 30s and QUEUE_DEPTH to 16 (backend/internal/config/config_load.go),
+ * so a stock install whose queue rows are blank, whitespace, or
+ * unparseable still reads Balance instead of Custom. Balance accepts any
+ * in-range threshold (not just the 60s preset), so moving the slider
+ * never flips the badge to Custom.
  */
 
 /** Keys a preset switch writes — nothing else. */
@@ -45,18 +49,32 @@ export const STRATEGY_BALANCE = {
   QUEUE_DEPTH: "16",
 };
 
-/** Balance threshold slider bounds (seconds) + default. */
+/**
+ * Balance threshold slider bounds (seconds). The preset's own threshold
+ * lives in STRATEGY_BALANCE.QUEUE_WAIT; the slider just has to admit it.
+ */
 export const BALANCE_THRESHOLD_MIN_SECS = 5;
 export const BALANCE_THRESHOLD_MAX_SECS = 300;
-export const BALANCE_THRESHOLD_DEFAULT_SECS = 60;
+
+/**
+ * Loader fallbacks for the queue keys, mirrored from
+ * backend/internal/config/config_load.go so the badge classifies on the
+ * values the gateway actually runs with:
+ * - QUEUE_WAIT is zero-tolerant: blank or non-positive → 30s.
+ * - QUEUE_DEPTH defaults to 16 when absent or unparseable (0 is a real
+ *   value: fail over at once, no queueing).
+ */
+export const QUEUE_WAIT_DEFAULT_SECS = 30;
+export const QUEUE_DEPTH_DEFAULT = 16;
 
 /**
  * Parse a Go duration (or a bare number = seconds) to seconds.
  * Accepts compound forms exactly as time.Duration.String emits them
  * ("1m0s", "5m0s", "1h2m3s", "1m30s") — the settings GET tier serves the
  * normalized effective value for file/env rows, and older overlay rows may
- * still hold a compound literal. Returns NaN when unparseable — callers
- * treat that as Custom, never as a preset match.
+ * still hold a compound literal. Returns NaN when unparseable —
+ * queueWaitSecs() resolves that to the loader fallback before the badge
+ * classifies, never to a preset match.
  */
 const DURATION_GROUP_RE = /(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/g;
 const DURATION_UNIT_SECS = {
@@ -105,6 +123,27 @@ function isOn(raw, fallback) {
   return String(raw).trim().toLowerCase() !== "false";
 }
 
+/**
+ * QUEUE_WAIT in seconds as the loader would resolve it: blank, unparseable,
+ * or non-positive values fall back to the 30s default.
+ */
+export function queueWaitSecs(raw) {
+  const secs = parseWaitSecs(raw);
+  if (!Number.isFinite(secs) || secs <= 0) return QUEUE_WAIT_DEFAULT_SECS;
+  return secs;
+}
+
+/**
+ * QUEUE_DEPTH as the loader would resolve it: blank or unparseable values
+ * fall back to 16. 0 is returned as-is (a real posture: fail over at once).
+ */
+export function queueDepth(raw) {
+  const v = String(raw ?? "").trim();
+  if (v === "") return QUEUE_DEPTH_DEFAULT;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : QUEUE_DEPTH_DEFAULT;
+}
+
 function normRotation(raw) {
   const v = String(raw ?? "drain")
     .trim()
@@ -115,9 +154,9 @@ function normRotation(raw) {
 }
 
 /**
- * Detect the strategy badge from the five owned values (raw form strings;
- * missing keys fall back to the catalog defaults: smart on, drain,
- * failover on, 30s, 16).
+ * Detect the strategy badge from the five owned values (raw form strings).
+ * Missing keys and values the loader would not keep fall back to the same
+ * defaults the gateway runs with: smart on, drain, failover on, 30s, 16.
  *
  * @param {Record<string, string>} values
  * @returns {"drain" | "balance" | "custom"}
@@ -126,13 +165,13 @@ export function detectStrategy(values = {}) {
   const smart = isOn(values.ROUTING_SMART, true);
   const rotation = normRotation(values.TOKEN_ROTATION);
   const failover = isOn(values.RATE_LIMIT_FAILOVER, true);
-  const depth = String(values.QUEUE_DEPTH ?? "16").trim();
-  const waitSecs = parseWaitSecs(values.QUEUE_WAIT ?? "30s");
+  const depth = queueDepth(values.QUEUE_DEPTH);
+  const waitSecs = queueWaitSecs(values.QUEUE_WAIT);
   if (
     smart &&
     rotation === "drain" &&
     failover &&
-    depth === "1024" &&
+    depth === 1024 &&
     waitSecs === 300
   ) {
     return "drain";
@@ -141,8 +180,7 @@ export function detectStrategy(values = {}) {
     smart &&
     rotation === "drain" &&
     failover &&
-    depth === "16" &&
-    Number.isFinite(waitSecs) &&
+    depth === 16 &&
     waitSecs >= BALANCE_THRESHOLD_MIN_SECS &&
     waitSecs <= BALANCE_THRESHOLD_MAX_SECS
   ) {
@@ -153,13 +191,12 @@ export function detectStrategy(values = {}) {
 
 /**
  * Clamp a QUEUE_WAIT value to the Balance slider range (seconds).
- * Unparseable values fall back to the 60s default.
+ * Values the loader would not keep fall back to the same 30s default, so
+ * the slider never shows a threshold the gateway is not running.
  */
 export function thresholdSecs(raw) {
-  const secs = parseWaitSecs(raw);
-  if (!Number.isFinite(secs)) return BALANCE_THRESHOLD_DEFAULT_SECS;
   return Math.min(
     BALANCE_THRESHOLD_MAX_SECS,
-    Math.max(BALANCE_THRESHOLD_MIN_SECS, Math.round(secs)),
+    Math.max(BALANCE_THRESHOLD_MIN_SECS, Math.round(queueWaitSecs(raw))),
   );
 }

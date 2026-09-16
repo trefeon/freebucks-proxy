@@ -141,17 +141,24 @@
   {:else}
     <!-- Desktop: fluid table (lg+). No min-width floor: columns compress
       via truncate guards and the card-width container query below, so the
-      card never sidescrolls. Below lg the stacked cards take over. -->
+      card never sidescrolls. Below lg the stacked cards take over.
+      Cell hygiene: the hug columns carry no fixed width, cells run on one
+      line while the container can hold them (@min-[1000px] gives the
+      status/usage groups their natural width) and fall back to tight
+      2-line groups at narrower containers, where the row grows taller
+      instead of pushing the table into horizontal scroll.
+      Padding drops to 4px under an 820px container for the same reason;
+      the colspan drawer row is excluded so its own padding survives. -->
     <div class="hidden lg:block overflow-x-auto @container">
-      <table class="fp-table w-full">
+      <table
+        class="fp-table w-full [&_td:not([colspan])]:!px-2 [&_th]:!px-2 @max-[820px]:[&_td:not([colspan])]:!px-1 @max-[820px]:[&_th]:!px-1"
+      >
         <thead>
           <tr>
-            <th class="w-[1%] whitespace-nowrap !px-2"></th>
+            <th class="w-[1%] whitespace-nowrap"></th>
             <th>{$tr("Account")}</th>
             <th class="w-[1%] whitespace-nowrap">{$tr("Status")}</th>
-            <th class="w-[1%] min-w-[280px] whitespace-nowrap"
-              >{$tr("Instance")}</th
-            >
+            <th class="w-[1%] whitespace-nowrap">{$tr("Instance")}</th>
             <th class="num w-[1%] whitespace-nowrap">{$tr("Usage")}</th>
             <th class="text-right w-[1%] whitespace-nowrap">{$tr("Actions")}</th
             >

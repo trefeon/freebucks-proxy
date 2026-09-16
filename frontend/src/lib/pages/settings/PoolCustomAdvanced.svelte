@@ -11,12 +11,13 @@
 
   /**
    * Custom advanced card (Pool → Controls, below Pool Controls).
-   * Hand-tuning home for the knobs the strategy presets fix: token
-   * rotation, smart-routing master switch, and 429 failover — plus the
-   * relocated Pool Tuning rows (probe intervals, admission caches,
-   * sessions). Values carried over unchanged; only the address moved.
-   * Every row instant-saves to the DB overlay on edit (DbOverrideSave,
-   * including the routing radiogroup and switches below).
+   * Hand-tuning home for the relocated Pool Tuning rows (probe
+   * intervals, admission caches, sessions). The routing knobs the
+   * strategy presets own — token rotation, the ROUTING_SMART master
+   * switch, 429 failover, QUEUE_WAIT, QUEUE_DEPTH — live in the Pool
+   * Strategy card, so none of them is rendered twice. Values carried
+   * over unchanged; only the address moved.
+   * Every row instant-saves to the DB overlay on edit (DbOverrideSave).
    *
    * @prop {Array} meta - config catalog entries (for relocated-row copy)
    * @prop {Record<string, string>} formValues
@@ -82,63 +83,6 @@
     return TEMPORAL_KEY_RE.test(e.key ?? "");
   }
 
-  // --- Rotation / failover / smart switch (moved from TrafficSettings) ---
-  // Rotation copy moved verbatim with the radiogroup.
-  const ROT_POLICY_LABEL = "Token Rotation Policy";
-  const ROT_DRAIN_BTN = "Drain (Safest)";
-  const ROT_RR_BTN = "Round Robin (1:1)";
-  const ROT_LU_BTN = "Least Used (Max Quota)";
-  const ROT_RANDOM_BTN = "Random (Stochastic)";
-  const ROT_DRAIN_TITLE = "Drain Mode (Default & Recommended):";
-  const ROT_DRAIN_BODY =
-    "Sticks to one account until it is unfit (cooldown, quota, or ban) before rotating to the next token. Mimics authentic single-user behavior and provides the strongest anti-ban protection.";
-  const ROT_RR_TITLE = "Round-Robin Mode:";
-  const ROT_RR_BODY =
-    "Rotates to the next token on every request (1:1). Note: rapid alternating requests across healthy accounts may raise upstream anomaly-detection signals.";
-  const ROT_LU_TITLE = "Least-Used Mode:";
-  const ROT_LU_BODY =
-    "Routes requests to the token with the lowest daily usage or active run count. Maximizes concurrency and distributes quota consumption evenly.";
-  const ROT_RANDOM_TITLE = "Random Mode:";
-  const ROT_RANDOM_BODY =
-    "Selects an available healthy token at random per request. Provides stochastic load balancing.";
-  const FAILOVER_LABEL = "Auto Failover on Rate Limit (429)";
-  const FAILOVER_DESC =
-    "When enabled, an in-flight request encountering a 429 rate limit or account throttle immediately leases another healthy pool token and retries seamlessly without failing the request.";
-  const FAILOVER_OFF_WARN =
-    "Failover off = no safety net (failover mati = tanpa jaring): an in-flight 429 fails the request instead of retrying on another healthy account. Turn off only here, deliberately.";
-  const SMART_LABEL = "Smart Routing";
-  const SMART_DESC =
-    "Route each request through per-token live-turn slots with a FIFO waiter queue plus the unified scorer. Off restores the legacy acquire path.";
-
-  const ROT_MODES = ["drain", "round_robin", "least_used", "random"];
-  let tokenRotation = $derived.by(() => {
-    const raw = String(
-      formValues.TOKEN_ROTATION ?? env.TOKEN_ROTATION ?? "drain",
-    ).toLowerCase();
-    return ROT_MODES.includes(raw) ? raw : "drain";
-  });
-  let rateLimitFailover = $derived(
-    String(
-      formValues.RATE_LIMIT_FAILOVER ?? env.RATE_LIMIT_FAILOVER ?? "true",
-    ).toLowerCase() !== "false",
-  );
-  let routingSmart = $derived(
-    String(formValues.ROUTING_SMART ?? "true").toLowerCase() !== "false",
-  );
-
-  function setTokenRotation(mode) {
-    if (tokenRotation === mode) return;
-    onField("TOKEN_ROTATION", mode);
-  }
-  function toggleRateLimitFailover(next) {
-    const v = typeof next === "boolean" ? next : !rateLimitFailover;
-    onField("RATE_LIMIT_FAILOVER", v ? "true" : "false");
-  }
-  function toggleRoutingSmart(next) {
-    const v = typeof next === "boolean" ? next : !routingSmart;
-    onField("ROUTING_SMART", v ? "true" : "false");
-  }
-
   // --- Relocated groups (values preserved, address moved) ---
   const PROBE_KEYS = [
     "QUOTA_PROBE_ACTIVE_INTERVAL",
@@ -173,31 +117,6 @@
     if (!q) return true;
     return parts.join("\n").toLowerCase().includes(q);
   }
-  let showRouting = $derived(
-    hit(
-      "TOKEN_ROTATION",
-      "RATE_LIMIT_FAILOVER",
-      "ROUTING_SMART",
-      ROT_POLICY_LABEL,
-      ROT_DRAIN_BTN,
-      ROT_RR_BTN,
-      ROT_LU_BTN,
-      ROT_RANDOM_BTN,
-      ROT_DRAIN_TITLE,
-      ROT_DRAIN_BODY,
-      ROT_RR_TITLE,
-      ROT_RR_BODY,
-      ROT_LU_TITLE,
-      ROT_LU_BODY,
-      ROT_RANDOM_TITLE,
-      ROT_RANDOM_BODY,
-      FAILOVER_LABEL,
-      FAILOVER_DESC,
-      FAILOVER_OFF_WARN,
-      SMART_LABEL,
-      SMART_DESC,
-    ),
-  );
   function shownKeys(keys) {
     return keys.filter((k) => entry(k) && hit(rowText(k)));
   }
@@ -206,8 +125,7 @@
   let sessionShown = $derived(shownKeys(SESSION_KEYS));
   let showFloor = $derived(hit(FLOOR_TITLE, FLOOR_BODY, FLOOR_NOTE));
   let visible = $derived(
-    (showRouting ? 3 : 0) +
-      probeShown.length +
+    probeShown.length +
       cacheShown.length +
       sessionShown.length +
       (showFloor ? 1 : 0),
@@ -315,7 +233,7 @@
   <SettingsCard
     title={$tr("Custom advanced")}
     description={$tr(
-      "Hand-tuned routing, probing, and session knobs. Values carried over unchanged — only the address moved.",
+      "Hand-tuned probing, admission-cache, and session knobs. Values carried over unchanged — only the address moved.",
     )}
   >
     {#snippet icon()}
@@ -326,181 +244,10 @@
         <span
           role="status"
           class="text-[11px] font-mono text-[var(--fp-dim)] shrink-0"
-          >{$tr("{visible} of {total}", { visible, total: 12 })}</span
+          >{$tr("{visible} of {total}", { visible, total: 9 })}</span
         >
       {/if}
     {/snippet}
-
-    {#if showRouting}
-      <div class="space-y-3 py-4">
-        <p
-          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)]"
-        >
-          {$tr("Routing")}
-        </p>
-        <div
-          class="flex flex-wrap items-center gap-2"
-          role="radiogroup"
-          aria-label={$tr(ROT_POLICY_LABEL)}
-        >
-          <button
-            type="button"
-            role="radio"
-            aria-checked={tokenRotation === "drain"}
-            onclick={() => setTokenRotation("drain")}
-            class="fp-btn {tokenRotation === 'drain'
-              ? 'fp-btn-primary'
-              : 'fp-btn-ghost'} fp-btn-sm text-xs"
-          >
-            {$tr(ROT_DRAIN_BTN)}
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={tokenRotation === "round_robin"}
-            onclick={() => setTokenRotation("round_robin")}
-            class="fp-btn {tokenRotation === 'round_robin'
-              ? 'fp-btn-primary'
-              : 'fp-btn-ghost'} fp-btn-sm text-xs"
-          >
-            {$tr(ROT_RR_BTN)}
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={tokenRotation === "least_used"}
-            onclick={() => setTokenRotation("least_used")}
-            class="fp-btn {tokenRotation === 'least_used'
-              ? 'fp-btn-primary'
-              : 'fp-btn-ghost'} fp-btn-sm text-xs"
-          >
-            {$tr(ROT_LU_BTN)}
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={tokenRotation === "random"}
-            onclick={() => setTokenRotation("random")}
-            class="fp-btn {tokenRotation === 'random'
-              ? 'fp-btn-primary'
-              : 'fp-btn-ghost'} fp-btn-sm text-xs"
-          >
-            {$tr(ROT_RANDOM_BTN)}
-          </button>
-        </div>
-        <div class="flex justify-end">
-          <DbOverrideSave
-            settingKey="TOKEN_ROTATION"
-            value={tokenRotation}
-            source={sources.TOKEN_ROTATION}
-            {onReset}
-            {onSaved}
-            {degraded}
-          />
-        </div>
-
-        <div
-          class="fp-inset p-3 rounded text-xs text-[var(--fp-muted)] flex items-start gap-2"
-        >
-          {#if tokenRotation === "drain"}
-            <p class="leading-relaxed">
-              <strong class="text-[var(--fp-text)]"
-                >{$tr(ROT_DRAIN_TITLE)}</strong
-              >
-              {$tr(ROT_DRAIN_BODY)}
-            </p>
-          {:else if tokenRotation === "round_robin"}
-            <p class="leading-relaxed">
-              <strong class="text-[var(--fp-text)]">{$tr(ROT_RR_TITLE)}</strong>
-              {$tr(ROT_RR_BODY)}
-            </p>
-          {:else if tokenRotation === "least_used"}
-            <p class="leading-relaxed">
-              <strong class="text-[var(--fp-text)]">{$tr(ROT_LU_TITLE)}</strong>
-              {$tr(ROT_LU_BODY)}
-            </p>
-          {:else if tokenRotation === "random"}
-            <p class="leading-relaxed">
-              <strong class="text-[var(--fp-text)]"
-                >{$tr(ROT_RANDOM_TITLE)}</strong
-              >
-              {$tr(ROT_RANDOM_BODY)}
-            </p>
-          {/if}
-        </div>
-        <div
-          class="pt-3 border-t border-[var(--fp-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-        >
-          <div class="space-y-0.5">
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-semibold text-[var(--fp-text)]">
-                {$tr(FAILOVER_LABEL)}
-              </span>
-              <span class="led {rateLimitFailover ? 'led-good' : 'led-dim'}"
-              ></span>
-            </div>
-            <p class="text-[11px] text-[var(--fp-muted)] leading-relaxed">
-              {$tr(FAILOVER_DESC)}
-            </p>
-            {#if !rateLimitFailover}
-              <p
-                class="text-[11px] text-[var(--fp-warning)] leading-relaxed font-medium"
-              >
-                {$tr(FAILOVER_OFF_WARN)}
-              </p>
-            {/if}
-          </div>
-          <div class="flex flex-col items-end gap-1.5 shrink-0">
-            <ToggleSwitch
-              checked={rateLimitFailover}
-              ariaLabel="Auto Failover on Rate Limit (429)"
-              onchange={(v) => toggleRateLimitFailover(v)}
-            />
-            <DbOverrideSave
-              settingKey="RATE_LIMIT_FAILOVER"
-              value={formValues.RATE_LIMIT_FAILOVER ?? "true"}
-              source={sources.RATE_LIMIT_FAILOVER}
-              {onReset}
-              {onSaved}
-              {degraded}
-            />
-          </div>
-        </div>
-        <div
-          class="pt-3 border-t border-[var(--fp-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-        >
-          <div class="space-y-0.5">
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-semibold text-[var(--fp-text)]">
-                {$tr(SMART_LABEL)}
-              </span>
-              <code
-                class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-                >ROUTING_SMART</code
-              >
-            </div>
-            <p class="text-[11px] text-[var(--fp-muted)] leading-relaxed">
-              {$tr(SMART_DESC)}
-            </p>
-          </div>
-          <div class="flex flex-col items-end gap-1.5 shrink-0">
-            <ToggleSwitch
-              checked={routingSmart}
-              ariaLabel="ROUTING_SMART"
-              onchange={(v) => toggleRoutingSmart(v)}
-            />
-            <DbOverrideSave
-              settingKey="ROUTING_SMART"
-              value={formValues.ROUTING_SMART ?? "true"}
-              source={sources.ROUTING_SMART}
-              {onReset}
-              {onSaved}
-              {degraded}
-            />
-          </div>
-        </div>
-      </div>
-    {/if}
 
     {#if probeShown.length > 0}
       <div class="pt-4">
