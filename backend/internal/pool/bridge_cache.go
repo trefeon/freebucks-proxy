@@ -142,6 +142,7 @@ func (p *Pool) bridgeEntryFor(clientToken string) (*bridgeEntry, error) {
 	entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 	entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 	entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
+	pushParkConfig(entry.session, cfg)
 	entry.runs = runs.NewRunManagerOpts(client, entry.session, runOptions(cfg))
 	entry.lastUsed = time.Now()
 
@@ -399,6 +400,15 @@ func (p *Pool) bridgeMaintain(ctx context.Context, idle bool) {
 			toMaintain = append(toMaintain, entry)
 			continue
 		}
+		// Parked entry: a live CooldownUntil means the entry is riding
+		// out a short transient (session-park window) — killing it
+		// here would end a session the next request could still use
+		// once the window lapses. Keep it cached; the sweep reaps it
+		// once the cooldown lapses and it stays idle.
+		if time.Now().Before(entry.runs.CooldownUntil()) {
+			toMaintain = append(toMaintain, entry)
+			continue
+		}
 		if now.Sub(entry.lastUsed) > idleEvict {
 			toEvict = append(toEvict, entry)
 			delete(p.bridge, token)
@@ -436,13 +446,14 @@ func (p *Pool) bridgeMaintain(ctx context.Context, idle bool) {
 }
 
 // bridgeEvictToken immediately removes a token from the bridge cache:
-// used when a token is confirmed dead (ErrAuthRejected) so it does not sit
-// in the cache for the full idle-eviction TTL window. The removed entry's
-// runs are FINISHed best-effort after releasing the lock. Entries with an
-// outstanding lease are left cached for the idle sweep instead: FINISHing
-// their runs would kill the concurrent chat stream, and dropping the entry
-// now would orphan the stream's draining run outside bridgeMaintain's and
-// Pool.Shutdown's reach.
+// used when a token is confirmed dead (ErrAuthRejected past the session-park
+// threshold — short 401 cooldowns park instead, see AcquireBridge) so it
+// does not sit in the cache for the full idle-eviction TTL window. The
+// removed entry's runs are FINISHed best-effort after releasing the lock.
+// Entries with an outstanding lease are left cached for the idle sweep
+// instead: FINISHing their runs would kill the concurrent chat stream, and
+// dropping the entry now would orphan the stream's draining run outside
+// bridgeMaintain's and Pool.Shutdown's reach.
 func (p *Pool) bridgeEvictToken(rawToken string) {
 	key := tokenKey(rawToken)
 	p.bridgeMu.Lock()

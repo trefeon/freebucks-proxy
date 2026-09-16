@@ -38,10 +38,15 @@ const (
 	// sessionPollBaseInterval is the CLI's active poll cadence (30s).
 	sessionPollBaseInterval = 30 * time.Second
 	// sessionPollBackoffBase is the first failure backoff (20s); each
-	// consecutive failure doubles it up to sessionPollBackoffMax (300s).
+	// consecutive failure doubles it up to sessionPollBackoffMax.
 	sessionPollBackoffBase = 20 * time.Second
-	sessionPollBackoffMax  = 300 * time.Second
 )
+
+// sessionPollBackoffMax caps the failed-poll backoff (300s default):
+// consecutive-failure doubling and the server Retry-After floor both clamp
+// here (polling-backoff.ts semantics). Tunable via SESSION_POLL_MAX_MS
+// (live-applied from pool.SetConfig); the default preserves the 300s cap.
+var sessionPollBackoffMax = 300 * time.Second
 
 // retiredDrainGrace is how long a retired token may sit without a lease
 // before maintainTick drops it from the retired map. RemoveLastToken drains

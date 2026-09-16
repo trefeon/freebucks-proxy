@@ -15,21 +15,47 @@ import (
 )
 
 // DefaultCooldown is the token cooldown applied on upstream auth rejection
-// (PRD Â§5.3: "401 triggers 30-min token cooldown").
-const DefaultCooldown = 30 * time.Minute
+// (PRD §5.3: "401 triggers 30-min token cooldown"). Tunable via
+// COOLDOWN_DEFAULT_MS (SetCooldownTuning, live-applied from pool.SetConfig);
+// the default preserves the 30m behavior.
+var DefaultCooldown = 30 * time.Minute
 
 // countryBlockCooldown is the token cooldown applied when upstream reports a
 // region block (country_blocked): long enough to stop the request hammer
 // from re-hitting the blocked admission, short enough to re-probe after the
-// client switches egress/VPN.
-const countryBlockCooldown = 15 * time.Minute
+// client switches egress/VPN. Tunable via COOLDOWN_COUNTRY_BLOCK_MS; the
+// default preserves the 15m behavior. Time-bound only — the pool never
+// quarantines a country block, so expiry always revives the token.
+var countryBlockCooldown = 15 * time.Minute
 
 // cooldownCeiling is the farthest future any cooldown deadline may extend
-// (7 days, mirroring upstream.MaxCooldown). Applied defensively when
-// converting upstream-controlled retry durations to deadlines: without it a
-// huge RetryAfter (or a far-future ResetAt) would park the token in a
-// cooldown for years.
-const cooldownCeiling = 7 * 24 * time.Hour
+// (7 days, mirroring upstream.MaxCooldown). Tunable via COOLDOWN_CEILING_MS.
+// Applied defensively when converting upstream-controlled retry durations
+// to deadlines: without it a huge RetryAfter (or a far-future ResetAt)
+// would park the token in a cooldown for years.
+var cooldownCeiling = 7 * 24 * time.Hour
+
+// SetCooldownTuning overrides the cooldown durations from operator config
+// (pool.SetConfig pushes the live values on boot and every reload).
+// Non-positive durations, non-positive readmit budgets, and negative jitter
+// ratios are ignored so a zero-value or partial config keeps the defaults.
+func SetCooldownTuning(defaultD, countryBlock, ceiling time.Duration, ipMaxReadmits int, ipJitterRatio float64) {
+	if defaultD > 0 {
+		DefaultCooldown = defaultD
+	}
+	if countryBlock > 0 {
+		countryBlockCooldown = countryBlock
+	}
+	if ceiling > 0 {
+		cooldownCeiling = ceiling
+	}
+	if ipMaxReadmits > 0 {
+		maxIpCappedReAdmitsPerDay = ipMaxReadmits
+	}
+	if ipJitterRatio >= 0 {
+		ipCappedCooldownJitter = ipJitterRatio
+	}
+}
 
 // cappedAfter returns now.Add(d) clamped to at most now+cooldownCeiling.
 func cappedAfter(now time.Time, d time.Duration) time.Time {
@@ -52,15 +78,18 @@ func cappedDeadline(t time.Time) time.Time {
 // until the next Pacific midnight. The CLI treats ip_capped as
 // terminal-until-reset — it never loops an automatic re-admission — so the
 // proxy mirrors that with this bounded budget instead of pacing an endless
-// POST loop (issue #118). Test-shrinkable like the pool's unfit TTL
+// POST loop (issue #118). Tunable via COOLDOWN_IP_MAX_READMITS (see
+// SetCooldownTuning); the default preserves the 3/day behavior.
+// Test-shrinkable like the pool's unfit TTL
 // (backend/internal/pool/unfit.go modelUnfitTTL).
 var maxIpCappedReAdmitsPerDay = 3
 
-// ipCappedCooldownJitter is the Â±fraction of retryAfterMs applied to the
+// ipCappedCooldownJitter is the ±fraction of retryAfterMs applied to the
 // ip_capped re-admission window so concurrent tokens do not re-admit in
-// lockstep (mirrors the CLI's 30sÂ±20% poll jitter; upstream/freebuff
-// cli/src/hooks/use-freebuff-session.ts).
-const ipCappedCooldownJitter = 0.2
+// lockstep (mirrors the CLI's 30s±20% poll jitter; upstream/freebuff
+// cli/src/hooks/use-freebuff-session.ts). Tunable via
+// COOLDOWN_IP_JITTER_RATIO; the default preserves the 0.2 behavior.
+var ipCappedCooldownJitter = 0.2
 
 // Cooldown puts the token in a cooldown window of duration d (e.g.
 // DefaultCooldown after an auth rejection). Durations <= 0 are ignored.
