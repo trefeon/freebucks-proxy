@@ -275,3 +275,32 @@ var keyCatalog = []KeyDef{
 		Default:     "",
 		Description: `Best-effort alert POSTs for pool_exhausted, token_banned, and agent_model_mismatch_escalation (empty = disabled; at most one POST per event type per 5m; may carry credentials in the URL userinfo).`},
 }
+
+// durationSettingKeys names every knob whose value the config loader parses
+// with time.ParseDuration (config_load.go). Kind only says how the dashboard
+// renders the control ("text"), so the duration contract lives here as data:
+// ValidateSettingValue rejects an unparseable value from this set BEFORE the
+// settings handler reads the overlay or writes a row, so a typo is a cheap
+// 400 instead of a round trip through the database that ends in the same
+// rejection. Membership is not a value judgement — "0" (and, where the loader
+// documents it, a negative value) stays accepted, because the floor/disabled
+// semantics belong to the loader, not to this gate.
+var durationSettingKeys = map[string]bool{
+	"BRIDGE_IDLE_EVICT":           true,
+	"HTTP_READ_TIMEOUT":           true,
+	"IDLE_ROTATION_TIMEOUT":       true,
+	"MODEL_UNAVAILABLE_CACHE_TTL": true,
+	"QUEUE_WAIT":                  true,
+	"QUOTA_PROBE_ACTIVE_INTERVAL": true,
+	"QUOTA_PROBE_IDLE_HEARTBEAT":  true,
+	"REGISTRY_REFRESH":            true,
+	"REQUEST_JITTER":              true,
+	"REQUEST_TIMEOUT":             true,
+	"ROTATION_INTERVAL":           true,
+	"RUNS_DRAIN_TTL":              true,
+	"RUN_FINISH_INLINE_TIMEOUT":   true,
+	"SESSION_CALL_TIMEOUT":        true,
+	"SESSION_IDLE_END":            true,
+	"SESSION_PROBE_CACHE_TTL":     true,
+	"SESSION_RE_ADMIT_LEAD":       true,
+}
