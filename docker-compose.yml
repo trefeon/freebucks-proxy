@@ -21,19 +21,16 @@ services:
       # env beats the mounted .env file: guarantees the container listens on
       # the mapped port even when the host .env carries a loopback LISTEN_ADDR.
       - LISTEN_ADDR=:3457
-      # SQLite history file (ADR-0016): lives on the db_data named volume so
-      # dashboard history survives container rebuilds. Mirrors the DB_PATH
-      # default layout (./data/freebuff.db) used outside Docker.
-      - DB_PATH=/app/data/freebuff.db
       - ADMIN_FORCE_SECURE_COOKIES=${ADMIN_FORCE_SECURE_COOKIES:-false}
       - ADMIN_INSECURE_HTTP=${ADMIN_INSECURE_HTTP:-}
     # The process cwd IS the mount, so every cwd-relative path the dashboard
     # and config loader touch persists on the host: ./.env (device-login and
     # add/remove-token writes), ./.freebuff-session-state.json (SESSION_PERSIST),
-    # and any LOG_FILE under ./logs/. A directory mount — not a single-file
-    # bind — is REQUIRED: writeFileAtomic() commits via rename() inside the
-    # cwd, and rename over a single-file bind mount fails with EBUSY
-    # ("device or resource busy"), which 500s every dashboard save.
+    # ./data/freebuff.db (the SQLite DB, DB_PATH default), and any LOG_FILE
+    # under ./logs/. A directory mount — not a single-file bind — is REQUIRED:
+    # writeFileAtomic() commits via rename() inside the cwd, and rename over a
+    # single-file bind mount fails with EBUSY ("device or resource busy"), which
+    # 500s every dashboard save.
     # The directory and its contents must be writable by the container's
     # uid 1000 (the Dockerfile's "app" user, adduser -u 1000):
     #   touch .env && chmod 777 .    (or: chown 1000:1000 .)
@@ -42,11 +39,34 @@ services:
     # environment — config precedence (env > .env) would make every
     # dashboard token mutation fail with "overridden by environment".
     working_dir: /app/state
+    # This ONE directory bind mount is the whole persistence boundary — do not
+    # split it. The SQLite DB at ./data/freebuff.db is not just history: it
+    # holds the settings overlay, credentials included (config:AUTH_TOKENS,
+    # config:ADMIN_TOKEN, config:API_KEYS, config:WEBHOOK_URL rows), and this
+    # bind mount is the shape production runs (no DB_PATH, no second volume).
+    # Pointing DB_PATH at a new path or volume is a PARTIALLY SUPPORTED
+    # migration, not a free move and not a config tweak:
+    #   - display history IS carried: boot copies log_entries, quota_snapshots,
+    #     maturity_events and request_records from the legacy file when the
+    #     target's history tables are empty (store.ImportLegacyHistoryDB), and
+    #     store.LegacyHistoryCandidates lists /app/state/data/freebuff.db as a
+    #     source for exactly this move.
+    #   - overlay-only operator rows are LOST: nothing carries the settings
+    #     overlay from a legacy DB, so knobs the dashboard persisted that do
+    #     not exist in the host .env disappear (prod holds 84 config: rows).
+    #   - credentials survive only because the same keys exist in the host
+    #     .env (AUTH_TOKENS, ADMIN_TOKEN, API_KEYS) and the env -> DB import
+    #     re-runs: the config:migrated_env_v1 marker lives in the NEW file, so
+    #     a fresh DB always re-imports. A host whose credentials live ONLY as
+    #     overlay rows loses them, and the pool degrades to credential-less
+    #     bridge mode.
+    # Check row counts before and after the move. Never copy a live database
+    # with a plain `cp` of the .db/-wal/-shm trio — a copy taken mid-checkpoint
+    # reads as an empty sqlite_master. Either `docker compose stop` first and
+    # then copy, or snapshot while it runs with sqlite3's
+    # Connection.backup() / VACUUM INTO.
     volumes:
       - .:/app/state
-      # SQLite history (DB_PATH above): named volume so freebuff.db survives
-      # `compose down` and image rebuilds. The state bind mount stays untouched.
-      - db_data:/app/data
     ports:
       # ⚠️ 0.0.0.0 default: /healthz and /metrics are ALWAYS unauthenticated by
       # design (monitoring). Exposing this port beyond localhost publishes them
@@ -89,7 +109,8 @@ services:
     depends_on:
       - freebuff-proxy
 
+# No volume for the gateway: its state lives in the .:/app/state bind mount
+# above. caddy keeps named volumes for its own TLS/ACME data only.
 volumes:
-  db_data:
   caddy_data:
   caddy_config:
