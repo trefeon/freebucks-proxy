@@ -11,8 +11,8 @@ import { loadFixtures, mockDashboard } from "./mocks.js";
  *
  *  - an idle account (no live session) shows a bare em dash in Instance, and
  *    that column hugs it instead of reserving a band (the pre-#569
- *    fixed width floor on that column squeezed Usage to 36px of content,
- *    wrapped "3 msgs 24h" over five lines and inflated the row to 133px),
+ *    fixed width floor on that column squeezed its neighbour to 36px of
+ *    content, wrapped its text over five lines and inflated the row to 133px),
  *  - rows stay slim,
  *  - the table never pushes its card into horizontal scroll at any supported
  *    desktop width, and the stacked mobile cards never scroll at 390,
@@ -194,15 +194,13 @@ test.describe("Pool accounts table geometry", () => {
     // No other text column is wider than the wider of its header label and
     // its own content (Account hugs its first line by design; Instance takes
     // the card's slack).
-    for (const label of ["Status", "Usage"]) {
-      const col = column(m, label);
-      const contentBound =
-        Math.max(col.headerWidth, col.cellTextWidth) + HUG_SLACK;
-      expect(col.cellWidth, `${label} column width`).toBeLessThanOrEqual(
-        contentBound,
-      );
-      expect(col.cellOverflow, `${label} cell overflow`).toBe(0);
-    }
+    const col = column(m, "Status");
+    const contentBound =
+      Math.max(col.headerWidth, col.cellTextWidth) + HUG_SLACK;
+    expect(col.cellWidth, "Status column width").toBeLessThanOrEqual(
+      contentBound,
+    );
+    expect(col.cellOverflow, "Status cell overflow").toBe(0);
   });
 
   test("a one-account table stays one slim row", async ({ page }) => {
@@ -213,7 +211,7 @@ test.describe("Pool accounts table geometry", () => {
         width,
       );
       const m = await tableMetrics(page);
-      // Pre-change: 133px (Usage wrapped to five lines inside a 60px column).
+      // Pre-change: 133px (a squeezed column wrapped its text to five lines inside 60px).
       expect(m.rowHeight, `row height at ${width}`).toBeLessThanOrEqual(64);
     }
   });
@@ -382,39 +380,33 @@ test.describe("Pool accounts table geometry", () => {
         widths.widestCell,
         `account column hugs widest first line at ${width}`,
       ).toBeLessThanOrEqual(widths.widestFirst + 40);
-      // Instance shows the FULL id with no CSS truncation or wrapping.
+      // (d) Instance ELLIPSIS-truncates the long id (no-scroll contract):
+      // full text stays in `title`, it never wraps, and the model chip +
+      // Drop Session control stay visible beside it.
       const instanceCell = row.locator("td").nth(3);
       const idCode = instanceCell.locator(`code[title="${longId}"]`);
       await expect(idCode).toHaveText(longId);
+      await expect(idCode).toHaveAttribute("title", longId);
       const idGeom = await idCode.evaluate((el) => ({
         overflow: el.scrollWidth - el.clientWidth,
         wrap: getComputedStyle(el).whiteSpace,
+        ellipsis: getComputedStyle(el).textOverflow,
       }));
-      expect(idGeom.overflow, "instance id truncation").toBeLessThanOrEqual(1);
-      expect(idGeom.wrap).toBe("nowrap");
+      expect(idGeom.wrap, "instance id never wraps").toBe("nowrap");
+      expect(idGeom.ellipsis, "instance id ellipsizes").toBe("ellipsis");
+      expect(
+        idGeom.overflow,
+        `instance id truncated at ${width}`,
+      ).toBeGreaterThan(2);
+      await expect(
+        instanceCell.getByText("stealth/ox-alpha"),
+        `model badge at ${width}`,
+      ).toBeVisible();
+      await expect(
+        instanceCell.getByRole("button", { name: "Drop Session" }),
+        `drop control at ${width}`,
+      ).toBeVisible();
     }
-  });
-
-  test("usage renders on one line with both spans", async ({ page }) => {
-    const table = await gotoPool(page, [liveToken()], 1024);
-    const row = table.locator("tbody tr").filter({ hasText: "Account #1" });
-    const usageCell = row.locator("td").nth(4);
-    await expect(usageCell.getByText(/msgs 24h/)).toBeVisible();
-    const geom = await usageCell.evaluate((el) => {
-      const inner = el.querySelector("div");
-      const cs = inner ? getComputedStyle(inner) : null;
-      return {
-        // The cell stretches to the row height (a live Instance cell stacks
-        // id+chip over the Drop Session button), so the one-line pin reads
-        // the inner flex row's own height, not the cell's.
-        innerH: inner ? inner.getBoundingClientRect().height : 0,
-        wrap: cs ? cs.flexWrap : "unknown",
-        overflow: el.scrollWidth - el.clientWidth,
-      };
-    });
-    expect(geom.wrap, "usage flex wrap").toBe("nowrap");
-    expect(geom.innerH, "usage inner row height").toBeLessThanOrEqual(32);
-    expect(geom.overflow, "usage cell overflow").toBeLessThanOrEqual(1);
   });
 
   test("idle rows show a bare dash with no Drop Session control", async ({

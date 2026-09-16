@@ -1833,18 +1833,20 @@ test.describe("dashboard hermetic mocks", () => {
     // Overview loading skeleton used aria-live="polite" and aria-busy="true"
     // Pool status lives in the Pool Tokens table (the standalone At-risk
     // section is gone): overview must not render it, tokens rows must show
-    // status + usage per account.
+    // status per account.
     await expect(
       page.locator('section[aria-label="At-risk tokens"]'),
     ).toHaveCount(0);
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const tokensTable = page.locator("table.fp-table");
-    // Fixture token #2 (Account #2) row shows its status chip and usage.
+    // Fixture token #2 (Account #2) carries no streak, so its row exposes
+    // the "No streak" label in the Account cell's status area.
     await expect(
-      tokensTable.locator("tbody tr").filter({ hasText: "Account #2" }),
-    ).toContainText("msgs 24h");
-    await expect(tokensTable.getByText("msgs 24h").first()).toBeVisible();
-    await expect(tokensTable.getByText("reqs").first()).toBeVisible();
+      tokensTable
+        .locator("tbody tr")
+        .filter({ hasText: "Account #2" })
+        .getByLabel("No streak"),
+    ).toBeVisible();
 
     // Navigate to Activity and check filter labelling + live region. Live is
     // the default tab; the labelled filter inputs and entry text live in

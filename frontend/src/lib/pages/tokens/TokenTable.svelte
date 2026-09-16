@@ -139,13 +139,14 @@
       )}
     />
   {:else}
-    <!-- Desktop: fluid table (lg+). No min-width floor: columns compress
+    <!-- Desktop: fluid table (lg+). Five columns [reorder, Account, Status,
+      Instance, Actions]. No min-width floor: columns compress
       via truncate guards and the card-width container query below, so the
       card never sidescrolls. Below lg the stacked cards take over.
       Cell hygiene: the hug columns carry no fixed width, cells run on one
       line while the container can hold them (@min-[1000px] gives the
-      status/usage groups their natural width) and fall back to tight
-      2-line groups at narrower containers, where the row grows taller
+      status group its natural width) and fall back to a tight
+      2-line group at narrower containers, where the row grows taller
       instead of pushing the table into horizontal scroll.
       Padding drops to 4px under an 820px container for the same reason;
       the colspan drawer row is excluded so its own padding survives. -->
@@ -159,7 +160,6 @@
             <th class="w-[1%] whitespace-nowrap">{$tr("Account")}</th>
             <th class="w-[1%] whitespace-nowrap">{$tr("Status")}</th>
             <th>{$tr("Instance")}</th>
-            <th class="num w-[1%] whitespace-nowrap">{$tr("Usage")}</th>
             <th class="text-right w-[1%] whitespace-nowrap">{$tr("Actions")}</th
             >
           </tr>
@@ -174,7 +174,6 @@
               expanded={expandedToken === idx}
               bind:spawnModel={spawnModels[idx]}
               {actionPending}
-              {now}
               {devToolsEnabled}
               dragging={draggingIndex === idx}
               dragOver={dragOverIndex === idx}

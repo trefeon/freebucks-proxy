@@ -15,7 +15,6 @@
   import {
     statusFor,
     streakBadgeFor,
-    cooldownLabel,
     sessionCountdownLabel,
   } from "../utils/tokenStatus.js";
   import { tr } from "../i18n.js";
@@ -32,7 +31,6 @@
    * @prop {string} [spawnModel] — bindable
    * @prop {boolean} [actionPending]
    * @prop {boolean} [devToolsEnabled=false]
-   * @prop {number} now
    * @prop {() => void} onToggle
    * @prop {(action: string) => void} onAction
    * @prop {(model: string) => void} onSpawn
@@ -48,7 +46,6 @@
     spawnModel = $bindable(""),
     actionPending,
     devToolsEnabled = false,
-    now,
     onToggle,
     onAction,
     onSpawn,
@@ -148,7 +145,9 @@
   </td>
   <td class="w-[1%]">
     <div class="flex min-w-0 flex-col gap-1">
-      <div class="flex w-max items-center gap-x-2 whitespace-nowrap">
+      <div
+        class="flex w-full items-center justify-between gap-x-2 whitespace-nowrap"
+      >
         <span
           class="fp-num text-xs font-semibold whitespace-nowrap text-[var(--fp-text)]"
           >Account #{idx + 1}</span
@@ -174,9 +173,7 @@
     </div>
   </td>
   <td class="w-[1%] whitespace-nowrap">
-    <div
-      class="flex flex-wrap items-center gap-x-2 gap-y-1 @min-[1000px]:w-max"
-    >
+    <div class="flex flex-col items-start gap-1">
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
       {#if token.session_status === "active" && sessionRemaining > 0}
         <span
@@ -190,13 +187,11 @@
   </td>
   <td>
     {#if token.session_instance || token.session_model}
-      <div class="flex min-w-0 flex-col gap-1">
-        <div
-          class="flex min-w-0 flex-nowrap items-center gap-x-2 whitespace-nowrap"
-        >
+      <div class="flex min-w-0 items-center gap-3">
+        <div class="flex min-w-0 flex-col items-start gap-1">
           {#if token.session_instance}
             <code
-              class="fp-num text-xs text-[var(--fp-muted)] whitespace-nowrap select-all"
+              class="fp-num block min-w-0 truncate text-xs text-[var(--fp-muted)] whitespace-nowrap select-all max-w-[200px] @min-[820px]:max-w-[240px] @min-[1100px]:max-w-[400px]"
               title={token.session_instance}>{token.session_instance}</code
             >
           {/if}
@@ -208,7 +203,7 @@
           <Button
             variant="danger"
             size="sm"
-            class="!h-7 !text-xs !px-2 shrink-0 self-start"
+            class="!h-7 !text-xs !px-2 shrink-0"
             disabled={actionPending}
             aria-label={$tr("Drop Session")}
             title={$tr("Drop Session")}
@@ -223,29 +218,6 @@
     {:else}
       <span class="text-xs text-[var(--fp-dim)]">—</span>
     {/if}
-  </td>
-  <td class="num w-[1%] whitespace-nowrap">
-    <div
-      class="flex flex-nowrap items-center justify-end gap-x-2 whitespace-nowrap @min-[1000px]:w-max"
-    >
-      {#if token.cooldown_active}
-        {@const cd = cooldownLabel(token, now)}
-        <span class="fp-num text-xs text-[var(--fp-warning)] whitespace-nowrap">
-          {cd}{#if cd !== "expiring" && cd !== "—"}{" " + $tr("remaining")}{/if}
-        </span>
-      {/if}
-      <span class="text-xs text-[var(--fp-muted)] whitespace-nowrap">
-        <span class="fp-num text-[var(--fp-text)]">{token.messages_24h}</span>
-        {$tr("msgs 24h")}
-      </span>
-      <span class="text-[11px] text-[var(--fp-dim)] whitespace-nowrap">
-        runs <span class="fp-num text-[var(--fp-text)]"
-          >{token.active_runs}</span
-        >
-        · reqs
-        <span class="fp-num text-[var(--fp-text)]">{token.requests}</span>
-      </span>
-    </div>
   </td>
   <td class="text-right whitespace-nowrap">
     <div class="inline-flex items-center gap-1.5 justify-end">
@@ -299,7 +271,7 @@
 </tr>
 {#if expanded}
   <tr>
-    <td colspan="6" class="!p-0">
+    <td colspan="5" class="!p-0">
       <div class="m-2">
         <TokenDetailsDrawer
           {token}

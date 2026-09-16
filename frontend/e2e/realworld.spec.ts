@@ -73,8 +73,14 @@ test.describe("real-world data", () => {
       ).toBeVisible();
     }
     await expect(page.getByText("BANNED (TEMPORARY)").first()).toBeVisible();
+    // New contract: the desktop row carries the banned state in its Status
+    // cell (exact case-sensitive match pins the cell text; line 75's loose
+    // match could hit anywhere).
+    const bannedRow = page.locator("table tbody tr", {
+      hasText: "Account #4",
+    });
     await expect(
-      page.getByText(/\d+d( \d+h)?\s+remaining/).first(),
+      bannedRow.getByText("banned (temporary)", { exact: true }),
     ).toBeVisible();
     await expect(page.getByText("LOCKED").first()).toBeVisible();
     await expect(
@@ -254,6 +260,28 @@ test.describe("real-world data", () => {
     await page.goto(admin("overview"));
     await expect(
       page.getByRole("heading", { name: "Client Integration" }),
+    ).toBeVisible();
+  });
+
+  test("tokens: banned cooldown countdown survives on the mobile card", async ({
+    page,
+  }) => {
+    // The desktop Usage cell is deleted; the per-token cooldown countdown
+    // now renders only in the mobile card's usage block.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const f = loadFixtures(RW);
+    const tokens = JSON.parse(JSON.stringify(f.tokens));
+    const list = tokens.tokens ?? tokens;
+    const banned = (Array.isArray(list) ? list : []).find(
+      (t) => t.cooldown_active,
+    );
+    if (banned)
+      banned.cooldown_until = new Date(Date.now() + 30 * 864e5).toISOString();
+    await mockDashboard(page, { ...f, tokens });
+    await page.goto(admin("tokens"));
+    await expect(page.getByText("Cooldown").first()).toBeVisible();
+    await expect(
+      page.getByText(/\d+d( \d+h)?\s+remaining/).first(),
     ).toBeVisible();
   });
 });
