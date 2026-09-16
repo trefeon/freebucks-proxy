@@ -2,17 +2,16 @@ package server_test
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/server"
+	"freebuff-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/server"
-	"freebuff-proxy/backend/internal/store"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // settingsTestServer builds a store-backed gateway (ADR-0019): the temp DB
@@ -696,4 +695,181 @@ func TestSettingsDurationEchoStable(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("GET tokens?view=live = %d, want 200", resp.StatusCode)
 	}
+}
+
+// TestSettingsGetMasksSecrets pins the secret-echo fix: for every Secret
+// catalog def, GET /admin/api/settings reports the masked Data() rendering
+// (counts / set-unset words), never the raw DB-overlay literal — including
+// migrated AUTH_TOKENS/ADMIN_TOKEN/API_KEYS rows and the overlay-writable
+// WEBHOOK_URL. Non-secret rows keep the echo-stable literal contract, and
+// DELETE/Reset still clears every secret row. Fake literals only.
+func TestSettingsGetMasksSecrets(t *testing.T) {
+	ts, cookie, csrf, st := settingsStoreTestServer(t)
+
+	// Seed overlay rows directly (migration-shaped raw literals), bypassing
+	// the POST gate that routes AUTH_TOKENS/ADMIN_TOKEN to dedicated
+	// endpoints — the env-to-DB migration writes these rows straight to
+	// the table. A reload hot-applies them into the live snapshot (the
+	// reload bearer gate reads the pre-reload snapshot, still "secret").
+	seeds := map[string]string{
+		"AUTH_TOKENS": "fb-test-fake-token-1,fb-test-fake-token-2",
+		"ADMIN_TOKEN": "fb-test-fake-admin-1",
+		"API_KEYS":    "fb-test-fake-client-1",
+		"WEBHOOK_URL": "https://example.invalid/hook",
+	}
+	for key, raw := range seeds {
+		if err := st.SetSetting(config.OverlayRowKey(key), raw); err != nil {
+			t.Fatalf("SetSetting %s: %v", key, err)
+		}
+	}
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/admin/reload", nil,
+		map[string]string{"Authorization": "Bearer secret"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reload after seeding secrets = %d, want 200: %s", resp.StatusCode, data)
+	}
+
+	// The masked Data() renderings every secret row must carry.
+	masked := map[string]string{
+		"AUTH_TOKENS": "2 token(s)",
+		"API_KEYS":    "1 key(s)",
+		"ADMIN_TOKEN": "set",
+		"WEBHOOK_URL": "set",
+	}
+	// Credential fragments that must never appear in a display value.
+	fragments := map[string]string{
+		"AUTH_TOKENS": "fb-test-fake-token",
+		"ADMIN_TOKEN": "fb-test-fake-admin",
+		"API_KEYS":    "fb-test-fake-client",
+		"WEBHOOK_URL": "example.invalid",
+	}
+	entries := settingsSources(t, ts, cookie)
+	for key, raw := range seeds {
+		e := entries[key]
+		if e["source"] != "db" {
+			t.Errorf("%s source = %v, want db", key, e["source"])
+		}
+		if e["secret"] != true {
+			t.Errorf("%s secret = %v, want true", key, e["secret"])
+		}
+		if e["value"] != masked[key] {
+			t.Errorf("%s GET value = %q, want masked %q", key, e["value"], masked[key])
+		}
+		if v, _ := e["value"].(string); v == raw || strings.Contains(v, fragments[key]) {
+			t.Errorf("%s GET value = %q, carries credential material", key, v)
+		}
+	}
+
+	// Non-secret control: the echo-stable contract is intact — a db-tier
+	// row still reports its saved literal.
+	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "QUEUE_WAIT", "value": "60s"})
+	if code != http.StatusOK || res["ok"] != true {
+		t.Fatalf("POST QUEUE_WAIT = %d %v, want 200 ok", code, res)
+	}
+	if e := settingsSources(t, ts, cookie)["QUEUE_WAIT"]; e["value"] != "60s" || e["source"] != "db" {
+		t.Errorf("QUEUE_WAIT = %v, want echo-stable 60s from db", e)
+	}
+
+	// Reset still clears: DELETE drops each row and the display value falls
+	// back off the db tier with no credential residue. ADMIN_TOKEN goes
+	// last — its row is verified at the store so no claim about the
+	// post-reset session outlives the credential it was issued under.
+	for _, key := range []string{"API_KEYS", "WEBHOOK_URL", "AUTH_TOKENS"} {
+		code, res := settingsDo(t, http.MethodDelete, ts.URL+"/admin/api/settings/"+key, cookie, csrf, nil)
+		if code != http.StatusOK || res["ok"] != true {
+			t.Errorf("DELETE %s = %d %v, want 200 ok", key, code, res)
+			continue
+		}
+		e := settingsSources(t, ts, cookie)[key]
+		if e["source"] == "db" {
+			t.Errorf("%s source = db after DELETE, want fallback", key)
+		}
+		if v, _ := e["value"].(string); v == seeds[key] || strings.Contains(v, fragments[key]) {
+			t.Errorf("%s GET value after DELETE = %q, still carries the cleared credential", key, v)
+		}
+	}
+	code, res = settingsDo(t, http.MethodDelete, ts.URL+"/admin/api/settings/ADMIN_TOKEN", cookie, csrf, nil)
+	if code != http.StatusOK || res["ok"] != true {
+		t.Errorf("DELETE ADMIN_TOKEN = %d %v, want 200 ok", code, res)
+	} else if v, ok, err := st.GetSetting(config.OverlayRowKey("ADMIN_TOKEN")); err != nil || ok || v != "" {
+		t.Errorf("ADMIN_TOKEN row after DELETE = %q %v %v, want it gone", v, ok, err)
+	}
+}
+
+// TestSettingsGetMasksSecretsOpenMode pins the same masking for the
+// unauthenticated loopback tier: open mode (ADMIN_TOKEN unset) serves GET
+// /admin/api/settings without a session, and seeded secret rows still
+// render masked there. No reload: any fresh load reverts an unset
+// ADMIN_TOKEN to the factory default and would close open mode by design,
+// so this exercises the pre-sync snapshot — the masking holds either way
+// because secret rows never take the raw-echo branch, whatever the
+// snapshot counts are.
+func TestSettingsGetMasksSecretsOpenMode(t *testing.T) {
+	t.Chdir(t.TempDir())
+	st, err := store.Open(filepath.Join(t.TempDir(), "settings.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	srv, _ := server.NewTestServerStack(t, nil, []*testutil.MockUpstream{testutil.NewMock()},
+		func(c *config.Config) { c.AdminToken = "" }, nil, nil, server.WithHistory(st))
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	seeds := map[string]string{
+		"AUTH_TOKENS": "fb-test-fake-token-1,fb-test-fake-token-2",
+		"API_KEYS":    "fb-test-fake-client-1",
+		"WEBHOOK_URL": "https://example.invalid/hook",
+	}
+	fragments := map[string]string{
+		"AUTH_TOKENS": "fb-test-fake-token",
+		"API_KEYS":    "fb-test-fake-client",
+		"WEBHOOK_URL": "example.invalid",
+	}
+	for key, raw := range seeds {
+		if err := st.SetSetting(config.OverlayRowKey(key), raw); err != nil {
+			t.Fatalf("SetSetting %s: %v", key, err)
+		}
+	}
+
+	// No session cookie: the masking branch runs after dashboardAuth and is
+	// auth-independent. Values are asserted as masked shapes (counts /
+	// set-unset words), never the raw literal — exact counts depend on the
+	// pre-sync snapshot, which this path deliberately does not refresh.
+	entries := settingsSources(t, ts, "")
+	for key, raw := range seeds {
+		e := entries[key]
+		if e["source"] != "db" {
+			t.Errorf("open-mode %s source = %v, want db", key, e["source"])
+		}
+		if e["secret"] != true {
+			t.Errorf("open-mode %s secret = %v, want true", key, e["secret"])
+		}
+		v, _ := e["value"].(string)
+		if v == raw || strings.Contains(v, fragments[key]) {
+			t.Errorf("open-mode %s GET value = %q, carries credential material", key, v)
+		}
+		if !maskedSecretShape(v) {
+			t.Errorf("open-mode %s GET value = %q, want a masked counts/set-unset rendering", key, v)
+		}
+	}
+}
+
+// maskedSecretShape reports whether v looks like a masked secret rendering
+// (the Data() counts / set-unset words), never a credential literal.
+func maskedSecretShape(v string) bool {
+	if v == "set" || v == "unset" {
+		return true
+	}
+	for _, suffix := range []string{" token(s)", " key(s)"} {
+		if n, ok := strings.CutSuffix(v, suffix); ok {
+			for _, r := range n {
+				if r < '0' || r > '9' {
+					return false
+				}
+			}
+			return n != ""
+		}
+	}
+	return false
 }

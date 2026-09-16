@@ -130,7 +130,7 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 	case "CORS_ALLOWED_ORIGIN":
 		return c.CORSAllowedOrigin, false
 	case "WEBHOOK_URL":
-		return c.WebhookURL, true
+		return boolWord(c.WebhookURL != ""), true
 	case "HTTP2_UPSTREAM":
 		return strconv.FormatBool(c.HTTP2Upstream), false
 	case "AUTO_DISCOVER_TOKEN":

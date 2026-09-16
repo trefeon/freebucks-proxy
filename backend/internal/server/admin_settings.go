@@ -107,7 +107,7 @@ func (a *adminHandlers) handleSettingsGet(w http.ResponseWriter, r *http.Request
 			source = "default"
 		}
 		val := values[def.Key].Value
-		if source == "db" {
+		if source == "db" && !def.Secret {
 			// Echo-stable display for saved rows: report the operator's
 			// saved literal instead of the Go-normalized effective form.
 			// Duration knobs normalize on load (time.Duration.String
@@ -117,7 +117,9 @@ func (a *adminHandlers) handleSettingsGet(w http.ResponseWriter, r *http.Request
 			// server until a second tap. The literal is validated at
 			// write and equals the effective value semantically. Bool
 			// spellings still normalize to true/false so toggles keep
-			// one display form.
+			// one display form. Secret defs are exempt: the raw overlay
+			// literal is the credential itself, so they keep the masked
+			// Data() rendering (counts / set-unset words), never the echo.
 			if raw, ok := overlay[def.Key]; ok {
 				raw = strings.TrimSpace(raw)
 				if raw != "" {
