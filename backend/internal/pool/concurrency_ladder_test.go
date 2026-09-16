@@ -918,8 +918,7 @@ func ladTripWindow(t *testing.T, ctx context.Context, p *Pool, mocks []*testutil
 	rle := entry.runs.RateLimitError()
 	if rle == nil {
 		t.Fatalf("trip token %d: no remembered rate-limit error", target)
-	}
-	if rle.RetryAfter != 71766*time.Second {
+	} else if rle.RetryAfter != 71766*time.Second {
 		t.Fatalf("trip token %d: remembered retry_after = %v, want 71766s", target, rle.RetryAfter)
 	}
 	if until := entry.runs.CooldownUntil(); time.Until(until) < 19*time.Hour {
