@@ -1328,8 +1328,17 @@
                 "cooldown_active": {
                   "type": "boolean"
                 },
+                "cooldown_kind": {
+                  "type": "string"
+                },
+                "cooldown_resets_at": {
+                  "type": "string"
+                },
                 "cooldown_until": {
                   "type": "string"
+                },
+                "cooldown_window_hours": {
+                  "type": "integer"
                 },
                 "email": {
                   "type": "string"
@@ -1493,6 +1502,9 @@
                 "last_usage": {
                   "type": "string"
                 },
+                "live_turns": {
+                  "type": "integer"
+                },
                 "locked": {
                   "type": "boolean"
                 },
@@ -1558,6 +1570,9 @@
                 "messages_24h": {
                   "type": "integer"
                 },
+                "oldest_waiter_ms": {
+                  "type": "integer"
+                },
                 "pending_refund": {
                   "type": "string"
                 },
@@ -1565,6 +1580,9 @@
                   "type": "integer"
                 },
                 "queue_position": {
+                  "type": "integer"
+                },
+                "queued_waiters": {
                   "type": "integer"
                 },
                 "referral_code": {
@@ -1663,10 +1681,13 @@
                 "has_referral",
                 "has_standing",
                 "index",
+                "live_turns",
                 "locked",
                 "messages_24h",
+                "oldest_waiter_ms",
                 "queue_depth",
                 "queue_position",
+                "queued_waiters",
                 "referral_github_linked",
                 "referral_qualified_count",
                 "referral_sessions_left",
@@ -2121,7 +2142,16 @@
           "mode": {
             "type": "string"
           },
+          "queue_depth": {
+            "type": "integer"
+          },
+          "queue_wait": {
+            "type": "string"
+          },
           "rate_limit_failover": {
+            "type": "boolean"
+          },
+          "routing_smart": {
             "type": "boolean"
           },
           "show_bridge": {
@@ -2130,12 +2160,509 @@
           "token_count": {
             "type": "integer"
           },
+          "token_max_concurrent": {
+            "type": "integer"
+          },
           "token_rotation": {
             "type": "string"
           },
           "tokens": {
             "items": {
-              "properties": {},
+              "properties": {
+                "access_tier": {
+                  "type": "string"
+                },
+                "account_id": {
+                  "type": "string"
+                },
+                "active_runs": {
+                  "type": "integer"
+                },
+                "allowed_models": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "allowlist_skips": {
+                  "type": "integer"
+                },
+                "ban_type": {
+                  "type": "string"
+                },
+                "banned_until": {
+                  "type": "string"
+                },
+                "cooldown_active": {
+                  "type": "boolean"
+                },
+                "cooldown_kind": {
+                  "type": "string"
+                },
+                "cooldown_resets_at": {
+                  "type": "string"
+                },
+                "cooldown_until": {
+                  "type": "string"
+                },
+                "cooldown_window_hours": {
+                  "type": "integer"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "freebucks": {
+                  "nullable": true,
+                  "properties": {
+                    "balance": {
+                      "type": "number"
+                    },
+                    "daily": {
+                      "properties": {
+                        "limit": {
+                          "type": "number"
+                        },
+                        "percent_used": {
+                          "type": "number"
+                        },
+                        "remaining": {
+                          "type": "number"
+                        },
+                        "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_time_zone": {
+                          "type": "string"
+                        },
+                        "spent": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "limit",
+                        "percent_used",
+                        "remaining",
+                        "spent"
+                      ],
+                      "type": "object"
+                    },
+                    "first_tab_discount": {
+                      "nullable": true,
+                      "properties": {
+                        "amount": {
+                          "type": "number"
+                        },
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "holder_surface": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "amount",
+                        "available"
+                      ],
+                      "type": "object"
+                    },
+                    "monthly": {
+                      "nullable": true,
+                      "properties": {
+                        "limit": {
+                          "type": "number"
+                        },
+                        "percent_used": {
+                          "type": "number"
+                        },
+                        "remaining": {
+                          "type": "number"
+                        },
+                        "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_time_zone": {
+                          "type": "string"
+                        },
+                        "spent": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "limit",
+                        "percent_used",
+                        "remaining",
+                        "spent"
+                      ],
+                      "type": "object"
+                    },
+                    "plan_id": {
+                      "type": "string"
+                    },
+                    "price_notices": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "prices": {
+                      "additionalProperties": {
+                        "type": "number"
+                      },
+                      "type": "object"
+                    },
+                    "quota_exempt": {
+                      "type": "boolean"
+                    },
+                    "spend": {
+                      "properties": {
+                        "limit_usd": {
+                          "type": "number"
+                        },
+                        "reset_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "limit_usd"
+                      ],
+                      "type": "object"
+                    },
+                    "wallet": {
+                      "properties": {
+                        "balance": {
+                          "type": "number"
+                        },
+                        "monthly_bonus": {
+                          "type": "number"
+                        },
+                        "next_bonus_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "balance",
+                        "monthly_bonus"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "balance",
+                    "daily",
+                    "spend",
+                    "wallet"
+                  ],
+                  "type": "object"
+                },
+                "has_quota": {
+                  "type": "boolean"
+                },
+                "has_referral": {
+                  "type": "boolean"
+                },
+                "has_standing": {
+                  "type": "boolean"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "last_refund": {
+                  "nullable": true,
+                  "type": "number"
+                },
+                "last_usage": {
+                  "type": "string"
+                },
+                "live_turns": {
+                  "type": "integer"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "maturity": {
+                  "nullable": true,
+                  "properties": {
+                    "auto_touch_model": {
+                      "type": "string"
+                    },
+                    "auto_touch_reason": {
+                      "type": "string"
+                    },
+                    "badge": {
+                      "type": "string"
+                    },
+                    "effective_touch_model": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "last_action": {
+                      "type": "string"
+                    },
+                    "last_advanced": {
+                      "type": "string"
+                    },
+                    "last_result": {
+                      "type": "string"
+                    },
+                    "last_touch": {
+                      "type": "string"
+                    },
+                    "mode": {
+                      "type": "string"
+                    },
+                    "result_day": {
+                      "type": "string"
+                    },
+                    "slot": {
+                      "type": "string"
+                    },
+                    "slot_day": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "type": "integer"
+                    },
+                    "touch_day": {
+                      "type": "string"
+                    },
+                    "touch_model": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "enabled",
+                    "mode",
+                    "target"
+                  ],
+                  "type": "object"
+                },
+                "messages_24h": {
+                  "type": "integer"
+                },
+                "oldest_waiter_ms": {
+                  "type": "integer"
+                },
+                "pending_refund": {
+                  "type": "string"
+                },
+                "queue_depth": {
+                  "type": "integer"
+                },
+                "queue_position": {
+                  "type": "integer"
+                },
+                "queued_waiters": {
+                  "type": "integer"
+                },
+                "quota": {
+                  "items": {
+                    "properties": {
+                      "entitled": {
+                        "type": "string"
+                      },
+                      "has_bar": {
+                        "type": "boolean"
+                      },
+                      "has_entitlement": {
+                        "type": "boolean"
+                      },
+                      "limit": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "near_limit": {
+                        "type": "boolean"
+                      },
+                      "period": {
+                        "type": "string"
+                      },
+                      "pool": {
+                        "type": "string"
+                      },
+                      "pool_label": {
+                        "type": "string"
+                      },
+                      "recent": {
+                        "type": "string"
+                      },
+                      "remaining": {
+                        "type": "number"
+                      },
+                      "reset_at": {
+                        "type": "string"
+                      },
+                      "reset_at_utc": {
+                        "type": "string"
+                      },
+                      "resets_in": {
+                        "type": "string"
+                      },
+                      "usage_pct": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "entitled",
+                      "has_bar",
+                      "has_entitlement",
+                      "limit",
+                      "model",
+                      "near_limit",
+                      "period",
+                      "recent",
+                      "remaining",
+                      "reset_at",
+                      "reset_at_utc",
+                      "resets_in",
+                      "usage_pct"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "quota_saved_at": {
+                  "type": "string"
+                },
+                "quota_stale": {
+                  "type": "boolean"
+                },
+                "referral_code": {
+                  "type": "string"
+                },
+                "referral_github_linked": {
+                  "type": "boolean"
+                },
+                "referral_qualified_count": {
+                  "type": "integer"
+                },
+                "referral_reset_at": {
+                  "type": "string"
+                },
+                "referral_sessions_left": {
+                  "type": "integer"
+                },
+                "requests": {
+                  "type": "integer"
+                },
+                "requests_per_day": {
+                  "type": "integer"
+                },
+                "session_expires_at": {
+                  "type": "string"
+                },
+                "session_instance": {
+                  "type": "string"
+                },
+                "session_model": {
+                  "type": "string"
+                },
+                "session_remaining_seconds": {
+                  "type": "integer"
+                },
+                "session_status": {
+                  "type": "string"
+                },
+                "standing_blurb": {
+                  "type": "string"
+                },
+                "standing_capped_by": {
+                  "type": "string"
+                },
+                "standing_capped_reason": {
+                  "type": "string"
+                },
+                "standing_label": {
+                  "type": "string"
+                },
+                "standing_level": {
+                  "type": "string"
+                },
+                "standing_next_level": {
+                  "type": "string"
+                },
+                "standing_next_level_at": {
+                  "type": "string"
+                },
+                "standing_next_steps": {
+                  "items": {
+                    "properties": {
+                      "detail": {
+                        "type": "string"
+                      },
+                      "href": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "points"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "standing_score": {
+                  "type": "number"
+                },
+                "streak": {
+                  "type": "integer"
+                },
+                "streak_updated_at": {
+                  "type": "string"
+                },
+                "today_used": {
+                  "type": "boolean"
+                },
+                "transient_retries": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "active_runs",
+                "cooldown_active",
+                "cooldown_until",
+                "has_quota",
+                "has_referral",
+                "has_standing",
+                "index",
+                "live_turns",
+                "locked",
+                "messages_24h",
+                "oldest_waiter_ms",
+                "queue_depth",
+                "queue_position",
+                "queued_waiters",
+                "quota",
+                "referral_github_linked",
+                "referral_qualified_count",
+                "referral_sessions_left",
+                "requests",
+                "requests_per_day",
+                "session_instance",
+                "session_model",
+                "session_remaining_seconds",
+                "session_status",
+                "standing_label",
+                "standing_level",
+                "standing_next_level",
+                "standing_next_level_at",
+                "standing_score",
+                "transient_retries"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -2165,9 +2692,13 @@
           "in_bridge",
           "maturity_enabled",
           "mode",
+          "queue_depth",
+          "queue_wait",
           "rate_limit_failover",
+          "routing_smart",
           "show_bridge",
           "token_count",
+          "token_max_concurrent",
           "tokens"
         ],
         "type": "object"

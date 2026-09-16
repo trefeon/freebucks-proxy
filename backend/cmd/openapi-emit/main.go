@@ -349,6 +349,12 @@ func (g *generator) schema(t reflect.Type, visiting map[reflect.Type]bool) any {
 		for i := range t.NumField() {
 			f := t.Field(i)
 			if !f.IsExported() {
+				// Unexported embedded structs promote their exported fields
+				// exactly like encoding/json flattening (tokenDetail embeds
+				// tokenCard): inline them instead of dropping the shape.
+				if f.Anonymous && f.Type.Kind() == reflect.Struct {
+					g.flatten(f.Type, visiting, props, &required)
+				}
 				continue
 			}
 			name, omit, skip := jsonName(f)
@@ -356,17 +362,7 @@ func (g *generator) schema(t reflect.Type, visiting map[reflect.Type]bool) any {
 				continue
 			}
 			if f.Anonymous && f.Type.Kind() == reflect.Struct && name == "" {
-				sub := g.schema(f.Type, visiting)
-				if m, ok := sub.(map[string]any); ok {
-					if sp, ok := m["properties"].(map[string]any); ok {
-						for k, v := range sp {
-							props[k] = v
-						}
-					}
-					if sr, ok := m["required"].([]string); ok {
-						required = append(required, sr...)
-					}
-				}
+				g.flatten(f.Type, visiting, props, &required)
 				continue
 			}
 			props[name] = g.schema(f.Type, visiting)
@@ -405,4 +401,22 @@ func jsonName(f reflect.StructField) (name string, omitempty, skip bool) {
 		}
 	}
 	return name, omitempty, false
+}
+
+// flatten inlines an embedded struct's schema into the parent's property
+// set, mirroring encoding/json promotion of embedded fields.
+func (g *generator) flatten(t reflect.Type, visiting map[reflect.Type]bool, props map[string]any, required *[]string) {
+	sub := g.schema(t, visiting)
+	m, ok := sub.(map[string]any)
+	if !ok {
+		return
+	}
+	if sp, ok := m["properties"].(map[string]any); ok {
+		for k, v := range sp {
+			props[k] = v
+		}
+	}
+	if sr, ok := m["required"].([]string); ok {
+		*required = append(*required, sr...)
+	}
 }
