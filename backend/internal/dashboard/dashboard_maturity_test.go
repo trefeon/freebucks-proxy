@@ -117,15 +117,16 @@ func TestMaturityCardNextTouchRoundTrip(t *testing.T) {
 	} {
 		if card == nil {
 			t.Fatalf("%s card.Maturity = nil, want rendered card", name)
-		}
-		if card.SlotDay != "2026-09-05" || card.TouchDay != "2026-09-05" {
-			t.Errorf("%s slot/touch day = %q/%q, want 2026-09-05/2026-09-05", name, card.SlotDay, card.TouchDay)
-		}
-		if card.EffectiveTouchModel != "upstage/solar-pro4" {
-			t.Errorf("%s effective = %q, want upstage/solar-pro4", name, card.EffectiveTouchModel)
-		}
-		if card.AutoTouchModel != "upstage/solar-pro4" || card.AutoTouchReason != "auto:unmetered" {
-			t.Errorf("%s auto = %q/%q, want upstage/solar-pro4/auto:unmetered", name, card.AutoTouchModel, card.AutoTouchReason)
+		} else {
+			if card.SlotDay != "2026-09-05" || card.TouchDay != "2026-09-05" {
+				t.Errorf("%s slot/touch day = %q/%q, want 2026-09-05/2026-09-05", name, card.SlotDay, card.TouchDay)
+			}
+			if card.EffectiveTouchModel != "upstage/solar-pro4" {
+				t.Errorf("%s effective = %q, want upstage/solar-pro4", name, card.EffectiveTouchModel)
+			}
+			if card.AutoTouchModel != "upstage/solar-pro4" || card.AutoTouchReason != "auto:unmetered" {
+				t.Errorf("%s auto = %q/%q, want upstage/solar-pro4/auto:unmetered", name, card.AutoTouchModel, card.AutoTouchReason)
+			}
 		}
 	}
 }

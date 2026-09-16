@@ -97,9 +97,10 @@ func TestMaturityResultDaySurvivesRestart(t *testing.T) {
 	snap := p2.Snapshot()[0].Maturity
 	if snap == nil {
 		t.Fatal("restored snapshot is nil, want the pre-restart touch")
-	}
-	if snap.ResultDay != laDay(now) {
-		t.Errorf("restored result_day = %q, want %q (tonight)", snap.ResultDay, laDay(now))
+	} else {
+		if snap.ResultDay != laDay(now) {
+			t.Errorf("restored result_day = %q, want %q (tonight)", snap.ResultDay, laDay(now))
+		}
 	}
 }
 
