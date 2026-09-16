@@ -386,7 +386,7 @@ test.describe("settings saved values", () => {
     await expect(page.getByText("Saved value removed.")).toBeVisible();
   });
 
-  test("degraded store banners read-only while the .env form stays usable", async ({
+  test("degraded store banners read-only with no whole-file editor", async ({
     page,
   }) => {
     await mockDashboard(page, loadFixtures());
@@ -420,13 +420,15 @@ test.describe("settings saved values", () => {
       );
     expect(noPost).toBe(true);
     expect(posted).toHaveLength(0);
-    // The break-glass whole-file path stays available on Settings.
+    // Settings stays a reader: the break-glass whole-file editor is gone, so
+    // nothing on the page can write .env around the offline overlay.
     await page.goto(admin("settings"));
     await expect(
-      page.getByRole("heading", { name: "Emergency raw .env editor" }),
+      page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("#emergency-raw-env")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Save raw .env" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
   });
 });

@@ -20,7 +20,6 @@
   /**
    * CommandCenterCard — Lifecycle, software updates, and version rollback.
    * Built using the SettingsCard and SettingsRow template components.
-   * (docs/command-center-plan.md)
    */
   let versionInfo = $state({
     current_version: "",

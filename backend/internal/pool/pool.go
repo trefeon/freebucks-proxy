@@ -725,9 +725,9 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 
 	// AUTH_TOKENS slot reconciliation. A quarantine is bound to the exact
 	// account string an entry was built from; when a reload replaces the
-	// account at a slot (operator edited AUTH_TOKENS in the Config editor
-	// or .env), the old entry's terminal state no longer describes the
-	// account now configured there — and keeping the entry would keep
+	// account at a slot (operator edited AUTH_TOKENS in .env), the old
+	// entry's terminal state no longer describes the account now
+	// configured there — and keeping the entry would keep
 	// leasing the OLD account while the replacement token sat idle until a
 	// restart. The slot is therefore REBUILT end-to-end: the old entry is
 	// retired and drained (runs FINISHed, admitted session ended — exactly

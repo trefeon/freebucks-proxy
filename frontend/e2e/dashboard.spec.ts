@@ -1415,9 +1415,11 @@ test.describe("dashboard hermetic mocks", () => {
     const named = Number(/Search (\d+) settings…/.exec(placeholder ?? "")?.[1]);
     // 13 catalog rows the page renders or names (1 access + 2 general +
     // 3 named by the Pool link-out stub + 1 by the routing stub + 1 log
-    // level + 4 diagnostics + 1 security) plus the non-catalog admin
-    // password row — not the 65-key catalog, and not the old "70".
-    expect(named).toBe(14);
+    // level + 4 diagnostics + 1 security), plus the non-catalog admin
+    // password row, plus the 22 hidden catalog keys the "Hidden keys"
+    // disclosure lists (26 hidden non-secret keys minus the 4 that keep a
+    // card of their own) — not the 65-key catalog.
+    expect(named).toBe(36);
     const rendered = await page.evaluate(
       () =>
         Array.from(document.querySelectorAll("code")).filter((c) =>

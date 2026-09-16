@@ -2,8 +2,8 @@ package config
 
 // Effective-config rendering for the dashboard (issue #288): one owner for
 // the key -> display-value mapping (moved out of dashboard_data.go's
-// formatKey switch) and the .env editor template generated from the
-// catalog's own defaults. Secret classification comes from the catalog;
+// formatKey switch) and the .env template served as config env_content when
+// no .env file exists. Secret classification comes from the catalog;
 // the few value shapes (counts, boolWord) stay here so every consumer
 // renders identically.
 
@@ -204,10 +204,11 @@ func boolWord(v bool) string {
 	return "unset"
 }
 
-// DefaultEnvTemplate generates the raw .env editor template from the
-// catalog defaults: every non-hidden key (secret keys included, so a fresh
-// install still sees AUTH_TOKENS/API_KEYS) appears commented-out with its
-// default, in catalog order.
+// DefaultEnvTemplate generates the commented .env template served as the
+// config payload's env_content when no .env file exists (a fresh install
+// reads it instead of an empty document): every non-hidden key (secret keys
+// included, so a fresh install still sees AUTH_TOKENS/API_KEYS) appears
+// commented-out with its default, in catalog order.
 func DefaultEnvTemplate() string {
 	var b strings.Builder
 	b.WriteString("# freebuff-proxy configuration (.env)\n")

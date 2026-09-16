@@ -163,8 +163,9 @@ func (a *adminHandlers) handleConfigSave(w http.ResponseWriter, r *http.Request)
 	envPath := config.EnvFileForWrite()
 	r.Body = http.MaxBytesReader(w, r.Body, maxEnvSize)
 
-	// The dashboard textarea posts application/x-www-form-urlencoded
-	// (name="content"); a raw urlencoded body written verbatim as .env would
+	// The dashboard posts application/x-www-form-urlencoded
+	// (name="content", the Client API Keys editor's add/remove);
+	// a raw urlencoded body written verbatim as .env would
 	// become "content=KEY=VALUE..." and destroy the file. Programmatic
 	// clients (text/plain) post the raw .env text and keep the raw path.
 	var content []byte
@@ -305,10 +306,10 @@ func changedRestartOnlyKeys(oldCfg, newCfg *config.Config) []string {
 	return changed
 }
 
-// parseEnvContent is a lenient dotenv parser: the dashboard's textarea posts
-// raw .env text, and we re-parse the SAME bytes just written to report which
-// keys the process environment silently overrides. BOM, blank lines,
-// comments, single/double quotes, and inline # comments are handled; export
+// parseEnvContent is a lenient dotenv parser: the dashboard's Client API Keys
+// editor posts raw .env text, and we re-parse the SAME bytes just written to
+// report which keys the process environment silently overrides. BOM, blank
+// lines, comments, single/double quotes, and inline # comments are handled; export
 // prefixes and interpolated vars (foo=$bar) are intentionally not resolved —
 // a literal-of-a-variable is not an override worth reporting.
 func parseEnvContent(data []byte) map[string]string {

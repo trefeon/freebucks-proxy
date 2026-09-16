@@ -8,7 +8,7 @@
   import EmptyState from "../components/EmptyState.svelte";
   import AccessSecurityCard from "./settings/AccessSecurityCard.svelte";
   import CommandCenterCard from "../components/CommandCenterCard.svelte";
-  import RawEnvEditor from "../components/RawEnvEditor.svelte";
+  import HiddenKeysCard from "./settings/HiddenKeysCard.svelte";
   import GatewaySettings from "./settings/GatewaySettings.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
   import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
@@ -44,8 +44,9 @@
   // Key search across the rows this page actually renders. The count is the
   // sum of the sections' own match counts with an empty query (the link-out
   // stubs count the keys they name) — 13 catalog keys plus the non-catalog
-  // admin-password row today, never the whole 65-key catalog, most of which
-  // is homed on the Pool/Usage/Logs/Warming surfaces.
+  // admin-password row plus the hidden-keys disclosure rows today, never the
+  // whole 65-key catalog, most of which is homed on the Pool/Usage/Logs/
+  // Warming surfaces.
   let filterQuery = $state("");
   let searching = $derived(filterQuery.trim().length > 0);
   // Per-section visible-row counts (bound from the section components, -1
@@ -58,6 +59,7 @@
   let accessMatches = $state(-1);
   let advancedMatches = $state(-1);
   let loggingMatches = $state(-1);
+  let hiddenMatches = $state(-1);
   let searchableKeys = $state(0);
   let allEmpty = $derived(
     searching &&
@@ -67,7 +69,8 @@
       logLevelMatches === 0 &&
       accessMatches === 0 &&
       advancedMatches === 0 &&
-      loggingMatches === 0,
+      loggingMatches === 0 &&
+      hiddenMatches === 0,
   );
   // Capture the empty-query total once the sections have reported: while a
   // query is typed those counts shrink, and the placeholder must keep naming
@@ -82,6 +85,7 @@
       logLevelMatches,
       advancedMatches,
       loggingMatches,
+      hiddenMatches,
     ].reduce((n, c) => (c > 0 ? n + c : n), 0);
     if (sum > searchableKeys) searchableKeys = sum;
   });
@@ -112,7 +116,7 @@
   {#if $settingsDegraded}
     <Alert tone="warning" title={$tr("DB overlay unavailable")}>
       {$tr(
-        "The settings store is offline — the dashboard runs live-only. Per-key saves and resets will fail; the emergency .env editor below still applies.",
+        "The settings store is offline — the dashboard runs live-only. Per-key saves and resets will fail; the values below come from the file and the running process.",
       )}
     </Alert>
   {/if}
@@ -257,8 +261,17 @@
     </EmptyState>
   {/if}
 
-  <!-- 7. Emergency raw .env editor (break-glass whole-file path) -->
-  <RawEnvEditor />
+  <!-- 7. Hidden keys (catalog keys with no card of their own) -->
+  <HiddenKeysCard
+    meta={$meta}
+    formValues={$formValues}
+    sources={$settingSources}
+    onReset={resetSetting}
+    onSaved={overlaySaved}
+    query={filterQuery}
+    onMatchCount={(n) => (hiddenMatches = n)}
+    degraded={$settingsDegraded}
+  />
 
   <!-- 8. Command Center (Lifecycle, updates & rollback) -->
   <CommandCenterCard />
