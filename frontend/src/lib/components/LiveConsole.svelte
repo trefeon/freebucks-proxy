@@ -28,6 +28,7 @@
   import { copyToClipboard } from "../utils/clipboard.js";
   import { confirmAction } from "../stores/confirm.js";
   import { tr } from "../i18n.js";
+  import { ensureTokensStore, tokensData } from "../stores/tokens.js";
   import {
     loadPageState,
     savePageState,
@@ -97,6 +98,7 @@
     errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
   }
   let unsubNotice = null;
+  let releaseTokens = null;
   // Follow mode: stick the console to the newest entry at the bottom.
   // Any manual scroll-up pauses it so reading history never gets yanked;
   // scrolling back to the bottom (or the Follow toggle) resumes it.
@@ -115,6 +117,45 @@
     const t = String(tok ?? "").trim();
     return /^\d+$/.test(t) ? Number(t) : null;
   }
+
+  // Per-account live-turn/queue numbers from the shared tokens payload: the
+  // server counts them (live_turns / queued_waiters / oldest_waiter_ms), so
+  // the console never guesses. The ACCT chip carries the 1-based account
+  // number the Tokens page prints ("Account #N", lease index + 1) while the
+  // payload is keyed by the 0-based pool index, hence the +1 here. A
+  // pre-telemetry payload simply has no entry and the tooltip stays as it
+  // was — additive, never a fabricated zero.
+  let slotCounts = $derived.by(() => {
+    const counts = {};
+    for (const t of $tokensData?.tokens ?? []) {
+      if (!t || typeof t.index !== "number") continue;
+      counts[t.index + 1] = {
+        live: Number(t.live_turns) || 0,
+        queued: Number(t.queued_waiters) || 0,
+        oldest: Number(t.oldest_waiter_ms) || 0,
+      };
+    }
+    return counts;
+  });
+
+  // acctQueueNote renders one account's saturation suffix ("2 live turns, 1
+  // waiting"), or "" when the payload provides no numbers for it.
+  function acctQueueNote(account) {
+    const c = slotCounts[account];
+    if (!c) return "";
+    const live = `${c.live} live turn${c.live === 1 ? "" : "s"}`;
+    const waiting = `${c.queued} waiting`;
+    const oldest = c.oldest > 0 ? `, oldest wait ${c.oldest}ms` : "";
+    return `${live}, ${waiting}${oldest}`;
+  }
+
+  // acctChipTitle is the ACCT button's native tooltip: the glossary text
+  // plus the payload-backed saturation numbers when they exist.
+  function acctChipTitle(chip, account) {
+    const base = $tr("Pool account {idx} — not token usage", { idx: account });
+    const note = acctQueueNote(account);
+    return note ? `${base} · ${note}` : base;
+  }
   // Badge glossary: every console chip maps to a plain-language title so a
   // pool account index (ACCT) or a message/tool/chunk/byte count never reads
   // as LLM token usage. Counts carry units; ids carry the id kind.
@@ -126,11 +167,20 @@
     const c = String(chip ?? "");
     if (c.startsWith("ACCT ")) {
       const n = c.slice(5).trim();
-      return /^\d+$/.test(n)
-        ? `Serving pool account #${n} — not LLM token usage`
-        : `Serving pool account ${n || "unknown"} — not LLM token usage`;
+      const account = /^\d+$/.test(n) ? Number(n) : null;
+      const base =
+        account !== null
+          ? `Serving pool account #${n} — not LLM token usage`
+          : `Serving pool account ${n || "unknown"} — not LLM token usage`;
+      const note = account !== null ? acctQueueNote(account) : "";
+      return note ? `${base} · ${note}` : base;
     }
     if (c === "ACCT —") return "Serving pool account unknown";
+    // Queue wait: time this request sat parked in the account's FIFO
+    // live-turn queue (TOKEN_MAX_CONCURRENT slot wall) before a slot was
+    // granted — queue time, not token usage and not total request latency.
+    if (c.startsWith("QUEUED "))
+      return `${c} parked in this account's live-turn queue before a slot was granted (queue time — not tokens, not request latency)`;
     if (c.endsWith(" Msgs"))
       return `${c} in this request (message count, not tokens)`;
     if (c.endsWith(" Tools"))
@@ -284,6 +334,7 @@
           chunks: "",
           traceStatus: "",
           ttft: "",
+          queueWait: "",
           attempts: 0,
           retried: false,
           statusesSeen: "",
@@ -374,6 +425,11 @@
           g.traceStatus = fields.status || g.traceStatus;
           if (!g.ttft && fields.upstream_ttfb_ms)
             g.ttft = fields.upstream_ttfb_ms;
+          // Queue-wait phase: present only when the request actually parked
+          // in the account's FIFO live-turn queue (the pool records it at
+          // grant time). Never inferred from latency or acquire time.
+          if (!g.queueWait && fields.queue_wait_ms)
+            g.queueWait = fields.queue_wait_ms;
           if (!g.attempts && Number(fields.attempts))
             g.attempts = Number(fields.attempts);
           if (fields.retried === "true" || fields.retried === "1")
@@ -483,6 +539,13 @@
         ...(g.tools > 0 ? [`${g.tools} Tools`] : []),
         ...(g.effort ? [`THINK ${g.effort}`] : []),
         ...(g.token ? [`ACCT ${g.token}`] : []),
+        // Queue wait (queue_wait_ms phase): the request parked in this
+        // account's FIFO live-turn queue before a slot was granted. Only
+        // rendered when the phase is actually numeric — a request that
+        // never parked carries no phase and therefore no chip.
+        ...(g.queueWait !== "" && Number.isFinite(Number(g.queueWait))
+          ? [`QUEUED ${Number(g.queueWait)}ms`]
+          : []),
         // Explicit unit with a thousands separator: bare `${bytes}B`
         // (e.g. 80919B) reads as a hex id. Response body size, not tokens.
         ...(g.bytes
@@ -515,7 +578,12 @@
     if (chip === "STREAM")
       return "border-green-500/40 bg-green-500/10 text-green-300";
     if (chip === "SYNC") return "border-zinc-600 bg-zinc-800/80 text-zinc-300";
-    if (chip === "RETRIED" || chip.startsWith("×") || chip.startsWith("TTFT"))
+    if (
+      chip === "RETRIED" ||
+      chip.startsWith("×") ||
+      chip.startsWith("TTFT") ||
+      chip.startsWith("QUEUED")
+    )
       return "border-amber-500/30 bg-amber-500/10 text-amber-200";
     return "border-zinc-700/80 bg-zinc-900 text-zinc-300";
   }
@@ -694,6 +762,10 @@
         pageStateNotice.set(null);
       }
     });
+    // Per-account saturation numbers (ACCT tooltip) come from the shared
+    // tokens payload: keep that store alive while the console is mounted
+    // (refcounted — Tokens/QuotaTracker share the same poll).
+    releaseTokens = ensureTokensStore();
     loadPageState("logs").then(async (d) => {
       if (d && typeof d === "object") {
         if (
@@ -741,6 +813,7 @@
     });
     return () => {
       unsubNotice?.();
+      releaseTokens?.();
     };
   });
 
@@ -1031,9 +1104,7 @@
                         <button
                           type="button"
                           onclick={() => onOpenToken?.(idx)}
-                          title={$tr("Pool account {idx} — not token usage", {
-                            idx,
-                          })}
+                          title={acctChipTitle(chip, idx)}
                           aria-label={$tr(
                             "Pool account {idx} — not token usage",
                             { idx },
@@ -1273,9 +1344,7 @@
                         <button
                           type="button"
                           onclick={() => onOpenToken?.(tidx)}
-                          title={$tr("Pool account {idx} — not token usage", {
-                            idx: tidx,
-                          })}
+                          title={acctChipTitle(`ACCT ${tidx}`, tidx)}
                           aria-label={$tr(
                             "Pool account {idx} — not token usage",
                             { idx: tidx },

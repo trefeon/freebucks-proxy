@@ -236,7 +236,21 @@ test.describe("real-world data", () => {
     await page.goto(admin("tokens"));
     // Pool controls moved behind the Controls tab.
     await page.getByRole("button", { name: "Controls" }).click();
-    await expect(page.getByText("RATE_LIMIT_PER_IP")).toBeVisible();
+    // Exact label match: the live catalog's RATE_LIMIT_BURST row documents
+    // itself as "2 × RATE_LIMIT_PER_IP", so a substring locator is ambiguous
+    // once the pack describes the real rows.
+    await expect(
+      page.getByText("RATE_LIMIT_PER_IP", { exact: true }),
+    ).toBeVisible();
+    // The pack must describe the live catalog: these pool rows render from
+    // config-meta, and the superseded pack hid them (or lacked the key), so
+    // these assertions fail when the pack drifts again.
+    await expect(
+      page.getByText("QUOTA_AUTO_PROBE", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("RATE_LIMIT_BURST", { exact: true }),
+    ).toBeVisible();
     await page.goto(admin("overview"));
     await expect(
       page.getByRole("heading", { name: "Client Integration" }),

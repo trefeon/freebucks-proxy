@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestSettingsOverlayPrecedence pins ADR-0019 precedence on one live knob
@@ -215,6 +217,56 @@ func TestValidateSettingValue(t *testing.T) {
 	} {
 		if err := ValidateSettingValue(key, value); err == nil {
 			t.Errorf("ValidateSettingValue(%q,%q) accepted, want an error", key, value)
+		}
+	}
+}
+
+// TestValidateSettingValueDurationGate pins the duration knobs to the same
+// pre-DB gate the settings handler calls: an unparseable value is rejected
+// here, and the zero-tolerant values the loader documents (a floor for
+// QUEUE_WAIT, "disabled" for the idle timeouts) stay accepted — the gate
+// judges parseability only, never the semantics.
+func TestValidateSettingValueDurationGate(t *testing.T) {
+	for _, value := range []string{"30s", "1m30s", "0", "0s", "-5s", "1500ms"} {
+		if err := ValidateSettingValue("QUEUE_WAIT", value); err != nil {
+			t.Errorf("ValidateSettingValue(QUEUE_WAIT,%q) = %v, want nil", value, err)
+		}
+	}
+	for _, value := range []string{"bogus", "5", "30 s", "1m30", "always"} {
+		if err := ValidateSettingValue("QUEUE_WAIT", value); err == nil {
+			t.Errorf("ValidateSettingValue(QUEUE_WAIT,%q) accepted, want a parse error", value)
+		} else if !strings.Contains(err.Error(), "Go duration") {
+			t.Errorf("ValidateSettingValue(QUEUE_WAIT,%q) = %v, want a Go duration message", value, err)
+		}
+	}
+	// The gate is catalog-driven, so every duration knob behaves the same.
+	for key := range durationSettingKeys {
+		if err := ValidateSettingValue(key, "not-a-duration"); err == nil {
+			t.Errorf("ValidateSettingValue(%s,not-a-duration) accepted, want a parse error", key)
+		}
+	}
+}
+
+// TestDurationSettingKeysMatchCatalog keeps the duration gate honest: every
+// name in it must be a real catalog key whose documented default parses, so a
+// renamed or dropped knob cannot leave a dead entry (or a live duration knob
+// silently outside the gate) behind.
+func TestDurationSettingKeysMatchCatalog(t *testing.T) {
+	defs := map[string]KeyDef{}
+	for _, def := range Catalog() {
+		defs[def.Key] = def
+	}
+	for key := range durationSettingKeys {
+		def, ok := defs[key]
+		if !ok {
+			t.Errorf("durationSettingKeys lists %s, which is not a catalog key", key)
+			continue
+		}
+		if def.Kind != "text" && def.Kind != "select" {
+			t.Errorf("%s is kind %q in the catalog, want a value-carrying control", key, def.Kind)
+		}
+		if _, err := time.ParseDuration(def.Default); err != nil {
+			t.Errorf("%s default %q does not parse as a Go duration: %v", key, def.Default, err)
 		}
 	}
 }

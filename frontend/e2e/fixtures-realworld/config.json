@@ -36,11 +36,6 @@
       "key": "COST_MODE",
       "value": "free",
       "secret": false
-    },
-    {
-      "key": "MAX_MESSAGES_PER_DAY",
-      "value": "0",
-      "secret": false
     }
   ]
 }
