@@ -211,6 +211,13 @@ const (
 // The plain (non-"file:") form is deliberate: the driver splits the query off
 // any DSN containing "?" and passes the rest to sqlite3_open_v2 verbatim, so
 // a Windows path keeps its backslashes instead of being parsed as a URI.
+//
+// The pool is left uncapped on purpose. The busy policy riding on every
+// connection plus the in-process write boundary (Store.writeMu) is what makes
+// the store lock-free, so a cap buys no correctness — while capping it at one
+// connection queues every reader (and every instant-save POST) behind an
+// in-flight write. WAL lets a reader run against the committed snapshot while
+// a transaction is open; TestReadsDoNotQueueBehindWrites pins that contract.
 func sqliteDSN(path string) string {
 	return path + "?_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMillis) + ")" +
 		"&_pragma=synchronous(NORMAL)" +
@@ -288,12 +295,7 @@ func OpenWithStatus(path string) (*Store, MigrateStatus, error) {
 		_ = db.Close()
 		return nil, st, fmt.Errorf("store: busy_timeout is %dms, want %dms (check the open DSN)", gotBusyTimeout, busyTimeoutMillis)
 	}
-	// One connection, on purpose: SQLite permits a single writer per file
-	// (the store's writeMu serializes this process's writers) and WAL keeps
-	// readers out of the writer's way, so a larger pool buys no concurrency
-	// — it only creates connections that contend for the write lock.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// No pool cap on purpose — see sqliteDSN.
 	var v int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
 		_ = db.Close()
@@ -523,6 +525,15 @@ func (s *Store) Close() error { return s.db.Close() }
 // success. Retrying is safe for every caller: each callback is a statement or
 // a transaction SQLite rolls back atomically, so a failed run leaves nothing
 // half-applied.
+//
+// The lock is held ACROSS the retries, including the jittered sleeps, so a
+// writer that keeps losing the file to an external process blocks the other
+// writers for up to busyRetryBudget instead of letting them interleave. That
+// is the deliberate trade: the wait is bounded, the queue stays FIFO, and no
+// writer can starve another in this process. Nothing may call another writer
+// from inside fn — the mutex is deliberately not reentrant, and withWrite is
+// never nested (SaveSession's empty-blob path delegates to DeleteSession
+// before it takes the lock).
 func (s *Store) withWrite(fn func() error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
