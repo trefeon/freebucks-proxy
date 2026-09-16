@@ -22,9 +22,11 @@
 // quota — the fire path fails closed on priced rows), per-token slots
 // staggered with jitter inside the 15m window, restart-safe idempotency
 // (touchDay/slotDay plus the upstream todayUsed flag), and a 429
-// abort+backoff that pauses the walk instead of hammering. The run rides
-// the 60s maintainTick pass — no new goroutine — and never touches
-// quarantined, banned, cooling, country-blocked, or locked accounts.
+// abort+backoff that pauses the walk instead of hammering. A fire-path
+// refusal (a config or meter fact, e.g. no unmetered row to admit) records
+// its history event and log once per night instead of once per 60s tick.
+// The run rides the 60s maintainTick pass — no new goroutine — and never
+// touches quarantined, banned, cooling, country-blocked, or locked accounts.
 // Window math is America/Los_Angeles wall-clock (never a fixed offset), so
 // the run tracks Pacific midnight across DST.
 package pool
@@ -157,6 +159,12 @@ type maturityState struct {
 	lastStreak    int
 	streakAtTouch int
 	touchDay      string
+	// refusalDay/refusalKey bound the fire-path refusal record: the
+	// Pacific day and the exact refusal content already emitted, so a
+	// config- or meter-level refusal that cannot change inside the night
+	// lands once per night instead of once per 60s maintain tick.
+	refusalDay string
+	refusalKey string
 }
 
 // maturityPersisted is the JSON-stable mirror of maturityState for the
@@ -177,6 +185,8 @@ type maturityPersisted struct {
 	LastStreak    int       `json:"last_streak,omitempty"`
 	StreakAtTouch int       `json:"streak_at_touch,omitempty"`
 	TouchDay      string    `json:"touch_day,omitempty"`
+	RefusalDay    string    `json:"refusal_day,omitempty"`
+	RefusalKey    string    `json:"refusal_key,omitempty"`
 }
 
 func (m maturityState) marshalMaturity() (string, error) {
@@ -195,6 +205,8 @@ func (m maturityState) marshalMaturity() (string, error) {
 		LastStreak:    m.lastStreak,
 		StreakAtTouch: m.streakAtTouch,
 		TouchDay:      m.touchDay,
+		RefusalDay:    m.refusalDay,
+		RefusalKey:    m.refusalKey,
 	})
 	if err != nil {
 		return "", err
@@ -222,6 +234,8 @@ func unmarshalMaturity(raw string) (maturityState, error) {
 		lastStreak:    stored.LastStreak,
 		streakAtTouch: stored.StreakAtTouch,
 		touchDay:      stored.TouchDay,
+		refusalDay:    stored.RefusalDay,
+		refusalKey:    stored.RefusalKey,
 	}, nil
 }
 
@@ -569,8 +583,8 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchModel string, idx int, 
 	// Precedence: per-token override, premium-short pool head, auto pick
 	// when the global is the auto sentinel, else the explicit global
 	// fallback. Empty resolves fail closed in the fire path.
-	effective, _, _ := p.maturityResolveEffective(st, tok, touchModel)
-	if p.maturityFire(ctx, effective, idx, tok, label, cached, today, now) {
+	effective, _, pickReason := p.maturityResolveEffective(st, tok, touchModel)
+	if p.maturityFire(ctx, effective, pickReason, idx, tok, label, cached, today, now) {
 		p.maturityNoteRateLimit(now)
 		return true
 	}
@@ -615,6 +629,44 @@ func (p *Pool) maturityAccountAdvance(idx int, tok *tokenEntry, cached *upstream
 	}
 }
 
+// maturityRefuse ledgers one fire-path refusal. The ledger result is
+// written on every pass — the dashboard's last-run line must always name
+// tonight's truth — while the history event and the warn log, the two
+// writers that grow or spam per tick, land at most once per Pacific day per
+// distinct refusal. A config- or meter-level refusal is a window-level fact
+// that cannot change inside the night, so the first fire-gate tick records
+// it and the rest of the window stays quiet. Pre-fix every 60s maintain
+// pass re-entered the fire path and appended another maturity_events row:
+// prod 2026-09-15 grew kind=touch detail="admit skip:touch-model model=" at
+// exactly 60s intervals for the whole firing gate (37 rows for the one
+// token whose meter priced every served unmetered row).
+//
+// The key is the refusal content (result + detail), never the clock, so it
+// is immune to the tick count while a real change inside the window —
+// different model, new price, config edit, meter movement — still records
+// the transition. Nothing here can swallow a fire: a successful touch never
+// reaches this path.
+//
+// logMsg "" suppresses the warn line (callers that record without logging).
+func (p *Pool) maturityRefuse(tok *tokenEntry, idx int, result, detail, today, logMsg string, attrs ...any) {
+	p.maturityRecord(tok, "admit", result, "", today)
+	key := result + "\x00" + detail
+	tok.maturityMu.Lock()
+	recorded := tok.maturity.refusalDay == today && tok.maturity.refusalKey == key
+	if !recorded {
+		tok.maturity.refusalDay = today
+		tok.maturity.refusalKey = key
+	}
+	tok.maturityMu.Unlock()
+	if recorded {
+		return
+	}
+	p.emitMaturity(idx, "touch", detail)
+	if logMsg != "" {
+		p.logger.Warn(logMsg, attrs...)
+	}
+}
+
 // maturityFire performs one live touch: admit → one minimal turn → release
 // through the token's own session manager and upstream client —
 // wire-identical to a user opening the CLI and sending one message, because
@@ -622,22 +674,35 @@ func (p *Pool) maturityAccountAdvance(idx int, tok *tokenEntry, cached *upstream
 // It reports whether the touch was rate-limited (429): the nightly walk
 // aborts on the first 429 and backs off. The IsServedModel honeypot
 // rejection and the fail-closed priced-touch skips below stay untouched.
-func (p *Pool) maturityFire(ctx context.Context, touchModel string, idx int, tok *tokenEntry, label string, cached *upstream.StreakInfo, today string, now time.Time) (rateLimited bool) {
+//
+// pickReason is the automatic pick's resolution reason
+// (maturityResolveEffective); it is consumed only when nothing resolved, so
+// the refusal names why there is no model instead of a bare model=.
+func (p *Pool) maturityFire(ctx context.Context, touchModel, pickReason string, idx int, tok *tokenEntry, label string, cached *upstream.StreakInfo, today string, now time.Time) (rateLimited bool) {
 	st := p.maturityCopy(tok)
 	model := touchModel
 	if st.mode == MaturityModePremiumShort {
 		premium := modelcat.SharedPremiumModels()
 		if len(premium) == 0 {
-			p.maturityRecord(tok, "admit", "skip:no-premium-model", "", today)
-			p.emitMaturity(idx, "touch", "admit skip:no-premium-model")
+			p.maturityRefuse(tok, idx, "skip:no-premium-model", "admit skip:no-premium-model", today, "")
 			return
 		}
 		model = premium[0]
 	} else if reason := maturityGuardTouchModel(model); reason != "" {
-		p.logger.Warn("pool: maturity touch misconfigured (not a served unmetered model), skipping",
+		if model == "" {
+			// Nothing resolved: the meter (no price-0 served row) and
+			// MATURITY_TOUCH_MODEL (itself the auto sentinel) are the
+			// operator's levers, so name the resolution reason.
+			p.maturityRefuse(tok, idx, reason,
+				fmt.Sprintf("admit %s reason=%s", reason, pickReason), today,
+				"pool: maturity touch has no admittable model, skipping",
+				"token", idx+1, "token_label", label, "reason", pickReason)
+			return
+		}
+		p.maturityRefuse(tok, idx, reason,
+			fmt.Sprintf("admit %s model=%s", reason, model), today,
+			"pool: maturity touch misconfigured (not a served unmetered model), skipping",
 			"token", idx+1, "token_label", label, "model", model)
-		p.maturityRecord(tok, "admit", reason, "", today)
-		p.emitMaturity(idx, "touch", fmt.Sprintf("admit %s model=%s", reason, model))
 		return
 	}
 	// Meter-aware lane (issue #350 adaptation): the touch rides the
@@ -646,10 +711,10 @@ func (p *Pool) maturityFire(ctx context.Context, touchModel string, idx int, tok
 	// maturity preserves streaks, it never buys sessions.
 	if snap := tok.sessionMgr().Snapshot(); snap.Freebucks != nil {
 		if price, ok := snap.Freebucks.Prices[model]; ok && price > 0 && !snap.Freebucks.QuotaExempt {
-			p.logger.Warn("pool: maturity touch model is metered on this account, skipping",
+			p.maturityRefuse(tok, idx, "skip:touch-priced",
+				fmt.Sprintf("admit skip:touch-priced model=%s price=%v", model, price), today,
+				"pool: maturity touch model is metered on this account, skipping",
 				"token", idx+1, "token_label", label, "model", model, "price", price)
-			p.maturityRecord(tok, "admit", "skip:touch-priced", "", today)
-			p.emitMaturity(idx, "touch", fmt.Sprintf("admit skip:touch-priced model=%s price=%v", model, price))
 			return
 		}
 	}
@@ -812,7 +877,9 @@ func (p *Pool) maturityReleaseTouch(ctx context.Context, tok *tokenEntry, label 
 // maturityGuardTouchModel fails a misconfigured unmetered touch model
 // closed: the model must be a served, non-premium catalog row, else the
 // tick (and the manual touch, which funnels through the same fire path)
-// records skip:touch-model before any upstream admission. Empty means go.
+// records skip:touch-model before any upstream admission. An empty model
+// fails closed too — there is nothing to admit, and IsServed("") is false —
+// so a night with no resolvable model never invents one.
 func maturityGuardTouchModel(model string) string {
 	if !modelcat.IsServed(model) || modelcat.IsPremium(model) {
 		return "skip:touch-model"
@@ -865,8 +932,8 @@ func (p *Pool) MaturityTouchNow(ctx context.Context, token int) (string, string,
 		p.maturityRecord(tok, "", "skip:today-used", "yes", today)
 		return "", "skip:today-used", fmt.Errorf("pool: token %d already used today", token)
 	}
-	effective, _, _ := p.maturityResolveEffective(st, tok, cfg.MaturityTouchModel)
-	p.maturityFire(ctx, effective, token, tok, tokenEntryLabel(tok), cached, today, now)
+	effective, _, pickReason := p.maturityResolveEffective(st, tok, cfg.MaturityTouchModel)
+	p.maturityFire(ctx, effective, pickReason, token, tok, tokenEntryLabel(tok), cached, today, now)
 	p.saveMaturity(token, tok)
 	fin := p.maturityCopy(tok)
 	return fin.lastAction, fin.lastResult, nil
