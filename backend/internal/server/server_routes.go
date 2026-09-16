@@ -218,7 +218,16 @@ func (s *Server) Handler() http.Handler {
 		// shares it. Handlers reached without this wrapper (direct calls
 		// in tests) mint a fallback id in chatCore.
 		reqID := newReqID()
-		r = r.WithContext(context.WithValue(r.Context(), reqIDKey{}, reqID))
+		ctx, accessTok := withAccessToken(r.Context())
+		r = r.WithContext(context.WithValue(ctx, reqIDKey{}, reqID))
+		// Echo the minted id so callers can join client-side traces with
+		// gateway logs. Set before any downstream write (headers flush on
+		// the first WriteHeader) so EVERY path through this wrapper
+		// carries it — logged and silent (healthz/probes, dashboard GET
+		// polls) alike, plus the early rate-limit refusal below. The
+		// inbound X-Request-Id is never adopted (spoofable); it is only
+		// logged as client_request_id.
+		w.Header().Set("X-Request-Id", reqID)
 		// Client-side per-IP rate limiting at the OUTERMOST wrapper (issue
 		// #137): when RATE_LIMIT_PER_IP is enabled every /v1/* route is
 		// covered — chat completions, Responses, Anthropic messages,
@@ -264,6 +273,14 @@ func (s *Server) Handler() http.Handler {
 		// client_request_id field (never trusted as the correlation key).
 		if crid := clientRequestID(r); crid != "" {
 			attrs = append(attrs, "client_request_id", crid)
+		}
+		// Token identity for abusive-key triage from access lines alone:
+		// chatCore stashed the serving lease's label (1-based index or
+		// "bridge", never the raw key) into the carrier during the
+		// request; non-chat surfaces and pre-lease refusals leave it
+		// empty and the field stays absent (ring-only there).
+		if accessTok.token != "" {
+			attrs = append(attrs, "token", accessTok.token)
 		}
 		// T17: LOG_ACCESS=false disables access lines entirely. Silent
 		// paths (probes + dashboard GET polls) never log; quiet endpoints

@@ -190,6 +190,10 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		if lease == nil {
 			setRateAttribution(st, err)
 		}
+		// Surface the attributable token (serving/failed lease, else
+		// rate-limit binding) on the access line; unattributable
+		// refusals stash "" and stay ring-only.
+		stashAccessToken(r.Context(), accessTokenLabel(lease, st))
 		phases.Since(phasetiming.TotalMS, start)
 		s.traceChat(lease, model, time.Since(start).Milliseconds(), "error", chatErrClass(err), phases.All(), st)
 		// Issue #114: a chat that died on a terminal upstream error must
@@ -218,6 +222,10 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		be.LeaseRelease(lease)
 	}
 	defer release()
+	// Token identity for the access line (abusive-key triage without
+	// joining the routing log): the serving lease's label, stashed before
+	// the relay so an early client disconnect still attributes.
+	stashAccessToken(r.Context(), accessTokenLabel(lease, st))
 
 	routingAttrs := []any{
 		"req_id", reqID,

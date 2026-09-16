@@ -251,3 +251,42 @@ func clientRequestID(r *http.Request) string {
 	}
 	return v
 }
+
+// --- Access-line token attribution ---
+//
+// The generic "access" line is emitted by the outermost Handler wrapper,
+// which runs BEFORE any lease exists — so it cannot know the token at
+// log-attr build time. chatCore stashes the serving lease's label here
+// (via stashAccessToken) after acquisition; the wrapper reads it back
+// after ServeHTTP returns and appends it as the access line's "token"
+// field. The carrier is a context-held pointer (single request goroutine
+// mutates before the wrapper reads — no race). Non-chat surfaces never
+// stash, so their access lines omit the field; pre-attempt refusals with
+// no lease and no attribution (auth 401s, egress refusals, missing bridge
+// credential, outer rate-limit 429s) likewise omit it — the detail stays
+// ring-only on the chat trace / refusal line.
+type accessTokenKey struct{}
+type accessToken struct{ token string }
+
+func withAccessToken(ctx context.Context) (context.Context, *accessToken) {
+	a := &accessToken{}
+	return context.WithValue(ctx, accessTokenKey{}, a), a
+}
+func accessTokenFrom(ctx context.Context) *accessToken {
+	a, _ := ctx.Value(accessTokenKey{}).(*accessToken)
+	return a
+}
+
+// stashAccessToken records the serving token's log label (1-based index or
+// "bridge", NEVER the raw key) for the access line. Empty labels are
+// ignored so pre-lease refusals keep the field absent. Nil-safe: requests
+// that bypassed the wrapper (direct handler calls in tests) carry no
+// carrier.
+func stashAccessToken(ctx context.Context, label string) {
+	if label == "" {
+		return
+	}
+	if a := accessTokenFrom(ctx); a != nil {
+		a.token = label
+	}
+}

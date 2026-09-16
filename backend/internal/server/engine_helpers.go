@@ -208,6 +208,29 @@ func tokenLabel(lease *pool.Lease) string {
 	return fmt.Sprintf("%d", lease.Token+1)
 }
 
+// accessTokenLabel resolves the token identity for the access line from the
+// chat outcome: the serving lease's label when held, else the failed
+// attempt's lease attribution (post-acquire errors release before
+// returning), else the acquire-time rate-limit binding token. "" when no
+// token was ever attributable (auth 401s, egress refusals, missing bridge
+// credential) — the caller then leaves the access "token" field absent and
+// the detail stays ring-only. Labels are 1-based indices or "bridge";
+// raw keys never appear here.
+func accessTokenLabel(lease *pool.Lease, st *chatTraceState) string {
+	if lease != nil {
+		return tokenLabel(lease)
+	}
+	if st != nil {
+		if st.failedToken != "" {
+			return st.failedToken
+		}
+		if st.rateToken != "" {
+			return st.rateToken
+		}
+	}
+	return ""
+}
+
 // setRateAttribution records an acquire-time rate limit's token
 // attribution onto the trace state from the pool's wrapped 429 (nil-lease
 // path in chatCore). rateToken is the 1-based binding token; rateTokens
