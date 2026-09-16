@@ -60,14 +60,14 @@ package pool
 import (
 	"context"
 	"errors"
-	"math/rand/v2"
-	"sync"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"math/rand/v2"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 const (
@@ -482,27 +482,13 @@ func ladChatRendezvous(t *testing.T, p *Pool, mocks []*testutil.MockUpstream, he
 	}
 }
 
-// drainExact pins the measured drain fill: account pairs on even indexes
-// (cold tier fans out from the round-robin start; slot-full tokens sort
-// behind free ones). The operator hypothesis "accounts 1,2,3" does not hold;
-// Ceil(C/2) accounts does. peak mirrors live at the all-held barrier.
-var ladDrainAssign = map[int][]int{
-	1: {0},
-	2: {0, 0},
-	3: {0, 0, 2},
-	4: {0, 0, 2, 2},
-	5: {0, 0, 2, 2, 4},
-	6: {0, 0, 2, 2, 4, 4},
-}
-
-var ladDrainPeak = map[int][]int{
-	1: {1, 0, 0, 0, 0},
-	2: {2, 0, 0, 0, 0},
-	3: {2, 0, 1, 0, 0},
-	4: {2, 0, 2, 0, 0},
-	5: {2, 0, 2, 0, 1},
-	6: {2, 0, 2, 0, 2},
-}
+// Stick truth (operator ruling 2026-09-16): same-model drain arrivals rank
+// the usable holder HEAD even when slot-full and park FIFO on it — no
+// spill, no spread-to-all. The old spill pins (account pairs on even
+// indexes, Ceil(C/2) accounts) are deleted; each drain round below pins the
+// stick distribution directly: C<=cap fits the holder with zero parks,
+// C>cap holds 2 live + (C-2) parked FIFO on account 1, one session-create
+// total, zero errors.
 
 // ladRRLevel pins the round_robin spread: strict start rotation, the doubled
 // account at C=6 is token 0.
@@ -536,36 +522,90 @@ func TestConcurrencyLadderBase(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("drain", func(t *testing.T) {
-		for c := 1; c <= 6; c++ {
-			waves := (12 + c - 1) / c
-			total := make([]int, 5)
+		// C=1..2 fit the holder's two slots: sequential solo acquires land
+		// on account 1 with zero parks (one session-create per wave).
+		for _, c := range []int{1, 2} {
+			waves := 12 / c
 			for w := range waves {
 				p, mocks := newLadderPool(t, 5, "drain", 0)
 				held := acquireHeld(t, ctx, p, modelA, c)
 				assign := ladAssign(held)
-				if !ladEqualInts(assign, ladDrainAssign[c]) {
-					t.Fatalf("drain C=%d wave %d assign=%v, want %v", c, w, assign, ladDrainAssign[c])
+				for _, tok := range assign {
+					if tok != 0 {
+						t.Fatalf("drain C=%d wave %d assign=%v, want all holder (token 0)", c, w, assign)
+					}
 				}
 				live, _ := ladSlots(p)
-				if !ladEqualInts(live, ladDrainPeak[c]) {
-					t.Fatalf("drain C=%d wave %d live=%v, want %v", c, w, live, ladDrainPeak[c])
+				if live[0] != c || ladSum(live) != c {
+					t.Fatalf("drain C=%d wave %d live=%v, want holder %d", c, w, live, c)
 				}
 				for _, l := range held {
 					if l.QueueWait != 0 {
 						t.Fatalf("drain C=%d wave %d: parked (QueueWait=%v), want zero parks", c, w, l.QueueWait)
 					}
 				}
-				if c == 6 && w == 0 {
+				if c == 2 && w == 0 {
 					ladChatRendezvous(t, p, mocks, held, modelA)
 				}
 				releaseHeld(p, held)
 				assertLadQuiescent(t, p, "drain")
-				for _, tok := range assign {
-					total[tok]++
+				if got := mocks[0].SessionCreatesSnapshot(); got != 1 {
+					t.Fatalf("drain C=%d wave %d: holder creates = %d, want 1", c, w, got)
 				}
 				t.Logf("LADDER mode=drain C=%d wave=%d assign=%v live=%v parked=0 errors=0", c, w, assign, live)
 			}
-			t.Logf("LADDER mode=drain C=%d total turns=%v (12+ requests, zero errors, zero parks)", c, total)
+			t.Logf("LADDER mode=drain C=%d (12 requests, zero errors, zero parks, all holder)", c)
+		}
+		// C=3..6 stick to the holder past the cap: 2 live + (C-2) parked
+		// FIFO on account 1 (settle discipline admits each park before the
+		// next arrival, so nothing waits out QUEUE_WAIT and nothing
+		// overflows). Same instance, one session-create, zero spread.
+		for c := 3; c <= 6; c++ {
+			waves := (12 + c - 1) / c
+			for w := range waves {
+				p, mocks := newLadderPool(t, 5, "drain", 0)
+				r := runLadWave(t, p, modelA, c)
+				for _, tok := range r.assign {
+					if tok != 0 {
+						t.Fatalf("drain C=%d wave %d assign=%v, want all holder (token 0, stick-first, no spill)", c, w, r.assign)
+					}
+				}
+				assertLadCaps(t, r.peak, "drain")
+				if r.peak[0] != ladCap {
+					t.Fatalf("drain C=%d wave %d peak=%v, want holder at cap", c, w, r.peak)
+				}
+				for i := 1; i < 5; i++ {
+					if r.peak[i] != 0 {
+						t.Fatalf("drain C=%d wave %d peak=%v, want zero spread past account 1", c, w, r.peak)
+					}
+				}
+				parked := 0
+				for _, pk := range r.parked {
+					if pk {
+						parked++
+					}
+				}
+				if parked != c-ladCap {
+					t.Fatalf("drain C=%d wave %d parked=%d, want %d (queue on the holder, never spill)", c, w, parked, c-ladCap)
+				}
+				assertLadNoTimeouts(t, r, "drain")
+				assertLadFIFOOrder(t, r, "drain")
+				for i, got := range r.inst {
+					if got == "" || got != r.inst[0] {
+						t.Fatalf("drain C=%d wave %d: worker %d instance %q, want shared %q", c, w, i, got, r.inst[0])
+					}
+				}
+				if got := mocks[0].SessionCreatesSnapshot(); got != 1 {
+					t.Fatalf("drain C=%d wave %d: holder creates = %d, want 1 (one entitlement serves all)", c, w, got)
+				}
+				for i := 1; i < 5; i++ {
+					if got := mocks[i].SessionCreatesSnapshot(); got != 0 {
+						t.Fatalf("drain C=%d wave %d: mock%d creates = %d, want 0 (no second entitlement spent)", c, w, i, got)
+					}
+				}
+				t.Logf("LADDER mode=drain C=%d wave=%d assign=%v peak=%v parked=%d errors=0", c, w, r.assign, r.peak, parked)
+			}
+			t.Logf("LADDER mode=drain C=%d (12+ requests, zero errors, all holder, parked=%d/wave)", c, c-ladCap)
 		}
 	})
 
@@ -716,52 +756,72 @@ func TestConcurrencyLadderRotationLiveApply(t *testing.T) {
 	t.Logf("LADDER live-apply: drain %v -> round_robin [2 3] -> drain %v, no rebuild, no churn", []int{0, 0}, a3)
 }
 
-// ladDrainAssign10 pins the measured 10-account drain fill: pairs on even
-// indexes, Ceil(C/2) accounts.
-func ladDrainAssign10(c int) []int {
-	assign := make([]int, 0, c)
-	for tok := 0; len(assign) < c; tok += 2 {
-		assign = append(assign, tok, tok)
-	}
-	return assign[:c]
-}
-
 // TestConcurrencyLadderScale is round A: 10-account pool, full ladder 1..10
 // x 4 modes, one wave per level (the file runs under -count=2 for the
-// statistical modes).
+// statistical modes). Drain sticks: every level lands wholly on account 1
+// (stick-first, no spill) — C<=cap with zero parks, C>cap with 2 live +
+// (C-2) parked FIFO.
 func TestConcurrencyLadderScale(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("drain", func(t *testing.T) {
 		for c := 1; c <= 10; c++ {
-			p, _ := newLadderPool(t, 10, "drain", 0)
-			held := acquireHeld(t, ctx, p, modelA, c)
-			assign := ladAssign(held)
-			if want := ladDrainAssign10(c); !ladEqualInts(assign, want) {
-				t.Fatalf("scale drain C=%d assign=%v, want %v", c, assign, want)
+			p, mocks := newLadderPool(t, 10, "drain", 0)
+			if c <= 2 {
+				held := acquireHeld(t, ctx, p, modelA, c)
+				assign := ladAssign(held)
+				for _, tok := range assign {
+					if tok != 0 {
+						t.Fatalf("scale drain C=%d assign=%v, want all holder (token 0)", c, assign)
+					}
+				}
+				live, _ := ladSlots(p)
+				if live[0] != c || ladSum(live) != c {
+					t.Fatalf("scale drain C=%d live=%v, want holder %d", c, live, c)
+				}
+				for _, l := range held {
+					if l.QueueWait != 0 {
+						t.Fatalf("scale drain C=%d: parked, want zero parks", c)
+					}
+				}
+				releaseHeld(p, held)
+				assertLadQuiescent(t, p, "scale drain")
+				if got := mocks[0].SessionCreatesSnapshot(); got != 1 {
+					t.Fatalf("scale drain C=%d: holder creates = %d, want 1", c, got)
+				}
+				t.Logf("LADDER scale mode=drain C=%d assign=%v live=%v parked=0 errors=0", c, assign, live)
+				continue
 			}
-			live, _ := ladSlots(p)
-			assertLadCaps(t, live, "scale drain")
-			if got := ladSum(live); got != c {
-				t.Fatalf("scale drain C=%d live sum=%d, want %d", c, got, c)
-			}
-			used := 0
-			for _, v := range live {
-				if v > 0 {
-					used++
+			r := runLadWave(t, p, modelA, c)
+			for _, tok := range r.assign {
+				if tok != 0 {
+					t.Fatalf("scale drain C=%d assign=%v, want all holder (token 0, stick-first, no spill)", c, r.assign)
 				}
 			}
-			if want := (c + 1) / 2; used != want {
-				t.Fatalf("scale drain C=%d accounts used=%d, want Ceil(C/2)=%d", c, used, want)
+			assertLadCaps(t, r.peak, "scale drain")
+			if r.peak[0] != ladCap {
+				t.Fatalf("scale drain C=%d peak=%v, want holder at cap", c, r.peak)
 			}
-			for _, l := range held {
-				if l.QueueWait != 0 {
-					t.Fatalf("scale drain C=%d: parked, want zero parks", c)
+			for i := 1; i < 10; i++ {
+				if r.peak[i] != 0 {
+					t.Fatalf("scale drain C=%d peak=%v, want zero spread past account 1", c, r.peak)
 				}
 			}
-			releaseHeld(p, held)
-			assertLadQuiescent(t, p, "scale drain")
-			t.Logf("LADDER scale mode=drain C=%d assign=%v live=%v parked=0 errors=0", c, assign, live)
+			parked := 0
+			for _, pk := range r.parked {
+				if pk {
+					parked++
+				}
+			}
+			if parked != c-ladCap {
+				t.Fatalf("scale drain C=%d parked=%d, want %d (queue on the holder, never spill)", c, parked, c-ladCap)
+			}
+			assertLadNoTimeouts(t, r, "scale drain")
+			assertLadFIFOOrder(t, r, "scale drain")
+			if got := mocks[0].SessionCreatesSnapshot(); got != 1 {
+				t.Fatalf("scale drain C=%d: holder creates = %d, want 1 (one entitlement serves all)", c, got)
+			}
+			t.Logf("LADDER scale mode=drain C=%d assign=%v peak=%v parked=%d errors=0", c, r.assign, r.peak, parked)
 		}
 	})
 
@@ -833,18 +893,30 @@ func TestConcurrencyLadderScale(t *testing.T) {
 }
 
 // TestConcurrencyLadderQueueFull is round B: 10-account pool, 25 staggered
-// arrivals against 20 slots (QUEUE_WAIT generous at 5m, QUEUE_DEPTH at the
-// repo default 16 — the operator's 1024 is the Drain preset, not the Load
-// default; max observed depth is recorded). All 25 succeed; the 5 parked
-// admit in exact arrival order; peak live <= 2 everywhere; zero errors and
+// same-model arrivals (QUEUE_WAIT generous at 5m, QUEUE_DEPTH at the repo
+// default 16 — the operator's 1024 is the Drain preset, not the Load
+// default; max observed depth is recorded). Stick-first: all 25 land on
+// account 1 (2 live + 23 parked FIFO on the holder lane, settled before any
+// QUEUE_WAIT elapses so nothing overflows). All succeed on the one shared
+// session; peak live <= 2 on the holder and 0 elsewhere; zero errors and
 // zero queue-timeouts (every parked turn is queue-granted, never
 // timeout-failed-over).
 func TestConcurrencyLadderQueueFull(t *testing.T) {
-	p, _ := newLadderPool(t, 10, "drain", 5*time.Minute)
+	p, mocks := newLadderPool(t, 10, "drain", 5*time.Minute)
 	r := runLadWave(t, p, modelA, 25)
 	assertLadCaps(t, r.peak, "queue-full")
-	if got := ladSum(r.peak); got != 20 {
-		t.Fatalf("queue-full: peak live total = %d, want 20 (full capacity)", got)
+	for _, tok := range r.assign {
+		if tok != 0 {
+			t.Fatalf("queue-full: worker on token %d, want all holder (token 0, stick-first, no spill)", tok)
+		}
+	}
+	if r.peak[0] != ladCap {
+		t.Fatalf("queue-full: holder peak live = %d, want %d", r.peak[0], ladCap)
+	}
+	for i := 1; i < 10; i++ {
+		if r.peak[i] != 0 {
+			t.Fatalf("queue-full: token %d peak live = %d, want 0 (zero spread)", i, r.peak[i])
+		}
 	}
 	parked := 0
 	for _, pk := range r.parked {
@@ -852,11 +924,19 @@ func TestConcurrencyLadderQueueFull(t *testing.T) {
 			parked++
 		}
 	}
-	if parked != 5 {
-		t.Fatalf("queue-full: parked = %d, want 5 (25 arrivals - 20 slots)", parked)
+	if parked != 23 {
+		t.Fatalf("queue-full: parked = %d, want 23 (25 arrivals - 2 holder slots)", parked)
 	}
 	assertLadNoTimeouts(t, r, "queue-full")
 	assertLadFIFOOrder(t, r, "queue-full")
+	for i, got := range r.inst {
+		if got == "" || got != r.inst[0] {
+			t.Fatalf("queue-full: worker %d instance %q, want shared %q", i, got, r.inst[0])
+		}
+	}
+	if got := mocks[0].SessionCreatesSnapshot(); got != 1 {
+		t.Fatalf("queue-full: holder creates = %d, want 1 (one entitlement serves all 25)", got)
+	}
 	maxDepth, maxDepthTok := 0, -1
 	for i, q := range r.peakQueued {
 		if q > maxDepth {
@@ -864,12 +944,12 @@ func TestConcurrencyLadderQueueFull(t *testing.T) {
 		}
 	}
 	// Settle discipline admits each parked turn before the next arrival, so
-	// at most one waiter is ever queued at once (peak total 1) while 5 park
+	// at most one waiter is ever queued at once (peak total 1) while 23 park
 	// in total — depth headroom 1 << 16, nothing near refusal.
 	if got := ladSum(r.peakQueued); got != 1 {
 		t.Fatalf("queue-full: peak queued total = %d, want 1 (settle admits each park before the next arrival)", got)
 	}
-	t.Logf("LADDER queue-full: 25 arrivals, peak live=%v (total 20), ever-parked=5, max observed queue depth=%d (token %d, headroom to 16), grant order == arrival order, zero errors, zero timeouts", r.peak, maxDepth, maxDepthTok)
+	t.Logf("LADDER queue-full: 25 arrivals all holder, peak live=%v (holder 2), ever-parked=23, max observed queue depth=%d (token %d, headroom to 16), grant order == arrival order, zero errors, zero timeouts", r.peak, maxDepth, maxDepthTok)
 }
 
 // ladTripWindow trips target into the vendor 24h freebucks-window cooldown
@@ -935,28 +1015,30 @@ func ladTripWindow(t *testing.T, ctx context.Context, p *Pool, mocks []*testutil
 }
 
 // TestConcurrencyLadderCooldown is round C: 5-account pool, accounts 4-5
-// tripped to window cooldown, ladder 1..6 (3 healthy x 2 = 6 slots, no
-// queue) plus C=8 (2 park FIFO, all succeed). Cooling accounts take ZERO
+// tripped to window cooldown. Stick-first: healthy same-model arrivals land
+// wholly on account 1 (the lowest-index healthy holder) — C<=cap with zero
+// parks, C>cap with 2 live + (C-2) parked FIFO. Cooling accounts take ZERO
 // turns; their sessions stay Usable (#585, light touch via SessionEnds ==
 // 0 during the ladder); cooldown memory intact; zero caller-visible errors.
 func TestConcurrencyLadderCooldown(t *testing.T) {
 	ctx := context.Background()
-	// C=6 exact on healthy {0,1,2} after the fixed 4-acquire trip recipe.
-	want6 := []int{0, 0, 1, 1, 2, 2}
 	for _, c := range []int{1, 2, 3, 4, 5, 6, 8} {
 		p, mocks := newLadderPool(t, 5, "drain", 0)
 		ladTripWindow(t, ctx, p, mocks, 3, modelB, agentB)
 		ladTripWindow(t, ctx, p, mocks, 4, modelB, agentB)
 		endsBefore := [2]int{mocks[3].SessionEndsSnapshot(), mocks[4].SessionEndsSnapshot()}
-		if c <= 6 {
+		createsBefore := mocks[0].SessionCreatesSnapshot()
+		if c <= 2 {
 			held := acquireHeld(t, ctx, p, modelB, c)
 			assign := ladAssign(held)
-			if !ladEqualInts(assign, want6[:c]) {
-				t.Fatalf("cooldown C=%d assign=%v, want %v", c, assign, want6[:c])
+			for _, tok := range assign {
+				if tok != 0 {
+					t.Fatalf("cooldown C=%d assign=%v, want all holder (token 0)", c, assign)
+				}
 			}
 			for _, l := range held {
 				if l.QueueWait != 0 {
-					t.Fatalf("cooldown C=%d: parked, want zero parks (6 healthy slots)", c)
+					t.Fatalf("cooldown C=%d: parked, want zero parks (holder slots free)", c)
 				}
 			}
 			releaseHeld(p, held)
@@ -968,19 +1050,30 @@ func TestConcurrencyLadderCooldown(t *testing.T) {
 			if counts[3] != 0 || counts[4] != 0 {
 				t.Fatalf("cooldown C=%d turns=%v, want cooling accounts dark", c, counts)
 			}
+			for _, tok := range r.assign {
+				if tok != 0 {
+					t.Fatalf("cooldown C=%d assign=%v, want all holder (token 0, stick-first, cooling disqualified)", c, r.assign)
+				}
+			}
 			assertLadCaps(t, r.peak, "cooldown")
+			if r.peak[0] != ladCap {
+				t.Fatalf("cooldown C=%d peak=%v, want holder at cap", c, r.peak)
+			}
 			parked := 0
 			for _, pk := range r.parked {
 				if pk {
 					parked++
 				}
 			}
-			if parked != 2 {
-				t.Fatalf("cooldown C=%d parked=%d, want 2 (8 arrivals - 6 slots)", c, parked)
+			if parked != c-ladCap {
+				t.Fatalf("cooldown C=%d parked=%d, want %d (queue on the holder, never spill)", c, parked, c-ladCap)
 			}
 			assertLadNoTimeouts(t, r, "cooldown")
 			assertLadFIFOOrder(t, r, "cooldown")
-			t.Logf("LADDER cooldown C=%d assign=%v peak=%v cooling-turns=0 parked=2 errors=0", c, r.assign, r.peak)
+			t.Logf("LADDER cooldown C=%d assign=%v peak=%v cooling-turns=0 parked=%d errors=0", c, r.assign, r.peak, parked)
+		}
+		if got := mocks[0].SessionCreatesSnapshot() - createsBefore; got != 1 {
+			t.Fatalf("cooldown C=%d: holder creates = %d, want 1 (one entitlement serves the wave)", c, got)
 		}
 		for k, target := range []int{3, 4} {
 			if got := mocks[target].SessionEndsSnapshot(); got != endsBefore[k] {
@@ -1032,82 +1125,152 @@ func ladQuarantineViaBan(t *testing.T, ctx context.Context, p *Pool, mocks []*te
 }
 
 // TestConcurrencyLadderBanned is round D: 5-account pool, account 5
-// quarantined via the real ban path; ladder 1..6 + C=8 (4x2 = 8 slots, no
-// queue) + C=10 (2 park FIFO). Banned takes ZERO turns; drain
-// redistribution exact; all succeed.
+// quarantined via the real ban path. Stick-first: healthy same-model
+// arrivals land wholly on account 2 (the holder after the fixed 1-acquire
+// ban recipe, rr offset 1) — C<=cap with zero parks, C>cap with 2 live +
+// (C-2) parked FIFO. Banned takes ZERO turns; all succeed.
 func TestConcurrencyLadderBanned(t *testing.T) {
 	ctx := context.Background()
-	// Post-trip exacts after the fixed 1-acquire ban recipe (rr offset 1).
-	want := map[int][]int{
-		1: {1},
-		2: {1, 1},
-		3: {1, 1, 3},
-		4: {1, 1, 3, 3},
-		5: {1, 1, 3, 3, 0},
-		6: {1, 1, 3, 3, 0, 0},
-		8: {1, 1, 3, 3, 0, 0, 2, 2},
-	}
 	for _, c := range []int{1, 2, 3, 4, 5, 6, 8} {
 		p, mocks := newLadderPool(t, 5, "drain", 0)
 		ladQuarantineViaBan(t, ctx, p, mocks, 4, modelA)
-		held := acquireHeld(t, ctx, p, modelA, c)
-		assign := ladAssign(held)
-		if !ladEqualInts(assign, want[c]) {
-			t.Fatalf("banned C=%d assign=%v, want %v", c, assign, want[c])
-		}
-		for _, l := range held {
-			if l.QueueWait != 0 {
-				t.Fatalf("banned C=%d: parked, want zero parks (8 healthy slots)", c)
+		createsBefore := mocks[1].SessionCreatesSnapshot()
+		if c <= 2 {
+			held := acquireHeld(t, ctx, p, modelA, c)
+			assign := ladAssign(held)
+			for _, tok := range assign {
+				if tok != 1 {
+					t.Fatalf("banned C=%d assign=%v, want all holder (token 1)", c, assign)
+				}
 			}
+			for _, l := range held {
+				if l.QueueWait != 0 {
+					t.Fatalf("banned C=%d: parked, want zero parks (holder slots free)", c)
+				}
+			}
+			releaseHeld(p, held)
+			assertLadQuiescent(t, p, "banned")
+			t.Logf("LADDER banned C=%d assign=%v banned-turns=0 parked=0 errors=0", c, assign)
+		} else {
+			r := runLadWave(t, p, modelA, c)
+			counts := ladTurnCounts(r.assign, 5)
+			if counts[4] != 0 {
+				t.Fatalf("banned C=%d turns=%v, want banned account dark", c, counts)
+			}
+			for _, tok := range r.assign {
+				if tok != 1 {
+					t.Fatalf("banned C=%d assign=%v, want all holder (token 1, stick-first, banned disqualified)", c, r.assign)
+				}
+			}
+			assertLadCaps(t, r.peak, "banned")
+			if r.peak[1] != ladCap {
+				t.Fatalf("banned C=%d peak=%v, want holder at cap", c, r.peak)
+			}
+			parked := 0
+			for _, pk := range r.parked {
+				if pk {
+					parked++
+				}
+			}
+			if parked != c-ladCap {
+				t.Fatalf("banned C=%d parked=%d, want %d (queue on the holder, never spill)", c, parked, c-ladCap)
+			}
+			assertLadNoTimeouts(t, r, "banned")
+			assertLadFIFOOrder(t, r, "banned")
+			t.Logf("LADDER banned C=%d assign=%v peak=%v banned-turns=0 parked=%d errors=0", c, r.assign, r.peak, parked)
 		}
-		releaseHeld(p, held)
-		assertLadQuiescent(t, p, "banned")
-		t.Logf("LADDER banned C=%d assign=%v banned-turns=0 parked=0 errors=0", c, assign)
+		if got := mocks[1].SessionCreatesSnapshot() - createsBefore; got != 1 {
+			t.Fatalf("banned C=%d: holder creates = %d, want 1 (one entitlement serves the wave)", c, got)
+		}
 	}
 	p10, mocks10 := newLadderPool(t, 5, "drain", 0)
 	ladQuarantineViaBan(t, ctx, p10, mocks10, 4, modelA)
+	createsBefore10 := mocks10[1].SessionCreatesSnapshot()
 	r := runLadWave(t, p10, modelA, 10)
 	counts := ladTurnCounts(r.assign, 5)
 	if counts[4] != 0 {
 		t.Fatalf("banned C=10 turns=%v, want banned account dark", counts)
 	}
+	for _, tok := range r.assign {
+		if tok != 1 {
+			t.Fatalf("banned C=10 assign=%v, want all holder (token 1, stick-first)", r.assign)
+		}
+	}
 	assertLadCaps(t, r.peak, "banned")
+	if r.peak[1] != ladCap {
+		t.Fatalf("banned C=10 peak=%v, want holder at cap", r.peak)
+	}
 	parked := 0
 	for _, pk := range r.parked {
 		if pk {
 			parked++
 		}
 	}
-	if parked != 2 {
-		t.Fatalf("banned C=10 parked=%d, want 2 (10 arrivals - 8 slots)", parked)
+	if parked != 8 {
+		t.Fatalf("banned C=10 parked=%d, want 8 (10 arrivals - 2 holder slots)", parked)
 	}
 	assertLadNoTimeouts(t, r, "banned")
 	assertLadFIFOOrder(t, r, "banned")
-	t.Logf("LADDER banned C=10 assign=%v peak=%v banned-turns=0 parked=2 errors=0", r.assign, r.peak)
+	if got := mocks10[1].SessionCreatesSnapshot() - createsBefore10; got != 1 {
+		t.Fatalf("banned C=10: holder creates = %d, want 1 (one entitlement serves all ten)", got)
+	}
+	t.Logf("LADDER banned C=10 assign=%v peak=%v banned-turns=0 parked=8 errors=0", r.assign, r.peak)
 }
 
 // TestConcurrencyLadderRamp is round E: deterministic ramps (no random
-// walk — non-determinism is not evidence). Every step fits capacity, so zero
-// parks are expected; caps + zero errors + quiescence asserted per step.
+// walk — non-determinism is not evidence). Stick-first: every step lands
+// wholly on account 1 — steps fitting the holder's two slots with zero
+// parks, larger steps with 2 live + (n-2) parked FIFO (settle discipline,
+// so nothing waits out QUEUE_WAIT and nothing overflows). Caps + zero
+// errors + quiescence asserted per step.
 func TestConcurrencyLadderRamp(t *testing.T) {
-	ctx := context.Background()
 	ramp := func(t *testing.T, p *Pool, model string, steps []int, what string) {
 		t.Helper()
 		for _, n := range steps {
-			held := acquireHeld(t, ctx, p, model, n)
-			live, _ := ladSlots(p)
-			assertLadCaps(t, live, what)
-			if got := ladSum(live); got != n {
-				t.Fatalf("%s step %d: live sum=%d", what, n, got)
+			if n <= 2 {
+				held := acquireHeld(t, context.Background(), p, model, n)
+				for _, tok := range ladAssign(held) {
+					if tok != 0 {
+						t.Fatalf("%s step %d assign=%v, want all holder (token 0)", what, n, ladAssign(held))
+					}
+				}
+				live, _ := ladSlots(p)
+				assertLadCaps(t, live, what)
+				if got := ladSum(live); got != n {
+					t.Fatalf("%s step %d: live sum=%d", what, n, got)
+				}
+				for _, l := range held {
+					if l.QueueWait != 0 {
+						t.Fatalf("%s step %d: parked, want zero unexpected parks", what, n)
+					}
+				}
+				t.Logf("LADDER ramp %s step=%d assign=%v live=%v errors=0", what, n, ladAssign(held), live)
+				releaseHeld(p, held)
+				assertLadQuiescent(t, p, what)
+				continue
 			}
-			for _, l := range held {
-				if l.QueueWait != 0 {
-					t.Fatalf("%s step %d: parked, want zero unexpected parks", what, n)
+			r := runLadWave(t, p, model, n)
+			for _, tok := range r.assign {
+				if tok != 0 {
+					t.Fatalf("%s step %d assign=%v, want all holder (token 0, stick-first, no spill)", what, n, r.assign)
 				}
 			}
-			t.Logf("LADDER ramp %s step=%d assign=%v live=%v errors=0", what, n, ladAssign(held), live)
-			releaseHeld(p, held)
-			assertLadQuiescent(t, p, what)
+			assertLadCaps(t, r.peak, what)
+			if r.peak[0] != ladCap {
+				t.Fatalf("%s step %d peak=%v, want holder at cap", what, n, r.peak)
+			}
+			parked := 0
+			for _, pk := range r.parked {
+				if pk {
+					parked++
+				}
+			}
+			if parked != n-ladCap {
+				t.Fatalf("%s step %d parked=%d, want %d (queue on the holder, never spill)", what, n, parked, n-ladCap)
+			}
+			assertLadNoTimeouts(t, r, what)
+			assertLadFIFOOrder(t, r, what)
+			t.Logf("LADDER ramp %s step=%d assign=%v peak=%v parked=%d errors=0", what, n, r.assign, r.peak, parked)
 		}
 	}
 	p5, _ := newLadderPool(t, 5, "drain", 0)
@@ -1223,7 +1386,13 @@ func TestAffinitySequential(t *testing.T) {
 // session-holder beats spending a second entitlement, even though another
 // account would admit "faster". Zero spread, order preserved, zero errors.
 func TestAffinityConcurrent(t *testing.T) {
-	t.Skip("CONFLICT (operator call pending): same-model overflow must SPILL per the ladder's own acceptance pins (drain C=3 [0 0 2] zero-park) but must QUEUE per this pin — identical pool state (T0 hot+full, same-model arrival), no model-gated fix fits (route_smart.go:517-537, acquire_route.go:279-320). Remove this Skip to re-arm.")
+	// Stick-first (operator ruling 2026-09-16): same-model arrivals rank the
+	// usable holder HEAD even when slot-full and park FIFO on it — no spill.
+	// History: #593 shipped this test with a t.Skip citing the irreconcilable
+	// spill-vs-queue conflict ("same-model overflow must SPILL per the
+	// ladder's own drain C=3 [0 0 2] zero-park pins but must QUEUE per this
+	// pin"). This PR resolves it operator-side (stick, not spill) and
+	// re-pins those drain pins to the stick truth.
 	ctx := context.Background()
 	p, mocks := newLadderPool(t, 5, "drain", 0)
 	inst := ladAffinitySetup(t, ctx, p, modelA)
@@ -1264,6 +1433,160 @@ func TestAffinityConcurrent(t *testing.T) {
 	}
 	t.Logf("AFFIN concurrent: 5/5 on account 1 (2 live + 3 queued FIFO), instance=%s, creates=%d, spread=0, errors=0",
 		inst, mocks[0].SessionCreatesSnapshot())
+}
+
+// TestAffinityOverflowAssist proves the stick-with-overflow-assist half of
+// the ruling: a same-model waiter that parks FIFO on a full holder past
+// QUEUE_WAIT is served by ONE deterministic helper — the lowest-index
+// eligible free account — while the holder stays primary for the next
+// arrival (return-to-first). Account 2 is tripped to same-model window
+// cooldown first (on modelB, the mock 429 body's model — the only model a
+// trip darkens same-model), so the assist must skip it (cooldown
+// disqualifies holder AND helpers, kind-aware per #581/#585) and land on
+// account 3. Short QUEUE_WAIT (2s, explicit per-test SetConfig) triggers
+// the assist fast; everything is channel-gated, never sleep-ladder.
+func TestAffinityOverflowAssist(t *testing.T) {
+	ctx := context.Background()
+	p, mocks := newLadderPool(t, 5, "drain", 2*time.Second)
+	inst := ladAffinitySetup(t, ctx, p, modelB)
+	// Cooling disqualifies helpers: trip account 2 dark for modelB. Its
+	// surviving session stays Usable (#585) but never serves.
+	ladTripWindow(t, ctx, p, mocks, 1, modelB, agentB)
+	coolEnds := mocks[1].SessionEndsSnapshot()
+	coolCreates := mocks[1].SessionCreatesSnapshot()
+	// Distinguishable helper instances: the assist must open a NEW
+	// same-model session on the helper, not reuse the holder's.
+	for i := 1; i < 5; i++ {
+		mocks[i].InstanceID = "inst-helper"
+	}
+	// Fill the holder: 2 live turns held, none released.
+	held := acquireHeld(t, ctx, p, modelB, 2)
+	for _, l := range held {
+		if l.Token != 0 {
+			t.Fatalf("overflow setup: holder turn on token %d, want account 1", l.Token)
+		}
+	}
+	if got := mocks[0].SessionCreatesSnapshot(); got != 1 {
+		t.Fatalf("overflow setup: holder creates = %d, want 1", got)
+	}
+	// The waiter parks FIFO on the full holder (stick, not spill): prove
+	// the park, then let QUEUE_WAIT elapse into the assist.
+	type outcome struct {
+		lease *Lease
+		err   error
+	}
+	waiterCh := make(chan outcome, 1)
+	go func() {
+		l, err := p.Acquire(context.Background(), modelB)
+		waiterCh <- outcome{lease: l, err: err}
+	}()
+	eventually(t, "waiter parks on the holder", func() bool {
+		live, queued := ladSlots(p)
+		return live[0] == 2 && queued[0] == 1
+	})
+	// (The park above is the no-spill proof: a spill would grant immediately
+	// elsewhere with nothing ever queued on the holder.)
+	var waiter *Lease
+	select {
+	case o := <-waiterCh:
+		if o.err != nil {
+			t.Fatalf("overflow waiter: %v (want assist, not an error)", o.err)
+		}
+		waiter = o.lease
+	case <-time.After(ladStepTO):
+		t.Fatal("overflow waiter never granted (assist did not fire)")
+	}
+	// ONE deterministic helper: account 3 (account 2 cooling-skipped).
+	if waiter.Token != 2 {
+		t.Fatalf("overflow waiter landed on token %d, want helper account 3 (token 2, lowest-index eligible free)", waiter.Token)
+	}
+	if waiter.QueueWait != 0 {
+		t.Fatalf("overflow waiter QueueWait=%v, want 0 (immediate grant on the free helper)", waiter.QueueWait)
+	}
+	if waiter.SessionInstanceID != "inst-helper" {
+		t.Fatalf("overflow waiter instance %q, want the helper's fresh %q (assist opens the model there)", waiter.SessionInstanceID, "inst-helper")
+	}
+	if waiter.SessionInstanceID == inst {
+		t.Fatalf("overflow waiter reused the holder instance %q (assist must open, not reuse)", inst)
+	}
+	if got := mocks[2].SessionCreatesSnapshot(); got != 1 {
+		t.Fatalf("overflow: helper creates = %d, want exactly 1 per assist (no storm)", got)
+	}
+	if got := mocks[1].SessionCreatesSnapshot(); got != coolCreates {
+		t.Fatalf("overflow: cooling mock creates = %d, want %d (skipped account admits nothing)", got, coolCreates)
+	}
+	for _, i := range []int{3, 4} {
+		if got := mocks[i].SessionCreatesSnapshot(); got != 0 {
+			t.Fatalf("overflow: mock%d creates = %d, want 0 (assist touches exactly one helper)", i, got)
+		}
+	}
+	if got := mocks[1].SessionEndsSnapshot(); got != coolEnds {
+		t.Fatalf("overflow: cooling session ended (%d -> %d, #585)", coolEnds, got)
+	}
+	// Return-to-first: with a freed holder slot the next arrival ranks the
+	// holder HEAD again — not the helper that just assisted.
+	p.LeaseRelease(held[0])
+	next, err := p.Acquire(ctx, modelB)
+	if err != nil {
+		t.Fatalf("overflow return-to-first: %v", err)
+	}
+	if next.Token != 0 || next.SessionInstanceID != inst {
+		t.Fatalf("overflow return-to-first: landed on token %d instance %q, want holder account 1 %q", next.Token, next.SessionInstanceID, inst)
+	}
+	p.LeaseRelease(next)
+	p.LeaseRelease(held[1])
+	p.LeaseRelease(waiter)
+	assertLadQuiescent(t, p, "overflow assist")
+	t.Logf("AFFIN overflow-assist: waiter parked on holder then served by helper account 3 (creates=1, cooling skipped), next arrival back on holder, errors=0")
+}
+
+// TestAffinityOverflowFailClosed proves the assist fails closed: with no
+// eligible helper (single-account pool — every other lane absent), a waiter
+// that outlasts QUEUE_WAIT on its holder surfaces the EXISTING
+// queue-timeout error unchanged (same 429 shape, queue-wait wording,
+// Retry-After hint), never a new error code and never a silent drop.
+func TestAffinityOverflowFailClosed(t *testing.T) {
+	ctx := context.Background()
+	p, _ := newLadderPool(t, 1, "drain", 2*time.Second)
+	ladAffinitySetup(t, ctx, p, modelA)
+	// Fill the lone holder to its cap; the waiter below has nowhere to
+	// overflow to.
+	held := acquireHeld(t, ctx, p, modelA, ladCap)
+	type outcome struct {
+		lease *Lease
+		err   error
+	}
+	waiterCh := make(chan outcome, 1)
+	go func() {
+		l, err := p.Acquire(context.Background(), modelA)
+		waiterCh <- outcome{lease: l, err: err}
+	}()
+	eventually(t, "waiter parks on the lone holder", func() bool {
+		_, queued := ladSlots(p)
+		return ladSum(queued) == 1
+	})
+	select {
+	case o := <-waiterCh:
+		if o.err == nil {
+			p.LeaseRelease(o.lease)
+			t.Fatal("fail-closed waiter granted, want the queue-timeout 429 (no helper exists)")
+		}
+		var rle *upstream.RateLimitError
+		if !errors.As(o.err, &rle) {
+			t.Fatalf("fail-closed err = %T (%v), want *upstream.RateLimitError unchanged", o.err, o.err)
+		}
+		if !strings.Contains(rle.Body, "queue wait") {
+			t.Fatalf("fail-closed body = %q, want the existing queue-wait wording", rle.Body)
+		}
+		if rle.RetryAfter <= 0 {
+			t.Fatal("fail-closed 429 carries no Retry-After hint")
+		}
+	case <-time.After(ladStepTO):
+		t.Fatal("fail-closed waiter never returned (want the queue-timeout 429)")
+	}
+	releaseHeld(p, held)
+	assertLadQuiescent(t, p, "overflow fail-closed")
+	t.Logf("AFFIN overflow fail-closed: lone-holder timeout surfaced the existing queue-wait 429, errors=1 (the waiter)")
 }
 
 // TestAffinityExpired is round I: after account 1's M-session ends, 5

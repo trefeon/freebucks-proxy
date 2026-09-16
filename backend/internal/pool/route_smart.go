@@ -46,11 +46,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/upstream"
+	"sync/atomic"
+	"time"
 )
 
 // Approved step-1 scorer weights.
@@ -387,6 +386,93 @@ func routeDrainAffinity(cfg *config.Config) bool {
 	return cfg.TokenRotation == "drain"
 }
 
+// routeStickEligible reports whether idx may serve model right now for the
+// same-model stick (operator ruling 2026-09-16): not locked, not quarantined
+// (lift-aware), not cooling/banned for THIS model (kind-aware per #581/#585:
+// a different model's quota exemption keeps the token eligible), not locked
+// out by MODEL_LOCKS, and not Freebucks-capped for the model. Mirrors the
+// routeScore disqualifiers plus the acquireOrder Freebucks gate, so the
+// holder and the overflow helpers agree with both.
+func (p *Pool) routeStickEligible(toks *[]*tokenEntry, idx int, model string, now time.Time) bool {
+	if toks == nil || idx < 0 || idx >= len(*toks) {
+		return false
+	}
+	tok := (*toks)[idx]
+	if tok.locked.Load() {
+		return false
+	}
+	if q := tok.quarantine.Load(); q != nil && !p.clearLiftedQuarantine(tok) {
+		return false
+	}
+	if until := tok.runs.CooldownUntil(); now.Before(until) || tok.runs.BanError() != nil {
+		if !canServeOtherModel(tok.runs.RateLimitError(), model) {
+			return false
+		}
+	}
+	if lockedOutByModel(p.cfg.Load(), p.reg, idx, model) {
+		return false
+	}
+	if capped, _ := freebucksCapped(tok, model); capped {
+		return false
+	}
+	return true
+}
+
+// routeStickHolders lists the usable same-model session holders in index
+// order: tokens holding a Usable() session matching model that stay
+// eligible for it. Index order doubles as earliest-established order: the
+// overflow assist below always opens on the lowest-index eligible free
+// account, so establishment order coincides with index order by
+// construction. Empty unless drain (affinity is drain-only) — cross-model
+// arrivals (MatchesModel false) and non-drain modes never stick.
+func (p *Pool) routeStickHolders(cfg *config.Config, toks *[]*tokenEntry, model string) []int {
+	if !routeDrainAffinity(cfg) || toks == nil {
+		return nil
+	}
+	now := time.Now()
+	var holders []int
+	for idx := range *toks {
+		if !p.routeStickEligible(toks, idx, model, now) {
+			continue
+		}
+		snap := (*toks)[idx].session.Snapshot()
+		if snap.Usable() && snap.MatchesModel(model) {
+			holders = append(holders, idx)
+		}
+	}
+	return holders
+}
+
+// routeOverflowHelper picks the ONE overflow-assist target: the lowest-index
+// eligible free account (live turns below the cap) excluding the holder.
+// Deterministic by index — never round-robin, never cycling. A helper with
+// a free slot grants immediately, so assist never parks twice (no cascade:
+// each waiter overflows at most once per park). Returns ok=false when no
+// helper qualifies (all cooling/banned/locked/capped/full) — the caller
+// then returns the existing queue-timeout error unchanged (fail-closed).
+func (p *Pool) routeOverflowHelper(cfg *config.Config, toks *[]*tokenEntry, model string, holder int) (helper int, ok bool) {
+	if !routeDrainAffinity(cfg) || toks == nil {
+		return 0, false
+	}
+	capN, _, _ := routeSlotParams(cfg)
+	if capN <= 0 {
+		return 0, false
+	}
+	now := time.Now()
+	for idx := range *toks {
+		if idx == holder {
+			continue
+		}
+		if !p.routeStickEligible(toks, idx, model, now) {
+			continue
+		}
+		if p.routeSlotLive((*toks)[idx]) < capN {
+			return idx, true
+		}
+	}
+	return 0, false
+}
+
 // routeScore computes one candidate's smart-routing score for model.
 // eligible=false disqualifies the token (locked, quarantined/banned,
 // cooling, or cap-hit — mirroring the legacy failover skip gates); reason
@@ -473,11 +559,13 @@ type routeCand struct {
 // exactly as today. Disqualified tokens (locked/banned/cooldown/cap-hit)
 // are dropped — when none survive, base is returned so the legacy loop
 // still visits every token and records the honest error buckets. Tokens
-// with no free live-turn slot sort behind free ones but stay waitable. The
-// head is a smooth weighted pick (accumulators ride the entries, so the
-// smoothing survives dashboard reorders); the tail follows score, then
-// idle-longest, then base position (under no pressure every score ties and
-// the output equals the drain base order).
+// with no free live-turn slot sort behind free ones but stay waitable,
+// EXCEPT a usable same-model holder: it ranks HEAD even when slot-full so
+// the arrival parks FIFO on it (stick-first, operator ruling 2026-09-16).
+// The head is otherwise a smooth weighted pick (accumulators ride the
+// entries, so the smoothing survives dashboard reorders); the tail follows
+// score, then idle-longest, then base position (under no pressure every
+// score ties and the output equals the drain base order).
 func (p *Pool) routeSmartRank(cfg *config.Config, toks *[]*tokenEntry, base []int, model string) []int {
 	if !routeDrainAffinity(cfg) || len(base) == 0 {
 		return base
@@ -513,6 +601,62 @@ func (p *Pool) routeSmartRank(cfg *config.Config, toks *[]*tokenEntry, base []in
 		// loop still visits each token and records the honest error
 		// buckets (ban > rate-limit > waiting > daily cap).
 		return base
+	}
+	// Same-model stick (operator ruling 2026-09-16, drain-only): a usable
+	// same-model holder ranks HEAD even when slot-full, so the arrival parks
+	// FIFO on it instead of spilling. Helpers (other usable same-model
+	// holders, index order) follow, then the normal tail. The smooth
+	// accumulators are untouched — stick is deterministic (return-to-first),
+	// not a weighted pick. Non-drain modes never reach here (base returned
+	// above); cross-model arrivals have no same-model holder by definition.
+	if holders := p.routeStickHolders(cfg, toks, model); len(holders) > 0 {
+		holder := holders[0]
+		inCands := false
+		for _, c := range cands {
+			if c.idx == holder {
+				inCands = true
+				break
+			}
+		}
+		if inCands {
+			inHolders := make(map[int]struct{}, len(holders))
+			for _, h := range holders {
+				inHolders[h] = struct{}{}
+			}
+			tail := make([]routeCand, 0, len(cands)-len(holders))
+			for _, c := range cands {
+				if _, ok := inHolders[c.idx]; ok {
+					continue
+				}
+				tail = append(tail, c)
+			}
+			for i := 1; i < len(tail); i++ {
+				for j := i; j > 0; j-- {
+					a, b := tail[j], tail[j-1]
+					swap := false
+					switch {
+					case a.free != b.free:
+						swap = a.free
+					case a.score != b.score:
+						swap = a.score > b.score
+					case a.idle != b.idle:
+						swap = a.idle < b.idle
+					default:
+						swap = a.basePos < b.basePos
+					}
+					if !swap {
+						break
+					}
+					tail[j], tail[j-1] = tail[j-1], tail[j]
+				}
+			}
+			order := make([]int, 0, len(cands))
+			order = append(order, holders...)
+			for _, c := range tail {
+				order = append(order, c.idx)
+			}
+			return order
+		}
 	}
 	// Free-slot partition: when at least one candidate has a free slot,
 	// the smooth pick runs over the free set; full tokens still follow in

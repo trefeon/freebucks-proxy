@@ -8,14 +8,13 @@ package pool
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // newSmartTestPool wires mocks through newTestPoolCfg with the smart path
@@ -581,9 +580,10 @@ func TestRouteScorerWeights(t *testing.T) {
 	})
 }
 
-// TestRouteSmartFreeSlotDeferral proves a full token sorts behind free
-// tokens yet stays waitable: the head is the free token, and it returns to
-// the front once its slot frees.
+// TestRouteSmartFreeSlotDeferral proves a usable same-model holder stays
+// HEAD even when slot-full (stick-first, operator ruling 2026-09-16): the
+// arrival parks FIFO on it instead of spilling to the free token —
+// re-pinned from [1 0] to [0 1]. After release the holder is head again.
 func TestRouteSmartFreeSlotDeferral(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -601,8 +601,8 @@ func TestRouteSmartFreeSlotDeferral(t *testing.T) {
 	toks := p.roster.Load()
 	base, _ := p.acquireOrder(toks, 0, modelA)
 	ranked := p.routeSmartRank(p.cfg.Load(), toks, base, modelA)
-	if len(ranked) != 2 || ranked[0] != 1 || ranked[1] != 0 {
-		t.Fatalf("ranked full-first = %v, want [1 0]", ranked)
+	if len(ranked) != 2 || ranked[0] != 0 || ranked[1] != 1 {
+		t.Fatalf("ranked full-holder-first = %v, want [0 1] (stick-first, park on the holder, never spill)", ranked)
 	}
 	p.LeaseRelease(lease)
 	ranked = p.routeSmartRank(p.cfg.Load(), toks, base, modelA)
