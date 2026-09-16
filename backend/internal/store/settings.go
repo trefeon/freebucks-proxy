@@ -14,13 +14,15 @@ func (s *Store) SetSetting(key, value string) error {
 	if key == "" {
 		return errors.New("store: setting key cannot be empty")
 	}
-	if _, err := s.db.Exec(
-		`INSERT INTO settings(key, value, updated_at) VALUES(?, ?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
-		key, value, Millis(time.Now())); err != nil {
-		return fmt.Errorf("store: set setting %q: %w", key, err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(
+			`INSERT INTO settings(key, value, updated_at) VALUES(?, ?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+			key, value, Millis(time.Now())); err != nil {
+			return fmt.Errorf("store: set setting %q: %w", key, err)
+		}
+		return nil
+	})
 }
 
 // GetSetting returns the raw JSON value for key. ok is false when absent.
@@ -44,10 +46,12 @@ func (s *Store) DeleteSetting(key string) error {
 	if key == "" {
 		return errors.New("store: setting key cannot be empty")
 	}
-	if _, err := s.db.Exec(`DELETE FROM settings WHERE key = ?`, key); err != nil {
-		return fmt.Errorf("store: delete setting %q: %w", key, err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(`DELETE FROM settings WHERE key = ?`, key); err != nil {
+			return fmt.Errorf("store: delete setting %q: %w", key, err)
+		}
+		return nil
+	})
 }
 
 // ListSettings returns every setting row (key -> raw value), key-ordered.

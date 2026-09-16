@@ -14,13 +14,15 @@ func (s *Store) PutPageState(pageID, data string) error {
 	if pageID == "" {
 		return errors.New("store: page id cannot be empty")
 	}
-	if _, err := s.db.Exec(
-		`INSERT INTO pages_state(page_id, data, updated_at) VALUES(?, ?, ?)
-		 ON CONFLICT(page_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at`,
-		pageID, data, Millis(time.Now())); err != nil {
-		return fmt.Errorf("store: put page %q: %w", pageID, err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(
+			`INSERT INTO pages_state(page_id, data, updated_at) VALUES(?, ?, ?)
+			 ON CONFLICT(page_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at`,
+			pageID, data, Millis(time.Now())); err != nil {
+			return fmt.Errorf("store: put page %q: %w", pageID, err)
+		}
+		return nil
+	})
 }
 
 // GetPageState returns the raw JSON snapshot for pageID. ok is false when
