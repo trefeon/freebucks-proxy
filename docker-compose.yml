@@ -18,6 +18,18 @@ services:
     image: freebuff-proxy:${VERSION:-latest}
     container_name: freebuff-proxy
     environment:
+      # Live store path (update-proof): the db_data volume below mounts at
+      # /app/data, so the live DB at /app/data/freebuff.db survives recreates
+      # even when the working directory is wrong (the vps-sg 20-account
+      # outage: cwd=/app resolved the relative default to an ephemeral
+      # /app/data). DB_PATH is the ONLY knob that moves the live store off
+      # the bind checkout — an overlay row can never repoint the open file
+      # (it resolves from process env before any overlay loads), and .env
+      # DB_PATH is unread at open time, so this stays a compose-level
+      # setting. Unset DB_PATH only to run bind-direct: working_dir
+      # /app/state then resolves the relative default to the bind checkout's
+      # ./data/freebuff.db instead of this volume.
+      - DB_PATH=/app/data/freebuff.db
       # env beats the mounted .env file: guarantees the container listens on
       # the mapped port even when the host .env carries a loopback LISTEN_ADDR.
       - LISTEN_ADDR=:3457
@@ -39,34 +51,40 @@ services:
     # environment — config precedence (env > .env) would make every
     # dashboard token mutation fail with "overridden by environment".
     working_dir: /app/state
-    # This ONE directory bind mount is the whole persistence boundary — do not
-    # split it. The SQLite DB at ./data/freebuff.db is not just history: it
-    # holds the settings overlay, credentials included (config:AUTH_TOKENS,
-    # config:ADMIN_TOKEN, config:API_KEYS, config:WEBHOOK_URL rows), and this
-    # bind mount is the shape production runs (no DB_PATH, no second volume).
-    # Pointing DB_PATH at a new path or volume is a PARTIALLY SUPPORTED
-    # migration, not a free move and not a config tweak:
-    #   - display history IS carried: boot copies log_entries, quota_snapshots,
-    #     maturity_events and request_records from the legacy file when the
-    #     target's history tables are empty (store.ImportLegacyHistoryDB), and
-    #     store.LegacyHistoryCandidates lists /app/state/data/freebuff.db as a
-    #     source for exactly this move.
-    #   - overlay-only operator rows are LOST: nothing carries the settings
-    #     overlay from a legacy DB, so knobs the dashboard persisted that do
-    #     not exist in the host .env disappear (prod holds 84 config: rows).
-    #   - credentials survive only because the same keys exist in the host
-    #     .env (AUTH_TOKENS, ADMIN_TOKEN, API_KEYS) and the env -> DB import
-    #     re-runs: the config:migrated_env_v1 marker lives in the NEW file, so
-    #     a fresh DB always re-imports. A host whose credentials live ONLY as
-    #     overlay rows loses them, and the pool degrades to credential-less
-    #     bridge mode.
-    # Check row counts before and after the move. Never copy a live database
-    # with a plain `cp` of the .db/-wal/-shm trio — a copy taken mid-checkpoint
-    # reads as an empty sqlite_master. Either `docker compose stop` first and
-    # then copy, or snapshot while it runs with sqlite3's
-    # Connection.backup() / VACUUM INTO.
+    # Two-path persistence layout — read this before touching either path:
+    #   LIVE STORE  /app/data/freebuff.db on the db_data named volume
+    #               (DB_PATH above): the dashboard DB the gateway actually
+    #               opens — settings overlay (credentials included:
+    #               config:AUTH_TOKENS, config:ADMIN_TOKEN, config:API_KEYS,
+    #               config:WEBHOOK_URL rows), pages_state, sessions_persist,
+    #               tokens, pool_state, plus display history. Survives
+    #               recreates by construction: volumes outlive containers.
+    #   BIND STATE  .:/app/state (working_dir): the host checkout — ./.env
+    #               (device-login and add/remove-token writes),
+    #               ./.freebuff-session-state.json import seed,
+    #               ./data/freebuff.db (the pre-volume bind DB, now the
+    #               legacy migration source), ./dump/, ./logs/. A directory
+    #               mount — not a single-file bind — is REQUIRED:
+    #               writeFileAtomic() commits via rename() inside the cwd,
+    #               and rename over a single-file bind mount fails with
+    #               EBUSY ("device or resource busy"), which 500s every
+    #               dashboard save.
+    # On first boot with the volume empty, the gateway carries the bind DB
+    # forward automatically: display history (store.ImportLegacyHistoryDB)
+    # plus the full operator state — settings overlay, pages, sessions,
+    # tokens, pool blobs (store.ImportLegacyPersistedState) — from
+    # /app/state/data/freebuff.db (store.LegacyHistoryCandidates) into the
+    # fresh live store, per-table, idempotent, secrets as opaque DB values.
+    # Steady-state boots are strict no-ops (migrate.noop). Legacy files stay
+    # in place — never deleted. Snapshot with scripts/backup-state.sh before
+    # every recreate; verify with scripts/verify-state.sh after boot.
+    # Never copy a live database with a plain `cp` of the .db/-wal/-shm
+    # trio — a copy taken mid-checkpoint reads as an empty sqlite_master.
+    # Either `docker compose stop` first and then copy, or snapshot while it
+    # runs with sqlite3's Connection.backup() / VACUUM INTO.
     volumes:
       - .:/app/state
+      - db_data:/app/data
     ports:
       # ⚠️ 0.0.0.0 default: /healthz and /metrics are ALWAYS unauthenticated by
       # design (monitoring). Exposing this port beyond localhost publishes them
@@ -109,8 +127,10 @@ services:
     depends_on:
       - freebuff-proxy
 
-# No volume for the gateway: its state lives in the .:/app/state bind mount
-# above. caddy keeps named volumes for its own TLS/ACME data only.
+# Gateway state lives on the db_data named volume (/app/data, the live
+# store) plus the .:/app/state bind mount (env, logs, legacy migration
+# source). caddy keeps named volumes for its own TLS/ACME data only.
 volumes:
+  db_data:
   caddy_data:
   caddy_config:

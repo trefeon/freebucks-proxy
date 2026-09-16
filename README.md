@@ -43,6 +43,36 @@ included (`AUTH_TOKENS`, `ADMIN_TOKEN`, `API_KEYS`, `WEBHOOK_URL` rows);
 keep its `0600` mode on copies/backups. Explicit process env still wins at
 runtime, so a migrated row never overrides the environment.
 
+## Update safety (read before every recreate)
+
+Two-path layout: the live store is `/app/data/freebuff.db` on the `db_data`
+named volume (`DB_PATH`, compose-level — an overlay row can never repoint
+the open file), while the host checkout bind (`.:/app/state`, the working
+directory) holds `.env`, logs, and the pre-volume bind DB at
+`./data/freebuff.db`. A fresh volume auto-imports that bind DB on first
+boot — display history plus the full operator state (settings overlay with
+secrets, pages, sessions, tokens, pool blobs), per-table, idempotent,
+secrets as opaque DB values — then later boots are strict no-ops. Legacy
+files are never deleted. Never copy a live DB with plain `cp` of the
+`.db`/`-wal`/`-shm` trio; stop first or use the backup script.
+
+Every update runs three commands (any trip = roll back, never cut traffic):
+
+```sh
+docker compose stop freebuff-proxy
+scripts/backup-state.sh                      # snapshot + count manifest
+docker compose up -d --build                  # recreate on the same volume
+ADMIN_TOKEN="$ADMIN_TOKEN" scripts/verify-state.sh   # healthz + 401 probe + migrate.noop + manifest counts
+```
+
+The gate requires `/healthz` 200, a wrong-token login 401, a strict no-op
+boot (`migrate.fresh=false`, `migrate.noop=true`, `applied=[]`), and live
+row counts matching the backup manifest (operator tables exact,
+`pool_state` anti-stranding, history grow-only). First-ever volume adoption
+boots `fresh=true` while it carries the bind DB — confirm the
+`carried legacy state` log line against the manifest, restart once, then
+the gate goes green.
+
 ## Layout
 
 - `backend/` — gateway source.
