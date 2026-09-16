@@ -234,8 +234,11 @@ func (m *RunManager) CooldownIpCapped(ice *upstream.IpCappedError) {
 // ipCappedCooldownJitter (20%) of base, crypto/rand-seeded so concurrent
 // tokens never re-admit in lockstep (mirrors the CLI's 30sÂ±20% poll
 // jitter; upstream/freebuff cli/src/hooks/use-freebuff-session.ts).
+// A non-positive ratio (COOLDOWN_IP_JITTER_RATIO=0 disables jitter, or a
+// zero-value test config) returns 0: the modulo below would divide by zero
+// on a sub-nanosecond window.
 func ipCappedJitter(base time.Duration) time.Duration {
-	if base <= 0 {
+	if base <= 0 || ipCappedCooldownJitter <= 0 {
 		return 0
 	}
 	var b [8]byte
