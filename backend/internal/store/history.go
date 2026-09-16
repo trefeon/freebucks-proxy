@@ -1,11 +1,14 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // AppendLogs batch-inserts log records in one transaction (the logring spill
@@ -287,6 +290,20 @@ var historyCarryTables = []string{
 // copy of the main+-wal+-shm trio (read-only mounts and locked files fail
 // direct ATTACH — SQLite needs write access for WAL/shm). The source is
 // never modified by either path.
+//
+// One pinned connection carries the whole ATTACH/carry/DETACH sequence, and
+// the sequence runs inside the store's write boundary. Pinning is load
+// bearing, not tidiness: ATTACH is a per-connection property of the SQLite
+// handle, while database/sql guarantees no connection affinity between
+// separate Exec calls — the pool is free to run the ATTACH, the INSERT
+// SELECT, and the DETACH on three different connections. Only incidental
+// idle-connection reuse at boot ever held the sequence together, so any
+// change to when connections are handed out (or a busy pool) splits it:
+// the carry then fails with "no such table: legacy.<t>", and a DETACH on a
+// connection that never attached leaves the legacy file attached and locked
+// on whichever connection holds it. The empty-target check rides the same
+// boundary so the copy can never interleave with another writer and land in
+// a target that stopped being empty.
 func ImportLegacyHistoryDB(s *Store, newPath, oldPath string) (int64, error) {
 	if oldPath == "" {
 		return 0, nil
@@ -308,45 +325,91 @@ func ImportLegacyHistoryDB(s *Store, newPath, oldPath string) (int64, error) {
 		}
 		return 0, fmt.Errorf("store: stat legacy history: %w", err)
 	}
-	for _, t := range historyCarryTables {
-		var n int64
-		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + t).Scan(&n); err != nil {
-			return 0, fmt.Errorf("store: count %s: %w", t, err)
-		}
-		if n > 0 {
-			return 0, nil
-		}
-	}
-	carry := func() (int64, error) {
-		var total int64
+	ctx, cancel := context.WithTimeout(context.Background(), legacyCarryTimeout)
+	defer cancel()
+	var total int64
+	err = s.withWrite(func() error {
+		// The empty-target gate and the copy share one boundary: a writer
+		// that landed rows in the meantime must skip the carry, never merge
+		// into a target that stopped being empty.
 		for _, t := range historyCarryTables {
-			res, err := s.db.Exec("INSERT INTO main." + t + " SELECT * FROM legacy." + t)
-			if err != nil {
-				return total, fmt.Errorf("store: carry %s: %w", t, err)
+			var n int64
+			if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+t).Scan(&n); err != nil {
+				return fmt.Errorf("store: count %s: %w", t, err)
 			}
-			n, _ := res.RowsAffected()
-			total += n
+			if n > 0 {
+				return nil
+			}
 		}
-		return total, nil
-	}
-	attach := func(path string) error {
-		_, err := s.db.Exec("ATTACH DATABASE '" + strings.ReplaceAll(path, "'", "''") + "' AS legacy")
+		conn, err := s.db.Conn(ctx)
+		if err != nil {
+			return fmt.Errorf("store: pin legacy carry connection: %w", err)
+		}
+		defer func() { _ = conn.Close() }()
+		detach, err := attachLegacy(ctx, conn, oldAbs)
+		if err != nil {
+			staged, cleanup, stageErr := stageLegacyTrio(oldAbs)
+			if stageErr != nil {
+				return stageErr
+			}
+			defer cleanup()
+			if detach, err = attachLegacy(ctx, conn, staged); err != nil {
+				return fmt.Errorf("store: attach legacy history: %w", err)
+			}
+		}
+		defer detach()
+		total, err = carryLegacyRows(ctx, conn)
 		return err
-	}
-	if err := attach(oldAbs); err == nil {
-		defer func() { _, _ = s.db.Exec("DETACH DATABASE legacy") }()
-		return carry()
-	}
-	staged, cleanup, err := stageLegacyTrio(oldAbs)
+	})
 	if err != nil {
 		return 0, err
 	}
-	defer cleanup()
-	if err := attach(staged); err != nil {
-		return 0, fmt.Errorf("store: attach legacy history: %w", err)
+	return total, nil
+}
+
+// legacyCarryTimeout bounds the whole pinned attach/carry/detach sequence.
+// Boot blocks on it, so it is generous for the row volumes involved but
+// still finite: a wedged file lock can never hang startup.
+const legacyCarryTimeout = 30 * time.Second
+
+// legacyDetachTimeout bounds the DETACH alone. It gets its own budget
+// because it runs after the carry, including on the path where the carry
+// already spent the sequence timeout — the release must not inherit an
+// expired context.
+const legacyDetachTimeout = 5 * time.Second
+
+// attachLegacy ATTACHes path as "legacy" on the pinned connection and
+// returns the matching DETACH, which the caller defers immediately. Both
+// statements land on the same connection by construction: an ATTACH lives
+// and dies with the SQLite handle, so a DETACH issued anywhere else would
+// leave the file attached to the handle that has it (and locked with it)
+// while claiming to have released it.
+func attachLegacy(ctx context.Context, conn *sql.Conn, path string) (func(), error) {
+	if _, err := conn.ExecContext(ctx, "ATTACH DATABASE '"+strings.ReplaceAll(path, "'", "''")+"' AS legacy"); err != nil {
+		return nil, err
 	}
-	defer func() { _, _ = s.db.Exec("DETACH DATABASE legacy") }()
-	return carry()
+	return func() {
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), legacyDetachTimeout)
+		defer cancel()
+		_, _ = conn.ExecContext(dctx, "DETACH DATABASE legacy")
+	}, nil
+}
+
+// carryLegacyRows copies every historyCarryTables row from the attached
+// "legacy" database into the store's main database on the pinned
+// connection. A failure returns the rows copied so far — the caller
+// reports and boots on, and the deferred DETACH still releases the file.
+func carryLegacyRows(ctx context.Context, conn *sql.Conn) (int64, error) {
+	var total int64
+	for _, t := range historyCarryTables {
+		res, err := conn.ExecContext(ctx, "INSERT INTO main."+t+" SELECT * FROM legacy."+t)
+		if err != nil {
+			return total, fmt.Errorf("store: carry %s: %w", t, err)
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	return total, nil
 }
 
 // CountLegacyHistoryRows inspects a legacy history file WITHOUT importing
