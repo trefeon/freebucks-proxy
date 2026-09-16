@@ -33,6 +33,11 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
 		card.CooldownActive = true
 		card.CooldownUntil = t.CooldownUntil.Format(time.RFC3339)
+		card.CooldownKind = t.CooldownKind
+		card.CooldownWindowHours = t.CooldownWindowHours
+		if !t.CooldownResetsAt.IsZero() {
+			card.CooldownResetsAt = t.CooldownResetsAt.Format(time.RFC3339)
+		}
 	}
 	if t.BanType != "" {
 		card.BanType = t.BanType
@@ -136,16 +141,23 @@ type tokenLiveCard struct {
 	// change every second), so they ride the hot poll exactly like
 	// ActiveRuns: the console's "who is waiting" view must not wait for a
 	// full fetch.
-	LiveTurns        int    `json:"live_turns"`
-	QueuedWaiters    int    `json:"queued_waiters"`
-	OldestWaiterMS   int64  `json:"oldest_waiter_ms"`
-	RequestsPerDay   int    `json:"requests_per_day"`
-	CooldownActive   bool   `json:"cooldown_active"`
-	CooldownUntil    string `json:"cooldown_until"`
-	Locked           bool   `json:"locked"`
-	BanType          string `json:"ban_type,omitempty"`
-	BannedUntil      string `json:"banned_until,omitempty"`
-	TransientRetries int64  `json:"transient_retries"`
+	LiveTurns      int    `json:"live_turns"`
+	QueuedWaiters  int    `json:"queued_waiters"`
+	OldestWaiterMS int64  `json:"oldest_waiter_ms"`
+	RequestsPerDay int    `json:"requests_per_day"`
+	CooldownActive bool   `json:"cooldown_active"`
+	CooldownUntil  string `json:"cooldown_until"`
+	// Cooldown reason rides the hot poll like cooldown_until itself: the
+	// refusal can land between full fetches, and the account card must be
+	// able to say WHY it is cooling down and when upstream lifts it. Same
+	// additive/omitempty contract as tokenCard.
+	CooldownKind        string `json:"cooldown_kind,omitempty"`
+	CooldownResetsAt    string `json:"cooldown_resets_at,omitempty"`
+	CooldownWindowHours int    `json:"cooldown_window_hours,omitempty"`
+	Locked              bool   `json:"locked"`
+	BanType             string `json:"ban_type,omitempty"`
+	BannedUntil         string `json:"banned_until,omitempty"`
+	TransientRetries    int64  `json:"transient_retries"`
 	// AllowlistSkips is live (like TransientRetries): every poll refreshes
 	// it, so it stays out of the SPA's static cache.
 	AllowlistSkips int64 `json:"allowlist_skips,omitempty"`
@@ -184,6 +196,11 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
 		card.CooldownActive = true
 		card.CooldownUntil = t.CooldownUntil.Format(time.RFC3339)
+		card.CooldownKind = t.CooldownKind
+		card.CooldownWindowHours = t.CooldownWindowHours
+		if !t.CooldownResetsAt.IsZero() {
+			card.CooldownResetsAt = t.CooldownResetsAt.Format(time.RFC3339)
+		}
 	}
 	if t.BanType != "" {
 		card.BanType = t.BanType

@@ -230,7 +230,20 @@ type RateLimitError struct {
 	// "retry-after" when RetryAfter is set, else "none") — reused by the
 	// server's `request failed` WARN dedupe.
 	Window string
-	Body   string // truncated upstream body
+	// WindowHours is the quota window upstream declared for this refusal
+	// ("windowHours": 24 on the freebucks daily ceiling). Zero when the body
+	// carried none. Informational only: no cooldown math reads it, so an
+	// absent field changes nothing (backward compatible).
+	WindowHours int
+	// FreebucksShortfall marks the vendor's freebucks ceiling refusal: the
+	// body carried a freebucksShortfall block, i.e. the account cannot cover
+	// the next session's freebucks price until the window resets (prod
+	// 2026-09-16: windowHours 24, resetAt the next Pacific midnight,
+	// retryAfterMs ~19h56m). It is the marker WindowKind turns into the
+	// distinguishable kind, so the window refusal never reads as a plain rate
+	// limit again. False for every other body (no behavior change).
+	FreebucksShortfall bool
+	Body               string // truncated upstream body
 }
 
 func (e *RateLimitError) Error() string {
@@ -244,6 +257,26 @@ func (e *RateLimitError) Error() string {
 		msg += ": " + e.Body
 	}
 	return msg
+}
+
+// WindowKindFreebucks is the distinguishable kind (and ledger code) of the
+// vendor's freebucks-window refusal: a 429 rate_limited carrying a
+// freebucksShortfall block, usually with windowHours + resetAt and a
+// retryAfterMs reaching the next reset. Before this kind existed the refusal
+// was indistinguishable from a generic rate limit in /metrics and the
+// dashboard payloads — exactly the ~20h cooldown an operator had to explain
+// from the raw body.
+const WindowKindFreebucks = "freebucks_window"
+
+// WindowKind returns the distinguishable kind of this refusal, "" for a plain
+// rate limit. Only the body's freebucks shortfall marker makes the kind: a
+// declared windowHours alone is a per-model quota window (still reported
+// through WindowHours), not the freebucks ceiling.
+func (e *RateLimitError) WindowKind() string {
+	if e == nil || !e.FreebucksShortfall {
+		return ""
+	}
+	return WindowKindFreebucks
 }
 
 func (e *RateLimitError) Unwrap() error { return ErrRateLimited }

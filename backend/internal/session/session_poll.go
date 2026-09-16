@@ -64,7 +64,14 @@ func statusError(status string, st *upstream.SessionState) error {
 			ResetAt:     st.ResetAt,
 			Limit:       st.Limit,
 			RecentCount: st.RecentCount,
-			Body:        st.Message,
+			// Window evidence survives the status path too (prod
+			// 2026-09-16): a session status response reporting the freebucks
+			// ceiling must not degrade to a plain rate limit on its way to
+			// the cooldown memory, or /metrics and the payloads would lose
+			// the distinction the body carried.
+			WindowHours:        st.WindowHours,
+			FreebucksShortfall: st.FreebucksShortfall,
+			Body:               st.Message,
 		}
 	case "ip_capped":
 		// Distinct error: ip_capped is admission-only (too many distinct

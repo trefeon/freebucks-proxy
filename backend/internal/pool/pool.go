@@ -90,10 +90,22 @@ type Lease struct {
 
 // TokenSnapshot is one token's healthz view.
 type TokenSnapshot struct {
-	Token                   int
-	Email                   string `json:"email,omitempty"`
-	AccountID               string `json:"account_id,omitempty"`
-	CooldownUntil           time.Time
+	Token         int
+	Email         string `json:"email,omitempty"`
+	AccountID     string `json:"account_id,omitempty"`
+	CooldownUntil time.Time
+	// CooldownKind / CooldownWindowHours / CooldownResetsAt answer WHY a
+	// token is cooling down when upstream's refusal was a distinguishable
+	// window refusal (upstream.WindowKindFreebucks → "freebucks_window", the
+	// vendor's daily freebucks ceiling). CooldownKind is "" for every other
+	// cooldown (plain retry-after rate limit, ip_capped, ban, auth) and
+	// CooldownWindowHours/CooldownResetsAt stay zero unless upstream declared
+	// them, so existing consumers see exactly the old shape. CooldownResetsAt
+	// is upstream's own window refill instant; the proxy deadline remains
+	// CooldownUntil — the two are different facts and both are reported.
+	CooldownKind            string
+	CooldownWindowHours     int
+	CooldownResetsAt        time.Time
 	SessionStatus           string
 	SessionInstanceID       string
 	SessionQueuePosition    int

@@ -437,6 +437,18 @@ func parseRateLimit(body string, headerRetryAfter time.Duration) error {
 			rle.ResetAt = t
 		}
 
+		// Window evidence for the freebucks ceiling (prod 2026-09-16). Both
+		// fields are informational for the cooldown math (none of it reads
+		// them); they only let the payloads and the ledger name the refusal.
+		// windowHours is clamped like every other upstream-controlled number
+		// so an absurd value can never truncate into a bogus int.
+		if wh, ok := getNumber(target, "windowHours", "window_hours"); ok && wh > 0 && wh <= math.MaxInt32 {
+			rle.WindowHours = int(wh)
+		}
+		if hasFreebucksShortfall(target) {
+			rle.FreebucksShortfall = true
+		}
+
 		if lim, ok := getNumber(target, "limit"); ok {
 			rle.Limit = lim
 		}
@@ -503,6 +515,33 @@ func parseRateLimit(body string, headerRetryAfter time.Duration) error {
 	// RetryAfter → "retry-after").
 	rle.Window = rateLimitWindow(body, rle)
 	return rle
+}
+
+// hasFreebucksShortfall reports whether a rate-limit body carries the vendor's
+// freebucks shortfall marker (freebucksShortfall / freebucks_shortfall). An
+// absent key, an explicit JSON null, or an explicit false leaves the refusal
+// plain, so a body that merely mentions the word can never flip the kind.
+func hasFreebucksShortfall(target map[string]any) bool {
+	for _, key := range []string{"freebucksShortfall", "freebucks_shortfall"} {
+		if freebucksShortfallPresent(target[key]) {
+			return true
+		}
+	}
+	return false
+}
+
+// freebucksShortfallPresent reports whether a decoded freebucksShortfall value
+// is a real marker: anything but JSON null and an explicit false counts (the
+// vendor sends an object with the shortfall amounts).
+func freebucksShortfallPresent(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return t
+	default:
+		return true
+	}
 }
 
 // banFromBody builds a BanError from a banned body, extracting the
