@@ -9,8 +9,8 @@ import (
 //
 // Releases before the unified DB kept state next to the working directory:
 // freebuff-history.db beside SESSION_STATE_FILE, and later data/freebuff.db
-// under old bind mounts (docker-canonical: /app/state). When the canonical
-// DB path moves (fresh db_data volume at /app/data), the data must still be
+// under old bind mounts (docker-canonical: /app/state). When the DB_PATH
+// override points the canonical DB at a new path, the data must still be
 // found: these helpers list every pre-existing legacy location so boot can
 // fold each one into the new DB. Existence-gated: entries name files that
 // must already be there, so the constants are inert on machines (Windows

@@ -167,8 +167,9 @@ func (s *Store) MigrateStatus() MigrateStatus {
 }
 
 // defaultDBPath is the DB file used when DB_PATH is unset: ./data/freebuff.db
-// relative to the process working directory (mirrored by the compose
-// db_data volume at /app/data/freebuff.db inside Docker).
+// relative to the process working directory (bind-only: the compose host dir
+// mounted at /app/state, so ./data/freebuff.db under WORKDIR; the settings
+// overlay in that DB beats .env).
 const defaultDBPath = "data/freebuff.db"
 
 // busyTimeoutMillis is how long every connection waits for the writer in
