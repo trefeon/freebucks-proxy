@@ -33,6 +33,29 @@ func isQuotaExhaustedError(rle *upstream.RateLimitError) bool {
 	return false
 }
 
+// canServeOtherModel reports whether a remembered rate-limit cooldown is
+// isolated to another model, so the token may still serve model (issues
+// #155/#178: a quota cap on one model must not block the token's others).
+// It is the single definition of the per-model bypass shared by the
+// failover loop, the hot-first ordering, the bridge gate and the
+// smart-routing score, so a kind that is never per-model stays parked
+func canServeOtherModel(rle *upstream.RateLimitError, model string) bool {
+	if rle == nil || rle.Model == "" || rle.Model == model {
+		return false
+	}
+	// The vendor's freebucks-window ceiling is account-wide, not per-model:
+	// the account cannot cover ANY next session's price until the window
+	// resets, so a window refusal never isolates to another model. Parking
+	// the token for every model also keeps the refresh path from reaching
+	// the release-then-create switch (which would DELETE the surviving
+	// session for a doomed admission). A plain rate_limited and every other
+	// refusal keep the per-model bypass exactly as before.
+	if rle.WindowKind() == upstream.WindowKindFreebucks {
+		return false
+	}
+	return isQuotaExhaustedError(rle)
+}
+
 // isDailyCapReset mirrors upstream.isDailyCapReset: a no-timestamp 429 body
 // signals a genuine daily-cap reset when the quota period is
 // pacific_day/pacific_week/pacific_month AND the recent counter is at/over

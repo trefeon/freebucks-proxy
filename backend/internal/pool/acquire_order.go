@@ -286,7 +286,7 @@ func tokenAvailable(tok *tokenEntry, model string) bool {
 	}
 	until := tok.runs.CooldownUntil()
 	if !until.IsZero() && time.Now().Before(until) {
-		if rle := tok.runs.RateLimitError(); rle != nil && rle.Model != "" && rle.Model != model && isQuotaExhaustedError(rle) {
+		if canServeOtherModel(tok.runs.RateLimitError(), model) {
 			return true
 		}
 		return false

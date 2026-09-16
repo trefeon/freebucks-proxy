@@ -228,8 +228,8 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			// Issue #155: if the cooldown was caused by a specific model's quota exhaustion,
 			// and we are requesting a different model (e.g. fallback to mimo-v2.5),
 			// do not block this token from serving the requested model.
-			if rle := tok.runs.RateLimitError(); rle != nil && rle.Model != "" && rle.Model != model && isQuotaExhaustedError(rle) {
-				// Token is only quota-capped for rle.Model, but can still serve `model`.
+			if canServeOtherModel(tok.runs.RateLimitError(), model) {
+				// Token is only quota-capped for the remembered model, but can still serve `model`.
 			} else {
 				errs = append(errs, fmt.Sprintf("%s: cooling down until %s", name, until.Format(time.RFC3339)))
 				p.logger.Debug("pool: token skipped (cooldown)", "token", idx+1, "until", until.Format(time.RFC3339))

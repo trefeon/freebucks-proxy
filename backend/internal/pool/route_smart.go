@@ -408,7 +408,7 @@ func (p *Pool) routeScore(cfg *config.Config, toks *[]*tokenEntry, idx int, mode
 		// Per-model quota exemption (mirrors the failover loop): a
 		// cooldown caused by a DIFFERENT model's quota exhaustion still
 		// leaves the token eligible for this request.
-		if rle := tok.runs.RateLimitError(); rle != nil && rle.Model != "" && rle.Model != model && isQuotaExhaustedError(rle) {
+		if canServeOtherModel(tok.runs.RateLimitError(), model) {
 			score += routeWeightBackoff429
 		} else {
 			return 0, false, "cooldown"
