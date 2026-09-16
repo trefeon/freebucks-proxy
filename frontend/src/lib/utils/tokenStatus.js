@@ -62,9 +62,30 @@ export function cooldownLabel(token, now) {
 }
 
 /**
- * Little streak chip for the account cell: flame + day count while the
- * upstream streak is alive, dim "no streak" otherwise (never hidden, so a
- * missing streak reads as state, not as a missing widget).
+ * Live session countdown label from whole seconds remaining. Extracted from
+ * TokenDetailsDrawer's fmtCountdown so the drawer banner's old format
+ * ("58m 21s remaining" style) is shared verbatim with the status-cell
+ * timers in TokenCard + TokenCardMobile — short enough for the cell.
+ */
+export function sessionCountdownLabel(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    const hr = h % 24;
+    return hr > 0 ? `${d}d ${hr}h remaining` : `${d}d remaining`;
+  }
+  if (h > 0) return `${h}h ${m}m ${sec}s remaining`;
+  return `${m}m ${sec}s remaining`;
+}
+
+/**
+ * Little streak chip for the account cell: flame + compact day count ("7d")
+ * while the upstream streak is alive, dim "no streak" otherwise (never
+ * hidden, so a missing streak reads as state, not as a missing widget).
+ * The full "Streak 7 days" wording survives on the aria-label.
  */
 export function streakBadgeFor(token) {
   const days = Number(token.streak) || 0;

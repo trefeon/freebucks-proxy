@@ -1,9 +1,13 @@
 <script>
   import { RefreshCw } from "@lucide/svelte";
+  import { onDestroy } from "svelte";
   import PageHeader from "./PageHeader.svelte";
-  import Alert from "./Alert.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Button from "./Button.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import { tr } from "../i18n.js";
 
   /**
@@ -36,6 +40,28 @@
     children,
     crumb = "",
   } = $props();
+  // Page errors surface as a sticky error toast; the inline slot keeps the
+  // EmptyState + Retry so the failure stays actionable in place.
+  let errorToast = $state(0);
+  let lastErrorMsg = "";
+  $effect(() => {
+    const msg = error;
+    const heading = errorTitle || $tr("Could not load this page");
+    // Guard: the dismiss/push below writes errorToast, which re-runs this
+    // effect — only act when the error value itself changes, or the toast
+    // churns forever and starves recovery.
+    if (msg === lastErrorMsg) return;
+    lastErrorMsg = msg;
+    if (errorToast) {
+      dismissToast(errorToast);
+      errorToast = 0;
+    }
+    if (msg)
+      errorToast = pushToast({ tone: "error", title: heading, body: msg });
+  });
+  onDestroy(() => {
+    if (errorToast) dismissToast(errorToast);
+  });
 </script>
 
 {#snippet retryAction()}
@@ -64,14 +90,11 @@
       <div class="skeleton skeleton-text w-1/2"></div>
     </div>
   {:else if error}
-    <Alert tone="error" title={errorTitle || $tr("Could not load this page")}>
-      {error}
-      {#if onRetry}
-        <div class="mt-3">
-          {@render retryAction()}
-        </div>
-      {/if}
-    </Alert>
+    <EmptyState
+      title={errorTitle || $tr("Could not load this page")}
+      description={error}
+      action={onRetry ? retryAction : null}
+    />
   {:else if empty}
     {#if onRetry}
       <EmptyState

@@ -403,38 +403,3 @@ func TestActingUserID(t *testing.T) {
 		}
 	})
 }
-
-func TestQuotaFallbackModels(t *testing.T) {
-	t.Run("defaults", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("AUTH_TOKENS", "tok-1")
-		cfg, err := Load("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(cfg.QuotaFallbackModels) != 0 {
-			t.Errorf("QuotaFallbackModels = %v, want empty default (no fallback)", cfg.QuotaFallbackModels)
-		}
-	})
-	t.Run("env override", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("AUTH_TOKENS", "tok-1")
-		t.Setenv("QUOTA_FALLBACK_MODELS", "model-a=model-b,model-c=model-d")
-		cfg, err := Load("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if cfg.QuotaFallbackModels["model-a"] != "model-b" || cfg.QuotaFallbackModels["model-c"] != "model-d" {
-			t.Errorf("QuotaFallbackModels = %v, want mapped pairs", cfg.QuotaFallbackModels)
-		}
-	})
-	t.Run("validation identical src and target", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("AUTH_TOKENS", "tok-1")
-		t.Setenv("QUOTA_FALLBACK_MODELS", "model-a=model-a")
-		_, err := Load("")
-		if err == nil {
-			t.Error("expected error for identical source and target in QUOTA_FALLBACK_MODELS, got nil")
-		}
-	})
-}

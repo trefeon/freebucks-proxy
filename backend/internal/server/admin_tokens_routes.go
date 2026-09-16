@@ -204,6 +204,12 @@ func spawnModelFromRequest(r *http.Request) string {
 }
 
 func (a *adminHandlers) handleTokenSpawnSession(w http.ResponseWriter, r *http.Request) {
+	// Server-side DEVTOOLS_ENABLED gate: session spawn is a Dev Tools
+	// affordance (SessionSpawnPanel); a direct POST must 404 when off.
+	if !a.cfgLoad().DevToolsEnabled {
+		a.dash.RenderResult(w, http.StatusNotFound, false, "dev tools are disabled — set DEVTOOLS_ENABLED=true to enable the session spawn", "devtools_disabled")
+		return
+	}
 	id, err := tokenActionID(r)
 	if err != nil {
 		a.dash.RenderConfigResult(w, r, false, "Invalid token ID: "+err.Error())

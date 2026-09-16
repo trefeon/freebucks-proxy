@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,8 +12,6 @@ import (
 	"time"
 
 	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/server"
 	"freebuff-proxy/backend/internal/testutil"
 )
 
@@ -424,38 +421,20 @@ func TestMethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestChatModelAliasesAndReasoningEffort(t *testing.T) {
+func TestChatReasoningEffort(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 
-	ts, p := newTestServer(t, nil, mock)
-	_ = ts
-
-	reg := registry.New(&config.Config{
-		ModelAliases: map[string]string{
-			"gpt-4o": modelA,
-		},
-	}, nil)
-	reg.LoadFallback()
-
-	srv := server.New(&config.Config{
-		AuthTokens: []string{"tok-0"},
-		ModelAliases: map[string]string{
-			"gpt-4o": modelA,
-		},
-		DashboardEnabled: true,
-	}, p, reg, nil, nil, "")
-	tsAlias := httptest.NewServer(srv.Handler())
-	t.Cleanup(tsAlias.Close)
+	ts, _ := newTestServer(t, nil, mock)
 
 	bodyBytes, _ := json.Marshal(map[string]any{
-		"model":     "gpt-4o",
+		"model":     modelA,
 		"messages":  []any{map[string]any{"role": "user", "content": "hi"}},
 		"reasoning": map[string]any{"effort": "max"},
 		"stream":    true,
 	})
 
-	resp, data := doJSON(t, http.MethodPost, tsAlias.URL+"/v1/chat/completions", bodyBytes, nil)
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", bodyBytes, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, data)
 	}
@@ -465,10 +444,7 @@ func TestChatModelAliasesAndReasoningEffort(t *testing.T) {
 	}
 	var upstreamPayload map[string]any
 	if err := json.Unmarshal([]byte(mock.RecordedChatBodies[len(mock.RecordedChatBodies)-1]), &upstreamPayload); err != nil {
-		t.Fatalf("unmarshal upstream body: %v", err)
-	}
-	if gotModel := upstreamPayload["model"]; gotModel != modelA {
-		t.Errorf("upstream model = %v, want %v (resolved alias)", gotModel, modelA)
+		t.Fatalf("unmarshal upstream body: %v: %s", err, data)
 	}
 	if gotEffort := upstreamPayload["reasoning_effort"]; gotEffort != "max" {
 		t.Errorf("upstream reasoning_effort = %v, want \"max\"", gotEffort)

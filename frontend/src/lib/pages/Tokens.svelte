@@ -4,14 +4,30 @@
   import Button from "../components/Button.svelte";
   import Card from "../components/Card.svelte";
   import Alert from "../components/Alert.svelte";
+  import { push as pushToast } from "../stores/toast.js";
   import CopyButton from "../components/CopyButton.svelte";
   import PageShell from "../components/PageShell.svelte";
   import BridgeTokenCard from "../components/BridgeTokenCard.svelte";
   import TokenTable from "./tokens/TokenTable.svelte";
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import MaturityPanel from "../components/MaturityPanel.svelte";
+  import TrafficSettings from "./settings/TrafficSettings.svelte";
+  import StrategyPresetCard from "./settings/StrategyPresetCard.svelte";
+  import PoolCustomAdvanced from "./settings/PoolCustomAdvanced.svelte";
+  import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { fetchAPI, postAPI, csrfHeader } from "../api/client.js";
   import { adminApi, adminActions, tokenActions } from "../api/paths.js";
+  import {
+    meta as settingsMeta,
+    formValues as settingsFormValues,
+    rawText as settingsRawText,
+    settingSources as settingsSources,
+    settingsDegraded,
+    fetchData as fetchSettings,
+    resetSetting as resetSettingsKey,
+    overlaySaved as settingsOverlaySaved,
+    setField as setSettingsField,
+  } from "../stores/settings.js";
   import { isDevToolsEnabled } from "../utils/devtools.js";
   import {
     tokensData as tokensStore,
@@ -37,20 +53,25 @@
   // Add-token form
   let newToken = $state("");
   let adding = $state(false);
-  let actionMessage = $state("");
-  let actionOK = $state(true);
   // Dev Tools surfaces (per-token session spawn toolbar) are hidden unless
   // the operator enables DEVTOOLS_ENABLED=true in .env (same gate as the
   // sidebar's Dev Tools tab and the server-side DevTools route).
   let devToolsEnabled = $state(false);
   // Token rotation strategy (TOKEN_ROTATION) + auto-failover flag
-  // (RATE_LIMIT_FAILOVER): READ-ONLY here, fed from the tokens snapshot in
-  // applyTokens. Policy editing moved to Settings → Traffic.
+  // (RATE_LIMIT_FAILOVER): summary chips fed from the tokens snapshot in
+  // applyTokens. Policy editing lives in the inline Pool controls below.
   let tokenRotation = $state("drain");
   let rateLimitFailover = $state(true);
-  // Active tab: pool accounts vs account warming. The legacy #maturity hash
-  // redirects here one-shot via sessionStorage (see onMount).
+  // Active tab: pool accounts vs pool controls vs account warming. The
+  // legacy #maturity hash redirects here one-shot via sessionStorage (see
+  // onMount).
   let tab = $state("accounts");
+  // Bridge-gated rows (BRIDGE_IDLE_EVICT in Pool Tuning) hide unless bridge
+  // mode can serve: BRIDGE_ENABLED on (default true).
+  let bridgePossible = $derived(
+    String($settingsFormValues.BRIDGE_ENABLED ?? "true").toLowerCase() !==
+      "false",
+  );
 
   // Device login flow
   let oauthStarting = $state(false);
@@ -110,19 +131,24 @@
       const result = await postAPI(adminActions.tokenAdd, {
         token: newToken.trim(),
       });
-      actionOK = result.ok !== false;
-      actionMessage =
-        result.message ||
-        (actionOK
-          ? $tr("Token added successfully")
-          : $tr("Failed to add token"));
-      if (actionOK) {
+      const addOK = result.ok !== false;
+      pushToast({
+        tone: addOK ? "success" : "error",
+        title:
+          result.message ||
+          (addOK
+            ? $tr("Token added successfully")
+            : $tr("Failed to add token")),
+      });
+      if (addOK) {
         newToken = "";
         refreshTokens();
       }
     } catch (e) {
-      actionOK = false;
-      actionMessage = e.message || $tr("Network error adding token");
+      pushToast({
+        tone: "error",
+        title: e.message || $tr("Network error adding token"),
+      });
     } finally {
       adding = false;
     }
@@ -148,14 +174,19 @@
     actionPending = true;
     try {
       const result = await postAPI(url, body || undefined);
-      actionOK = result.ok !== false;
-      actionMessage =
-        result.message ||
-        (actionOK ? $tr("Action completed") : $tr("Action failed"));
+      const actOK = result.ok !== false;
+      pushToast({
+        tone: actOK ? "success" : "error",
+        title:
+          result.message ||
+          (actOK ? $tr("Action completed") : $tr("Action failed")),
+      });
       refreshTokens();
     } catch (e) {
-      actionOK = false;
-      actionMessage = e.message || $tr("Network error executing action");
+      pushToast({
+        tone: "error",
+        title: e.message || $tr("Network error executing action"),
+      });
     } finally {
       actionPending = false;
     }
@@ -268,10 +299,7 @@
 
   async function startOAuthLogin() {
     oauthStarting = true;
-    oauthStatus = {
-      message: $tr("Starting headless login flow…"),
-      type: "info",
-    };
+    pushToast({ tone: "info", title: $tr("Starting headless login flow…") });
 
     try {
       const res = await fetch(adminActions.loginStart, {
@@ -298,25 +326,24 @@
 
             if (pollData.status === "completed") {
               clearInterval(oauthTimer);
-              oauthStatus = {
-                message: $tr(
-                  "Account #{idx} added to pool and saved to .env.",
-                  {
-                    idx: pollData.token_index + 1,
-                  },
-                ),
-                type: "success",
-              };
+              pushToast({
+                tone: "success",
+                title: $tr("Account #{idx} added to pool and saved to .env.", {
+                  idx: pollData.token_index + 1,
+                }),
+              });
+              oauthStatus = null;
               oauthStarting = false;
               refreshTokens();
             } else if (pollData.status === "error") {
               clearInterval(oauthTimer);
-              oauthStatus = {
-                message: $tr("Login failed: {message}", {
+              pushToast({
+                tone: "error",
+                title: $tr("Login failed: {message}", {
                   message: pollData.message || $tr("unknown error"),
                 }),
-                type: "error",
-              };
+              });
+              oauthStatus = null;
               oauthStarting = false;
             }
           } catch {
@@ -324,17 +351,19 @@
           }
         }, 3000);
       } else {
-        oauthStatus = {
-          message: result.message || $tr("Failed to start login wizard."),
-          type: "error",
-        };
+        pushToast({
+          tone: "error",
+          title: result.message || $tr("Failed to start login wizard."),
+        });
+        oauthStatus = null;
         oauthStarting = false;
       }
     } catch (e) {
-      oauthStatus = {
-        message: $tr("Network error: {message}", { message: e.message }),
-        type: "error",
-      };
+      pushToast({
+        tone: "error",
+        title: $tr("Network error: {message}", { message: e.message }),
+      });
+      oauthStatus = null;
       oauthStarting = false;
     }
   }
@@ -377,12 +406,16 @@
       const want = sessionStorage.getItem("fp-page-tab:tokens");
       if (want !== null) {
         sessionStorage.removeItem("fp-page-tab:tokens");
-        if (want === "accounts" || want === "warming") tab = want;
+        if (want === "accounts" || want === "controls" || want === "warming")
+          tab = want;
       }
     } catch {
       /* storage blocked: default tab stands */
     }
     restoreExpandedToken();
+    // Shared settings draft (same store as Settings): hydrates the inline
+    // Pool controls; silent when Settings already loaded it.
+    fetchSettings();
     // One shared tokens store owns the /admin/api/tokens poll + SSE (issue
     // #292); this page renders from the cached snapshot and refreshes the
     // store after every mutation.
@@ -423,10 +456,10 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / tokens.conf"
-  title={$tr("Tokens")}
+  crumb="freebuff-proxy / Admin / pool.conf"
+  title={$tr("Pool")}
   description={$tr(
-    "Upstream credentials, device login, client API keys, and streak enrollment — allowances live on Plans",
+    "Upstream credentials, device login, client API keys, and streak enrollment — allowances live on Usage",
   )}
   {loading}
   {error}
@@ -462,7 +495,7 @@
       <div
         class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
         title={$tr(
-          "Drain uses each account fully before moving to the next. Edit in Settings → Traffic.",
+          "Drain uses each account fully before moving to the next. Edit in the Pool controls below.",
         )}
       >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
@@ -481,7 +514,7 @@
       <div
         class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
         title={$tr(
-          "On a 429 the request retries at once on another healthy account. Edit in Settings → Traffic.",
+          "On a 429 the request retries at once on another healthy account. Edit in the Pool controls below.",
         )}
       >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
@@ -496,61 +529,50 @@
         </dd>
       </div>
     </dl>
-    <a
-      href="#settings"
-      class="mt-1 text-[11px] text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:underline"
-    >
-      {$tr("Strategy & failover live in Settings → Traffic")}
-    </a>
   {/snippet}
-  {#if actionMessage}
-    <Alert tone={actionOK ? "success" : "error"} title={actionMessage} />
-  {/if}
-
-  {#if oauthStatus}
-    <Alert
-      tone={oauthStatus.type === "success"
-        ? "success"
-        : oauthStatus.type === "error"
-          ? "error"
-          : "info"}
-      title={oauthStatus.message}
+  {#if oauthStatus?.loginUrl}
+    <div
+      class="rounded border border-[var(--fp-border)] bg-[var(--fp-surface-2)]/60 px-3 py-2.5"
     >
-      {#if oauthStatus.loginUrl}
-        <div class="flex flex-col gap-2 mt-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <code class="fp-num text-xs break-all max-w-full"
-              >{oauthStatus.loginUrl}</code
-            >
-            <CopyButton text={oauthStatus.loginUrl} label={$tr("Copy link")} />
-            <a
-              href={oauthStatus.loginUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-1 text-xs text-[var(--fp-accent)] hover:underline font-medium"
-            >
-              {$tr("Open in New Tab")}
-              <ExternalLink size={12} />
-            </a>
-          </div>
-          <p class="text-xs text-[var(--fp-dim)]">
-            {$tr(
-              "Tip: To add a different FreeBuff account, open this link in an Incognito / Private window so your browser does not reuse an existing GitHub session.",
-            )}
-          </p>
+      <p class="text-[13px] font-semibold text-[var(--fp-text)]">
+        {oauthStatus.message}
+      </p>
+      <div class="flex flex-col gap-2 mt-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <code class="fp-num text-xs break-all max-w-full"
+            >{oauthStatus.loginUrl}</code
+          >
+          <CopyButton text={oauthStatus.loginUrl} label={$tr("Copy link")} />
+          <a
+            href={oauthStatus.loginUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 text-xs text-[var(--fp-accent)] hover:underline font-medium"
+          >
+            {$tr("Open in New Tab")}
+            <ExternalLink size={12} />
+          </a>
         </div>
-      {/if}
-    </Alert>
+        <p class="text-xs text-[var(--fp-dim)]">
+          {$tr(
+            "Tip: To add a different FreeBuff account, open this link in an Incognito / Private window so your browser does not reuse an existing GitHub session.",
+          )}
+        </p>
+      </div>
+    </div>
   {/if}
-  <div class="flex flex-wrap items-center gap-2">
-    <SegmentedControl
-      bind:value={tab}
-      options={[
-        { id: "accounts", label: $tr("Accounts") },
-        { id: "warming", label: $tr("Warming") },
-      ]}
-      ariaLabel={$tr("Tokens sections")}
-    />
+  <div class="flex flex-col items-start gap-1">
+    <div class="flex flex-wrap items-center gap-2">
+      <SegmentedControl
+        bind:value={tab}
+        options={[
+          { id: "accounts", label: $tr("Accounts") },
+          { id: "warming", label: $tr("Warming") },
+          { id: "controls", label: $tr("Controls") },
+        ]}
+        ariaLabel={$tr("Tokens sections")}
+      />
+    </div>
   </div>
 
   {#if tab === "accounts"}
@@ -660,7 +682,61 @@
         </div>
       </Card>
     {/if}
+  {:else if tab === "controls"}
+    {#if $settingsDegraded}
+      <Alert tone="warning" title={$tr("DB overlay unavailable")}>
+        {$tr(
+          "The settings store is offline — per-key saves are disabled. Changes cannot be saved right now.",
+        )}
+      </Alert>
+    {/if}
+    <StrategyPresetCard
+      formValues={$settingsFormValues}
+      onField={setSettingsField}
+    />
+    <TrafficSettings
+      cardTitle="Pool Controls"
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
+    />
+    <PoolCustomAdvanced
+      meta={$settingsMeta}
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
+      tokenCount={data?.token_count ?? (data?.tokens ?? []).length}
+    />
+    <AdvancedSettings
+      meta={$settingsMeta}
+      formValues={$settingsFormValues}
+      rawText={$settingsRawText}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      onlyGroups={["pool"]}
+      cardTitle="Pool Tuning"
+      cardDescription="Pool sizing, sessions, streak maintenance, and quota probing."
+      {bridgePossible}
+      degraded={$settingsDegraded}
+    />
   {:else if tab === "warming"}
-    <MaturityPanel />
+    <MaturityPanel
+      formValues={$settingsFormValues}
+      onField={setSettingsField}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
+    />
   {/if}
 </PageShell>

@@ -9,12 +9,6 @@
   import { SlidersHorizontal } from "@lucide/svelte";
   import { tr } from "../../i18n.js";
   import { parseEnv } from "../../utils/env.js";
-  import { fetchAPI } from "../../api/client.js";
-  import { adminApi } from "../../api/paths.js";
-  import {
-    touchOptions as sharedTouchOptions,
-    touchLabel,
-  } from "../../utils/touchModels.js";
 
   /**
    * Advanced settings: every catalog key the curated sections do not own.
@@ -33,6 +27,13 @@
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
+   * @prop {Array<string> | null} [onlyGroups] - null renders every group,
+   *   otherwise only the listed catalog group ids (e.g. ["pool"])
+   * @prop {string} [cardTitle] - card heading, translated at render
+   * @prop {string} [cardDescription] - card subheading, translated at render
+   * @prop {boolean} [bridgePossible=true] - BRIDGE_IDLE_EVICT hides unless set
+   * @prop {boolean} [degraded=false] - settings store offline: rows render
+   *   an honest offline note and stay read-only for saves
    */
   let {
     meta = [],
@@ -44,28 +45,38 @@
     onSaved = null,
     query = "",
     onMatchCount = null,
+    onlyGroups = null,
+    cardTitle = "Advanced",
+    cardDescription = "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
+    bridgePossible = true,
+    degraded = false,
   } = $props();
-
-  // Keys owned by the curated section components above (Gateway, Traffic —
-  // including the Rotation block and the Smart routing group — ModelRouting,
-  // Dashboard access); Advanced shows everything else the catalog exposes.
+  // Keys owned by the curated section components above (Gateway, Traffic,
+  // ModelRouting, Dashboard access, the Pool Strategy card, Pool Custom
+  // advanced, and the Warming tab's Streak Maintenance card which owns every
+  // MATURITY_* key); Advanced shows everything else the catalog exposes.
   const COVERED = new Set([
+    "ADOPT_CLI_SESSION",
     "BRIDGE_ENABLED",
     "DASHBOARD_REQUIRE_LOGIN",
     "HTTP_READ_TIMEOUT",
     "LOG_LEVEL",
-    "MAX_REQUESTS_PER_DAY",
-    "MAX_REQUESTS_PER_MINUTE",
-    "MODELS_ALLOW",
-    "MODEL_ALIASES",
+    "MATURITY_ENABLED",
+    "MATURITY_TOUCH_MODEL",
     "MODEL_LOCKS",
+    "MODEL_UNAVAILABLE_CACHE_TTL",
+    "MODELS_ALLOW",
     "QUEUE_DEPTH",
     "QUEUE_WAIT",
+    "QUOTA_PROBE_ACTIVE_INTERVAL",
+    "QUOTA_PROBE_IDLE_HEARTBEAT",
     "RATE_LIMIT_FAILOVER",
     "RATE_LIMIT_PER_IP",
     "REASONING_IN_CONTENT",
     "ROUTING_SMART",
     "SAFE_MODE",
+    "SESSION_PERSIST",
+    "SESSION_PROBE_CACHE_TTL",
     "TOKEN_MAX_CONCURRENT",
     "TOKEN_ROTATION",
   ]);
@@ -77,11 +88,19 @@
     upstream: "Upstream",
     security: "Security",
   };
-
   let env = $derived(parseEnv(rawText));
+  // BRIDGE_IDLE_EVICT only makes sense while bridge mode can serve: hidden
+  // unless the parent reports bridge as possible (BRIDGE_ENABLED on).
   let rows = $derived(
     (meta ?? []).filter(
-      (e) => e && e.key && !e.hidden && !e.secret && !COVERED.has(e.key),
+      (e) =>
+        e &&
+        e.key &&
+        !e.hidden &&
+        !e.secret &&
+        !COVERED.has(e.key) &&
+        (e.key !== "BRIDGE_IDLE_EVICT" || bridgePossible) &&
+        (!onlyGroups || onlyGroups.includes(e.group)),
     ),
   );
   let groups = $derived.by(() => {
@@ -144,10 +163,6 @@
   // Deep-link focus from cross-page jump links: a link stashes a catalog
   // key in sessionStorage, then routes here.
   let pendingFocusKey = $state("");
-  // Served-model catalog for the global MATURITY_TOUCH_MODEL select
-  // (shared utils/touchModels.js, priced labels kept). Fetched here so the
-  // generic catalog row can render a dropdown instead of a raw text input.
-  let modelRows = $state([]);
   onMount(() => {
     try {
       pendingFocusKey = sessionStorage.getItem("fp-settings-focus") ?? "";
@@ -155,21 +170,7 @@
     } catch {
       /* storage blocked: no deep focus, page still renders */
     }
-    (async () => {
-      try {
-        const res = await fetchAPI(adminApi.models);
-        modelRows = res?.models ?? [];
-      } catch {
-        modelRows = [];
-      }
-    })();
   });
-  // Global touch options: this IS the global value, so no empty
-  // fallback option — the current value (or catalog default) is selected.
-  // Fail-open to the current value alone while the catalog loads.
-  function globalTouchOpts(entry) {
-    return sharedTouchOptions(modelRows, val(entry.key, entry));
-  }
   $effect(() => {
     const rowCount = rows.length;
     if (!pendingFocusKey || rowCount === 0) return;
@@ -177,8 +178,8 @@
     pendingFocusKey = "";
     requestAnimationFrame(() => {
       // Scope to the row's own labeled control: the row also hosts the
-      // per-key DbOverrideSave button, so a bare "input, button" selector
-      // would focus the save button instead of the setting control.
+      // per-key DbOverrideSave cluster (Reset + status), so a bare
+      // "input, button" selector would focus Reset instead of the control.
       const el = document.getElementById(`setting-${key}`);
       const control = el?.querySelector(`[aria-label="${CSS.escape(key)}"]`);
       if (!el || !(control instanceof HTMLElement)) return;
@@ -189,12 +190,7 @@
 </script>
 
 {#if !q || filtered.length > 0}
-  <SettingsCard
-    title={$tr("Advanced")}
-    description={$tr(
-      "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
-    )}
-  >
+  <SettingsCard title={$tr(cardTitle)} description={$tr(cardDescription)}>
     {#snippet icon()}
       <SlidersHorizontal size={20} />
     {/snippet}
@@ -259,24 +255,10 @@
                   source={sources[entry.key]}
                   {onReset}
                   {onSaved}
+                  {degraded}
                 />
               {/snippet}
-              {#if entry.key === "MATURITY_TOUCH_MODEL"}
-                <!-- Global touch default: Auto plus priced options
-                (shared helper). Saves through the existing row path. -->
-                <select
-                  class="fp-select"
-                  value={val(entry.key, entry)}
-                  aria-label={entry.key}
-                  title={val(entry.key, entry)}
-                  onchange={(e) => onField(entry.key, e.currentTarget.value)}
-                >
-                  <option value="auto">Auto (cheapest unmetered)</option>
-                  {#each globalTouchOpts(entry) as opt (opt.id)}
-                    <option value={opt.id}>{touchLabel(opt)}</option>
-                  {/each}
-                </select>
-              {:else if entry.kind === "bool"}
+              {#if entry.kind === "bool"}
                 <ToggleSwitch
                   checked={boolVal(entry.key, entry)}
                   ariaLabel={entry.key}

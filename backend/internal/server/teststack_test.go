@@ -42,10 +42,6 @@ func newTestServerStack(t *testing.T, apiKeys []string, mocks []*testutil.MockUp
 		// stack exercises the smoke/playground surfaces, so keep them on
 		// unless a test explicitly flips it (S-05 gate tests set false).
 		DevToolsEnabled: true,
-		QuotaFallbackModels: map[string]string{
-			"deepseek/deepseek-v4-flash": "mimo/mimo-v2.5",
-			"z-ai/glm-5.2":               "deepseek/deepseek-v4-flash",
-		},
 	}
 	if mut != nil {
 		mut(cfg)

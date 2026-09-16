@@ -16,7 +16,10 @@
   import EmptyState from "./EmptyState.svelte";
   import CopyButton from "./CopyButton.svelte";
   import SegmentedControl from "./SegmentedControl.svelte";
-  import Alert from "./Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import { fetchAPI } from "../api/client.js";
   import { adminApi, adminRoot } from "../api/paths.js";
   import { usePolling } from "../utils/polling.js";
@@ -81,7 +84,18 @@
     page,
   }));
   // Oversized-snapshot hint from the pageState store (PUT 413 eviction).
-  let stateNotice = $state(null);
+  // It surfaces as a sticky warning toast, then clears — no inline banner.
+  let errorToast = $state(0);
+  let lastErrorMsg = "";
+  function notifyError(msg) {
+    // The 1s auto-poll re-fails with the same message: only replace the
+    // toast when the message actually changes, so it never flickers and a
+    // manual dismiss is respected until the next distinct failure.
+    if (msg === lastErrorMsg) return;
+    lastErrorMsg = msg;
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  }
   let unsubNotice = null;
   // Follow mode: stick the console to the newest entry at the bottom.
   // Any manual scroll-up pauses it so reading history never gets yanked;
@@ -604,12 +618,14 @@
       const res = await fetchAPI(`${adminApi.logs}?${query.toString()}`);
       data = res;
       error = "";
+      notifyError("");
       // No page reset here: the clamp effect above keeps the pager in range
       // without yanking the table back to page 0 on every 1s poll.
     } catch (e) {
       error = e.message
         ? $tr("Could not load log entries: {reason}", { reason: e.message })
         : $tr("Could not load log entries");
+      notifyError(error);
     } finally {
       loading = false;
       manualRefresh = false;
@@ -668,7 +684,16 @@
     } catch {
       // Storage unavailable (private mode) — fall back to the prop alone.
     }
-    unsubNotice = pageStateNotice.subscribe((v) => (stateNotice = v));
+    unsubNotice = pageStateNotice.subscribe((v) => {
+      if (v) {
+        pushToast({
+          tone: "warning",
+          title: $tr("Page state discarded"),
+          body: v.text,
+        });
+        pageStateNotice.set(null);
+      }
+    });
     loadPageState("logs").then(async (d) => {
       if (d && typeof d === "object") {
         if (
@@ -780,39 +805,18 @@
     />
   </div>
 
-  {#if stateNotice}
-    <Alert tone="warning" title={$tr("Page state discarded")}>
-      <div class="flex items-start justify-between gap-3">
-        <span>{stateNotice.text}</span>
-        <button
-          type="button"
-          onclick={() => {
-            pageStateNotice.set(null);
-          }}
-          class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] transition-colors shrink-0"
-          aria-label={$tr("Dismiss alert")}
-        >
-          ×
-        </button>
-      </div>
-    </Alert>
-  {/if}
-
   {#if loading && !data}
     <div class="space-y-3" role="status" aria-label={$tr("Loading logs")}>
       <div class="skeleton skeleton-card h-64"></div>
       <span class="sr-only">{$tr("Loading logs")}</span>
     </div>
   {:else if error}
-    <Alert tone="error" title={$tr("Could not load this page")}>
-      {error}
-      <div class="mt-3">
-        <Button variant="secondary" onclick={refresh}>
-          <RefreshCw size={15} />
-          {$tr("Retry")}
-        </Button>
-      </div>
-    </Alert>
+    <div>
+      <Button variant="secondary" onclick={refresh}>
+        <RefreshCw size={15} />
+        {$tr("Retry")}
+      </Button>
+    </div>
   {:else if data && !data.enabled}
     <EmptyState
       title={$tr("Log ring disabled")}

@@ -10,7 +10,10 @@
   import { onMount } from "svelte";
   import { recordPageVisit } from "../stores/pageState.js";
   import Button from "./Button.svelte";
-  import Alert from "./Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import EmptyState from "./EmptyState.svelte";
   import RefundLines from "./RefundLines.svelte";
   import {
@@ -30,6 +33,23 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
+  let errorToast = $state(0);
+  let lastErrorMsg = "";
+  function notifyError(msg) {
+    // The shared tokens poll re-fails with the same message: only replace
+    // the toast when it actually changes, so it never flickers and a
+    // manual dismiss is respected until the next distinct failure.
+    if (msg === lastErrorMsg) return;
+    lastErrorMsg = msg;
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg
+      ? pushToast({
+          tone: "error",
+          title: $tr("Could not load this page"),
+          body: msg,
+        })
+      : 0;
+  }
   // Countdown tick: the global reset strip re-renders "resets in" against
   // this clock every second. Refetches nothing on its own.
   let now = $state(Date.now());
@@ -117,6 +137,7 @@
         data = v;
         loading = false;
         error = "";
+        notifyError("");
         // Visit auto-probe (ADR-0025): one silent ?auto=1 probe after the
         // first tokens load, then the store reload carries the numbers.
         // No success banner; a failure surfaces on the probeMsg error path.
@@ -132,6 +153,7 @@
       if (err) {
         error = err;
         loading = false;
+        notifyError(err);
       }
     });
     tick = setInterval(() => {
@@ -142,6 +164,7 @@
       unsubStore?.();
       unsubErr?.();
       clearInterval(tick);
+      if (errorToast) dismissToast(errorToast);
     };
   });
 </script>
@@ -156,7 +179,6 @@
   <p class="text-xs text-[var(--fp-dim)] font-mono">{$tr("Loading…")}</p>
 {:else if error}
   <div class="flex flex-col gap-3">
-    <Alert tone="error" title={$tr("Could not load this page")}>{error}</Alert>
     <div>
       <Button variant="secondary" onclick={refreshTokens}>{$tr("Retry")}</Button
       >

@@ -645,20 +645,18 @@ func TestModelsAllowRejectsChat(t *testing.T) {
 	}
 }
 
-// TestModelsAllowResolvedAlias pins the allowlist contract: it compares
-// against the RESOLVED model id (after registry alias resolution), so a
-// client alias that resolves outside the list is rejected too.
-func TestModelsAllowResolvedAlias(t *testing.T) {
+// TestModelsAllowRejectsUnlisted pins the allowlist contract: a served model
+// id outside the list is rejected, so an unlisted id never reaches upstream.
+func TestModelsAllowRejectsUnlisted(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) {
-		c.ModelAliases = map[string]string{"pro-alias": "deepseek/deepseek-v4-pro"}
 		c.ModelsAllow = []string{"deepseek/deepseek-v4-flash"}
 	}, mock)
 
-	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody("pro-alias"), nil)
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody("openai/gpt-5.6-luna"), nil)
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("chat (alias) status = %d, want 400: %s", resp.StatusCode, data)
+		t.Fatalf("chat (unlisted) status = %d, want 400: %s", resp.StatusCode, data)
 	}
 	var out struct {
 		Error struct {
@@ -672,7 +670,7 @@ func TestModelsAllowResolvedAlias(t *testing.T) {
 		t.Errorf("error.code = %q, want model_unavailable", out.Error.Code)
 	}
 	if len(mock.RecordedChatHeaders) != 0 {
-		t.Error("upstream chat recorded for a rejected alias, want none")
+		t.Error("upstream chat recorded for a rejected model, want none")
 	}
 }
 

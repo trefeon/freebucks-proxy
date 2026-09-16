@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/server"
@@ -300,11 +301,10 @@ func TestSettingsWithoutStore(t *testing.T) {
 func TestSettingsPostRestartOnlyMatrix(t *testing.T) {
 	ts, cookie, csrf := settingsTestServer(t)
 	for key, value := range map[string]string{
-		"LOG_LEVEL":     "debug",
-		"LOG_FORMAT":    "json",
-		"LOG_FILE":      "proxy.log",
-		"LOG_RING_SIZE": "600",
-		"LISTEN_ADDR":   "127.0.0.1:3458",
+		"LOG_LEVEL":   "debug",
+		"LOG_FORMAT":  "json",
+		"LOG_FILE":    "proxy.log",
+		"LISTEN_ADDR": "127.0.0.1:3458",
 	} {
 		code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
 			map[string]any{"key": key, "value": value})
@@ -320,7 +320,7 @@ func TestSettingsPostRestartOnlyMatrix(t *testing.T) {
 		}
 	}
 	entries := settingsSources(t, ts, cookie)
-	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LOG_RING_SIZE", "LISTEN_ADDR"} {
+	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LISTEN_ADDR"} {
 		if entries[key]["source"] != "db" {
 			t.Errorf("%s source = %v, want db after POST", key, entries[key]["source"])
 		}
@@ -512,5 +512,141 @@ func TestSettingsMigrateAbsentLiveOnly(t *testing.T) {
 	t.Cleanup(ts.Close)
 	if mig := migratePayload(t, ts, authedCookie(t, ts)); mig != nil {
 		t.Errorf("live-only migrate = %v, want absent", mig)
+	}
+}
+
+// TestSettingsPostSecureCookiesEnvOnly pins the owner decision: the cookie
+// reader never consults the overlay, so a direct knob write 400s with a
+// pointer to the environment/.env instead of persisting an inert row.
+func TestSettingsPostSecureCookiesEnvOnly(t *testing.T) {
+	ts, cookie, csrf := settingsTestServer(t)
+	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "ADMIN_FORCE_SECURE_COOKIES", "value": "true"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST ADMIN_FORCE_SECURE_COOKIES = %d %v, want 400", code, res)
+	}
+	if msg, _ := res["message"].(string); !strings.Contains(msg, ".env") {
+		t.Errorf("POST ADMIN_FORCE_SECURE_COOKIES message = %q, want a pointer to the environment/.env", msg)
+	}
+	entries := settingsSources(t, ts, cookie)
+	if entries["ADMIN_FORCE_SECURE_COOKIES"]["source"] == "db" {
+		t.Error("ADMIN_FORCE_SECURE_COOKIES source = db after rejected POST, want no overlay row")
+	}
+}
+
+// TestSettingsPostEnvShadowNote pins env-shadow honesty: with the key pinned
+// by the process environment, the overlay row still persists but the message
+// says the effective value still comes from the environment, and GET keeps
+// reporting source=env.
+func TestSettingsPostEnvShadowNote(t *testing.T) {
+	t.Setenv("SAFE_MODE", "true")
+	ts, cookie, csrf := settingsTestServer(t)
+	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "SAFE_MODE", "value": "false"})
+	if code != http.StatusOK || res["ok"] != true {
+		t.Fatalf("POST env-pinned SAFE_MODE = %d %v, want 200 ok", code, res)
+	}
+	if msg, _ := res["message"].(string); !strings.Contains(msg, "Overridden by process env") {
+		t.Errorf("POST env-pinned message = %q, want the process-env shadow note", msg)
+	}
+	entries := settingsSources(t, ts, cookie)
+	if entries["SAFE_MODE"]["source"] != "env" {
+		t.Errorf("SAFE_MODE source = %v, want env (process env beats the saved row)", entries["SAFE_MODE"]["source"])
+	}
+}
+
+// TestSettingsDurationEchoStable proves the POST→GET echo contract for saved
+// rows: GET /admin/api/settings reports the saved literal for db-tier rows,
+// not the Go-normalized effective form. time.Duration.String rewrites "60s"
+// as "1m0s", which the dashboard could not round-trip — the Pool Strategy
+// badge read Custom after one Balance tap and only settled on the second.
+// File/env tiers keep the normalized effective value (backward compatible).
+func TestSettingsDurationEchoStable(t *testing.T) {
+	ts, cookie, csrf := settingsTestServer(t)
+
+	post := func(key, value string) {
+		t.Helper()
+		code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+			map[string]any{"key": key, "value": value})
+		if code != http.StatusOK || res["ok"] != true {
+			t.Fatalf("POST %s = %d %v, want 200 ok", key, code, res)
+		}
+	}
+	echo := func(key, want string) {
+		t.Helper()
+		e := settingsSources(t, ts, cookie)[key]
+		if e["source"] != "db" {
+			t.Errorf("%s source = %v, want db", key, e["source"])
+		}
+		if e["value"] != want {
+			t.Errorf("%s GET value = %q, want saved literal %q", key, e["value"], want)
+		}
+	}
+
+	// The five Pool Strategy owned keys (Balance posture) plus one sibling
+	// duration knob sharing the normalize path.
+	post("ROUTING_SMART", "true")
+	post("TOKEN_ROTATION", "drain")
+	post("RATE_LIMIT_FAILOVER", "true")
+	post("QUEUE_WAIT", "60s")
+	post("QUEUE_DEPTH", "16")
+	post("QUOTA_PROBE_ACTIVE_INTERVAL", "90s")
+	for key, want := range map[string]string{
+		"ROUTING_SMART": "true", "TOKEN_ROTATION": "drain",
+		"RATE_LIMIT_FAILOVER": "true", "QUEUE_WAIT": "60s",
+		"QUEUE_DEPTH": "16", "QUOTA_PROBE_ACTIVE_INTERVAL": "90s",
+	} {
+		echo(key, want)
+	}
+
+	// Drain↔Balance flip-flop: every literal round-trips, never the
+	// normalized echo ("5m0s"/"1m0s").
+	post("QUEUE_WAIT", "300s")
+	post("QUEUE_DEPTH", "1024")
+	echo("QUEUE_WAIT", "300s")
+	echo("QUEUE_DEPTH", "1024")
+	post("QUEUE_WAIT", "60s")
+	post("QUEUE_DEPTH", "16")
+	echo("QUEUE_WAIT", "60s")
+	echo("QUEUE_DEPTH", "16")
+
+	// Bool spellings still normalize to one display form.
+	post("RATE_LIMIT_FAILOVER", "on")
+	echo("RATE_LIMIT_FAILOVER", "true")
+
+	// Knob-chain agreement: the raw db-tier echo ("60s") and the live
+	// effective rendering (Go-normalized, e.g. "1m0s") denote the same
+	// duration. The settings GET stays echo-stable for the dashboard while
+	// GET /admin/api/config keeps serving the normalized effective value
+	// (file/env tiers and the settings store refresh read it); both must
+	// parse to 60s or the badge and the store would hold two truths.
+	resp, data := doJSON(t, http.MethodGet, ts.URL+"/admin/api/config", nil, map[string]string{"Cookie": cookie})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET config = %d: %s", resp.StatusCode, data)
+	}
+	var cfgPayload struct {
+		Effective []struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		} `json:"effective"`
+	}
+	if err := json.Unmarshal(data, &cfgPayload); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	effective := map[string]string{}
+	for _, kv := range cfgPayload.Effective {
+		effective[kv.Key] = kv.Value
+	}
+	if d, err := time.ParseDuration(effective["QUEUE_WAIT"]); err != nil || d != 60*time.Second {
+		t.Errorf("config effective QUEUE_WAIT = %q (parse %v), want a 60s duration agreeing with the raw echo", effective["QUEUE_WAIT"], d)
+	}
+	if effective["QUEUE_DEPTH"] != "16" {
+		t.Errorf("config effective QUEUE_DEPTH = %q, want 16", effective["QUEUE_DEPTH"])
+	}
+	// The live tokens surface (10s hot poll + SSE store refresh) stays
+	// healthy after the preset writes.
+	resp, _ = doJSON(t, http.MethodGet, ts.URL+"/admin/api/tokens?view=live", nil, map[string]string{"Cookie": cookie})
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET tokens?view=live = %d, want 200", resp.StatusCode)
 	}
 }

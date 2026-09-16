@@ -75,12 +75,6 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return c.LogFormat, false
 	case "LOG_ACCESS":
 		return strconv.FormatBool(c.LogAccess), false
-	case "LOG_RING_SIZE":
-		return strconv.Itoa(c.LogRingSize), false
-	case "LOG_CONSOLE_WINDOW":
-		return c.LogConsoleWindow.String(), false
-	case "LOG_TABLE_RETENTION":
-		return c.LogTableRetention.String(), false
 	case "IDLE_ROTATION_TIMEOUT":
 		return c.IdleRotationTimeout.String(), false
 	case "SAFE_MODE":
@@ -89,8 +83,6 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return c.RequestJitter.String(), false
 	case "CLI_VERSION":
 		return c.CLIVersion, false
-	case "MODEL_ALIASES":
-		return joinPairs(c.ModelAliases, ":"), false
 	case "MODELS_ALLOW":
 		return strings.Join(c.ModelsAllow, ","), false
 	case "MODELS_HIDE_UNAVAILABLE":
@@ -115,12 +107,6 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.BridgeEnabled), false
 	case "BRIDGE_IDLE_EVICT":
 		return c.BridgeIdleEvict.String(), false
-	case "FALLBACK_AFTER_MS":
-		return strconv.Itoa(int(c.FallbackAfter.Milliseconds())), false
-	case "FALLBACK_MODEL":
-		return joinPairs(c.FallbackModels, "="), false
-	case "QUOTA_FALLBACK_MODELS":
-		return joinPairs(c.QuotaFallbackModels, "="), false
 	case "SESSION_IDLE_END":
 		return c.SessionIdleEnd.String(), false
 	case "SESSION_PROBE_CACHE_TTL":
@@ -157,8 +143,6 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.WaitingRoomChain), false
 	case "MATURITY_ENABLED":
 		return strconv.FormatBool(c.MaturityEnabled), false
-	case "MATURITY_DRY_RUN":
-		return strconv.FormatBool(c.MaturityDryRun), false
 	case "MATURITY_TOUCH_MODEL":
 		return c.MaturityTouchModel, false
 	case "MATURITY_TARGET_DAYS":
@@ -192,18 +176,6 @@ func defaultFor(key string) string {
 		}
 	}
 	return ""
-}
-
-func joinPairs(m map[string]string, sep string) string {
-	if len(m) == 0 {
-		return ""
-	}
-	pairs := make([]string, 0, len(m))
-	for k, v := range m {
-		pairs = append(pairs, k+sep+v)
-	}
-	sort.Strings(pairs)
-	return strings.Join(pairs, ",")
 }
 
 // formatModelLocks renders the parsed MODEL_LOCKS map back to canonical

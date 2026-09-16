@@ -10,6 +10,7 @@
   /**
    * Gateway & Protection settings card (General group).
    * Built using the SettingsCard and SettingsRow template components.
+   * Both rows instant-save to the DB overlay on edit (DbOverrideSave).
    *
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
@@ -21,6 +22,8 @@
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
+   * @prop {boolean} [degraded=false] - settings store offline: rows render
+   *   an honest offline note and stay read-only for saves
    */
   let {
     formValues,
@@ -31,13 +34,12 @@
     onSaved = null,
     query = "",
     onMatchCount = null,
+    degraded = false,
   } = $props();
 
   let env = $derived(parseEnv(rawText));
   let safeMode = $derived(formValues.SAFE_MODE !== "false");
-  let logLevel = $derived(formValues.LOG_LEVEL || "info");
   let httpReadTimeout = $derived(formValues.HTTP_READ_TIMEOUT || "60s");
-  let bridgeEnabled = $derived(formValues.BRIDGE_ENABLED !== "false");
 
   const TIMEOUT_OPTIONS = [
     { value: "60s", label: "60s (1m - default)" },
@@ -70,16 +72,9 @@
   const SAFE_MODE_LABEL = "Anti-Ban Safe Mode";
   const SAFE_MODE_DESC =
     "Enforces 200ms request jitter and 30-minute idle session rotation to match official CLI behavior and avoid upstream account flagging.";
-  const LOG_LEVEL_LABEL = "Server Log Level";
-  const LOG_LEVEL_DESC =
-    "Controls the detail level of server console output and the live Logs page.";
   const HTTP_TIMEOUT_LABEL = "HTTP Read Timeout";
   const HTTP_TIMEOUT_DESC =
     "How long the server waits for slow clients uploading request bodies (far-away harnesses, images). Takes effect after a container restart; 0 disables the timeout.";
-  const BRIDGE_LABEL = "Allow Client-Provided Tokens (Bridge Mode)";
-  const BRIDGE_DESC =
-    "Enforces hybrid access: client apps can pass their personal FreeBuff account tokens via the Authorization header, saving your server's shared pool quota.";
-
   let q = $derived(query.trim().toLowerCase());
   function hit(...parts) {
     if (!q) return true;
@@ -88,19 +83,13 @@
   let showSafeMode = $derived(
     hit("SAFE_MODE", SAFE_MODE_LABEL, SAFE_MODE_DESC),
   );
-  let showLogLevel = $derived(
-    hit("LOG_LEVEL", LOG_LEVEL_LABEL, LOG_LEVEL_DESC),
-  );
   let showHttpTimeout = $derived(
     hit("HTTP_READ_TIMEOUT", HTTP_TIMEOUT_LABEL, HTTP_TIMEOUT_DESC),
   );
-  let showBridge = $derived(hit("BRIDGE_ENABLED", BRIDGE_LABEL, BRIDGE_DESC));
   let visibleKeys = $derived(
     [
       showSafeMode ? "SAFE_MODE" : null,
-      showLogLevel ? "LOG_LEVEL" : null,
       showHttpTimeout ? "HTTP_READ_TIMEOUT" : null,
-      showBridge ? "BRIDGE_ENABLED" : null,
     ].filter((k) => k !== null),
   );
   let visible = $derived(visibleKeys.length);
@@ -124,7 +113,7 @@
         <span
           role="status"
           class="text-[11px] font-mono text-[var(--fp-dim)] shrink-0"
-          >{$tr("{visible} of {total}", { visible, total: 4 })}</span
+          >{$tr("{visible} of {total}", { visible, total: 2 })}</span
         >
       {/if}
     {/snippet}
@@ -156,6 +145,7 @@
             source={sources.SAFE_MODE}
             {onReset}
             {onSaved}
+            {degraded}
           />
         {/snippet}
 
@@ -165,63 +155,6 @@
             ariaLabel="SAFE_MODE"
             onchange={(v) => onField("SAFE_MODE", v ? "true" : "false")}
           />
-        </div>
-      </SettingsRow>
-    {/if}
-
-    <!-- Log Level -->
-    {#if showLogLevel}
-      <SettingsRow
-        first={visibleKeys[0] === "LOG_LEVEL"}
-        last={visibleKeys[visibleKeys.length - 1] === "LOG_LEVEL"}
-        label={$tr(LOG_LEVEL_LABEL)}
-        description={$tr(LOG_LEVEL_DESC)}
-      >
-        {#snippet badge()}
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >LOG_LEVEL</code
-          >
-          {#if !env.LOG_LEVEL}
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-              >{$tr("default")}</span
-            >
-          {/if}
-        {/snippet}
-        {#snippet extra()}
-          <DbOverrideSave
-            settingKey="LOG_LEVEL"
-            value={logLevel}
-            source={sources.LOG_LEVEL}
-            {onReset}
-            {onSaved}
-          />
-        {/snippet}
-
-        <div class="w-full sm:w-48">
-          <select
-            aria-label="LOG_LEVEL"
-            class="fp-input w-full !text-xs !h-9 !pl-3 !pr-8 bg-[var(--fp-input-bg)] text-[var(--fp-text)] border border-[var(--fp-border-bright)] rounded-[var(--fp-radius-sm)] focus:border-[var(--fp-accent)] focus:outline-none"
-            value={logLevel}
-            onchange={(e) => onField("LOG_LEVEL", e.currentTarget.value)}
-          >
-            <option value="info" class="bg-[#141a25] text-[#e9edf3]"
-              >info (recommended)</option
-            >
-            <option value="debug" class="bg-[#141a25] text-[#e9edf3]"
-              >debug</option
-            >
-            <option value="warn" class="bg-[#141a25] text-[#e9edf3]"
-              >warn</option
-            >
-            <option value="error" class="bg-[#141a25] text-[#e9edf3]"
-              >error</option
-            >
-            <option value="trace" class="bg-[#141a25] text-[#e9edf3]"
-              >trace</option
-            >
-          </select>
         </div>
       </SettingsRow>
     {/if}
@@ -257,6 +190,7 @@
             source={sources.HTTP_READ_TIMEOUT}
             {onReset}
             {onSaved}
+            {degraded}
           />
         {/snippet}
 
@@ -282,45 +216,6 @@
               </option>
             {/if}
           </select>
-        </div>
-      </SettingsRow>
-    {/if}
-
-    <!-- Bridge Mode -->
-    {#if showBridge}
-      <SettingsRow
-        last={visibleKeys[visibleKeys.length - 1] === "BRIDGE_ENABLED"}
-        label={$tr(BRIDGE_LABEL)}
-        description={$tr(BRIDGE_DESC)}
-      >
-        {#snippet badge()}
-          <code
-            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
-            >BRIDGE_ENABLED</code
-          >
-          {#if !env.BRIDGE_ENABLED}
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-semibold uppercase tracking-wider shrink-0"
-              >{$tr("default")}</span
-            >
-          {/if}
-        {/snippet}
-        {#snippet extra()}
-          <DbOverrideSave
-            settingKey="BRIDGE_ENABLED"
-            value={formValues.BRIDGE_ENABLED ?? "true"}
-            source={sources.BRIDGE_ENABLED}
-            {onReset}
-            {onSaved}
-          />
-        {/snippet}
-
-        <div class="flex items-center gap-2.5">
-          <ToggleSwitch
-            checked={bridgeEnabled}
-            ariaLabel="BRIDGE_ENABLED"
-            onchange={(v) => onField("BRIDGE_ENABLED", v ? "true" : "false")}
-          />
         </div>
       </SettingsRow>
     {/if}

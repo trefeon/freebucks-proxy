@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures, mockDashboard } from "./mocks.js";
+import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
+import type { PostedSetting } from "./mocks.js";
 
 // ---------------------------------------------------------------------------
 // Fixture builders (per-test copies — never mutate shared fixtures)
@@ -158,7 +159,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
 
     const input = page.locator("#add-token-input");
@@ -205,7 +206,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
 
     const input = page.locator("#add-token-input");
@@ -412,7 +413,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
 
     const startReq = page.waitForRequest(
@@ -463,6 +464,8 @@ test.describe("operator UX journey (hermetic mocks)", () => {
       { configWithApiKeys: configWithContent },
       { loginPage: true },
     );
+    const settingsPosted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, settingsPosted);
 
     // Sign in first; the login response carries fb_admin + fb_csrf.
     await page.goto("http://127.0.0.1:4173/admin/login");
@@ -534,7 +537,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
     // --- add token (POST /admin/tokens/add) ---
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     const addToken = "cb_" + "y".repeat(24);
     const addReq = page.waitForRequest(
@@ -567,9 +570,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
     );
     page.once("dialog", (d) => d.accept());
     await row0.getByRole("button", { name: "Remove" }).click();
-    await removeReq;
-
-    // --- config save (POST /admin/config) ---
+    // --- settings row save (POST /admin/api/settings) ---
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
     );
@@ -577,22 +578,18 @@ test.describe("operator UX journey (hermetic mocks)", () => {
     await metaResp;
     const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
     await expect(safeMode).toHaveAttribute("aria-checked", "true");
-    await safeMode.click();
-    const configReq = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/config"),
+    const settingsReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
     );
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await configReq;
+    await safeMode.click();
+    await settingsReq;
 
     // Every recorded admin POST carried the matching X-CSRF-Token.
     const expectedPaths = [
       "/admin/tokens/add",
       "/admin/tokens/1/lock",
       "/admin/tokens/remove",
-      "/admin/config",
+      "/admin/api/settings",
     ];
     const seenPaths = posts.map((p) => p.path);
     for (const p of expectedPaths) {
@@ -630,7 +627,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
 
     // Logout answers ok:true and expires the session cookie (like the Go
@@ -720,7 +717,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Accounts" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
 
     // Accounts are pooled, so per-account cards render (not the empty pool state).
@@ -838,11 +835,9 @@ test.describe("operator UX journey (hermetic mocks)", () => {
     await expect(page.getByText("running", { exact: true })).toBeVisible();
   });
 
-  // 13. Tokens: Drag and drop handle renders and triggers reorder action
+  // 13. Tokens: rows stay draggable (whole-row handle) and drop triggers reorder
   // ---------------------------------------------------------------------------
-  test("tokens: drag and drop handle renders and triggers move action", async ({
-    page,
-  }) => {
+  test("tokens: row drag and drop triggers move action", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
 
@@ -851,8 +846,9 @@ test.describe("operator UX journey (hermetic mocks)", () => {
       page.getByRole("heading", { name: "Pool Tokens" }),
     ).toBeVisible();
 
-    const grips = page.getByLabel("Drag to reorder");
-    await expect(grips.first()).toBeVisible();
+    // No standalone grip handle: the whole row is the drag handle, with
+    // Move Up / Move Down buttons as the explicit reorder path.
+    await expect(page.getByLabel("Drag to reorder")).toHaveCount(0);
 
     // Verify move action POST payload on drop / move
     let swapPayload: Record<string, any> | null = null;

@@ -130,9 +130,9 @@ func TestMaturityCardNextTouchRoundTrip(t *testing.T) {
 	}
 }
 
-// The tokens payload carries the nightly-maintenance globals: the dry-run
-// flag for the badge plus tonight's window (RFC3339 absolute instants) for
-// the next-run countdown — a fixed 60m ending at Pacific midnight.
+// The tokens payload carries the nightly-maintenance globals: the
+// kill-switch plus tonight's window (RFC3339 absolute instants) for
+// the next-run countdown — a fixed 15m ending at Pacific midnight.
 func TestTokensDataMaturityWindow(t *testing.T) {
 	cfg := &config.Config{
 		AuthTokens:         []string{"tok-window-0"},
@@ -142,7 +142,6 @@ func TestTokensDataMaturityWindow(t *testing.T) {
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    "https://www.codebuff.com",
 		MaturityEnabled:    true,
-		MaturityDryRun:     true,
 	}
 	mock := testutil.NewMock()
 	t.Cleanup(mock.Close)
@@ -163,8 +162,8 @@ func TestTokensDataMaturityWindow(t *testing.T) {
 	if !td.MaturityEnabled {
 		t.Error("maturity_enabled = false, want true")
 	}
-	if !td.MaturityDryRun {
-		t.Error("maturity_dry_run = false, want true (badge source)")
+	if td.MaturityWindowStart == "" {
+		t.Error("maturity_window_start empty, want tonight's window for the countdown")
 	}
 	start, err := time.Parse(time.RFC3339, td.MaturityWindowStart)
 	if err != nil {
@@ -174,8 +173,8 @@ func TestTokensDataMaturityWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("maturity_window_end = %q, want RFC3339: %v", td.MaturityWindowEnd, err)
 	}
-	if end.Sub(start) != time.Hour {
-		t.Errorf("window length = %v, want 60m (fixed pre-reset window)", end.Sub(start))
+	if end.Sub(start) != 15*time.Minute {
+		t.Errorf("window length = %v, want 15m (fixed pre-reset window)", end.Sub(start))
 	}
 	la, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {

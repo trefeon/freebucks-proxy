@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-// Maturity defaults: automation on (probes in dry-run mode), dry-run on,
-// empty touch-model (= auto: cheapest served unmetered row), 7-day target.
+// Maturity defaults: automation on (live touches), empty touch-model
+// (= auto: cheapest served unmetered row), 7-day target.
 func TestMaturityDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load("")
@@ -14,9 +14,6 @@ func TestMaturityDefaults(t *testing.T) {
 	}
 	if !cfg.MaturityEnabled {
 		t.Error("MaturityEnabled = false, want true (default on)")
-	}
-	if !cfg.MaturityDryRun {
-		t.Error("MaturityDryRun = false, want true (probe-only until proven)")
 	}
 	if cfg.MaturityTouchModel != "" {
 		t.Errorf("MaturityTouchModel = %q, want empty default (= auto)", cfg.MaturityTouchModel)
@@ -29,14 +26,13 @@ func TestMaturityDefaults(t *testing.T) {
 func TestMaturityEnvOverrides(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MATURITY_ENABLED", "0")
-	t.Setenv("MATURITY_DRY_RUN", "0")
 	t.Setenv("MATURITY_TOUCH_MODEL", "mimo/mimo-v2.5")
 	t.Setenv("MATURITY_TARGET_DAYS", "14")
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.MaturityEnabled || cfg.MaturityDryRun || cfg.MaturityTouchModel != "mimo/mimo-v2.5" ||
+	if cfg.MaturityEnabled || cfg.MaturityTouchModel != "mimo/mimo-v2.5" ||
 		cfg.MaturityTargetDays != 14 {
 		t.Errorf("maturity overrides not applied: %+v", cfg)
 	}

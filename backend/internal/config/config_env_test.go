@@ -312,8 +312,8 @@ func TestDotenvAsDirectoryFails(t *testing.T) {
 }
 
 // TestDotenvFullKeySet verifies every env-overridable key also lands in cfg
-// when set in ./.env. Regression: SAFE_MODE, REQUEST_JITTER, CLI_VERSION,
-// MODEL_ALIASES and TRANSIENT_RETRIES were silently ignored in .env.
+// when set in ./.env. Regression: SAFE_MODE, REQUEST_JITTER, CLI_VERSION
+// and TRANSIENT_RETRIES were silently ignored in .env.
 func TestDotenvFullKeySet(t *testing.T) {
 	clearEnv(t)
 
@@ -321,7 +321,6 @@ func TestDotenvFullKeySet(t *testing.T) {
 		"SAFE_MODE=false",
 		"REQUEST_JITTER=5s",
 		"CLI_VERSION=9.9.9",
-		"MODEL_ALIASES=gpt-4o:deepseek/deepseek-v4-flash,glm:z-ai/glm-5.2",
 		"MODELS_ALLOW=deepseek/deepseek-v4-flash,z-ai/glm-5.2",
 		"CORS_ALLOWED_ORIGIN=https://dashboard.example.com",
 		"TRANSIENT_RETRIES=2",
@@ -342,9 +341,6 @@ func TestDotenvFullKeySet(t *testing.T) {
 	}
 	if cfg.CLIVersion != "9.9.9" {
 		t.Errorf("CLIVersion = %q, want 9.9.9 (from .env)", cfg.CLIVersion)
-	}
-	if cfg.ModelAliases["gpt-4o"] != "deepseek/deepseek-v4-flash" {
-		t.Errorf("ModelAliases[gpt-4o] = %q, want deepseek/deepseek-v4-flash (from .env)", cfg.ModelAliases["gpt-4o"])
 	}
 	if cfg.TransientRetries != 2 {
 		t.Errorf("TransientRetries = %d, want 2 (from .env)", cfg.TransientRetries)
@@ -635,20 +631,24 @@ func TestRateLimitConfig(t *testing.T) {
 	}
 }
 
-func TestModelAliasesConfig(t *testing.T) {
+// TestExcisedKeysTolerated pins the excise contract: saved values for the
+// removed MODEL_ALIASES / FALLBACK_AFTER_MS / FALLBACK_MODEL /
+// QUOTA_FALLBACK_MODELS / LOG_RING_SIZE / LOG_CONSOLE_WINDOW /
+// LOG_TABLE_RETENTION keys are tolerated as unknown keys — the load succeeds
+// and the values are ignored (hardcoded behavior applies).
+func TestExcisedKeysTolerated(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("AUTH_TOKENS", "tok-1")
-	t.Setenv("MODEL_ALIASES", "gpt-4o:deepseek/deepseek-v4-flash,glm:z-ai/glm-5.2")
+	t.Setenv("MODEL_ALIASES", "gpt-4o:deepseek/deepseek-v4-flash")
+	t.Setenv("FALLBACK_AFTER_MS", "2500")
+	t.Setenv("FALLBACK_MODEL", "a=b")
+	t.Setenv("QUOTA_FALLBACK_MODELS", "a=b")
+	t.Setenv("LOG_RING_SIZE", "2000")
+	t.Setenv("LOG_CONSOLE_WINDOW", "15m")
+	t.Setenv("LOG_TABLE_RETENTION", "48h")
 
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(cfg.ModelAliases) != 2 {
-		t.Fatalf("ModelAliases len = %d, want 2", len(cfg.ModelAliases))
-	}
-	if cfg.ModelAliases["gpt-4o"] != "deepseek/deepseek-v4-flash" {
-		t.Errorf("ModelAliases[gpt-4o] = %q, want deepseek/deepseek-v4-flash", cfg.ModelAliases["gpt-4o"])
+	if _, err := Load(""); err != nil {
+		t.Fatalf("Load with excised keys set: %v", err)
 	}
 }
 

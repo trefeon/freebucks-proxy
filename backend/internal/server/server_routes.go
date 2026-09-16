@@ -103,9 +103,19 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 	case "GET /admin/api/notices":
 		return s.dash.APIHandler("notices")
 	case "GET /admin", "GET /admin/", "GET /admin/tokens", "GET /admin/models", "GET /admin/traces",
-		"GET /admin/setup", "GET /admin/playground", "GET /admin/config", "GET /admin/logs", "GET /admin/metrics":
+		"GET /admin/setup", "GET /admin/config", "GET /admin/logs", "GET /admin/metrics":
 		// SPA shell routes: the gateway serves the Svelte app directly.
 		return http.HandlerFunc(s.dash.ServeSPA)
+	case "GET /admin/playground":
+		// Server-side DEVTOOLS_ENABLED gate: the playground shell is a
+		// Dev Tools page; a direct GET must 404 when the knob is off.
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !s.cfg.Load().DevToolsEnabled {
+				s.dash.RenderResult(w, http.StatusNotFound, false, "dev tools are disabled — set DEVTOOLS_ENABLED=true to enable the playground", "devtools_disabled")
+				return
+			}
+			s.dash.ServeSPA(w, r)
+		})
 	case "POST /admin/playground/chat":
 		return http.HandlerFunc(s.admin.handlePlaygroundChat)
 	case "POST /admin/login/start":

@@ -10,24 +10,24 @@
   } from "@lucide/svelte";
   import Button from "./Button.svelte";
   import RefundLines from "./RefundLines.svelte";
-  import StatusBadge from "./StatusBadge.svelte";
   import {
     fallbackModelOptions,
     fetchModelOptions,
     cheapestFreeOption,
   } from "../modelOptions.js";
-  import { fetchAPI, postForm } from "../api/client.js";
-  import { adminApi, adminActions } from "../api/paths.js";
+  import { fetchAPI, postAPI } from "../api/client.js";
+  import { adminApi } from "../api/paths.js";
   import { refreshTokens } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
   import { spawnIntent } from "../utils/freebucks.js";
   import { onMount } from "svelte";
 
   /**
-   * TokenDetailsDrawer — expanded details for one pooled token: the Dev Tools
-   * toolbar (when enabled), the live session countdown, the account-standing
-   * block, and the empty-state message. Shared by the desktop table row
-   * (TokenCard) and the mobile stacked card (TokenCardMobile).
+   * TokenDetailsDrawer — expanded details for one pooled token: the
+   * account-standing block and the empty-state message. The live session
+   * countdown and its Drop Session kill switch render in the status cell
+   * (TokenCard + TokenCardMobile), not here — the drawer stays for
+   * pins/spawn/refresh, not session kill.
    *
    * @prop {object} token — dashboard tokenCard payload
    * @prop {string} [spawnModel] — bindable dev-spawn model selection
@@ -35,7 +35,6 @@
    * @prop {boolean} [devToolsEnabled=false]
    * @prop {(model: string) => void} [onSpawn]
    * @prop {(action: string) => void} [onRefresh]
-   * @prop {number} sessionRemaining — live seconds remaining on the session
    */
   let {
     token,
@@ -44,8 +43,6 @@
     devToolsEnabled = false,
     onSpawn,
     onRefresh,
-    onDropSession,
-    sessionRemaining,
   } = $props();
   let modelOptions = $state(fallbackModelOptions);
   onMount(() => {
@@ -58,21 +55,18 @@
     spawnIntent(token, spawnModel || cheapestFreeOption(modelOptions)),
   );
   // --- Per-token model-lock editor (MODEL_LOCKS slot syntax) ---
-  // Reads/writes the canonical .env through the existing config endpoints
-  // (same round-trip as Settings save) and hot-applies via pool.SetConfig —
-  // no new backend route, no restart.
+  // Instant-saves through the settings overlay (POST /admin/api/settings),
+  // the same path every dashboard row uses — no whole-file .env write,
+  // hot-applied via pool.SetConfig, no restart. The current map is read
+  // from the settings endpoint so other slots' pins survive the write.
   let lockSaving = $state(false);
   let lockError = $state("");
   let lockNotice = $state("");
   let pinSelect = $state("");
 
-  function parseLocks(envText) {
+  function parseLocks(serialized) {
     const locks = {};
-    const line = String(envText || "")
-      .split(/\r?\n/)
-      .find((l) => l.startsWith("MODEL_LOCKS="));
-    if (!line) return locks;
-    for (const part of line.slice("MODEL_LOCKS=".length).split(";")) {
+    for (const part of String(serialized || "").split(";")) {
       const i = part.indexOf(":");
       if (i < 0) continue;
       const slot = Number(part.slice(0, i).trim());
@@ -94,21 +88,11 @@
       .join(";");
   }
 
-  function patchEnvLocks(envText, slot, models) {
-    const locks = parseLocks(envText);
+  function patchSlotLocks(serialized, slot, models) {
+    const locks = parseLocks(serialized);
     if (models.length) locks[slot] = models;
     else delete locks[slot];
-    const value = serializeLocks(locks);
-    const lines = String(envText || "").split(/\r?\n/);
-    const at = lines.findIndex((l) => l.startsWith("MODEL_LOCKS="));
-    if (value === "") {
-      if (at >= 0) lines.splice(at, 1);
-    } else if (at >= 0) {
-      lines[at] = `MODEL_LOCKS=${value}`;
-    } else {
-      lines.push(`MODEL_LOCKS=${value}`);
-    }
-    return lines.join("\n");
+    return serializeLocks(locks);
   }
 
   async function saveLocks(models) {
@@ -118,20 +102,22 @@
     lockError = "";
     lockNotice = "";
     try {
-      const cfg = await fetchAPI(adminApi.config);
-      const next = patchEnvLocks(cfg?.env_content || "", slot, models);
-      const res = await postForm(adminActions.configSave, { content: next });
-      const json = await res.json();
-      if (!(res.ok && json?.ok)) {
-        // Fail-loud override/restart-only saves (ok:false with a message):
-        // the file write succeeded but the live config did not move.
-        // Surface as a warning, not a silent success or a red error.
-        if (res.ok && json?.message) {
-          lockNotice = json.message;
-          await refreshTokens();
-          return;
-        }
-        throw new Error(json?.message || "Save rejected");
+      const setRes = await fetchAPI(adminApi.settings);
+      const row = (setRes?.settings ?? []).find((e) => e.key === "MODEL_LOCKS");
+      const value = patchSlotLocks(row?.value ?? "", slot, models);
+      const res = await postAPI(adminApi.settingsSave, {
+        key: "MODEL_LOCKS",
+        value,
+      });
+      if (res && res.ok === false)
+        throw new Error(res.message || "Save rejected");
+      // Caveat-bearing saves (restart-only, env-shadowed) surface the
+      // server message as a warning; plain live saves stay quiet.
+      if (
+        (res && res.code && res.code !== "setting_saved") ||
+        /process env/i.test(res?.message ?? "")
+      ) {
+        lockNotice = res.message;
       }
       pinSelect = "";
       await refreshTokens();
@@ -150,19 +136,6 @@
 
   function unpinModel(id) {
     saveLocks((token.allowed_models || []).filter((m) => m !== id));
-  }
-
-  function fmtCountdown(totalSeconds) {
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    if (h >= 24) {
-      const d = Math.floor(h / 24);
-      const hr = h % 24;
-      return hr > 0 ? `${d}d ${hr}h remaining` : `${d}d remaining`;
-    }
-    if (h > 0) return `${h}h ${m}m ${s}s remaining`;
-    return `${m}m ${s}s remaining`;
   }
 </script>
 
@@ -252,66 +225,11 @@
       </div>
     </div>
   {/if}
-  {#if token.session_remaining_seconds > 0 && token.session_model}
-    <div
-      class="mb-2 px-2 py-1 rounded bg-[var(--fp-accent)]/10 text-xs text-[var(--fp-accent)] flex items-center justify-between gap-2 flex-wrap"
-    >
-      <span>{$tr("Active Session:")}</span>
-      <span class="fp-num">{fmtCountdown(sessionRemaining)}</span>
-    </div>
-  {/if}
   <RefundLines
     {token}
     pendingClass="mb-2 px-2 py-1 rounded bg-[var(--fp-warning)]/10 text-xs text-[var(--fp-warning)]"
     settledClass="mb-2 px-2 py-1 rounded bg-[var(--fp-success)]/10 text-xs text-[var(--fp-success)]"
   />
-  {#if token.session_remaining_seconds > 0}
-    <div class="mb-2 flex justify-end">
-      <Button
-        variant="danger"
-        size="sm"
-        class="!h-7 !text-xs !px-2"
-        disabled={actionPending}
-        onclick={() => onDropSession?.()}
-      >
-        <span>{$tr("Drop Session")}</span>
-      </Button>
-    </div>
-  {/if}
-  {#if token.maturity}
-    {@const mm = token.maturity}
-    <div class="mb-2 px-2 py-1.5 rounded bg-[var(--fp-bg)]/40">
-      <div
-        class="flex items-center justify-between gap-2 text-xs font-semibold text-[var(--fp-muted)] uppercase tracking-wider mb-1"
-      >
-        <span>{$tr("Warming")}</span>
-        {#if mm.badge}
-          <span class="fp-num normal-case font-medium text-[var(--fp-dim)]"
-            >{mm.badge}</span
-          >
-        {/if}
-      </div>
-      {#if String(mm.last_result ?? "").startsWith("skip:")}
-        <div class="mb-1">
-          <StatusBadge
-            tone="warn"
-            status={`${$tr("Skipped")} · ${mm.last_result}`}
-          />
-        </div>
-      {:else if mm.last_result === "ok"}
-        <div class="mb-1">
-          <StatusBadge tone="good" status={$tr("Touched")} />
-        </div>
-      {/if}
-      <p class="fp-num text-xs text-[var(--fp-dim)]">
-        {mm.last_action
-          ? `${mm.last_action} → ${mm.last_result ?? "?"}`
-          : $tr("no touch yet")}{mm.last_touch
-          ? ` · ${new Date(mm.last_touch).toLocaleString()}`
-          : ""}
-      </p>
-    </div>
-  {/if}
   {#if token.has_standing}
     <!-- Standing / trust block (issue #140): level,
          score progress toward the next level, the cap

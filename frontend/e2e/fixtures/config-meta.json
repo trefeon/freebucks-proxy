@@ -104,16 +104,6 @@
     "description": "Log one access line per HTTP request (healthz/metrics/OPTIONS are rate-limited to 1/min regardless)."
   },
   {
-    "key": "LOG_CONSOLE_WINDOW",
-    "group": "general",
-    "kind": "text",
-    "default": "1h",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Default time window of the Activity console (Go duration, e.g. 15m, 1h, 24h). VIEW ONLY: it bounds which history rows the console asks for and never changes what is stored, so widening it reveals older entries without any reload. Zero or invalid falls back to 1h."
-  },
-  {
     "key": "LOG_FILE",
     "group": "general",
     "kind": "text",
@@ -156,26 +146,6 @@
     "description": "Log level (trace = wire-level bodies). Restart-only: the logger is configured once at boot and a reload never reconfigures it."
   },
   {
-    "key": "LOG_RING_SIZE",
-    "group": "general",
-    "kind": "int",
-    "default": "500",
-    "restart_only": true,
-    "secret": false,
-    "essential": false,
-    "description": "In-memory log ring capacity behind the dashboard log viewer (50-5000). Restart-only: the ring is allocated once at boot and a reload never resizes it."
-  },
-  {
-    "key": "LOG_TABLE_RETENTION",
-    "group": "general",
-    "kind": "text",
-    "default": "168h",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Storage retention for the log_entries and request_records history tables (Go duration; default 168h = 7 days). This is what the purge actually deletes: rows older than this are gone for good, so keep it at least as long as the console window you want to read. Quota and maturity history keep their own 90-day retention. Zero or invalid falls back to 168h."
-  },
-  {
     "key": "SAFE_MODE",
     "group": "general",
     "kind": "bool",
@@ -215,7 +185,7 @@
     "secret": true,
     "essential": false,
     "hidden": true,
-    "description": "Comma-separated upstream FreeBuff tokens. Managed in the Tokens page and Device Login."
+    "description": "Comma-separated upstream FreeBuff tokens. Managed in the Pool page and Device Login."
   },
   {
     "key": "BRIDGE_ENABLED",
@@ -248,16 +218,6 @@
     "description": "Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset)."
   },
   {
-    "key": "MATURITY_DRY_RUN",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Streak-maintenance touches run only the zero-cost session probe and never claim a session slot (nightly-run mechanics validation). Set false after the dry-run log lines prove the window, skips and throttles behave."
-  },
-  {
     "key": "MATURITY_ENABLED",
     "group": "pool",
     "kind": "bool",
@@ -265,7 +225,7 @@
     "restart_only": false,
     "secret": false,
     "essential": true,
-    "description": "Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is touched automatically once nightly in the 60 minutes before the Pacific-midnight reset. Default true (probes run in dry-run mode); set false to disable all automated touches."
+    "description": "Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is classified automatically once nightly in the 15 minutes before the Pacific-midnight reset (23:45-00:00), and eligible accounts fire one live touch in the final 5 minutes. Default true (live touches); set false to disable all automated touches."
   },
   {
     "key": "MATURITY_TARGET_DAYS",
@@ -530,7 +490,7 @@
     "secret": false,
     "essential": false,
     "hidden": true,
-    "description": "Token selection strategy: drain (exhaust a token's session before rotating), round_robin, least_used, or random. Managed interactively on the Tokens page."
+    "description": "Token selection strategy: drain (exhaust a token's session before rotating), round_robin, least_used, or random. Managed interactively on the Pool page."
   },
   {
     "key": "WAITING_ROOM_CHAIN",
@@ -542,38 +502,6 @@
     "essential": false,
     "hidden": true,
     "description": "After an upstream 428 waiting_room_required, fire the reference ad-chain + streak requests before the next session create (best-effort, never blocks)."
-  },
-  {
-    "key": "FALLBACK_AFTER_MS",
-    "group": "quota",
-    "kind": "int",
-    "default": "0",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Queue-wait threshold (ms) before re-routing to FALLBACK_MODEL; 0 (default) disables fallback. Queue-wait only — never on 429 quota exhaustion."
-  },
-  {
-    "key": "FALLBACK_MODEL",
-    "group": "quota",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Map model=fallback (comma-separated) to re-route a request when its queue wait passes FALLBACK_AFTER_MS. Empty default: no fallback."
-  },
-  {
-    "key": "QUOTA_FALLBACK_MODELS",
-    "group": "quota",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Map model=fallback when its session quota is exhausted or unentitled (comma-separated k=v pairs). Empty default: no fallback (surfaces honest 429 with guidance to switch model)."
   },
   {
     "key": "CACHE_CONTROL_INJECTION",
@@ -639,16 +567,6 @@
     "secret": false,
     "essential": false,
     "description": "/v1/models prunes models marked unavailable (region/tier demotion, quota exhaustion); off by default so a stale signal never hides a working model."
-  },
-  {
-    "key": "MODEL_ALIASES",
-    "group": "upstream",
-    "kind": "list",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": true,
-    "description": "Map aliases to real model IDs (e.g. gpt-4o:openai/gpt-5.6-luna; comma-separated). No built-in aliases — clients must map explicitly."
   },
   {
     "key": "REASONING_IN_CONTENT",

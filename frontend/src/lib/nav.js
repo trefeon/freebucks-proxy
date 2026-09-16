@@ -1,9 +1,9 @@
 import {
   LayoutDashboard,
-  Key,
-  Cpu,
+  Database,
+  Gauge,
   Settings as SettingsIcon,
-  FileText,
+  ScrollText,
   FlaskConical,
   AlertTriangle,
 } from "@lucide/svelte";
@@ -40,29 +40,35 @@ export const NAV_ITEMS = [
     label: "Overview",
     icon: LayoutDashboard,
   },
-  { id: "tokens", component: Tokens, label: "Tokens", icon: Key },
-  { id: "plans", component: Plans, label: "Plans", icon: Cpu },
-  { id: "activity", component: Activity, label: "Activity", icon: FileText },
+  { id: "tokens", component: Tokens, label: "Pool", icon: Database },
+  { id: "plans", component: Plans, label: "Usage", icon: Gauge },
+  { id: "activity", component: Activity, label: "Logs", icon: ScrollText },
   {
     id: "settings",
     component: Settings,
     label: "Settings",
     icon: SettingsIcon,
   },
+  // Dev Tools - agent-only manual testing surface, hidden from the sidebar
+  // (inSidebar:false) but still mounted by App.svelte via pageComponentFor,
+  // so #devtools deep-link keeps working. Gate stays as the second lock.
   {
     id: "devtools",
     component: DevTools,
     label: "Dev Tools",
     icon: FlaskConical,
     gate: "devtools",
+    inSidebar: false,
   },
-  // REVIEW TEMP - temporary show-all page, WILL BE DELETED. Always visible,
-  // no gate, inSidebar true so the owner can click through everything.
+  // REVIEW TEMP - agent-only click-through surface, hidden from the sidebar
+  // (inSidebar:false) but still mounted by App.svelte via pageComponentFor,
+  // so #review deep-link keeps working. WILL BE DELETED.
   {
     id: "review",
     component: Review,
     label: "REVIEW-TEMP",
     icon: AlertTriangle,
+    inSidebar: false,
   },
 ];
 

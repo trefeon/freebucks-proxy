@@ -4,6 +4,7 @@
   import Login from "./lib/pages/Login.svelte";
   import { pageComponentFor, resolveLegacyPage } from "./lib/nav.js";
   import ChangePasswordModal from "./lib/components/ChangePasswordModal.svelte";
+  import Toaster from "./lib/components/Toaster.svelte";
   import ConfirmModal from "./lib/components/ConfirmModal.svelte";
   import SecurityBanner from "./lib/components/SecurityBanner.svelte";
   import Alert from "./lib/components/Alert.svelte";
@@ -192,6 +193,8 @@
   {/if}
 
   <ConfirmModal />
+
+  <Toaster />
 
   <div class="flex-1 min-w-0 {activeTab !== 'login' ? 'md:pl-56' : ''}">
     <main

@@ -11,7 +11,7 @@
   import SettingsRow from "./SettingsRow.svelte";
   import Button from "./Button.svelte";
   import CopyButton from "./CopyButton.svelte";
-  import Alert from "./Alert.svelte";
+  import { push as pushToast } from "../stores/toast.js";
   import { fetchAPI, postAPI } from "../api/client.js";
   import { adminApi, adminActions } from "../api/paths.js";
   import { confirmAction } from "../stores/confirm.js";
@@ -31,7 +31,6 @@
 
   let checking = $state(false);
   let restarting = $state(false);
-  let restartMsg = $state("");
   let checkMsg = $state("");
 
   async function loadVersion(force = false) {
@@ -86,19 +85,24 @@
       tone: "warn",
       onConfirm: async () => {
         restarting = true;
-        restartMsg = "";
         try {
           const res = await postAPI(adminActions.restart, {});
-          restartMsg =
-            res.message ||
-            $tr("Gateway restart initiated. Reconnecting in a few seconds…");
+          pushToast({
+            tone: "info",
+            title:
+              res.message ||
+              $tr("Gateway restart initiated. Reconnecting in a few seconds…"),
+          });
           // Poll /healthz until the server recovers
           setTimeout(() => {
             window.location.reload();
           }, 3500);
         } catch (err) {
           restarting = false;
-          restartMsg = err.message || $tr("Failed to initiate restart.");
+          pushToast({
+            tone: "error",
+            title: err.message || $tr("Failed to initiate restart."),
+          });
         }
       },
     });
@@ -114,19 +118,6 @@
   {#snippet icon()}
     <Terminal size={20} />
   {/snippet}
-
-  {#if restartMsg}
-    <div class="mb-4">
-      <Alert tone={restarting ? "warning" : "info"}>
-        <div class="flex items-center gap-2">
-          {#if restarting}
-            <span class="inline-block animate-spin text-sm">⏳</span>
-          {/if}
-          <span class="text-xs">{restartMsg}</span>
-        </div>
-      </Alert>
-    </div>
-  {/if}
 
   <!-- Gateway Process Lifecycle -->
   <SettingsRow

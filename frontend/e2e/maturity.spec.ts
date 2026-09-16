@@ -1,6 +1,22 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures, mockDashboard } from "./mocks.js";
+import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
+import type { PostedSetting } from "./mocks.js";
 
+// Tonight's Pacific calendar day ("2026-09-11"): status rows scope to
+// this day via result_day/touch_day, so static fixtures must stamp it
+// instead of hardcoding a past date.
+function tonightPacific() {
+  const [y, m, day] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date())
+    .split("-")
+    .map(Number);
+  return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 function maintenanceTokens() {
   return {
     mode: "pooled",
@@ -10,8 +26,7 @@ function maintenanceTokens() {
     token_count: 3,
     has_tokens: true,
     maturity_enabled: true,
-    maturity_dry_run: true,
-    maturity_window_start: "2026-09-12T06:00:00Z",
+    maturity_window_start: "2026-09-12T06:45:00Z",
     maturity_window_end: "2026-09-12T07:00:00Z",
     tokens: [
       {
@@ -29,10 +44,11 @@ function maintenanceTokens() {
           slot: "2026-09-05T07:30:00Z",
           slot_day: "2026-09-05",
           last_touch: "2026-09-05T07:31:00Z",
-          touch_day: "2026-09-05",
-          last_action: "probe",
+          touch_day: tonightPacific(),
+          last_action: "admit",
           last_result: "ok",
           last_advanced: "yes",
+          result_day: tonightPacific(),
           effective_touch_model: "mimo/mimo-v2.5",
           auto_touch_model: "mimo/mimo-v2.5",
           auto_touch_reason: "auto:unmetered",
@@ -62,6 +78,7 @@ function maintenanceTokens() {
           touch_day: "2026-09-04",
           last_action: "",
           last_result: "skip:cooling",
+          result_day: tonightPacific(),
           effective_touch_model: "mimo/mimo-v2.5",
           auto_touch_model: "mimo/mimo-v2.5",
           auto_touch_reason: "auto:unmetered",
@@ -78,7 +95,6 @@ function maintenanceConfig() {
     effective: [
       { key: "MATURITY_ENABLED", value: "true", secret: false },
       { key: "MATURITY_TOUCH_MODEL", value: "auto", secret: false },
-      { key: "MATURITY_DRY_RUN", value: "true", secret: false },
     ],
   };
 }
@@ -87,7 +103,7 @@ async function gotoWarming(page) {
   await page.goto("http://127.0.0.1:4173/admin/#tokens");
   await page.getByRole("button", { name: "Warming" }).click();
   await expect(
-    page.getByRole("heading", { name: "Tokens", exact: true }),
+    page.getByRole("heading", { name: "Pool", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Warming" })).toHaveAttribute(
     "aria-pressed",
@@ -96,9 +112,7 @@ async function gotoWarming(page) {
 }
 
 test.describe("streak maintenance", () => {
-  test("board carries the universal switch and nothing else", async ({
-    page,
-  }) => {
+  test("board carries the switch plus touch-model row", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
     await page.unroute("**/admin/api/tokens*");
@@ -119,27 +133,42 @@ test.describe("streak maintenance", () => {
     });
 
     await gotoWarming(page);
-    await expect(page.getByText("Streak Maintenance")).toBeVisible();
-    // The universal on/off switch is the ONLY control: no touch-model
-    // select, no Touch-now buttons anywhere on the board.
+    await expect(
+      page.getByRole("heading", { name: "Streak Maintenance" }),
+    ).toBeVisible();
+    // Kill-switch plus the touch-model select under it. The master toggle
+    // reads unambiguously: Streak maintenance (nightly touches on/off).
+    // Still no Touch-now buttons anywhere.
     await expect(
       page.getByRole("switch", { name: "Streak maintenance" }),
     ).toBeVisible();
+    await expect(
+      page.getByText("Streak maintenance", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
     await expect(page.getByLabel("Global touch model")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Touch now" })).toHaveCount(
       0,
     );
-    // Fixed pre-reset window copy + read-only dry-run badge + countdown.
+    // Dry-run is gone: no switch, no badge, no copy anywhere on the board.
     await expect(
-      page.getByText("Nightly window 23:00–00:00 Pacific"),
+      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
+    ).toHaveCount(0);
+    await expect(page.getByText("Dry run")).toHaveCount(0);
+    await expect(
+      page.getByText("Dry run (probe only, claims nothing)"),
+    ).toHaveCount(0);
+    // Fixed pre-reset window copy + countdown.
+    await expect(
+      page.getByText("Nightly window 23:45–00:00 Pacific"),
     ).toBeVisible();
-    await expect(page.getByText("Dry run")).toBeVisible();
     await expect(page.getByLabel("Next maintenance run")).toBeVisible();
-    await expect(page.getByText(/Next run|In window/)).toBeVisible();
     // One row per account: touched with the resolved model id, skipped
     // with the exact ledger reason, pending without a ledger.
     await expect(page.getByText("Touched").first()).toBeVisible();
-    await expect(page.getByText("mimo/mimo-v2.5").first()).toBeVisible();
+    await expect(
+      page.locator("code", { hasText: "mimo/mimo-v2.5" }).first(),
+    ).toBeVisible();
     await expect(page.getByText("Skipped · skip:cooling")).toBeVisible();
     await expect(page.getByText("Pending").first()).toBeVisible();
     // Last-run ledger summary: time, touched, skipped with reasons.
@@ -169,8 +198,7 @@ test.describe("streak maintenance", () => {
           token_count: 1,
           has_tokens: true,
           maturity_enabled: true,
-          maturity_dry_run: true,
-          maturity_window_start: "2026-09-12T06:00:00Z",
+          maturity_window_start: "2026-09-12T06:45:00Z",
           maturity_window_end: "2026-09-12T07:00:00Z",
           tokens: [
             {
@@ -188,10 +216,10 @@ test.describe("streak maintenance", () => {
                 slot: "2026-09-11T06:30:00Z",
                 slot_day: "2026-09-11",
                 last_touch: "2026-09-11T06:56:00Z",
-                last_action: "probe",
+                last_action: "",
                 last_result: "skip:today-used",
+                result_day: tonightPacific(),
                 effective_touch_model: "upstage/solar-pro4",
-                auto_touch_model: "upstage/solar-pro4",
               },
             },
           ],
@@ -199,11 +227,73 @@ test.describe("streak maintenance", () => {
       });
     });
     await gotoWarming(page);
-    const row = page.getByText("Account #1").locator("..").locator("..");
+    const row = page
+      .getByText("Account #1")
+      .locator("..")
+      .locator("..")
+      .locator("..");
     await expect(row.getByText(/day already used/)).toBeVisible();
     await expect(row.getByText(/last activity Sep 11/)).toBeVisible();
     await expect(row.getByText(/used outside this proxy/)).toBeVisible();
     await expect(row.getByText(/skip:today-used/)).toBeVisible();
+    // Reset-anchored countdown and Pacific-day last run.
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /reset in/,
+    );
+    await expect(page.getByLabel("Last maintenance run")).toContainText(
+      /Sep 10 Pacific day/,
+    );
+  });
+
+  test("touch-only rows read as automation, not outside use", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          mode: "pooled",
+          token_count: 1,
+          has_tokens: true,
+          maturity_enabled: true,
+          maturity_window_start: "2026-09-12T06:45:00Z",
+          maturity_window_end: "2026-09-12T07:00:00Z",
+          tokens: [
+            {
+              index: 0,
+              email: "auto@example.com",
+              session_status: "active",
+              locked: false,
+              requests_per_day: 0,
+              maturity: {
+                enabled: true,
+                target: 7,
+                mode: "unmetered",
+                badge: "Warming",
+                slot: "2026-09-11T06:30:00Z",
+                slot_day: "2026-09-11",
+                last_touch: "2026-09-11T06:56:00Z",
+                last_action: "",
+                last_result: "skip:today-used",
+                result_day: tonightPacific(),
+                effective_touch_model: "upstage/solar-pro4",
+              },
+            },
+          ],
+        }),
+      });
+    });
+    await gotoWarming(page);
+    const row = page
+      .getByText("Account #1")
+      .locator("..")
+      .locator("..")
+      .locator("..");
+    await expect(row.getByText(/nightly touch only/)).toBeVisible();
     // Reset-anchored countdown and Pacific-day last run.
     await expect(page.getByLabel("Next maintenance run")).toContainText(
       /reset in/,
@@ -268,7 +358,7 @@ test.describe("streak maintenance", () => {
     // day count stays as pure info where shown.
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("switch", { name: "Maturity for Account #1" }),
@@ -282,21 +372,211 @@ test.describe("streak maintenance", () => {
     await expect(page.getByText("Locked").first()).toBeVisible();
   });
 
-  test("settings advanced wires the dry-run toggle and touch model", async ({
+  test("warming tab wires the touch model instant-save", async ({ page }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    await page.unroute("**/admin/api/config");
+    await page.route("**/admin/api/config", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceConfig()),
+      });
+    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    await gotoWarming(page);
+    // The streak knob on the Warming card, under the kill-switch:
+    // MATURITY_TOUCH_MODEL as the Auto select, instant-saving to the
+    // overlay on edit. No dry-run switch exists anymore.
+    await expect(
+      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
+    ).toHaveCount(0);
+    const select = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await expect(select).toBeVisible();
+    // Picking a model auto-POSTs the overlay path with the key (debounced).
+    const saveReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10_000 },
+    );
+    await select.selectOption("upstage/solar-pro4");
+    await saveReq;
+    await expect
+      .poll(
+        () => posted.filter((p) => p.key === "MATURITY_TOUCH_MODEL").length,
+        {
+          timeout: 10_000,
+        },
+      )
+      .toBeGreaterThan(0);
+  });
+
+  test("touch-model select shows the saved model after save", async ({
     page,
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
-    await expect(
-      page.getByRole("heading", { name: "Settings", exact: true }),
-    ).toBeVisible();
-    // Pool knobs live here now: MATURITY_DRY_RUN as a switch,
-    // MATURITY_TOUCH_MODEL as the Auto select.
-    await expect(
-      page.getByRole("switch", { name: "MATURITY_DRY_RUN" }),
-    ).toBeVisible();
-    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toBeVisible();
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    // Stateful config mock: the overlay POST updates the served effective
+    // value, so the post-save refetch returns what was saved (like the
+    // gateway instead of a frozen fixture).
+    let touchSaved = "";
+    await page.unroute("**/admin/api/config");
+    await page.route("**/admin/api/config", async (route) => {
+      const cfg = maintenanceConfig();
+      cfg.effective = cfg.effective.map((e) =>
+        e.key === "MATURITY_TOUCH_MODEL" ? { ...e, value: touchSaved } : e,
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(cfg),
+      });
+    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    await gotoWarming(page);
+    const select = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await expect(select).toBeVisible();
+    // Default state reads Auto.
+    await expect(select).toHaveValue("auto");
+    // Pick a non-default served model: the row instant-saves on edit, then
+    // reload: the select must show the saved model, never the old default.
+    // Reloading (instead of trusting the post-save refetch) also dodges the
+    // refetch/edit race where a late refetch clobbers a newer draft. The
+    // request watcher arms before the edit so the debounced POST cannot slip
+    // past it.
+    const saveReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10_000 },
+    );
+    await select.selectOption("upstage/solar-pro4");
+    // Wait for the draft edit to flush to the row (the select's title binds
+    // the same derived draft the instant-save posts).
+    await expect(select).toHaveAttribute("title", "upstage/solar-pro4");
+    await saveReq;
+    await expect
+      .poll(
+        () => posted.filter((p) => p.key === "MATURITY_TOUCH_MODEL").length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(0);
+    // Mirror the saved value into the stateful config mock so the post-save
+    // refetch returns what was saved (like the gateway).
+    touchSaved = posted[posted.length - 1]?.value ?? "";
+    await page.reload();
+    await gotoWarming(page);
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(
+      "upstage/solar-pro4",
+    );
+    // Back to Auto with no overlay row issues no request at all: there is
+    // nothing to delete, and POSTing "" can never succeed (the gateway 400s
+    // empty writes). The select just reads Auto again after reload.
+    const reselected = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await reselected.selectOption("auto");
+    await expect(reselected).toHaveAttribute("title", "auto");
+    // Settle past the 400ms instant-save debounce so a stray write would
+    // have landed in `posted` by now (repo precedent: explicit settle
+    // waits for debounce quiescence).
+    await page.waitForTimeout(700);
+    await expect.poll(() => posted.length, { timeout: 10_000 }).toBe(1);
+    touchSaved = "";
+    await page.reload();
+    await gotoWarming(page);
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue("auto");
+  });
+  test("touch-model Auto with a saved row deletes the overlay row (never POSTs empty)", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    const posted: PostedSetting[] = [];
+    const { deleted } = await mockSettingsOverlay(page, posted, {
+      seed: [
+        {
+          key: "MATURITY_TOUCH_MODEL",
+          value: "upstage/solar-pro4",
+          source: "db",
+        },
+      ],
+    });
+    await gotoWarming(page);
+    const select = page.getByLabel("MATURITY_TOUCH_MODEL");
+    await expect(select).toBeVisible();
+    await expect(select).toHaveValue("upstage/solar-pro4");
+    // Picking Auto must DELETE the overlay row like Reset does — the
+    // gateway 400s an empty POST ("use DELETE to reset the key"), which
+    // used to leave the row stuck on error + Retry.
+    const delReq = page.waitForRequest(
+      (r) =>
+        r.method() === "DELETE" && r.url().includes("/admin/api/settings/"),
+      { timeout: 10_000 },
+    );
+    await select.selectOption("auto");
+    await delReq;
+    expect(deleted).toEqual(["MATURITY_TOUCH_MODEL"]);
+    expect(posted.filter((p) => p.key === "MATURITY_TOUCH_MODEL")).toEqual([]);
+    await expect(select).toHaveValue("auto");
+    await expect(page.getByText("Saved value removed.")).toBeVisible();
+  });
+
+  test("touch-model select keeps a saved model the catalog omits", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(maintenanceTokens()),
+      });
+    });
+    // The saved model retired from the served catalog (stale snapshot):
+    // the select must still display the saved value, never fall back to
+    // the Auto default.
+    await page.unroute("**/admin/api/config");
+    await page.route("**/admin/api/config", async (route) => {
+      const cfg = maintenanceConfig();
+      cfg.effective = cfg.effective.map((e) =>
+        e.key === "MATURITY_TOUCH_MODEL"
+          ? { ...e, value: "retired/old-model" }
+          : e,
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(cfg),
+      });
+    });
+    await gotoWarming(page);
+    await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(
+      "retired/old-model",
+    );
   });
 
   test("no per-account target stepper or model select remains", async ({
@@ -379,7 +659,9 @@ test.describe("streak maintenance", () => {
     await expect(page.getByText("Touched").first()).toBeVisible();
     await expect(page.getByText("Pending").first()).toBeVisible();
     await expect(page.getByText("Locked").first()).toBeVisible();
-    await expect(page.getByText("mimo/mimo-v2.5").first()).toBeVisible();
+    await expect(
+      page.locator("code", { hasText: "mimo/mimo-v2.5" }).first(),
+    ).toBeVisible();
   });
 
   test("board shows the last-run ledger summary", async ({ page }) => {
@@ -422,5 +704,163 @@ test.describe("streak maintenance", () => {
         ).length,
     );
     expect(overflow).toBe(0);
+  });
+  // Pacific day key in the spec runner (mirrors the panel helper): keeps
+  // the stale/tonight fixtures deterministic against wall-clock day roll.
+  function specPacificDay(ts, addDays) {
+    const shifted = new Date(ts + addDays * 86400000);
+    const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .format(shifted)
+      .split("-")
+      .map(Number);
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
+  function dayScopedTokens(resultDay, result, autoReason) {
+    return {
+      mode: "pooled",
+      token_count: 2,
+      has_tokens: true,
+      maturity_enabled: true,
+      maturity_window_start: "2026-09-12T06:45:00Z",
+      maturity_window_end: "2026-09-12T07:00:00Z",
+      tokens: [
+        {
+          index: 0,
+          email: "scoped@example.com",
+          session_status: "active",
+          locked: false,
+          streak: 2,
+          today_used: false,
+          maturity: {
+            enabled: true,
+            target: 7,
+            mode: "unmetered",
+            badge: "Warming",
+            slot: "2026-09-05T07:30:00Z",
+            slot_day: "2026-09-05",
+            last_action: "",
+            last_result: result,
+            result_day: resultDay,
+            effective_touch_model: "",
+            auto_touch_model: "",
+            auto_touch_reason: autoReason,
+          },
+        },
+        {
+          index: 1,
+          email: "fresh@example.com",
+          session_status: "active",
+          locked: false,
+        },
+      ],
+    };
+  }
+
+  test("a prior-day skip reads Pending but stays in the last-run ledger", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          dayScopedTokens(
+            specPacificDay(Date.now(), -1),
+            "skip:touch-model",
+            "fallback:no-unmetered-served",
+          ),
+        ),
+      });
+    });
+    await gotoWarming(page);
+    // Stale skip: the row is Pending and tonight's header counts zero
+    // skipped — yesterday's outcome is not tonight's status.
+    await expect(page.getByText("Pending").first()).toBeVisible();
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /2 eligible · 0 skipped/,
+    );
+    // The last-run ledger stays fully historical: the skip and its
+    // Pacific day remain visible with the exact reason.
+    const ledger = page.getByLabel("Last maintenance run");
+    await expect(ledger).toContainText(/touched\s+0/);
+    await expect(ledger).toContainText(/skipped\s+1/);
+    await expect(ledger).toContainText("skip:touch-model");
+    await expect(ledger).toContainText(/Pacific day/);
+  });
+
+  test("tonight's touch-model skip reads Skipped with the auto reason", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          dayScopedTokens(
+            specPacificDay(Date.now(), 0),
+            "skip:touch-model",
+            "fallback:no-unmetered-served",
+          ),
+        ),
+      });
+    });
+    await gotoWarming(page);
+    // Tonight's skip: the row names the code plus the served auto reason
+    // (no resolver change — display only), and the header counts it.
+    await expect(
+      page.getByText(
+        "Skipped · skip:touch-model · fallback:no-unmetered-served",
+      ),
+    ).toBeVisible();
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /1 eligible · 1 skipped/,
+    );
+    const ledger = page.getByLabel("Last maintenance run");
+    await expect(ledger).toContainText(/skipped\s+1/);
+    await expect(ledger).toContainText("skip:touch-model");
+  });
+
+  test("a pre-upgrade skip without result_day reads Pending on first load", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await page.unroute("**/admin/api/tokens*");
+    await page.route("**/admin/api/tokens*", async (route) => {
+      const payload = dayScopedTokens(
+        specPacificDay(Date.now(), -1),
+        "skip:touch-model",
+        "fallback:no-unmetered-served",
+      );
+      // Pre-upgrade ledger: stamped rows did not exist yet.
+      delete payload.tokens[0].maturity.result_day;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      });
+    });
+    await gotoWarming(page);
+    // The exact complaint: yesterday's unstamped skip must not sit as
+    // today's status — Pending now, Skipped only once tonight stamps.
+    await expect(page.getByText("Pending").first()).toBeVisible();
+    await expect(page.getByLabel("Next maintenance run")).toContainText(
+      /2 eligible · 0 skipped/,
+    );
+    const ledger = page.getByLabel("Last maintenance run");
+    await expect(ledger).toContainText(/skipped\s+1/);
+    await expect(ledger).toContainText("skip:touch-model");
   });
 });

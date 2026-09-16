@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures, mockDashboard } from "./mocks.js";
+import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
+import type { PostedSetting } from "./mocks.js";
 
 test.describe("dashboard hermetic mocks", () => {
   // The Settings tests render the 58-key catalog; under parallel workers on
@@ -57,7 +58,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     const table = page.locator("table.fp-table");
     await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
@@ -67,9 +68,13 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(expandBtn).toBeVisible();
     await expandBtn.click();
     // Without DEVTOOLS_ENABLED the Dev Session toolbar stays hidden; the
-    // expanded row keeps the active-session line.
+    // live session countdown renders in the status cell under the leased
+    // badge (the drawer Active Session banner is gone).
     await expect(page.getByText("Dev Session:")).not.toBeVisible();
-    await expect(table.getByText("Active Session:")).toBeVisible();
+    await expect(table.getByText("Active Session:")).toHaveCount(0);
+    await expect(
+      table.locator('[aria-label^="Session time remaining"]').first(),
+    ).toBeVisible();
 
     // With DEVTOOLS_ENABLED=true the toolbar appears (per-token session spawn).
     await page.unroute("**/admin/api/config");
@@ -119,6 +124,33 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(second.getByLabel("No streak")).toBeVisible();
   });
 
+  test("Tokens active rows carry Drop Session in the Instance cell; idle rows carry none", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    const table = page.locator("table.fp-table");
+    await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
+    // No expansion: fixture token 0 is leased, so its Instance cell stacks
+    // the Drop Session kill switch under the session_model badge, while the
+    // Status cell keeps only the countdown timer + LEASED badge.
+    // Cells: 0 expand/drag, 1 account, 2 status, 3 instance.
+    const active = table.locator("tbody tr").filter({ hasText: "Account #1" });
+    await expect(
+      active.locator("td").nth(3).getByRole("button", { name: "Drop Session" }),
+    ).toBeVisible();
+    await expect(
+      active.locator("td").nth(2).getByRole("button", { name: "Drop Session" }),
+    ).toHaveCount(0);
+    // Fixture token 2 is idle with no remaining session: no kill switch.
+    const idle = table.locator("tbody tr").filter({ hasText: "Account #3" });
+    await expect(
+      idle.getByRole("button", { name: "Drop Session" }),
+    ).toHaveCount(0);
+  });
+
   test("Tokens drawer shows pinned models for locked slots", async ({
     page,
   }) => {
@@ -141,17 +173,8 @@ test.describe("dashboard hermetic mocks", () => {
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
-    await page.unroute("**/admin/api/config");
-    await page.route("**/admin/api/config", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          env_content: "AUTH_TOKENS=tok0,tok1\n",
-          has_env_file: true,
-        }),
-      });
-    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const table = page.locator("table.fp-table");
@@ -161,17 +184,17 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByText("Unlocked — serves any model.").first(),
     ).toBeVisible();
 
-    const postReqPromise = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/config"),
-    );
     await table
       .getByLabel("Pin a model to this token")
       .selectOption("mimo/mimo-v2.5");
     await table.getByRole("button", { name: "Pin" }).click();
-    const postReq = await postReqPromise;
-    expect(decodeURIComponent(postReq.postData() ?? "")).toContain(
-      "MODEL_LOCKS=0:mimo/mimo-v2.5",
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
     );
+    await expect
+      .poll(() => posted.find((p) => p.key === "MODEL_LOCKS")?.value ?? "")
+      .toContain("0:mimo/mimo-v2.5");
   });
 
   test("Quota Tracker shows Freebucks empty state, no session quota bars", async ({
@@ -194,10 +217,10 @@ test.describe("dashboard hermetic mocks", () => {
       )
       .catch(() => {});
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     // Sidebar entry links to the merged page
-    await expect(page.getByRole("link", { name: "Plans" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Usage" })).toBeVisible();
 
     // Per-account cards: one per pooled account (1-based Account # labels)
     await expect(
@@ -256,7 +279,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Models" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     // Single shared note: live upstream values are identical for every
     // account in the region (no per-account model lists anymore).
@@ -287,7 +310,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Accounts" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -428,7 +451,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Models" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     // Vendor-catalog copy renders verbatim: the freshness marker, the
     // data-training warning, and the single-label reasoning chip.
@@ -441,7 +464,7 @@ test.describe("dashboard hermetic mocks", () => {
     ).toBeVisible();
   });
 
-  test("Settings renders catalog groups and saves a toggled bool into the .env", async ({
+  test("Settings and pages render catalog groups, toggled bool saves to .env", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -462,6 +485,8 @@ test.describe("dashboard hermetic mocks", () => {
       ],
     };
     await mockDashboard(page, f, { configWithApiKeys: configWithContent });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -471,9 +496,12 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
+    // Group cards moved to their pages: Settings keeps General (Gateway),
+    // Security leftovers, and the three link-out stubs.
     await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Pool" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Security", exact: true }),
+    ).toBeVisible();
     // A documented bool renders as a switch; effective value drives it.
     const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
     await expect(safeMode).toBeVisible();
@@ -486,47 +514,120 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(httpTimeout).toBeVisible();
     await expect(httpTimeout).toHaveValue("60s");
 
-    // Toggling marks the form dirty and surfaces the unsaved-changes banner.
+    // Toggling instant-saves the key to the overlay (debounced ~400ms).
     await safeMode.click();
     await expect(safeMode).toHaveAttribute("aria-checked", "false");
-    await expect(page.getByText("Unsaved changes")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Save Changes", exact: true }),
-    ).toBeEnabled();
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "SAFE_MODE" && p.value === "false"),
+      )
+      .toBe(true);
 
-    // Save posts the built .env: the toggled line plus untouched lines.
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            ok: true,
-            message:
-              "Saved and reloaded. These keys apply after restart only: LOG_LEVEL",
-            restart_only: ["LOG_LEVEL"],
-          }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect(page.getByText(/apply after restart only/)).toBeVisible();
+    // Reload keeps the toggled value: GET reflects the POSTed overlay row.
+    await page.reload();
     await expect(
-      page.getByText("Applies after restart: LOG_LEVEL"),
-    ).toBeVisible();
-    expect(savedBody).toContain("SAFE_MODE=false");
-    expect(savedBody).toContain("AUTH_TOKENS=tok0,tok1");
-    expect(savedBody).toContain("LOG_LEVEL=info");
+      page.getByRole("switch", { name: "SAFE_MODE" }),
+    ).toHaveAttribute("aria-checked", "false");
+    await expect(
+      page.getByRole("combobox", { name: "HTTP_READ_TIMEOUT" }),
+    ).toHaveValue("60s");
   });
 
-  test("Settings Traffic renders relocated policy keys and saves", async ({
+  test("Pool controls render relocated policy keys and save", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await expect(
+      page.getByRole("heading", { name: "Pool", exact: true }),
+    ).toBeVisible();
+    // Rotation policy moved from Settings Traffic to the Pool page's
+    // Controls tab: the failover switch lives there, keyed by label;
+    // secrets never reach the advanced list.
+    await page.getByRole("button", { name: "Controls" }).click();
+    const failover = page.getByRole("switch", {
+      name: "Auto Failover on Rate Limit (429)",
+    });
+    await expect(page.getByText("ADMIN_TOKEN", { exact: true })).toHaveCount(0);
+    // Toggling instant-saves the key to the overlay (debounced ~400ms).
+    await failover.click();
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() => posted.some((p) => p.key === "RATE_LIMIT_FAILOVER"))
+      .toBe(true);
+    await expect(
+      page.getByRole("status").filter({ hasText: "RATE_LIMIT_FAILOVER saved" }),
+    ).toBeVisible();
+
+    // Reload keeps the toggled value: GET reflects the POSTed overlay row.
+    await page.reload();
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("switch", { name: "Auto Failover on Rate Limit (429)" }),
+    ).toBeVisible();
+  });
+  test("Usage controls render routing keys and save", async ({ page }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await metaResp;
+    await expect(
+      page.getByRole("heading", { name: "Usage", exact: true }),
+    ).toBeVisible();
+    // Model routing moved from Settings Upstream to the Usage page's
+    // Controls tab: the reasoning-format switch lives there, keyed by
+    // badge; secrets never surface.
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByText("REASONING_IN_CONTENT", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("switch", { name: "REASONING_IN_CONTENT" }),
+    ).toBeVisible();
+    // Toggling instant-saves the key to the overlay (debounced ~400ms).
+    await page.getByRole("switch", { name: "REASONING_IN_CONTENT" }).click();
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() => posted.some((p) => p.key === "REASONING_IN_CONTENT"))
+      .toBe(true);
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "REASONING_IN_CONTENT saved" }),
+    ).toBeVisible();
+    // Settings keeps a link-out stub pointing at the Usage page.
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await expect(
+      page.getByRole("link", {
+        name: "Manage Usage controls (Usage → Controls tab)",
+      }),
+    ).toBeVisible();
+  });
+  test("Pool Controls tab renders pool tuning keys and saves", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -535,43 +636,347 @@ test.describe("dashboard hermetic mocks", () => {
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
     );
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    // Pool-group keys moved from Settings Advanced to the Pool Controls
+    // tab: probing rows render in the Pool Tuning card, while every
+    // MATURITY_* key lives only on the Warming tab's Streak Maintenance
+    // card (single address, no Pool Tuning dupe).
+    await expect(page.getByText("Pool Tuning")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Settings", exact: true }),
+      page.getByText("MATURITY_ENABLED", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("QUOTA_AUTO_PROBE", { exact: true }).first(),
     ).toBeVisible();
-    await expect(page.getByText("Advanced", { exact: true })).toBeVisible();
-    // Rotation policy moved from Tokens to Settings Traffic (dashboard IA
-    // merge): the failover switch lives there now, keyed by label; secrets
-    // never reach the advanced list.
-    const failover = page.getByRole("switch", {
-      name: "Auto Failover on Rate Limit (429)",
-    });
-    await expect(failover).toBeVisible();
-    await expect(page.getByText("ADMIN_TOKEN", { exact: true })).toHaveCount(0);
-    // Toggling posts the key on save.
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
-    await failover.click();
+    // Settings no longer renders pool rows: only the Security leftover.
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await expect(
+      page.getByText("MATURITY_ENABLED", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("CORS_ALLOWED_ORIGIN", { exact: true }).first(),
+    ).toBeVisible();
+  });
+  test("Pool strategy preset switch writes the five owned keys", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    // Catalog defaults (30s / 16) already read as Balance.
+    const drain = page.getByRole("radio", { name: "Drain", exact: true });
+    const balance = page.getByRole("radio", { name: "Balance", exact: true });
+    await expect(page.getByText("Pool Strategy")).toBeVisible();
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    // A Drain tap calls onField for all five owned keys, but rows only
+    // POST changed values (no write without change): exactly QUEUE_WAIT
+    // and QUEUE_DEPTH leave Balance behind.
+    await drain.click();
+    await expect(drain).toHaveAttribute("aria-checked", "true");
+    await expect
+      .poll(() => posted.filter((p) => p.key === "QUEUE_WAIT").length)
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() => posted.filter((p) => p.key === "QUEUE_DEPTH").length)
+      .toBeGreaterThan(0);
+    const keys = posted.map((p) => p.key);
+    expect(keys).toContain("QUEUE_WAIT");
+    expect(keys).toContain("QUEUE_DEPTH");
+    expect(posted.find((p) => p.key === "QUEUE_WAIT")?.value).toBe("300s");
+    expect(posted.find((p) => p.key === "QUEUE_DEPTH")?.value).toBe("1024");
+    expect(keys).not.toContain("ROUTING_SMART");
+    expect(keys).not.toContain("TOKEN_ROTATION");
+    expect(keys).not.toContain("RATE_LIMIT_FAILOVER");
+    expect(keys).not.toContain("TOKEN_MAX_CONCURRENT");
+
+    // Reload keeps Drain: the rows pin their display through the post-save
+    // refetches, so no stale file default is re-posted after the tap.
+    await page.reload();
     await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect.poll(() => savedBody).toContain("RATE_LIMIT_FAILOVER=");
+      .waitForResponse(
+        (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+        { timeout: 5000 },
+      )
+      .catch(() => {});
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Drain", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
-  test("Settings legacy #config alias and select save", async ({ page }) => {
+  test("Balance threshold slider shows only in Balance and persists QUEUE_WAIT", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    const slider = page.locator(
+      'input[type="range"][aria-label="Balance threshold (QUEUE_WAIT)"]',
+    );
+    await expect(slider).toBeVisible();
+    // In-range moves keep the Balance badge (never flip to Custom).
+    await slider.evaluate((el) => {
+      const input = el as HTMLInputElement;
+      input.value = "90";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "90s"),
+      )
+      .toBe(true);
+    await expect(
+      page.getByRole("status").filter({ hasText: "QUEUE_WAIT saved" }),
+    ).toBeVisible();
+    // Drain hides the slider.
+    await page.getByRole("radio", { name: "Drain", exact: true }).click();
+    await expect(slider).toHaveCount(0);
+  });
+  test("Editing an owned key flips the badge to Custom with reset", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+    // Hand-editing one owned key (queue depth) flips to Custom.
+    await page.locator('input[aria-label="QUEUE_DEPTH"]').fill("32");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_DEPTH" && p.value === "32"),
+      )
+      .toBe(true);
+    await expect(
+      page.getByRole("button", { name: "Reset to Balance" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Reset to Drain" }),
+    ).toBeVisible();
+    // Reset restores the Balance five (threshold back to its 60s default).
+    await page.getByRole("button", { name: "Reset to Balance" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+    await expect
+      .poll(
+        () =>
+          posted.filter((p) => p.key === "QUEUE_DEPTH" && p.value === "16")
+            .length,
+      )
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "60s"),
+      )
+      .toBe(true);
+  });
+
+  test("Pool strategy survives a Go-normalized echo in ONE click each way", async ({
+    page,
+  }) => {
+    // Regression for the two-click bug: the gateway used to serve the
+    // Go-normalized effective duration ("1m0s") for saved rows, which the
+    // badge could not round-trip — the first Balance tap landed as Custom
+    // and only the second tap settled. The mock models the real echo by
+    // answering the post-refetch GET with "1m0s" for QUEUE_WAIT; the
+    // frontend compound parser must still read Balance after ONE click,
+    // Drain→Balance→Drain, with reload persistence.
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    const drain = page.getByRole("radio", { name: "Drain", exact: true });
+    const balance = page.getByRole("radio", { name: "Balance", exact: true });
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    // Drain in one click (values + badge agree without a second tap).
+    await drain.click();
+    await expect(drain).toHaveAttribute("aria-checked", "true");
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_DEPTH" && p.value === "1024"),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "300s"),
+      )
+      .toBe(true);
+    await expect(drain).toHaveAttribute("aria-checked", "true");
+    // Back to Balance in one click; the queued post-refetch echoes "1m0s"
+    // (Go-normalized) and the badge must stay Balance regardless.
+    await balance.click();
+    await expect(balance).toHaveAttribute("aria-checked", "true");
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_DEPTH" && p.value === "16"),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "60s"),
+      )
+      .toBe(true);
+    await page.route("**/admin/api/settings", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          settings: [
+            { key: "ROUTING_SMART", value: "true", source: "db" },
+            { key: "TOKEN_ROTATION", value: "drain", source: "db" },
+            { key: "RATE_LIMIT_FAILOVER", value: "true", source: "db" },
+            { key: "QUEUE_WAIT", value: "1m0s", source: "db" },
+            { key: "QUEUE_DEPTH", value: "16", source: "db" },
+          ],
+          degraded: false,
+        }),
+      });
+    });
+    await page.reload();
+    await page
+      .waitForResponse(
+        (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+        { timeout: 5000 },
+      )
+      .catch(() => {});
+    await page.getByRole("button", { name: "Controls" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Balance", exact: true }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("Usage Controls tab renders upstream and quota keys", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await metaResp;
+    await page.getByRole("button", { name: "Controls" }).click();
+    // Upstream/quota-group keys moved from Settings Advanced to Usage.
+    await expect(page.getByText("Upstream & Quota")).toBeVisible();
+    await expect(
+      page.getByText("REGISTRY_REFRESH", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("MODELS_HIDE_UNAVAILABLE", { exact: true }).first(),
+    ).toBeVisible();
+  });
+
+  test("Logs Logging tab renders logging and diagnostics keys", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await metaResp;
+    await page.getByRole("button", { name: "Logging" }).click();
+    // General-group keys moved from Settings Advanced to Logs.
+    await expect(page.getByText("Logging & Diagnostics")).toBeVisible();
+    await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toBeVisible();
+  });
+
+  test("Logs card renders log level and saves", async ({ page }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const metaResp = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
+      { timeout: 5000 },
+    );
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await metaResp;
+    await expect(
+      page.getByRole("heading", { name: "Logs", exact: true }),
+    ).toBeVisible();
+    // Log level moved from Settings General to the Logs page's Logging
+    // tab: the select lives there now, behind the tab switch.
+    await page.getByRole("button", { name: "Logging" }).click();
+    const level = page.locator('select[aria-label="LOG_LEVEL"]');
+    await level.selectOption("debug");
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "debug"),
+      )
+      .toBe(true);
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
+    ).toBeVisible();
+    // Settings keeps a link-out stub pointing at the Logs page.
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await expect(
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
+    ).toBeVisible();
+  });
+
+  test("Logs select saves via shared .env flow (legacy #config alias routes to Settings)", async ({
+    page,
+  }) => {
     const f = loadFixtures();
     const configWithContent = {
       ...f.config,
@@ -590,6 +995,8 @@ test.describe("dashboard hermetic mocks", () => {
       ],
     };
     await mockDashboard(page, f, { configWithApiKeys: configWithContent });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
 
     // Legacy '#config' hash still routes to the Settings page.
     const metaRespLegacy = page.waitForResponse(
@@ -602,32 +1009,37 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Settings", exact: true }),
     ).toBeVisible();
 
-    // Select renders enum options from meta; changing it edits the document.
+    // LOG_LEVEL moved to the Logs page's Logging tab: the stub links out
+    // to #activity, and the live select edits from the Logs inline card.
+    await expect(
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
+    ).toBeVisible();
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await page.getByRole("button", { name: "Logging" }).click();
     const logLevel = page.getByRole("combobox", { name: "LOG_LEVEL" });
     await expect(logLevel).toBeVisible();
     await expect(logLevel).toContainText("debug");
     await expect(logLevel).toContainText("trace");
     await logLevel.selectOption("warn");
 
-    // Keys using default values render the 'default' badge.
+    // The select instant-saves through the overlay (debounced ~400ms).
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() =>
+        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "warn"),
+      )
+      .toBe(true);
     await expect(
-      page.getByText("default", { exact: true }).first(),
+      page
+        .getByRole("status")
+        .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
     ).toBeVisible();
-    // Save posts the built .env line for the edited select.
-    const postReqPromise = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/config"),
-    );
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    const postReq = await postReqPromise;
-    expect(decodeURIComponent(postReq.postData() ?? "")).toContain(
-      "LOG_LEVEL=warn",
-    );
   });
 
-  test("Settings rejected save reverts the form to the server state", async ({
+  test("Settings rejected save keeps the edited value with a Retry affordance", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -648,22 +1060,8 @@ test.describe("dashboard hermetic mocks", () => {
       ],
     };
     await mockDashboard(page, f, { configWithApiKeys: configWithContent });
-
-    // The server rejects this write (validation failure) and rolls the file back.
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        await route.fulfill({
-          status: 400,
-          contentType: "application/json",
-          body: JSON.stringify({
-            ok: false,
-            message: "Rejected: invalid value",
-          }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, { postStatus: 400 });
 
     const metaResp = page
       .waitForResponse(
@@ -676,19 +1074,28 @@ test.describe("dashboard hermetic mocks", () => {
     const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
     await expect(safeMode).toHaveAttribute("aria-checked", "true");
 
-    // Toggle the bool, accept the confirm dialog, and save.
+    // Toggling instant-saves; the 400 rejection surfaces inline on the row.
     await safeMode.click();
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-
-    // Failure alert shown and the control restored to the server state.
-    await expect(safeMode).toHaveAttribute("aria-checked", "true");
-    // Dirty reverted — Save button disabled again.
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() => posted.filter((p) => p.key === "SAFE_MODE").length)
+      .toBeGreaterThan(0);
     await expect(
-      page.getByRole("button", { name: "Save Changes", exact: true }),
-    ).toBeDisabled();
+      page.getByRole("status").filter({ hasText: "Setting rejected: boom" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    // The control keeps the edited value (no revert to server state).
+    await expect(safeMode).toHaveAttribute("aria-checked", "false");
+
+    // Retry re-POSTs the same key.
+    const before = posted.filter((p) => p.key === "SAFE_MODE").length;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect
+      .poll(() => posted.filter((p) => p.key === "SAFE_MODE").length)
+      .toBeGreaterThan(before);
   });
 
   test("Logs filters by ?msg= and paginates with Next/Prev", async ({
@@ -699,7 +1106,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#activity");
     await expect(
-      page.getByRole("heading", { name: "Activity", exact: true }),
+      page.getByRole("heading", { name: "Logs", exact: true }),
     ).toBeVisible();
 
     // Console (/v1 inference traffic) is the default view; table filtering
@@ -785,7 +1192,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#activity");
     // The label follows the server's effective window (the fixture stands in
-    // for LOG_CONSOLE_WINDOW = 1h) and the matching option is active.
+    // for the 1h default) and the matching option is active.
     await expect(page.getByText("last 1 hour")).toBeVisible();
     await expect(page.getByRole("button", { name: "1h" })).toHaveAttribute(
       "aria-pressed",
@@ -905,7 +1312,7 @@ test.describe("dashboard hermetic mocks", () => {
       .catch(() => {});
     // Models tab: table assertions stay, scoped to the merged page.
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
 
     // Models fixture has 7 rows
@@ -926,7 +1333,7 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByText("Referral only").first()).toBeVisible();
     await expect(page.getByText("low/high/max").first()).toBeVisible();
     await expect(page.getByText("Price").first()).toBeVisible();
-    await expect(page.getByText("Pool").first()).toHaveCount(0);
+    await expect(page.locator("table").getByText("Pool")).toHaveCount(0);
     await expect(page.getByText("referral", { exact: true })).toHaveCount(2);
   });
   test("Models sorts cheapest-first on the meter", async ({ page }) => {
@@ -949,7 +1356,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Models" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     const rows = page.locator("table tbody tr");
     await expect(rows).toHaveCount(7);
@@ -1069,15 +1476,24 @@ test.describe("dashboard hermetic mocks", () => {
     // Check that at least one element has aria-live or aria-describedby
     const liveCount = await page.locator("[aria-live]").count();
     expect(liveCount).toBeGreaterThanOrEqual(0);
-    // Settings exposes accessible labeled inputs
-    const configResp = page.waitForResponse(
-      (r) => r.url().includes("/admin/api/config"),
-      { timeout: 5000 },
-    );
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
-    await configResp;
+    // Logs page exposes the accessible LOG_LEVEL select behind the
+    // Logging tab; Settings keeps SAFE_MODE inline plus a link-out stub.
+    await page.goto("http://127.0.0.1:4173/admin/#activity");
+    await page.getByRole("button", { name: "Logging" }).click();
     await expect(
       page.getByRole("combobox", { name: "LOG_LEVEL" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
+    ).toHaveCount(0);
+    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page
+      .waitForResponse((r) => r.url().includes("/admin/api/config"), {
+        timeout: 5000,
+      })
+      .catch(() => {});
+    await expect(
+      page.getByRole("link", { name: "Manage log level (Logs → Logging tab)" }),
     ).toBeVisible();
     await expect(page.getByRole("switch", { name: "SAFE_MODE" })).toBeVisible();
   });
@@ -1253,14 +1669,38 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Client Integration" }),
     ).toBeVisible();
 
-    // /admin/playground maps to Dev Tools (self-gated; shows the disabled notice here)
+    // /admin/playground maps to Dev Tools (fully gated off here: renders
+    // nothing and bounces to Overview).
     await page.goto("http://127.0.0.1:4173/admin/playground");
     await expect(
-      page.getByRole("heading", { name: "Dev Tools", exact: true }),
+      page.getByRole("heading", { name: "Overview", exact: true }),
     ).toBeVisible();
-
     // Unknown tab renders the NotFound fallback, not a blank shell
     await page.goto("http://127.0.0.1:4173/admin/#does-not-exist");
     await expect(page.getByText("Page not found")).toBeVisible();
+  });
+  test("Sidebar footer shortens a 40-char build SHA with full id in tooltip", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    const sha = "d088f4468e77c1bcf3814862b42bee9415e5fe6e";
+    await mockDashboard(page, f, {
+      version: { ...f.version, current_version: sha },
+    });
+    await page.goto("http://127.0.0.1:4173/admin/#overview");
+    await expect(
+      page.getByRole("heading", { name: "Overview", exact: true }),
+    ).toBeVisible();
+    // Short id renders in the desktop sidebar footer; the full SHA never
+    // appears as visible text (it would overflow the 224px sidebar) but
+    // stays available as the tooltip.
+    const badge = page.locator("aside span[title]").filter({
+      hasText: "d088f44",
+    });
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveAttribute("title", sha);
+    await expect(
+      page.locator("aside").getByText(sha, { exact: false }),
+    ).toHaveCount(0);
   });
 });

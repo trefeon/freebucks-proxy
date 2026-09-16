@@ -269,14 +269,14 @@ func TestSettingSourcesJSONFile(t *testing.T) {
 }
 
 // TestLogAndListenKeysAreRestartOnly pins the review finding that the logger
-// (LOG_LEVEL/LOG_FORMAT/LOG_FILE/LOG_RING_SIZE) and the listener socket
+// (LOG_LEVEL/LOG_FORMAT/LOG_FILE) and the listener socket
 // (LISTEN_ADDR) are never touched by a reload: applyReloadedConfig fans out
 // to cfg/registry/pool/rate-limiter only, so the settings POST must report
 // setting_restart_only for these keys instead of claiming a live apply.
 // The server-side half of the parity (restartOnlyConfigKeys) is pinned by
 // TestConfigCatalogRestartOnlyMatchesServer in the server package.
 func TestLogAndListenKeysAreRestartOnly(t *testing.T) {
-	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LOG_RING_SIZE", "LISTEN_ADDR"} {
+	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LISTEN_ADDR"} {
 		def, ok := LookupSetting(key)
 		if !ok {
 			t.Fatalf("LookupSetting(%s) missing from catalog", key)

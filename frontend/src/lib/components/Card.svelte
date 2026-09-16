@@ -50,7 +50,7 @@
       {/if}
     </header>
   {/if}
-  <div class="flex-1 min-h-0 min-w-0 flex flex-col {pad === 'md' ? 'p-5' : ''}">
+  <div class="flex-1 min-h-0 min-w-0 flex flex-col {pad === 'md' ? 'p-4' : ''}">
     {#if children}
       {@render children()}
     {/if}

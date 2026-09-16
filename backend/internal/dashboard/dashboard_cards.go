@@ -145,6 +145,7 @@ type maturityCard struct {
 	LastAction          string `json:"last_action,omitempty"`
 	LastResult          string `json:"last_result,omitempty"`
 	LastAdvanced        string `json:"last_advanced,omitempty"`
+	ResultDay           string `json:"result_day,omitempty"`
 	EffectiveTouchModel string `json:"effective_touch_model,omitempty"`
 	AutoTouchModel      string `json:"auto_touch_model,omitempty"`
 	AutoTouchReason     string `json:"auto_touch_reason,omitempty"`
@@ -413,9 +414,6 @@ type tokensData struct {
 	TokenRotation     string         `json:"token_rotation,omitempty"`
 	RateLimitFailover bool           `json:"rate_limit_failover"`
 	MaturityEnabled   bool           `json:"maturity_enabled"`
-	// MaturityDryRun mirrors MATURITY_DRY_RUN for the Streak Maintenance
-	// dry-run badge (probe-only, zero session slots claimed).
-	MaturityDryRun bool `json:"maturity_dry_run"`
 	// MaturityWindowStart/End are tonight's maintenance window (the 60
 	// minutes before the Pacific-midnight reset, RFC3339 absolute
 	// instants): the SPA formats the next-run countdown from these, so
@@ -483,7 +481,6 @@ func (d *Dashboard) tokensData() tokensData {
 		TokenRotation:     cfg.TokenRotation,
 		RateLimitFailover: cfg.RateLimitFailover,
 		MaturityEnabled:   cfg.MaturityEnabled,
-		MaturityDryRun:    cfg.MaturityDryRun,
 	}
 	wStart, wEnd := d.pool.MaturityWindow()
 	if !wStart.IsZero() && !wEnd.IsZero() {
@@ -682,11 +679,9 @@ func (d *Dashboard) bridgeCards(show bool) []bridgeTokenCard {
 // --- models ---
 
 type modelsData struct {
-	Models     []modelRow `json:"models"`
-	Count      int        `json:"count"`
-	Agents     int        `json:"agents"`
-	Aliases    []aliasRow `json:"aliases"`
-	HasAliases bool       `json:"has_aliases"`
+	Models []modelRow `json:"models"`
+	Count  int        `json:"count"`
+	Agents int        `json:"agents"`
 }
 
 type modelRow struct {
@@ -738,11 +733,6 @@ func unmeteredModels(reg *registry.Registry) []unmeteredRow {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
-}
-
-type aliasRow struct {
-	Alias string `json:"alias"`
-	Real  string `json:"real"`
 }
 
 // quotaFor returns the price label for a model row, Freebucks-based like the
@@ -868,12 +858,6 @@ func (d *Dashboard) modelsData() modelsData {
 	// rows sort last.
 	sortModelRowsByPrice(md.Models, effectivePrices)
 	md.Count = len(md.Models)
-	cfg := d.cfg()
-	for alias, real := range cfg.ModelAliases {
-		md.Aliases = append(md.Aliases, aliasRow{Alias: alias, Real: real})
-	}
-	sort.Slice(md.Aliases, func(i, j int) bool { return md.Aliases[i].Alias < md.Aliases[j].Alias })
-	md.HasAliases = len(md.Aliases) > 0
 	return md
 }
 
