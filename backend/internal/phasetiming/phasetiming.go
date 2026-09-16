@@ -31,6 +31,15 @@ const (
 	// RunAcquireMS is the run-slot acquire inside Acquire, recorded by the
 	// pool per token attempt.
 	RunAcquireMS = "run_acquire_ms"
+	// QueueWaitMS is how long the request sat parked in an account's FIFO
+	// live-turn queue (TOKEN_MAX_CONCURRENT slot wall, route_smart.go)
+	// before a slot was granted, recorded by the pool around the slot
+	// acquire. It is written ONLY when the request actually parked AND was
+	// granted: a request that never queued — or one whose QUEUE_WAIT
+	// elapsed without a slot — carries no such phase at all, so the
+	// console's "no wait" case is unambiguous. This is queue time, not
+	// acquire time: acquire_ms stays the whole pool.Acquire call.
+	QueueWaitMS = "queue_wait_ms"
 	// UpstreamTTFBMS is the time from the upstream chat call until the
 	// first relayed chunk, recorded by the server in the relay loop.
 	UpstreamTTFBMS = "upstream_ttfb_ms"

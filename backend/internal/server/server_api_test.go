@@ -1030,6 +1030,12 @@ func TestTracePhasesRecorded(t *testing.T) {
 	if !strings.Contains(joined, "status=ok") {
 		t.Errorf("trace missing status=ok: %s", joined)
 	}
+	// Queue-wait telemetry is recorded only when the request actually
+	// parked: a hermetic single-token pool grants immediately, so the trace
+	// must carry no queue_wait_ms at all (never a misleading 0).
+	if strings.Contains(joined, "queue_wait_ms") {
+		t.Errorf("never-parked trace carries queue_wait_ms: %s", joined)
+	}
 }
 
 // --- D1 correlation ids + T2/T3/T8/T12/T13 ---

@@ -82,6 +82,7 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 		phasetiming.AcquireMS,
 		phasetiming.SessionRefreshMS,
 		phasetiming.RunAcquireMS,
+		phasetiming.QueueWaitMS,
 		phasetiming.UpstreamTTFBMS,
 		phasetiming.TotalMS,
 	} {

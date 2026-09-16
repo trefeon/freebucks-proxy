@@ -15,13 +15,18 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"github.com/pressly/goose/v3"
 	"io/fs"
-	_ "modernc.org/sqlite"
+	"math/rand/v2"
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -120,6 +125,11 @@ func Millis(t time.Time) int64 { return t.UnixMilli() }
 // Store wraps the history database. Zero value is unusable; Open first.
 type Store struct {
 	db *sql.DB
+	// writeMu is the store's single write boundary: every writer method
+	// (settings UPSERT, logring spill, retention purge, request/quota
+	// records, pool state) runs under it, so this process never offers two
+	// concurrent writers to SQLite. Reads are not serialized against it.
+	writeMu sync.Mutex
 	// status is the boot migration report captured by OpenWithStatus:
 	// the detected from-version plus the goose versions that actually ran.
 	// In-memory only (no DB reads); MigrateStatus returns a copy.
@@ -160,6 +170,60 @@ func (s *Store) MigrateStatus() MigrateStatus {
 // relative to the process working directory (mirrored by the compose
 // db_data volume at /app/data/freebuff.db inside Docker).
 const defaultDBPath = "data/freebuff.db"
+
+// busyTimeoutMillis is how long every connection waits for the writer in
+// front of it before giving up. It has to be a CONNECTION property, not a
+// one-shot pragma: the same database file is written by the settings
+// UPSERT, the logring spill transaction, the retention purge and the
+// request/quota recorders, and the process used to configure only the first
+// connection the pool happened to create. Every later connection inherited
+// SQLite's 0ms default and failed fast with the instant-save error
+// `store: set setting "config:QUEUE_WAIT": database is locked (5)
+// (SQLITE_BUSY)`.
+const busyTimeoutMillis = 5000
+
+// Bounded retry for a write that still lost the lock (contention from
+// outside this process — a second gateway on the same file, a sqlite3
+// shell, a backup tool). Small and jittered on purpose: the connection-level
+// busy_timeout already absorbs the common case, so this only covers the
+// residual race without turning a POST into a long stall.
+const (
+	busyRetryAttempts = 3
+	busyRetryBudget   = 5 * time.Second
+	busyRetryBase     = 50 * time.Millisecond
+)
+
+// sqliteDSN builds the connection string for one database file. The pragmas
+// ride in the DSN because the driver applies DSN query parameters to EVERY
+// connection it opens (modernc.org/sqlite conn.go newConn -> applyQueryParams,
+// which runs the `_pragma` list on each new connection), so each pooled
+// connection starts life already configured:
+//
+//	_pragma=busy_timeout(5000)   wait for the writer in front instead of
+//	                             failing with SQLITE_BUSY
+//	_pragma=synchronous(NORMAL)  WAL's safe speed/durability trade
+//	_pragma=journal_mode(WAL)    persistent file setting, re-asserted per
+//	                             connection and a no-op once already WAL
+//	_txlock=immediate            take the write lock at BEGIN, so a
+//	                             transaction never upgrades mid-flight into
+//	                             an unresolvable SQLITE_BUSY_SNAPSHOT
+//
+// The plain (non-"file:") form is deliberate: the driver splits the query off
+// any DSN containing "?" and passes the rest to sqlite3_open_v2 verbatim, so
+// a Windows path keeps its backslashes instead of being parsed as a URI.
+//
+// The pool is left uncapped on purpose. The busy policy riding on every
+// connection plus the in-process write boundary (Store.writeMu) is what makes
+// the store lock-free, so a cap buys no correctness — while capping it at one
+// connection queues every reader (and every instant-save POST) behind an
+// in-flight write. WAL lets a reader run against the committed snapshot while
+// a transaction is open; TestReadsDoNotQueueBehindWrites pins that contract.
+func sqliteDSN(path string) string {
+	return path + "?_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMillis) + ")" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_txlock=immediate"
+}
 
 // DBPathFromEnv resolves the SQLite file: DB_PATH wins (blank counts as
 // unset), otherwise the ./data/freebuff.db default. Callers log the resolved
@@ -213,20 +277,25 @@ func OpenWithStatus(path string) (*Store, MigrateStatus, error) {
 		}
 		st.Fresh = true
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, st, fmt.Errorf("store: open %s: %w", path, err)
 	}
-	for _, p := range []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA synchronous=NORMAL",
-		"PRAGMA busy_timeout=5000",
-	} {
-		if _, err := db.Exec(p); err != nil {
-			_ = db.Close()
-			return nil, st, fmt.Errorf("store: %s: %w", p, err)
-		}
+	// The busy policy is a connection property, so it has to be pinned on
+	// every connection the pool opens — see sqliteDSN. Verifying it here on
+	// a real connection is the boot-time guard: if the DSN ever stops
+	// carrying the pragma, Open fails loudly instead of silently reverting
+	// to fail-fast SQLITE_BUSY under concurrent writes.
+	var gotBusyTimeout int
+	if err := db.QueryRow("PRAGMA busy_timeout").Scan(&gotBusyTimeout); err != nil {
+		_ = db.Close()
+		return nil, st, fmt.Errorf("store: read busy_timeout: %w", err)
 	}
+	if gotBusyTimeout != busyTimeoutMillis {
+		_ = db.Close()
+		return nil, st, fmt.Errorf("store: busy_timeout is %dms, want %dms (check the open DSN)", gotBusyTimeout, busyTimeoutMillis)
+	}
+	// No pool cap on purpose — see sqliteDSN.
 	var v int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
 		_ = db.Close()
@@ -438,31 +507,96 @@ func hasColumn(db *sql.DB, table, column string) bool {
 // Close releases the database handle.
 func (s *Store) Close() error { return s.db.Close() }
 
+// withWrite runs fn inside the store's single write boundary: this process's
+// writer serialization plus a bounded, jittered retry while SQLite reports
+// the file as locked.
+//
+// One lock for every table, because every writer here touches the same
+// database file and SQLite admits exactly one writer at a time. Serializing
+// costs nothing as long as the callback stays a single statement or one short
+// transaction — no validation, HTTP work, or computation belongs inside.
+// The connection-level busy_timeout still covers writers outside this
+// process (a second gateway, a sqlite3 shell).
+//
+// The retry covers what the lock cannot: an external writer holding the file.
+// It is capped at busyRetryAttempts extra runs inside busyRetryBudget and
+// jittered, so two writers that lost the same lock do not retry in lockstep.
+// A write that still cannot land returns its real error — never a fabricated
+// success. Retrying is safe for every caller: each callback is a statement or
+// a transaction SQLite rolls back atomically, so a failed run leaves nothing
+// half-applied.
+//
+// The lock is held ACROSS the retries, including the jittered sleeps, so a
+// writer that keeps losing the file to an external process blocks the other
+// writers for up to busyRetryBudget instead of letting them interleave. That
+// is the deliberate trade: the wait is bounded, the queue stays FIFO, and no
+// writer can starve another in this process. Nothing may call another writer
+// from inside fn — the mutex is deliberately not reentrant, and withWrite is
+// never nested (SaveSession's empty-blob path delegates to DeleteSession
+// before it takes the lock).
+func (s *Store) withWrite(fn func() error) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	deadline := time.Now().Add(busyRetryBudget)
+	backoff := busyRetryBase
+	for attempt := 0; ; attempt++ {
+		err := fn()
+		if err == nil || attempt == busyRetryAttempts || !isBusyError(err) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(backoff + time.Duration(rand.Int64N(int64(backoff))))
+		backoff *= 2
+	}
+}
+
+// isBusyError reports whether err is SQLite refusing to write because
+// another connection holds the lock. The driver returns extended result
+// codes (SQLITE_BUSY_SNAPSHOT, SQLITE_BUSY_TIMEOUT, SQLITE_LOCKED_*), so the
+// primary code byte decides; a wrapped or reworded error falls back to the
+// canonical message text.
+func isBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var se *sqlite.Error
+	if errors.As(err, &se) {
+		switch se.Code() & 0xff {
+		case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
+			return true
+		}
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "database table is locked")
+}
+
 // Purge deletes rows older than the given Unix-millis cutoffs. Retention runs
 // from a background goroutine the server wires later — never on the request
 // path (ADR-0016). No VACUUM: freed pages are reused by later inserts.
 func (s *Store) Purge(logsBefore, quotaBefore, maturityBefore, requestsBefore int64) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("store: purge begin: %w", err)
-	}
-	cuts := []struct {
-		table string
-		ts    int64
-	}{
-		{"log_entries", logsBefore},
-		{"quota_snapshots", quotaBefore},
-		{"maturity_events", maturityBefore},
-		{"request_records", requestsBefore},
-	}
-	for _, c := range cuts {
-		if _, err := tx.Exec("DELETE FROM "+c.table+" WHERE ts < ?", c.ts); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("store: purge %s: %w", c.table, err)
+	return s.withWrite(func() error {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("store: purge begin: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: purge commit: %w", err)
-	}
-	return nil
+		cuts := []struct {
+			table string
+			ts    int64
+		}{
+			{"log_entries", logsBefore},
+			{"quota_snapshots", quotaBefore},
+			{"maturity_events", maturityBefore},
+			{"request_records", requestsBefore},
+		}
+		for _, c := range cuts {
+			if _, err := tx.Exec("DELETE FROM "+c.table+" WHERE ts < ?", c.ts); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("store: purge %s: %w", c.table, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("store: purge commit: %w", err)
+		}
+		return nil
+	})
 }

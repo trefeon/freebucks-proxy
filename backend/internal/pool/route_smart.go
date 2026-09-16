@@ -140,11 +140,13 @@ func routeSlotParams(cfg *config.Config) (cap, depth int, wait time.Duration) {
 // routeSlotWaiter is one parked FIFO waiter. ch is closed exactly once on
 // grant (under Pool.routeMu); granted is set in the same critical section
 // so a concurrent timeout/ctx-expiry either takes the grant or dequeues,
-// never both and never neither.
+// never both and never neither. at is the arrival instant, read under
+// routeMu to report how long the oldest waiter has been parked.
 type routeSlotWaiter struct {
 	ch      chan struct{}
 	granted bool
 	element *list.Element
+	at      time.Time
 }
 
 // routeSlotState is one token's live-turn counter plus its FIFO waiter
@@ -238,7 +240,7 @@ func (p *Pool) routeSlotAcquire(ctx context.Context, key any, displayIdx int, ca
 		p.routeMu.Unlock()
 		return nil, false, qerr
 	}
-	w := &routeSlotWaiter{ch: make(chan struct{})}
+	w := &routeSlotWaiter{ch: make(chan struct{}), at: time.Now()}
 	w.element = st.waiters.PushBack(w)
 	live := st.live
 	p.routeMu.Unlock()
@@ -294,6 +296,30 @@ func (p *Pool) routeSlotQueued(key any) int {
 		return st.waiters.Len()
 	}
 	return 0
+}
+
+// routeSlotStats reports the key's live-turn count, parked waiter count and
+// how long the oldest (front) waiter has been parked — zero when nothing is
+// queued. This is the telemetry view of one lane: TokenSnapshot rides it so
+// the dashboard can show a saturated account (live turns at the cap with
+// waiters behind them) versus a free one.
+func (p *Pool) routeSlotStats(key any) (live, queued int, oldestWait time.Duration) {
+	p.routeMu.Lock()
+	defer p.routeMu.Unlock()
+	st, ok := p.routeSlots[key]
+	if !ok || st == nil {
+		return 0, 0, 0
+	}
+	if st.waiters == nil {
+		return st.live, 0, 0
+	}
+	queued = st.waiters.Len()
+	if queued > 0 {
+		if head, ok := st.waiters.Front().Value.(*routeSlotWaiter); ok && !head.at.IsZero() {
+			oldestWait = time.Since(head.at)
+		}
+	}
+	return st.live, queued, oldestWait
 }
 
 // unclassified reports whether an admission failure carried none of the

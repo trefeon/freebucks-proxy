@@ -17,13 +17,15 @@ func (s *Store) SaveTokenMaturity(valueHash, maturityJSON string, streakBlob []b
 	if valueHash == "" {
 		return errors.New("store: token hash cannot be empty")
 	}
-	if _, err := s.db.Exec(
-		`INSERT INTO tokens(value_hash, maturity_json, streak_blob, created_at) VALUES(?, ?, ?, ?)
-		 ON CONFLICT(value_hash) DO UPDATE SET maturity_json=excluded.maturity_json, streak_blob=excluded.streak_blob`,
-		valueHash, maturityJSON, streakBlob, Millis(time.Now())); err != nil {
-		return fmt.Errorf("store: save token maturity: %w", err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(
+			`INSERT INTO tokens(value_hash, maturity_json, streak_blob, created_at) VALUES(?, ?, ?, ?)
+			 ON CONFLICT(value_hash) DO UPDATE SET maturity_json=excluded.maturity_json, streak_blob=excluded.streak_blob`,
+			valueHash, maturityJSON, streakBlob, Millis(time.Now())); err != nil {
+			return fmt.Errorf("store: save token maturity: %w", err)
+		}
+		return nil
+	})
 }
 
 // LoadTokenMaturity returns one token's maturity blobs. ok is false when the
