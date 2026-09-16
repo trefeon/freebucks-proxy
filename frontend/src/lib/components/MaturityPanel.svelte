@@ -2,10 +2,16 @@
   import { onMount } from "svelte";
   import { recordPageVisit } from "../stores/pageState.js";
   import Card from "./Card.svelte";
+  import Button from "./Button.svelte";
   import Alert from "./Alert.svelte";
   import StatusBadge from "./StatusBadge.svelte";
   import ToggleSwitch from "./ToggleSwitch.svelte";
-  import { postAPI } from "../api/client.js";
+  import DbOverrideSave from "./DbOverrideSave.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
+  import { postAPI, fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import {
     tokensData as tokensStore,
@@ -13,24 +19,77 @@
     ensureTokensStore,
     refreshTokens,
   } from "../stores/tokens.js";
+  import {
+    touchOptions as sharedTouchOptions,
+    touchLabel,
+  } from "../utils/touchModels.js";
   import { tr } from "../i18n.js";
 
-  // Streak Maintenance board: universal automatic, one switch. The global
-  // kill-switch is the ONLY control here — dry-run and touch-model knobs
-  // live in Settings → Advanced. Rows and ledger are read-only status.
+  /**
+   * Streak Maintenance board: universal automatic, one switch plus the
+   * touch-model row below it. The global kill-switch is the master control;
+   * touch-model (MATURITY_TOUCH_MODEL) moved here from Pool Tuning so the
+   * whole streak surface sits on the Warming tab. The row instant-saves to
+   * the DB overlay on edit (DbOverrideSave); it dims while the kill-switch
+   * is off. Ledger rows stay read-only status.
+   * @prop {Record<string, string>} [formValues={}] - live settings values
+   * @prop {(key: string, value: string) => void} [onField] - value edit
+   * @prop {Record<string, string>} [sources={}] - ADR-0019 source tiers
+   * @prop {(key: string) => Promise<void>} [onReset=null] - saved-value reset
+   * @prop {(() => Promise<void>) | null} [onSaved=null] - parent refetch
+   * @prop {boolean} [degraded=false] - settings store offline note
+   */
+  let {
+    formValues = {},
+    onField = null,
+    sources = {},
+    onReset = null,
+    onSaved = null,
+    degraded = false,
+  } = $props();
 
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
+  let errorToast = $state(0);
+  let lastErrorMsg = "";
+  function notifyError(msg) {
+    // The shared tokens poll re-fails with the same message: only replace
+    // the toast when it actually changes, so it never flickers and a
+    // manual dismiss is respected until the next distinct failure.
+    if (msg === lastErrorMsg) return;
+    lastErrorMsg = msg;
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  }
+  function retryLoad() {
+    error = "";
+    notifyError("");
+    loading = true;
+    refreshTokens();
+  }
   let unsubStore = null;
   let unsubErr = null;
 
-  // Global kill-switch (MATURITY_ENABLED, default true): the ONLY streak
-  // control. Dry-run display only (MATURITY_DRY_RUN lives in Settings).
+  // Global kill-switch (MATURITY_ENABLED, default true): the master streak
+  // control. The editable touch-model row reads the shared settings draft.
   let globalEnabled = $state(true);
   let globalLoaded = $state(false);
   let savingGlobal = $state(false);
-  let dryRun = $state(true);
+  // Editable tuning row (instant overlay save beside the control):
+  // touch-model defaults "" (= auto, cheapest unmetered). The select shows
+  // "auto" for both "" and a literal "auto" (older overlays stored the
+  // word), while edits canonicalize Auto back to "" so the draft always
+  // matches the catalog default. The row dims while the kill-switch is off.
+  let touchVal = $derived(formValues.MATURITY_TOUCH_MODEL ?? "");
+  let touchSelectVal = $derived(
+    touchVal === "" || touchVal === "auto" ? "auto" : touchVal,
+  );
+  let maturityOff = $derived(globalLoaded && !globalEnabled);
+  let modelRows = $state([]);
+  function touchOpts() {
+    return sharedTouchOptions(modelRows, touchSelectVal);
+  }
   // Tonight's maintenance window (RFC3339 absolute instants from the
   // payload): the next-run countdown formats these, so the window math
   // lives in one DST-safe place server-side.
@@ -47,9 +106,6 @@
     if (v.maturity_enabled !== undefined) {
       globalEnabled = Boolean(v.maturity_enabled);
     }
-    if (typeof v.maturity_dry_run === "boolean") {
-      dryRun = v.maturity_dry_run;
-    }
     if (typeof v.maturity_window_start === "string") {
       windowStart = v.maturity_window_start;
     }
@@ -58,6 +114,7 @@
     }
     globalLoaded = true;
     error = "";
+    notifyError("");
     loading = false;
   }
 
@@ -166,22 +223,30 @@
     return tokens;
   }
 
-  function touchedToday(t) {
-    const m = t?.maturity;
-    if (m?.touch_day && m?.slot_day) return m.touch_day === m.slot_day;
-    return !!t?.today_used;
-  }
-  // Single shared skipped definition for rows AND the header count: any
-  // ledger skip:* code (including skip:touch-model) reads Skipped.
-  function isSkipped(t) {
-    return String(t?.maturity?.last_result ?? "").startsWith("skip:");
-  }
-
   function slotPast(t) {
     const slot = Date.parse(t?.maturity?.slot ?? "");
     return isFinite(slot) && slot <= nowMs;
   }
 
+  function touchedToday(t) {
+    const m = t?.maturity;
+    // Touched only when the touch belongs to the current Pacific day:
+    // last night's touch is history (Pending), not today's status.
+    if (m?.touch_day) return m.touch_day === pacificDayKey(nowMs);
+    return !!t?.today_used;
+  }
+  // Single shared skipped definition for rows AND the header count: a
+  // ledger skip:* reads Skipped only for tonight's run (result_day ==
+  // current Pacific day). Rows without a result day predate the stamp
+  // (pre-upgrade ledger) and read Pending — the panel only ever talks
+  // to its embedded server, so no old-server compat is needed; tonight's
+  // run stamps every write and the last-run ledger below stays historical.
+  function isSkipped(t) {
+    if (!String(t?.maturity?.last_result ?? "").startsWith("skip:"))
+      return false;
+    const day = t?.maturity?.result_day;
+    return !!day && day === pacificDayKey(nowMs);
+  }
   // Pacific-day label for an instant ("Sep 11"): the day key the streak
   // walk counts, so run times read against the reset that matters.
   function fmtPacificDay(iso) {
@@ -195,13 +260,37 @@
     }).format(d);
   }
 
+  // Pacific calendar day key for an instant ("2026-09-11"): the day the
+  // streak walk counts. Per-account Skipped/Touched rows scope to this
+  // day via result_day/touch_day; the last-run ledger below stays
+  // historical and keeps its own day label.
+  function pacificDayKey(ts) {
+    const d = new Date(ts);
+    if (isNaN(d)) return "";
+    const [y, m, day] = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .format(d)
+      .split("-")
+      .map(Number);
+    if (!y || !m || !day) return "";
+    return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
   // Where today's usage happened: proxy-routed traffic lands in the local
-  // day ledger (requests_per_day), anything else means the account was
-  // used outside this proxy (app, CLI, or direct).
+  // day ledger (requests_per_day); upstream-dated use with none here means
+  // the account was used outside this proxy (app, CLI, or direct). A day
+  // carrying only the nightly touch reads as automation, not outside use:
+  // touches bypass Pool.Chat so they never increment the local ledger.
   function usageSource(t) {
     const n = Number(t?.requests_per_day) || 0;
     if (n > 0) return $tr("used here ({n} today)", { n });
-    return $tr("used outside this proxy");
+    if (t?.last_usage || !t?.maturity?.last_touch)
+      return $tr("used outside this proxy");
+    return $tr("nightly touch only");
   }
 
   function lastActivity(t) {
@@ -216,7 +305,10 @@
   function rowStatus(t) {
     const m = t?.maturity;
     const result = m?.last_result ?? "";
-    // Shared skipped gate (see isSkipped): every skip:* code reads Skipped.
+    // Shared skipped gate (see isSkipped): tonight's skip:* codes read
+    // Skipped. A touch-model skip names the served auto reason alongside
+    // the code so the owner sees WHY (e.g. no unmetered row served) and
+    // can pick an explicit model — resolver untouched, display only.
     if (isSkipped(t)) {
       if (result === "skip:today-used") {
         const when = fmtPacificDay(lastActivity(t));
@@ -229,6 +321,13 @@
         return {
           kind: "skipped",
           text: `${$tr("Skipped")} · ${$tr("you used it today via this proxy")} · ${result}`,
+        };
+      }
+      if (result === "skip:touch-model") {
+        const reason = m?.auto_touch_reason;
+        return {
+          kind: "skipped",
+          text: `${$tr("Skipped")} · ${result}${reason ? ` · ${reason}` : ""}`,
         };
       }
       return { kind: "skipped", text: `${$tr("Skipped")} · ${result}` };
@@ -255,10 +354,13 @@
   }
 
   // Last-run ledger summary across covered accounts: latest touch time,
-  // touch count, and skip counts grouped by exact reason.
+  // touch count, and skip counts grouped by exact reason. Fully
+  // historical on purpose: no result_day filter here — stale skips stay
+  // visible with the Pacific day they belong to (latestDay).
   function ledgerSummary(list) {
     let touched = 0;
     let latest = "";
+    let latestDay = "";
     const skips = {};
     for (const t of list) {
       const m = t.maturity;
@@ -270,12 +372,27 @@
       if (m.last_touch && (!latest || m.last_touch > latest)) {
         latest = m.last_touch;
       }
+      if (m.result_day && (!latestDay || m.result_day > latestDay)) {
+        latestDay = m.result_day;
+      }
     }
     const skipped = Object.values(skips).reduce((a, b) => a + b, 0);
     const reasons = Object.entries(skips)
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([reason, n]) => (n > 1 ? `${reason} ×${n}` : reason));
-    return { touched, skipped, reasons, latest };
+    return { touched, skipped, reasons, latest, latestDay };
+  }
+  // Last-run day label: the latest touch time's Pacific day, falling back
+  // to the latest ledger result day — skip-only nights leave no touch
+  // time but still belong to a Pacific day. Noon UTC sits mid-morning in
+  // Los Angeles year-round, so the synthetic instant always formats to
+  // the stamped day.
+  function ledgerDayLabel() {
+    const byTouch = fmtPacificDay(summary.latest);
+    if (byTouch) return byTouch;
+    if (summary.latestDay)
+      return fmtPacificDay(`${summary.latestDay}T12:00:00Z`);
+    return "";
   }
   function nextReset() {
     const r = pacificMidnight(nowMs, 0);
@@ -295,6 +412,16 @@
 
   onMount(() => {
     recordPageVisit("maturity");
+    // Served-model catalog for the touch-model select (shared
+    // utils/touchModels.js, priced labels kept).
+    (async () => {
+      try {
+        const res = await fetchAPI(adminApi.models);
+        modelRows = res?.models ?? [];
+      } catch {
+        modelRows = [];
+      }
+    })();
     countdownTimer = setInterval(() => {
       nowMs = Date.now();
     }, 30000);
@@ -304,6 +431,7 @@
       if (err) {
         error = err;
         loading = false;
+        notifyError(err);
       }
     });
     function onConfigSaved() {
@@ -332,20 +460,17 @@
   </div>
 {:else if error}
   <div class="flex flex-col items-start gap-2">
-    <Alert tone="error" title={error} />
+    <Button variant="secondary" onclick={retryLoad}>{$tr("Retry")}</Button>
   </div>
 {:else}
   <Card
     title={$tr("Streak Maintenance")}
     description={$tr(
-      "Fully automatic: every account is touched nightly. The switch below is the only control; dry-run and touch-model knobs live in Settings.",
+      "Fully automatic: every account is touched nightly. The switch plus the touch-model row below are the only controls.",
     )}
   >
     {#snippet actions()}
       <span class="flex shrink-0 flex-nowrap items-center gap-1.5">
-        {#if dryRun}
-          <StatusBadge tone="warn" status={$tr("Dry run")} />
-        {/if}
         {#if globalLoaded && !globalEnabled}
           <StatusBadge tone="bad" status={$tr("Off")} />
         {/if}
@@ -360,12 +485,68 @@
           ariaLabel={$tr("Streak maintenance")}
           onchange={(next) => setGlobalEnabled(next)}
         />
+        <span class="text-xs font-medium text-[var(--fp-text)]"
+          >{$tr("Streak maintenance")}</span
+        >
+      </div>
+      <div
+        class="flex flex-col gap-2 border-t border-[var(--fp-border)]/60 pt-2.5 {maturityOff
+          ? 'opacity-60'
+          : ''}"
+      >
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-xs font-medium text-[var(--fp-text)]"
+            >{$tr("Touch model")}</span
+          >
+          <code
+            class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] text-[var(--fp-dim)] font-mono"
+            >MATURITY_TOUCH_MODEL</code
+          >
+          <select
+            class="fp-select"
+            value={touchSelectVal}
+            aria-label="MATURITY_TOUCH_MODEL"
+            title={touchSelectVal}
+            onchange={(e) => {
+              const raw = e.currentTarget.value;
+              // Auto means "no override": DELETE the overlay row instead of
+              // POSTing "" (the gateway 400s empty writes). The select is
+              // value-controlled, so snap it back at once: otherwise Svelte
+              // re-renders it to the bound saved value while the DELETE +
+              // refetch land, and the Auto choice never visibly sticks.
+              if (raw === "auto") {
+                e.currentTarget.value = "auto";
+                onField?.("MATURITY_TOUCH_MODEL", "");
+                if (onReset && sources.MATURITY_TOUCH_MODEL === "db") {
+                  onReset("MATURITY_TOUCH_MODEL");
+                  return;
+                }
+              }
+              onField?.("MATURITY_TOUCH_MODEL", raw === "auto" ? "" : raw);
+            }}
+          >
+            <option value="auto">Auto (cheapest unmetered)</option>
+            {#each touchOpts() as opt (opt.id)}
+              <option value={opt.id}>{touchLabel(opt)}</option>
+            {/each}
+          </select>
+          <span class="ml-auto">
+            <DbOverrideSave
+              settingKey="MATURITY_TOUCH_MODEL"
+              value={touchVal}
+              source={sources.MATURITY_TOUCH_MODEL}
+              {onReset}
+              {onSaved}
+              {degraded}
+            />
+          </span>
+        </div>
       </div>
       <p class="fp-num text-[11px] leading-relaxed text-[var(--fp-dim)]">
-        {$tr("Nightly window 23:00–00:00 Pacific")}
+        {$tr("Nightly window 23:45–00:00 Pacific")}
         ·
         {$tr(
-          "one touch per Pacific day, placed just before reset to rescue the expiring day",
+          "one touch per Pacific day, classified from 23:45 and fired in the final 5 minutes before reset to rescue the expiring day",
         )}
         ·
         {$tr("client request activity since the last Pacific reset skips")}
@@ -382,7 +563,7 @@
           title={$tr("Maturity automation is globally off")}
         >
           {$tr(
-            "Turn Streak maintenance on in Settings — the rows below stay put while the kill-switch is off. Dry-run probes stay on until the schedule is proven.",
+            "Turn Streak maintenance on in Settings — the row below stays put while the kill-switch is off.",
           )}
         </Alert>
       {/if}
@@ -392,8 +573,8 @@
       >
         <p class="fp-num text-[11px] text-[var(--fp-dim)]">
           {$tr("Last run")}
-          {fmtTime(summary.latest)}{fmtPacificDay(summary.latest)
-            ? ` · ${$tr("for the {day} Pacific day", { day: fmtPacificDay(summary.latest) })}`
+          {fmtTime(summary.latest)}{ledgerDayLabel()
+            ? ` · ${$tr("for the {day} Pacific day", { day: ledgerDayLabel() })}`
             : ""} · {$tr("touched")}
           {summary.touched}
           · {$tr("skipped")}
@@ -414,33 +595,36 @@
             {@const st = rowStatus(t)}
             {@const model = resolvedModel(t)}
             <div
-              class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--fp-border)]/60 pt-2"
+              class="flex flex-col gap-1 border-t border-[var(--fp-border)]/60 pt-2"
             >
-              <span class="min-w-0">
-                <span class="fp-num text-xs font-semibold text-[var(--fp-text)]"
-                  >{$tr("Account #{idx}", { idx: idx + 1 })}</span
-                >
-                {#if t.email}
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span class="min-w-0">
                   <span
-                    class="ml-1.5 text-[11px] text-[var(--fp-muted)] truncate"
-                    title={t.email}>{t.email}</span
+                    class="fp-num text-xs font-semibold text-[var(--fp-text)]"
+                    >{$tr("Account #{idx}", { idx: idx + 1 })}</span
+                  >
+                  {#if t.email}
+                    <span
+                      class="ml-1.5 text-[11px] text-[var(--fp-muted)] truncate"
+                      title={t.email}>{t.email}</span
+                    >
+                  {/if}
+                </span>
+                {#if t.locked}
+                  <StatusBadge tone="warn" status={$tr("Locked")} />
+                {/if}
+                {#if model}
+                  <code
+                    class="fp-num ml-auto text-[11px] text-[var(--fp-muted)]"
+                    title={$tr("Touch model for tonight")}>{model}</code
                   >
                 {/if}
-              </span>
-              {#if t.locked}
-                <StatusBadge tone="warn" status={$tr("Locked")} />
-              {/if}
+              </div>
               {#if st.kind === "skipped"}
                 <StatusBadge tone="warn" status={st.text} />
               {:else}
                 <span class="fp-num text-[11px] text-[var(--fp-dim)]"
                   >{st.text}</span
-                >
-              {/if}
-              {#if model}
-                <code
-                  class="fp-num ml-auto text-[11px] text-[var(--fp-muted)]"
-                  title={$tr("Touch model for tonight")}>{model}</code
                 >
               {/if}
             </div>

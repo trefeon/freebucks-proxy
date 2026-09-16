@@ -15,6 +15,7 @@
     statusFor,
     streakBadgeFor,
     cooldownLabel,
+    sessionCountdownLabel,
   } from "../utils/tokenStatus.js";
   import { tr } from "../i18n.js";
 
@@ -36,6 +37,7 @@
    * @prop {(action: string) => void} onAction
    * @prop {(model: string) => void} onSpawn
    * @prop {(action: string) => void} onRefresh
+   * @prop {() => void} [onDropSession]
    * @prop {(from: number, to: number) => void} [onSwap]
    */
   let {
@@ -114,6 +116,14 @@
         >Account #{idx + 1}</span
       >
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
+      {#if token.session_status === "active" && sessionRemaining > 0}
+        <span
+          class="fp-num text-[11px] text-[var(--fp-accent)] whitespace-nowrap"
+          aria-label={`Session time remaining: ${sessionCountdownLabel(sessionRemaining)}`}
+        >
+          {sessionCountdownLabel(sessionRemaining)}
+        </span>
+      {/if}
       {#if token.email || token.account_id}
         <span
           class="text-[11px] text-[var(--fp-muted)] truncate max-w-[160px]"
@@ -245,6 +255,16 @@
           <span>{$tr("Lock")}</span>
         </Button>
       {/if}
+      {#if token.session_remaining_seconds > 0 && token.session_model}
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={actionPending}
+          onclick={() => onDropSession?.()}
+        >
+          <span>{$tr("Drop Session")}</span>
+        </Button>
+      {/if}
       <Button
         variant="danger"
         size="sm"
@@ -281,8 +301,6 @@
         {devToolsEnabled}
         {onSpawn}
         {onRefresh}
-        {onDropSession}
-        {sessionRemaining}
       />
     </div>
   {/if}

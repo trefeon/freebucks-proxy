@@ -21,14 +21,12 @@ func laDay(t time.Time) string {
 	return t.In(maturityLocation("America/Los_Angeles")).Format("2006-01-02")
 }
 
-// newMaturityPool wires one mock token with maturity automation on.
-// dryRun selects the touch ladder rung; the touch model is the unmetered
-// flash row.
-func newMaturityPool(t *testing.T, mock *testutil.MockUpstream, dryRun bool) *Pool {
+// newMaturityPool wires one mock token with maturity automation on (live
+// touches); the touch model is the unmetered flash row.
+func newMaturityPool(t *testing.T, mock *testutil.MockUpstream) *Pool {
 	t.Helper()
 	return newTestPoolCfg(t, func(cfg *config.Config) {
 		cfg.MaturityEnabled = true
-		cfg.MaturityDryRun = dryRun
 		cfg.MaturityTouchModel = modelB
 		cfg.MaturityTargetDays = 7
 	}, mock)
@@ -54,19 +52,18 @@ func maturityResult(p *Pool, token int) (action, result string) {
 	return e.maturity.lastAction, e.maturity.lastResult
 }
 
-// windowNow returns a clock inside tonight's maintenance window for firing
-// tests: the real clock when already in-window with room to spare, else
-// 30m before the next Pacific midnight. Test offsets (+1m/+10m ticks) stay
-// inside the window either way.
+// windowNow returns a clock inside tonight's firing gate for firing
+// tests: the real clock when already inside the gate, else 3m before
+// the next Pacific midnight (inside both the 15m window and the 5m fire
+// gate, clear of the 1m slot end buffer). Pre-flight wall time must
+// never leak in: nothing fires there.
 func windowNow() time.Time {
 	now := time.Now()
-	if maturityInWindow(now) {
-		if _, end := maturityWindowFor(now); now.Before(end.Add(-5 * time.Minute)) {
-			return now
-		}
+	if maturityInFireGate(now) {
+		return now
 	}
 	_, end := maturityWindowFor(now)
-	return end.Add(-30 * time.Minute)
+	return end.Add(-3 * time.Minute)
 }
 
 // seedStreak caches a fresh streak reading as of now (what backfillLoop
@@ -90,11 +87,12 @@ func streakBody(streak int, todayUsed bool) map[string]any {
 	}
 }
 
-// A dry-run touch probes (zero-cost) and never admits a session.
-func TestMaturityDryRunProbeOnly(t *testing.T) {
+// A nightly touch runs live (admit → one minimal turn → release) and never
+// probes: the probe branch is gone, the live path is the only fire path.
+func TestMaturityLiveTouchFiresLive(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -104,15 +102,15 @@ func TestMaturityDryRunProbeOnly(t *testing.T) {
 
 	p.maturityTickAt(context.Background(), now)
 
-	if got := mock.SessionProbesSnapshot(); got != 1 {
-		t.Errorf("SessionProbes = %d, want 1 (dry-run probe)", got)
+	if got := mock.SessionProbesSnapshot(); got != 0 {
+		t.Errorf("SessionProbes = %d, want 0 (live touch never probes)", got)
 	}
-	if got := mock.SessionCreatesSnapshot(); got != 0 {
-		t.Errorf("SessionCreates = %d, want 0 (dry-run never admits)", got)
+	if got := mock.SessionCreatesSnapshot(); got != 1 {
+		t.Errorf("SessionCreates = %d, want 1 (live admission)", got)
 	}
 	action, result := maturityResult(p, 0)
-	if action != "probe" || result != "ok" {
-		t.Errorf("last touch = %q/%q, want probe/ok", action, result)
+	if action != "admit" || result != "ok" {
+		t.Errorf("last touch = %q/%q, want admit/ok", action, result)
 	}
 }
 
@@ -122,7 +120,7 @@ func TestMaturityDryRunProbeOnly(t *testing.T) {
 func TestMaturityEnrollStaysLeasable(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -166,7 +164,7 @@ func TestMaturityEnrollStaysLeasable(t *testing.T) {
 func TestMaturitySkipsLockedStaysLocked(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -201,7 +199,7 @@ func TestMaturitySkipsLockedStaysLocked(t *testing.T) {
 func TestMaturitySkipsTodayUsed(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 3, true, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -226,7 +224,7 @@ func TestMaturitySkipsTodayUsed(t *testing.T) {
 func TestMaturitySkipsFutureSlot(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -245,12 +243,14 @@ func TestMaturitySkipsFutureSlot(t *testing.T) {
 }
 
 // Restart-safe idempotency: a reboot inside the window re-rolls the slot,
-// but the persisted touchDay bounds the worst case — the second pass
-// records skip:today-used instead of double-touching.
+// but the persisted touchDay bounds the worst case — the second pass holds
+// the re-fire without touching the ledger, so the fire's own outcome
+// survives the night instead of being overwritten by skip:today-used on
+// every later pass in the same window.
 func TestMaturityRestartIdempotent(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -262,12 +262,11 @@ func TestMaturityRestartIdempotent(t *testing.T) {
 	// Restart re-rolls the slot to "now" — touchDay must still hold.
 	setMaturitySlot(p, 0, now, laDay(now))
 	p.maturityTickAt(context.Background(), now.Add(time.Minute))
-
-	if got := mock.SessionProbesSnapshot(); got != 1 {
-		t.Errorf("SessionProbes = %d, want 1 (touchDay blocks the re-fire)", got)
+	if got := mock.SessionCreatesSnapshot(); got != 1 {
+		t.Errorf("SessionCreates = %d, want 1 (touchDay blocks the re-fire)", got)
 	}
-	if _, result := maturityResult(p, 0); result != "skip:today-used" {
-		t.Errorf("result = %q, want skip:today-used", result)
+	if action, result := maturityResult(p, 0); action != "admit" || result != "ok" {
+		t.Errorf("last touch = %q/%q, want admit/ok (guard holds re-fire, keeps fire outcome)", action, result)
 	}
 }
 
@@ -276,7 +275,7 @@ func TestMaturityGlobalKillSwitch(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(2, false)
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	now := time.Now()
 	p.cfg.Load().MaturityEnabled = false
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -286,6 +285,9 @@ func TestMaturityGlobalKillSwitch(t *testing.T) {
 
 	p.maturityTickAt(context.Background(), now)
 
+	if got := mock.SessionCreatesSnapshot(); got != 0 {
+		t.Errorf("SessionCreates = %d, want 0 (global kill-switch off, no live touches)", got)
+	}
 	if got := mock.SessionProbesSnapshot(); got != 0 {
 		t.Errorf("SessionProbes = %d, want 0 (global kill-switch off)", got)
 	}
@@ -301,7 +303,7 @@ func TestMaturityUniversalIgnoresTarget(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(7, false)
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	now := time.Now()
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
 		t.Fatal(err)
@@ -322,7 +324,7 @@ func TestMaturityUniversalIgnoresTarget(t *testing.T) {
 func TestMaturityUniversalIgnoresDisabledFlag(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, false, 0, "", ""); err != nil {
@@ -332,12 +334,12 @@ func TestMaturityUniversalIgnoresDisabledFlag(t *testing.T) {
 
 	p.maturityTickAt(context.Background(), now)
 
-	if got := mock.SessionProbesSnapshot(); got != 1 {
-		t.Errorf("SessionProbes = %d, want 1 (disabled flag ignored)", got)
+	if got := mock.SessionCreatesSnapshot(); got != 1 {
+		t.Errorf("SessionCreates = %d, want 1 (disabled flag ignored, live touch fires)", got)
 	}
 	action, result := maturityResult(p, 0)
-	if action != "probe" || result != "ok" {
-		t.Errorf("last touch = %q/%q, want probe/ok", action, result)
+	if action != "admit" || result != "ok" {
+		t.Errorf("last touch = %q/%q, want admit/ok", action, result)
 	}
 }
 
@@ -345,7 +347,7 @@ func TestMaturityUniversalIgnoresDisabledFlag(t *testing.T) {
 func TestMaturitySkipsCooling(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -370,7 +372,7 @@ func TestMaturitySkipsCooling(t *testing.T) {
 func TestSetMaturityValidation(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	if err := p.SetMaturity(0, true, 29, "", ""); err == nil {
 		t.Error("target 29 accepted, want range error")
 	}
@@ -398,12 +400,12 @@ func TestSetMaturityValidation(t *testing.T) {
 
 // A live touch on a model the account meters (price > 0, no exemption)
 // skips instead of spending — maturity rides the unmetered lane (meter
-// adaptation, issue #350). Dry-run probes stay exempt from the check.
+// adaptation, issue #350).
 func TestMaturityLiveSkipsPricedTouch(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(2, false)
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +440,7 @@ func TestMaturityLiveAdmitsWhenExempt(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(2, false)
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +465,7 @@ func TestSetMaturityTouchModel(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(2, false)
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	premium := modelcat.SharedPremiumModels()
 	if len(premium) == 0 {
 		t.Fatal("no shared premium models, want at least one")
@@ -556,7 +558,7 @@ func TestMaturityWindowFollowsPacific(t *testing.T) {
 	}
 }
 
-// DST Sundays keep a full 60m window ending at Pacific midnight: the 23h
+// DST Sundays keep a full 15m window ending at Pacific midnight: the 23h
 // spring-forward day and the 25h fall-back day both end at the right
 // instant (LA transitions at 02:00, never at midnight).
 func TestMaturityWindowDSTBounds(t *testing.T) {
@@ -578,7 +580,7 @@ func TestMaturityWindowDSTBounds(t *testing.T) {
 	if fend.Sub(fstart) != maturityRunWindow {
 		t.Errorf("fall-back window length = %v, want %v", fend.Sub(fstart), maturityRunWindow)
 	}
-	// In-window membership brackets the 60m exactly.
+	// In-window membership brackets the 15m exactly.
 	if !maturityInWindow(sstart) || !maturityInWindow(send.Add(-time.Second)) {
 		t.Error("window edges not in-window (start inclusive, end-exclusive)")
 	}
@@ -587,15 +589,16 @@ func TestMaturityWindowDSTBounds(t *testing.T) {
 	}
 }
 
-// Slots roll inside tonight's window: staggered across the 60m, never at
-// or past the reset.
+// Slots roll inside tonight's window: staggered across the 14m slot
+// band (15m window minus the 1m end buffer), never at or past the reset.
 func TestMaturitySlotRollsInWindow(t *testing.T) {
 	now := windowNow()
 	start, end := maturityWindowFor(now)
+	slotEnd := end.Add(-maturitySlotEndBuffer)
 	for range 25 {
 		slot, day := rollMaturitySlotInWindow(pacificDayKey(now), now)
-		if slot.Before(start) || !slot.Before(end) {
-			t.Fatalf("slot = %v, want within [%v, %v)", slot, start, end)
+		if slot.Before(start) || !slot.Before(slotEnd) {
+			t.Fatalf("slot = %v, want within [%v, %v)", slot, start, slotEnd)
 		}
 		if day != pacificDayKey(now) {
 			t.Fatalf("slot day = %q, want %q", day, pacificDayKey(now))
@@ -609,7 +612,7 @@ func TestMaturitySlotRollsInWindow(t *testing.T) {
 func TestMaturityTickGuardsTouchModel(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -631,7 +634,7 @@ func TestMaturityTickGuardsTouchModel(t *testing.T) {
 		t.Errorf("SessionCreates = %d, want 0 (no premium admission)", got)
 	}
 	if got := mock.SessionProbesSnapshot(); got != 0 {
-		t.Errorf("SessionProbes = %d, want 0 (guarded before probe)", got)
+		t.Errorf("SessionProbes = %d, want 0 (guarded before admission)", got)
 	}
 	// Unserved globals fail closed the same way (skips never arm the 6h
 	// throttle, so the second tick evaluates fresh).
@@ -651,7 +654,7 @@ func TestMaturityTickGuardsTouchModel(t *testing.T) {
 func TestMaturityOutsideWindowNoFire(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	start, _ := maturityWindowFor(time.Now())
 	now := start.Add(-2 * time.Hour) // provably outside any window
 	seedStreak(p, 0, 2, false, now)
@@ -680,7 +683,7 @@ func TestMaturityOutsideWindowNoFire(t *testing.T) {
 func TestMaturitySkipsClientActive(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -705,13 +708,13 @@ func TestMaturitySkipsClientActive(t *testing.T) {
 	}
 }
 
-// A warming touch never counts as client activity: dry-run probes and live
-// touches bypass the Chat ledger, so a touched account is still eligible
-// tomorrow (only touchDay/todayUsed gate the same night).
+// A warming touch never counts as client activity: live touches bypass the
+// Chat ledger, so a touched account is still eligible tomorrow (only
+// touchDay/todayUsed gate the same night).
 func TestMaturityTouchNotClientActivity(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -747,7 +750,6 @@ func TestMaturityRateLimitAbortsWalk(t *testing.T) {
 	}
 	p := newTestPoolCfg(t, func(cfg *config.Config) {
 		cfg.MaturityEnabled = true
-		cfg.MaturityDryRun = false
 		cfg.MaturityTouchModel = modelB
 		cfg.MaturityTargetDays = 7
 	}, mock, mock)

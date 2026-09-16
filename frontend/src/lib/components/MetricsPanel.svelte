@@ -3,7 +3,10 @@
   import { RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
   import Stat from "./Stat.svelte";
-  import Alert from "./Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import Button from "./Button.svelte";
   import SegmentedControl from "./SegmentedControl.svelte";
   import { fetchAPI } from "../api/client.js";
@@ -24,13 +27,25 @@
   let usage = $state(null);
   let usageLoading = $state(true);
   let usageError = $state("");
+  let errorToast = $state(0);
+  let usageToast = $state(0);
+  function notifyError(msg) {
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  }
+  function notifyUsageError(msg) {
+    if (usageToast) dismissToast(usageToast);
+    usageToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  }
 
   async function fetchData() {
     try {
       data = await fetchAPI(adminApi.metrics);
       error = "";
+      notifyError("");
     } catch (e) {
       error = e.message || $tr("Failed to load metrics");
+      notifyError(error);
     } finally {
       loading = false;
     }
@@ -50,8 +65,10 @@
         usage = m?.usage ?? null;
       }
       usageError = "";
+      notifyUsageError("");
     } catch (e) {
       usageError = e.message || $tr("Failed to load usage");
+      notifyUsageError(usageError);
     } finally {
       usageLoading = false;
     }
@@ -106,7 +123,6 @@
     </div>
   {:else if error}
     <div class="space-y-4">
-      <Alert tone="error">{error}</Alert>
       <Button variant="secondary" onclick={fetchData}>
         <RefreshCw size={15} />
         {$tr("Retry")}
@@ -158,7 +174,6 @@
           <span class="sr-only">{$tr("Loading usage")}</span>
         {:else if usageError && !usage}
           <div class="space-y-3">
-            <Alert tone="error">{usageError}</Alert>
             <Button variant="secondary" onclick={() => fetchUsage(usageRange)}>
               <RefreshCw size={15} />
               {$tr("Retry")}
@@ -206,21 +221,26 @@
                   >
                   <thead>
                     <tr>
-                      <th scope="col">{$tr("Time")}</th>
-                      <th scope="col">{$tr("Model")}</th>
-                      <th scope="col" class="num">{$tr("Input")}</th>
-                      <th scope="col" class="num">{$tr("Cached")}</th>
-                      <th scope="col" class="num">{$tr("Output")}</th>
-                      <th scope="col" class="num">{$tr("Total")}</th>
+                      <th scope="col" class="w-[1%]">{$tr("Time")}</th>
+                      <th scope="col" class="w-48">{$tr("Model")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Input")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Cached")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Output")}</th>
+                      <th scope="col" class="num w-[1%]">{$tr("Total")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {#each usage.entries as e (e.req_id ?? e.ts_ms)}
                       <tr>
-                        <td class="font-mono text-xs whitespace-nowrap"
+                        <td class="font-mono text-xs whitespace-nowrap w-[1%]"
                           >{new Date(Number(e.ts_ms ?? 0)).toLocaleString()}</td
                         >
-                        <td class="font-mono text-xs">{e.model ?? "—"}</td>
+                        <td class="font-mono text-xs"
+                          ><span
+                            class="block truncate max-w-full"
+                            title={e.model}>{e.model ?? "—"}</span
+                          ></td
+                        >
                         <td class="num"
                           >{Number(e.input ?? 0).toLocaleString()}</td
                         >
@@ -338,21 +358,23 @@
             <thead>
               <tr>
                 <th scope="col">{$tr("Token")}</th>
-                <th scope="col" class="num">{$tr("Requests (24h)")}</th>
-                <th scope="col" class="num hidden sm:table-cell"
+                <th scope="col" class="num w-[1%]">{$tr("Requests (24h)")}</th>
+                <th scope="col" class="num w-[1%] hidden sm:table-cell"
                   >{$tr("Transient retries")}</th
                 >
-                <th scope="col" class="num hidden sm:table-cell"
+                <th scope="col" class="num w-[1%] hidden sm:table-cell"
                   >{$tr("Fingerprint rotations")}</th
                 >
-                <th scope="col" class="num">{$tr("Spend")}</th>
-                <th scope="col"><span class="sr-only">{$tr("Links")}</span></th>
+                <th scope="col" class="num w-[1%]">{$tr("Spend")}</th>
+                <th scope="col" class="text-right w-[1%]"
+                  ><span class="sr-only">{$tr("Links")}</span></th
+                >
               </tr>
             </thead>
             <tbody>
               {#each data.per_tokens as p (p.token)}
                 <tr>
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap">
                     <button
                       type="button"
                       onclick={() => onOpenToken?.(p.token)}
@@ -373,7 +395,7 @@
                   <td class="num"
                     >{Number(p.spend_day ?? 0).toLocaleString()}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap text-right">
                     <button
                       type="button"
                       onclick={() => onOpenLogs?.("")}

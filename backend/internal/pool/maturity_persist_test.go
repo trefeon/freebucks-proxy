@@ -50,7 +50,7 @@ func TestMaturityRestartRestoresState(t *testing.T) {
 	defer mock.Close()
 	mem := newMemMaturityStore()
 
-	p1 := newMaturityPool(t, mock, true)
+	p1 := newMaturityPool(t, mock)
 	p1.SetMaturityStore(mem)
 	if err := p1.SetMaturity(0, true, 14, "", modelB); err != nil {
 		t.Fatalf("SetMaturity: %v", err)
@@ -59,11 +59,11 @@ func TestMaturityRestartRestoresState(t *testing.T) {
 	seedStreak(p1, 0, 2, false, now)
 	setMaturitySlot(p1, 0, now.Add(-time.Hour), laDay(now))
 	p1.maturityTickAt(context.Background(), now)
-	if action, result := maturityResult(p1, 0); action != "probe" || result != "ok" {
-		t.Fatalf("p1 touch = %q/%q, want probe/ok", action, result)
+	if action, result := maturityResult(p1, 0); action != "admit" || result != "ok" {
+		t.Fatalf("p1 touch = %q/%q, want admit/ok", action, result)
 	}
 
-	p2 := newMaturityPool(t, mock, true)
+	p2 := newMaturityPool(t, mock)
 	p2.SetMaturityStore(mem)
 	if err := p2.RestoreMaturity(); err != nil {
 		t.Fatalf("RestoreMaturity: %v", err)
@@ -76,8 +76,8 @@ func TestMaturityRestartRestoresState(t *testing.T) {
 	if !snap.Enabled || snap.Target != 14 || snap.Mode != MaturityModeUnmetered || snap.TouchModel != modelB {
 		t.Errorf("restored identity = %+v, want enabled/14/unmetered/%s", snap, modelB)
 	}
-	if snap.LastAction != "probe" || snap.LastResult != "ok" {
-		t.Errorf("restored touch = %q/%q, want probe/ok", snap.LastAction, snap.LastResult)
+	if snap.LastAction != "admit" || snap.LastResult != "ok" {
+		t.Errorf("restored touch = %q/%q, want admit/ok", snap.LastAction, snap.LastResult)
 	}
 	if snap.Slot.IsZero() {
 		t.Error("restored slot is zero, want the pre-restart slot")
@@ -88,7 +88,7 @@ func TestMaturityRestartRestoresState(t *testing.T) {
 		t.Error("restored warming token is locked, want leasable")
 	}
 	// A pool with no store row restores to never-enrolled (nil snapshot).
-	p3 := newMaturityPool(t, mock, true)
+	p3 := newMaturityPool(t, mock)
 	p3.SetMaturityStore(newMemMaturityStore())
 	if err := p3.RestoreMaturity(); err != nil {
 		t.Fatalf("RestoreMaturity empty: %v", err)
@@ -108,7 +108,7 @@ func TestMaturityDisabledTouchDraftSurvives(t *testing.T) {
 	mock.StreakBody = streakBody(2, false)
 	mem := newMemMaturityStore()
 
-	p1 := newMaturityPool(t, mock, true)
+	p1 := newMaturityPool(t, mock)
 	p1.SetMaturityStore(mem)
 	const draft = "z-ai/glm-5.3-flash"
 	if err := p1.SetMaturity(0, false, 7, "", draft); err != nil {
@@ -126,7 +126,7 @@ func TestMaturityDisabledTouchDraftSurvives(t *testing.T) {
 		t.Error("snapshot enabled, want disabled")
 	}
 
-	p2 := newMaturityPool(t, mock, true)
+	p2 := newMaturityPool(t, mock)
 	p2.SetMaturityStore(mem)
 	if err := p2.RestoreMaturity(); err != nil {
 		t.Fatalf("RestoreMaturity: %v", err)
@@ -138,7 +138,7 @@ func TestMaturityDisabledTouchDraftSurvives(t *testing.T) {
 	}
 
 	// No draft, no history, disabled: still nil (never-enrolled).
-	p3 := newMaturityPool(t, mock, true)
+	p3 := newMaturityPool(t, mock)
 	p3.SetMaturityStore(newMemMaturityStore())
 	if err := p3.SetMaturity(0, false, 7, "", ""); err != nil {
 		t.Fatalf("SetMaturity empty: %v", err)

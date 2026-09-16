@@ -64,7 +64,7 @@ func TestMaturityAutoDefaultResolves(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(2, false)
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	p.cfg.Load().MaturityTouchModel = "auto"
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestMaturityAutoSkipsPricedHead(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(2, false)
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	p.cfg.Load().MaturityTouchModel = "auto"
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestMaturityAutoSkipsPricedHead(t *testing.T) {
 func TestMaturityAutoFallbackClosed(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	p.cfg.Load().MaturityTouchModel = "auto"
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestMaturityAutoPrecedence(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.StreakBody = streakBody(2, false)
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	if err := p.SetMaturity(0, true, 7, "", "auto"); err != nil {
 		t.Fatalf("auto override save: %v", err)
 	}

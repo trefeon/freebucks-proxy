@@ -1393,6 +1393,7 @@ export interface components {
           last_result?: string;
           last_touch?: string;
           mode: string;
+          result_day?: string;
           slot?: string;
           slot_day?: string;
           target: number;
@@ -1532,7 +1533,6 @@ export interface components {
       bridge_tokens: number;
       has_tokens: boolean;
       in_bridge: boolean;
-      maturity_dry_run: boolean;
       maturity_enabled: boolean;
       maturity_window_end?: string;
       maturity_window_start?: string;

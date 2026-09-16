@@ -33,7 +33,7 @@ func (s *recordingSink) kinds() []string {
 func TestHistorySinkConfigEvents(t *testing.T) {
 	mock := testutil.NewMock()
 	t.Cleanup(mock.Close)
-	p := newMaturityPool(t, mock, true)
+	p := newMaturityPool(t, mock)
 	sink := &recordingSink{}
 	p.SetHistorySink(sink)
 

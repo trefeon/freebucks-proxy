@@ -1,7 +1,7 @@
 // glm_referral_test.go — issue #183: referral-gated model (z-ai/glm-5.2)
-// entitlement gating and quota fallback. Only tokens with verified GLM
-// entitlement are permitted to admit GLM 5.2 sessions, preventing unentitled
-// accounts from getting permanently hard-banned by upstream fraud checks.
+// entitlement gating (quota fallback removed: no local pre-refusal or
+// fallback; upstream refusals surface honestly). Only tokens with verified
+// GLM entitlement are admitted for GLM 5.2 sessions.
 package pool
 
 import (
@@ -14,74 +14,21 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
 )
 
-// TestUnentitledPoolTokenGlmQuotaFallback verifies that requesting z-ai/glm-5.2
-// on a pool where no token holds referral entitlement automatically quota-falls
-// back to deepseek/deepseek-v4-flash without sending any upstream session create
-// for GLM 5.2 (which upstream punishes with 403 account_banned). ADR-0027
-// mechanism note: the pool no longer pre-gates referral models — it attempts
-// the admission and the SESSION admission gate (session package, kept)
-// refuses unentitled GLM with a quota-shaped error, which the pool's live-
-// refusal fallback then routes to flash. Observable behavior unchanged.
-func TestUnentitledPoolTokenGlmQuotaFallback(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-
-	var glmCreates atomic.Int32
-	var flashCreates atomic.Int32
-	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
-		switch r.Header.Get("x-freebuff-model") {
-		case "z-ai/glm-5.2":
-			glmCreates.Add(1)
-		case "deepseek/deepseek-v4-flash":
-			flashCreates.Add(1)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-1"}`)
-	}
-
-	p := newTestPoolCfg(t, func(c *config.Config) {
-		c.QuotaFallbackModels = map[string]string{"z-ai/glm-5.2": "deepseek/deepseek-v4-flash"}
-	}, mock)
-
-	lease, err := p.Acquire(context.Background(), "z-ai/glm-5.2")
-	if err != nil {
-		t.Fatalf("Acquire(z-ai/glm-5.2) failed: %v", err)
-	}
-	defer p.LeaseRelease(lease)
-
-	if glmCreates.Load() != 0 {
-		t.Errorf("glmCreates = %d, want 0 (unentitled token must never send session create for GLM 5.2)", glmCreates.Load())
-	}
-	if flashCreates.Load() == 0 {
-		t.Error("flashCreates = 0, want fallback session created for deepseek/deepseek-v4-flash")
-	}
-	if lease.Model != "deepseek/deepseek-v4-flash" {
-		t.Errorf("lease.Model = %q, want deepseek/deepseek-v4-flash", lease.Model)
-	}
-	if lease.FallbackReason != "quota_exhausted" {
-		t.Errorf("lease.FallbackReason = %q, want quota_exhausted", lease.FallbackReason)
-	}
-}
-
-// TestUnentitledPoolTokenGlmRefusalWithoutFallback verifies that when
-// QUOTA_FALLBACK_MODELS is explicitly empty, a LIVE upstream refusal for
-// z-ai/glm-5.2 surfaces as an honest 429 after the admission is attempted —
-// the pool no longer pre-refuses unentitled tokens locally. (ADR-0027:
-// admit like unmetered until upstream refuses.)
+// TestUnentitledPoolTokenGlmRefusalWithoutFallback verifies that a LIVE
+// upstream refusal for z-ai/glm-5.2 surfaces as an honest 429 after the
+// admission is attempted — the pool never pre-refuses unentitled tokens
+// locally (quota fallback removed). (ADR-0027: admit like unmetered until
+// upstream refuses.)
 func TestUnentitledPoolTokenGlmRefusalWithoutFallback(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.RateLimit = true // live upstream 429 on session admission
 
-	p := newTestPoolCfg(t, func(c *config.Config) {
-		c.QuotaFallbackModels = map[string]string{} // disable quota fallback
-	}, mock)
+	p := newTestPool(t, mock)
 
 	before := mock.RequestCount()
 	_, err := p.Acquire(context.Background(), "z-ai/glm-5.2")
@@ -139,63 +86,7 @@ func TestEntitledPoolTokenWithGlmPromo(t *testing.T) {
 	if lease.Model != "z-ai/glm-5.2" {
 		t.Errorf("lease.Model = %q, want z-ai/glm-5.2", lease.Model)
 	}
-	if lease.FallbackReason != "" {
-		t.Errorf("lease.FallbackReason = %q, want empty (no fallback)", lease.FallbackReason)
-	}
 	if glmCreates.Load() == 0 {
 		t.Error("glmCreates = 0, want GLM 5.2 session create for entitled token")
-	}
-}
-
-// TestBridgeUnentitledGlmFallback verifies that in bridge mode an unentitled
-// client token falls back to deepseek/deepseek-v4-flash via QuotaFallbackModels
-// without attempting an unentitled upstream GLM create. ADR-0027 mechanism
-// note: the pool no longer pre-gates referral models — the SESSION admission
-// gate (session package, kept) refuses unentitled GLM with a quota-shaped
-// error, which the bridge live-refusal fallback routes to flash.
-// Observable behavior unchanged.
-func TestBridgeUnentitledGlmFallback(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-
-	var glmCreates atomic.Int32
-	var flashCreates atomic.Int32
-	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
-		switch r.Header.Get("x-freebuff-model") {
-		case "z-ai/glm-5.2":
-			glmCreates.Add(1)
-		case "deepseek/deepseek-v4-flash":
-			flashCreates.Add(1)
-		}
-		expiresAt := time.Now().Add(30 * time.Minute).UTC().Format("2006-01-02T15:04:05.000Z07:00")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-bridge-flash","model":"deepseek/deepseek-v4-flash","expiresAt":"`+expiresAt+`"}`)
-	}
-
-	p := newBridgePool(t, mock)
-	cfg := *p.cfg.Load()
-	cfg.QuotaFallbackModels = map[string]string{
-		"z-ai/glm-5.2": "deepseek/deepseek-v4-flash",
-	}
-	p.SetConfig(&cfg)
-
-	lease, err := p.AcquireBridge(context.Background(), "user-bridge-token", "z-ai/glm-5.2")
-	if err != nil {
-		t.Fatalf("AcquireBridge failed: %v", err)
-	}
-	defer p.LeaseRelease(lease)
-
-	if glmCreates.Load() != 0 {
-		t.Errorf("glmCreates = %d, want 0", glmCreates.Load())
-	}
-	if flashCreates.Load() == 0 {
-		t.Error("flashCreates = 0, want fallback session create for flash")
-	}
-	if lease.Model != "deepseek/deepseek-v4-flash" {
-		t.Errorf("lease.Model = %q, want deepseek/deepseek-v4-flash", lease.Model)
-	}
-	if lease.FallbackReason != "quota_exhausted" {
-		t.Errorf("lease.FallbackReason = %q, want quota_exhausted", lease.FallbackReason)
 	}
 }

@@ -119,9 +119,8 @@ type Registry struct {
 
 // New returns a Registry that fetches from the default Codebuff sources.
 // client is used for all fetches; when nil, a client with the 30s fetch
-// timeout is used. cfg is stored as the initial config the registry reads
-// (currently only MODEL_ALIASES resolution); SetConfig replaces it at
-// runtime after a dashboard save or /admin/reload.
+// timeout is used. cfg is stored as the initial config; SetConfig replaces
+// it at runtime after a dashboard save or /admin/reload.
 func New(cfg *config.Config, client *http.Client) *Registry {
 	if client == nil {
 		client = &http.Client{Timeout: fetchTimeout}

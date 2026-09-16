@@ -176,56 +176,21 @@ func TestLoginWizardFlow(t *testing.T) {
 	}
 }
 
-// --- #100: queue-time model fallback -----------------------------------------
-
-// TestChatFallbackAfterWaitingRoom verifies the acquire-time fallback:
-// with FALLBACK_AFTER_MS + FALLBACK_MODEL configured and the waiting room
-// RetryAfter >= the threshold, the request is re-routed to the fallback
-// model and the X-FreeBuff-Fallback-Model header surfaces the switch.
-func TestChatFallbackAfterWaitingRoom(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.SessionMode = "queued"
-	mock.SessionSequence = []string{"queued", "active"} // first create queues; the fallback model's create succeeds
-	mock.EstimatedWaitMs = 20000                        // > FALLBACK_AFTER_MS (10s)
-	srv := newServerCfg(t, mock, func(c *config.Config) {
-		c.FallbackAfter = 10 * time.Second
-		c.FallbackModels = map[string]string{"openai/gpt-5.6-luna": "deepseek/deepseek-v4-flash"}
-	})
-	body := `{"model":"openai/gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"stream":true}`
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
-	req.Host = "127.0.0.1:3457"
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (fallback served): %s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get("X-FreeBuff-Fallback-Model"); got != "deepseek/deepseek-v4-flash" {
-		t.Errorf("X-FreeBuff-Fallback-Model = %q, want deepseek/deepseek-v4-flash", got)
-	}
-}
-
-// TestChatNoFallbackBelowThreshold verifies a short waiting room (below
-// FALLBACK_AFTER_MS) surfaces 503 waiting_room_queued as usual.
+// TestChatNoFallbackBelowThreshold verifies a queued waiting room surfaces
+// 503 waiting_room_queued as usual.
 func TestChatNoFallbackBelowThreshold(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.SessionMode = "queued"
-	mock.EstimatedWaitMs = 1000 // < FALLBACK_AFTER_MS
-	srv := newServerCfg(t, mock, func(c *config.Config) {
-		c.FallbackAfter = 10 * time.Second
-		c.FallbackModels = map[string]string{"openai/gpt-5.6-luna": "deepseek/deepseek-v4-flash"}
-	})
+	mock.EstimatedWaitMs = 1000
+	srv := newServerCfg(t, mock, nil)
 	body := `{"model":"openai/gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Host = "127.0.0.1:3457"
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503 (wait below threshold)", rec.Code)
-	}
-	if got := rec.Header().Get("X-FreeBuff-Fallback-Model"); got != "" {
-		t.Errorf("fallback header set without fallback: %q", got)
+		t.Fatalf("status = %d, want 503 (waiting room queued)", rec.Code)
 	}
 }
 

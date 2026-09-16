@@ -102,6 +102,7 @@ func maturityCardFromSnapshot(m *pool.MaturitySnapshot) *maturityCard {
 		LastAction:          m.LastAction,
 		LastResult:          m.LastResult,
 		LastAdvanced:        m.LastAdvanced,
+		ResultDay:           m.ResultDay,
 		EffectiveTouchModel: m.EffectiveTouchModel,
 		AutoTouchModel:      m.AutoTouchModel,
 		AutoTouchReason:     m.AutoTouchReason,

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures, mockDashboard } from "./mocks.js";
-import type { Fixtures } from "./mocks.js";
+import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
+import type { Fixtures, PostedSetting } from "./mocks.js";
 
 // ---------------------------------------------------------------------------
 // Clickable / interactable coverage (hermetic mocks).
@@ -289,7 +289,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await page.getByRole("button", { name: "Accounts" }).click();
     await expect(
-      page.getByRole("heading", { name: "Plans", exact: true }),
+      page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -338,7 +338,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     });
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Probe all" })).toHaveCount(
       0,
@@ -469,7 +469,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     });
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Tokens", exact: true }),
+      page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Log out" }).click();
     await logout;
@@ -519,51 +519,51 @@ test.describe("operator interactions (hermetic mocks)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 5. Rotation radios and the failover switch persist via config save.
+  // 5. Rotation radios and the failover switch instant-save per key.
   // -------------------------------------------------------------------------
-  test("tokens: rotation radio and failover switch persist via config save", async ({
+  test("tokens: rotation radio and failover switch instant-save per key", async ({
     page,
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
 
-    const bodies: string[] = [];
-    await page.unroute(/\/admin\/config$/);
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        bodies.push(decodeURIComponent(route.request().postData() || ""));
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true, message: "Config saved" }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    // Pool controls moved behind the Controls tab.
+    await page.getByRole("button", { name: "Controls" }).click();
     const drain = page.getByRole("radio", { name: "Drain (Safest)" });
     const rr = page.getByRole("radio", { name: "Round Robin (1:1)" });
     await expect(drain).toHaveAttribute("aria-checked", "true");
 
+    const rotationReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
     await rr.click();
     await expect(rr).toHaveAttribute("aria-checked", "true");
+    await rotationReq;
 
     const failover = page.getByRole("switch", {
       name: "Auto Failover on Rate Limit (429)",
     });
     await expect(failover).toHaveAttribute("aria-checked", "true");
+    const failoverReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
     await failover.click();
     await expect(failover).toHaveAttribute("aria-checked", "false");
-    // Traffic edits batch through the Settings .env save (Save/Discard),
-    // not immediate POSTs: one save persists both keys.
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    await expect.poll(() => bodies.length).toBeGreaterThan(0);
-    expect(bodies[bodies.length - 1]).toContain("TOKEN_ROTATION=round_robin");
-    expect(bodies[bodies.length - 1]).toContain("RATE_LIMIT_FAILOVER=false");
+    await failoverReq;
+
+    // Each row instant-saves its own key (debounced ~400ms): both keys land
+    // in the overlay posts.
+    await expect
+      .poll(() => posted.find((p) => p.key === "TOKEN_ROTATION")?.value)
+      .toBe("round_robin");
+    await expect
+      .poll(() => posted.find((p) => p.key === "RATE_LIMIT_FAILOVER")?.value)
+      .toBe("false");
   });
   // -------------------------------------------------------------------------
   // 6. Logs: console/table toggle, auto toggle, refresh and clear console.
@@ -669,13 +669,15 @@ test.describe("operator interactions (hermetic mocks)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 9. Settings: discard reverts a dirty form without posting.
+  // 9. Settings: rows expose no Save/Discard affordances (instant-save).
   // -------------------------------------------------------------------------
-  test("settings: discard reverts a dirty form without posting", async ({
+  test("settings: rows expose no Save/Discard affordances", async ({
     page,
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, { configWithApiKeys: settingsConfig(f) });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
@@ -683,69 +685,71 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await metaResp;
 
-    const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
-    await expect(safeMode).toHaveAttribute("aria-checked", "true");
-    await safeMode.click();
-    await expect(safeMode).toHaveAttribute("aria-checked", "false");
-    await expect(page.getByText("Unsaved changes")).toBeVisible();
-
-    let posted = false;
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        posted = true;
-      }
-      await route.continue();
-    });
-    await page.getByRole("button", { name: "Discard" }).first().click();
-    await expect(safeMode).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+    // No batched-save affordances anywhere on the page.
     await expect(
       page.getByRole("button", { name: "Save Changes", exact: true }),
-    ).toBeDisabled();
-    expect(posted).toBe(false);
+    ).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Discard" })).toHaveCount(0);
+    await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+
+    // Edits save themselves: toggling SAFE_MODE POSTs the overlay directly.
+    const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
+    await expect(safeMode).toHaveAttribute("aria-checked", "true");
+    const saveReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await safeMode.click();
+    await expect(safeMode).toHaveAttribute("aria-checked", "false");
+    await saveReq;
+    await expect
+      .poll(() => posted.find((p) => p.key === "SAFE_MODE")?.value)
+      .toBe("false");
   });
 
   // -------------------------------------------------------------------------
-  // 10. Settings: bridge toggle and rate-limit input persist into the save.
+  // 10. Pool: bridge toggle and rate-limit input instant-save per key.
   // -------------------------------------------------------------------------
-  test("settings: bridge toggle and rate-limit input persist into the save", async ({
+  test("pool: bridge toggle and rate-limit input instant-save per key", async ({
     page,
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, { configWithApiKeys: settingsConfig(f) });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
       { timeout: 5000 },
     );
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
+    // Pool controls moved behind the Controls tab.
+    await page.getByRole("button", { name: "Controls" }).click();
 
     // Absent from .env, the bridge switch defaults to on.
     const bridge = page.getByRole("switch", { name: "BRIDGE_ENABLED" });
-    await expect(bridge).toHaveAttribute("aria-checked", "true");
+    const bridgeReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
     await bridge.click();
-    await page.locator('input[aria-label="RATE_LIMIT_PER_IP"]').fill("25");
+    await bridgeReq;
 
-    let savedBody = "";
-    await page.route(/\/admin\/config$/, async (route) => {
-      if (route.request().method() === "POST") {
-        savedBody = decodeURIComponent(route.request().postData() || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true, message: "Saved." }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
-    page.once("dialog", (d) => d.accept());
-    await page
-      .getByRole("button", { name: "Save Changes", exact: true })
-      .click();
-    expect(savedBody).toContain("BRIDGE_ENABLED=false");
-    expect(savedBody).toContain("RATE_LIMIT_PER_IP=25");
-    await expect(page.getByText("Saved.")).toBeVisible();
+    const ipReq = page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await page.locator('input[aria-label="RATE_LIMIT_PER_IP"]').fill("25");
+    await ipReq;
+
+    await expect
+      .poll(() => posted.find((p) => p.key === "BRIDGE_ENABLED")?.value)
+      .toBe("false");
+    await expect
+      .poll(() => posted.find((p) => p.key === "RATE_LIMIT_PER_IP")?.value)
+      .toBe("25");
+    // Each row reports its own save outcome inline.
+    await expect(page.getByRole("status").first()).toBeVisible();
   });
 
   // -------------------------------------------------------------------------
@@ -761,7 +765,9 @@ test.describe("operator interactions (hermetic mocks)", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#settings");
     await metaResp;
-    await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Security", exact: true }),
+    ).toBeVisible();
 
     // Eye toggles reveal the password text.
     const eyes = page.getByRole("button", { name: "Show password" });
@@ -818,9 +824,9 @@ test.describe("operator interactions (hermetic mocks)", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#overview");
     for (const [link, heading] of [
-      ["Tokens", "Tokens"],
-      ["Plans", "Plans"],
-      ["Activity", "Activity"],
+      ["Pool", "Pool"],
+      ["Usage", "Usage"],
+      ["Logs", "Logs"],
       ["Settings", "Settings"],
     ] as Array<[string, string]>) {
       await nav.getByRole("link", { name: link }).click();

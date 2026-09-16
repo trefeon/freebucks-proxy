@@ -33,10 +33,7 @@ func logWindowDashboard(t *testing.T, cfg *config.Config, ring *logring.Handler)
 }
 
 func logWindowConfig() *config.Config {
-	return &config.Config{
-		LogConsoleWindow:  config.DefaultLogConsoleWindow,
-		LogTableRetention: config.DefaultLogTableRetention,
-	}
+	return &config.Config{}
 }
 
 func logWindowMessages(t *testing.T, ld logsData) []string {
@@ -58,10 +55,10 @@ func containsMessage(msgs []string, want string) bool {
 }
 
 // TestLogConsoleWindowFiltersHistoryRows pins the console window: history rows
-// older than LOG_CONSOLE_WINDOW are not returned, rows inside it are, and the
-// live ring keeps rendering (the ring carries the newest activity and is never
-// window-filtered). The ?window= parameter widens the view for one request
-// without touching what is stored.
+// older than the hardcoded 1h default are not returned, rows inside it are,
+// and the live ring keeps rendering (the ring carries the newest activity and
+// is never window-filtered). The ?window= parameter widens the view for one
+// request without touching what is stored.
 func TestLogConsoleWindowFiltersHistoryRows(t *testing.T) {
 	ring := logring.NewHandler(slog.NewTextHandler(io.Discard, nil), 16)
 	slog.New(ring).Info("ring row")
@@ -78,7 +75,7 @@ func TestLogConsoleWindowFiltersHistoryRows(t *testing.T) {
 
 	ld := d.logsData(nil)
 	if ld.Window != "1h0m0s" {
-		t.Errorf("window = %q, want 1h0m0s (the knob default)", ld.Window)
+		t.Errorf("window = %q, want 1h0m0s (the hardcoded default)", ld.Window)
 	}
 	msgs := logWindowMessages(t, ld)
 	if !containsMessage(msgs, "ring row") {
@@ -102,24 +99,23 @@ func TestLogConsoleWindowFiltersHistoryRows(t *testing.T) {
 }
 
 // TestLogConsoleWindowOverrideAndClamp pins the ?window= contract: a valid
-// duration overrides LOG_CONSOLE_WINDOW, while absent, unparsable, and
-// non-positive values fall back to the knob and out-of-range values clamp.
+// duration overrides the hardcoded 1h default, while absent, unparsable, and
+// non-positive values fall back to it and out-of-range values clamp.
 func TestLogConsoleWindowOverrideAndClamp(t *testing.T) {
 	cfg := logWindowConfig()
-	cfg.LogConsoleWindow = 30 * time.Minute
 	d, _ := logWindowDashboard(t, cfg, nil)
 
 	for _, tc := range []struct {
 		query string
 		want  string
 	}{
-		{"", "30m0s"},
+		{"", "1h0m0s"},
 		{"?window=15m", "15m0s"},
 		{"?window=24h", "24h0m0s"},
-		{"?window=bogus", "30m0s"},
-		{"?window=0s", "30m0s"},
-		{"?window=-5m", "30m0s"},
-		{"?window=", "30m0s"},
+		{"?window=bogus", "1h0m0s"},
+		{"?window=0s", "1h0m0s"},
+		{"?window=-5m", "1h0m0s"},
+		{"?window=", "1h0m0s"},
 		{"?window=10s", "1m0s"},
 		{"?window=1000h", "168h0m0s"},
 	} {
@@ -199,27 +195,29 @@ func TestLogConsoleWindowTruncationFlag(t *testing.T) {
 	}
 }
 
-// TestPurgeHonorsLogTableRetention pins the knob-driven purge: log_entries and
-// request_records use LOG_TABLE_RETENTION, quota and maturity keep their own
-// 90-day window.
-func TestPurgeHonorsLogTableRetention(t *testing.T) {
-	cfg := logWindowConfig()
-	cfg.LogTableRetention = 2 * time.Hour
-	d, st := logWindowDashboard(t, cfg, nil)
+// TestPurgeHonorsFrozenTableRetention pins the frozen purge: log_entries and
+// request_records older than 168h (7d) are purged, newer rows survive, and
+// quota and maturity keep their own 90-day window.
+func TestPurgeHonorsFrozenTableRetention(t *testing.T) {
+	d, st := logWindowDashboard(t, logWindowConfig(), nil)
 
 	now := store.Millis(time.Now())
 	const day = int64(24 * time.Hour / time.Millisecond)
 	const halfHour = int64(30 * time.Minute / time.Millisecond)
 	if err := st.AppendLogs([]store.LogEntry{
 		{TS: now - halfHour, Level: "info", Msg: "fresh log", ReqID: "fresh-req"},
-		{TS: now - 3*day, Level: "info", Msg: "stale log", ReqID: "stale-req"},
+		{TS: now - 3*day, Level: "info", Msg: "mid log", ReqID: "mid-req"},
+		{TS: now - 8*day, Level: "info", Msg: "stale log", ReqID: "stale-req"},
 	}); err != nil {
 		t.Fatalf("AppendLogs: %v", err)
 	}
 	if err := st.RecordRequest(store.RequestRecord{ReqID: "fresh-req", TS: now - halfHour, Endpoint: "/v1/chat", Status: "200"}); err != nil {
 		t.Fatalf("RecordRequest(fresh): %v", err)
 	}
-	if err := st.RecordRequest(store.RequestRecord{ReqID: "stale-req", TS: now - 3*day, Endpoint: "/v1/chat", Status: "200"}); err != nil {
+	if err := st.RecordRequest(store.RequestRecord{ReqID: "mid-req", TS: now - 3*day, Endpoint: "/v1/chat", Status: "200"}); err != nil {
+		t.Fatalf("RecordRequest(mid): %v", err)
+	}
+	if err := st.RecordRequest(store.RequestRecord{ReqID: "stale-req", TS: now - 8*day, Endpoint: "/v1/chat", Status: "200"}); err != nil {
 		t.Fatalf("RecordRequest(stale): %v", err)
 	}
 	if err := st.RecordQuota(store.QuotaSnapshot{TS: now - 10*day, TokenIdx: 0, Model: "m", Limit: 75}); err != nil {
@@ -241,20 +239,28 @@ func TestPurgeHonorsLogTableRetention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryLogs: %v", err)
 	}
-	if len(logs) != 1 || logs[0].Msg != "fresh log" {
-		t.Fatalf("logs after purge = %+v, want only the 30m-old row (2h knob)", logs)
+	got := map[string]bool{}
+	for _, l := range logs {
+		got[l.Msg] = true
+	}
+	if len(logs) != 2 || !got["fresh log"] || !got["mid log"] {
+		t.Fatalf("logs after purge = %+v, want the 30m and 3d rows (frozen 168h)", logs)
 	}
 	reqs, err := st.QueryRequests(0, 100)
 	if err != nil {
 		t.Fatalf("QueryRequests: %v", err)
 	}
-	if len(reqs) != 1 || reqs[0].ReqID != "fresh-req" {
-		t.Fatalf("requests after purge = %+v, want only the fresh request outcome", reqs)
+	gotReq := map[string]bool{}
+	for _, q := range reqs {
+		gotReq[q.ReqID] = true
+	}
+	if len(reqs) != 2 || !gotReq["fresh-req"] || !gotReq["mid-req"] {
+		t.Fatalf("requests after purge = %+v, want the fresh + mid outcomes", reqs)
 	}
 	// Quota and maturity are sparse change points: the 10-day-old rows must
-	// survive the 2h log retention, and the 100-day-old ones must not.
+	// survive the 7d log retention, and the 100-day-old ones must not.
 	if quotas, err := st.QuotaHistory(0, "m", 0, 100); err != nil || len(quotas) != 1 {
-		t.Fatalf("token 0 quota rows = %d (err %v), want 1 (90d retention, not the 2h knob)", len(quotas), err)
+		t.Fatalf("token 0 quota rows = %d (err %v), want 1 (90d retention, not the 7d table freeze)", len(quotas), err)
 	}
 	if quotas, err := st.QuotaHistory(1, "m", 0, 100); err != nil || len(quotas) != 0 {
 		t.Fatalf("token 1 quota rows = %d (err %v), want 0 (older than 90d)", len(quotas), err)

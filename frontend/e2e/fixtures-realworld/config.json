@@ -41,11 +41,6 @@
       "key": "MAX_MESSAGES_PER_DAY",
       "value": "0",
       "secret": false
-    },
-    {
-      "key": "MODEL_ALIASES",
-      "value": "3 alias(es)",
-      "secret": true
     }
   ]
 }

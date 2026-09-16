@@ -7,7 +7,6 @@
     Unlock,
     Lock,
     Trash2,
-    GripVertical,
   } from "@lucide/svelte";
   import Button from "./Button.svelte";
   import StatusBadge from "./StatusBadge.svelte";
@@ -16,6 +15,7 @@
     statusFor,
     streakBadgeFor,
     cooldownLabel,
+    sessionCountdownLabel,
   } from "../utils/tokenStatus.js";
   import { tr } from "../i18n.js";
 
@@ -102,16 +102,9 @@
       ? 'bg-[var(--fp-accent)]/15 border-y-2 border-[var(--fp-accent)]'
       : ''}"
 >
-  <td class="w-[84px]">
+  <td class="w-[1%] whitespace-nowrap !px-2">
     <div class="inline-flex items-center gap-1">
       {#if totalTokens > 1}
-        <div
-          class="cursor-grab active:cursor-grabbing p-1 text-[var(--fp-dim)] hover:text-[var(--fp-accent)] rounded select-none hover:bg-[var(--fp-surface-2)] transition-colors"
-          title={$tr("Drag to reorder account position")}
-          aria-label={$tr("Drag to reorder")}
-        >
-          <GripVertical size={15} />
-        </div>
         <div class="flex flex-col shrink-0 -my-1">
           <button
             type="button"
@@ -153,8 +146,8 @@
     </div>
   </td>
   <td>
-    <div class="flex flex-col gap-0.5">
-      <div class="flex items-center justify-between gap-1.5">
+    <div class="flex min-w-0 flex-col gap-0.5">
+      <div class="flex items-center justify-between gap-1.5 whitespace-nowrap">
         <span
           class="fp-num text-xs font-semibold whitespace-nowrap text-[var(--fp-text)]"
           >Account #{idx + 1}</span
@@ -179,18 +172,41 @@
       {/if}
     </div>
   </td>
-  <td>
-    <div class="flex flex-wrap items-center gap-1.5">
+  <td class="w-[1%] whitespace-nowrap">
+    <div class="flex flex-col items-start gap-0.5">
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
+      {#if token.session_status === "active" && sessionRemaining > 0}
+        <span
+          class="fp-num text-[11px] text-[var(--fp-accent)] whitespace-nowrap"
+          aria-label={`Session time remaining: ${sessionCountdownLabel(sessionRemaining)}`}
+        >
+          {sessionCountdownLabel(sessionRemaining)}
+        </span>
+      {/if}
     </div>
   </td>
-  <td>
-    <div class="flex flex-col items-start gap-1 min-w-0">
-      {#if token.session_instance}
-        <code
-          class="fp-num text-xs text-[var(--fp-muted)] truncate block max-w-full select-all"
-          title={token.session_instance}>{token.session_instance}</code
-        >
+  <td class="w-[1%] whitespace-nowrap">
+    <div class="flex flex-col items-start gap-1 min-w-[280px]">
+      {#if token.session_instance || (token.session_remaining_seconds > 0 && token.session_model)}
+        <div class="flex items-center gap-2 min-w-0 w-full">
+          {#if token.session_instance}
+            <code
+              class="fp-num text-xs text-[var(--fp-muted)] truncate flex-1 min-w-0 max-w-full select-all"
+              title={token.session_instance}>{token.session_instance}</code
+            >
+          {/if}
+          {#if token.session_remaining_seconds > 0 && token.session_model}
+            <Button
+              variant="danger"
+              size="sm"
+              class="!h-7 !text-xs !px-2 w-fit shrink-0"
+              disabled={actionPending}
+              onclick={() => onDropSession?.()}
+            >
+              <span>{$tr("Drop Session")}</span>
+            </Button>
+          {/if}
+        </div>
       {:else if !token.session_model}
         <span class="text-xs text-[var(--fp-dim)]">—</span>
       {/if}
@@ -281,8 +297,6 @@
           {devToolsEnabled}
           {onSpawn}
           {onRefresh}
-          {onDropSession}
-          {sessionRemaining}
         />
       </div>
     </td>

@@ -84,7 +84,7 @@ test("quota visit: mount fires one silent auto probe", async ({ page }) => {
   await page.goto("http://127.0.0.1:4173/admin/#plans");
   await page.getByRole("button", { name: "Accounts" }).click();
   await expect(
-    page.getByRole("heading", { name: "Plans", exact: true }),
+    page.getByRole("heading", { name: "Usage", exact: true }),
   ).toBeVisible();
   // The mount fires after the first tokens load: exactly one POST carrying
   // ?auto=1 (stale server state probes; the mock stands in for stale).
@@ -114,7 +114,7 @@ test("quota visit: remount skips the probe when already fired", async ({
   await page.goto("http://127.0.0.1:4173/admin/#plans");
   await page.getByRole("button", { name: "Accounts" }).click();
   await expect(
-    page.getByRole("heading", { name: "Plans", exact: true }),
+    page.getByRole("heading", { name: "Usage", exact: true }),
   ).toBeVisible();
   await autoReq;
   await page.waitForTimeout(500);
@@ -123,12 +123,12 @@ test("quota visit: remount skips the probe when already fired", async ({
   // holds, so the second mount issues no further probe.
   await page.goto("http://127.0.0.1:4173/admin/#tokens");
   await expect(
-    page.getByRole("heading", { name: "Tokens", exact: true }),
+    page.getByRole("heading", { name: "Pool", exact: true }),
   ).toBeVisible();
   await page.goto("http://127.0.0.1:4173/admin/#plans");
   await page.getByRole("button", { name: "Accounts" }).click();
   await expect(
-    page.getByRole("heading", { name: "Plans", exact: true }),
+    page.getByRole("heading", { name: "Usage", exact: true }),
   ).toBeVisible();
   await page.waitForTimeout(500);
   expect(probeUrls).toHaveLength(1);
@@ -158,7 +158,7 @@ test("quota visit: failed auto probe surfaces the error path", async ({
   await page.goto("http://127.0.0.1:4173/admin/#plans");
   await page.getByRole("button", { name: "Accounts" }).click();
   await expect(
-    page.getByRole("heading", { name: "Plans", exact: true }),
+    page.getByRole("heading", { name: "Usage", exact: true }),
   ).toBeVisible();
   // Failure surfaces the server envelope message on the probeMsg error path
   // (not a bare HTTP status), with no success banner.

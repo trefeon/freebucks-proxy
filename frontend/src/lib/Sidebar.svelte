@@ -40,7 +40,12 @@
     window.location.reload();
   }
   let devToolsEnabled = $state(false);
-
+  // Footer shows the short build id (tags render whole; a 40-char commit
+  // SHA would blow out the 224px sidebar). Full id stays in the tooltip.
+  let fullVersion = $derived(versionInfo?.current_version ?? "dev");
+  let shortVersion = $derived(
+    fullVersion.length > 12 ? fullVersion.slice(0, 7) : fullVersion,
+  );
   const tabs = $derived(
     NAV_ITEMS.filter((item) => {
       if (item.inSidebar === false) return false;
@@ -264,13 +269,18 @@
           >
         </a>
       {/if}
-      <div class="space-y-1 font-mono text-[10px] text-[var(--fp-dim)] pt-0.5">
-        <div class="flex items-center gap-1.5 uppercase tracking-[0.12em]">
+      <div
+        class="space-y-1.5 font-mono text-[10px] text-[var(--fp-dim)] pt-0.5 min-w-0"
+      >
+        <div
+          class="flex items-center gap-1.5 uppercase tracking-[0.12em] min-w-0"
+        >
           <span class="led led-idle shrink-0" aria-hidden="true"></span>
-          <span>freebuff-proxy</span>
+          <span class="truncate">freebuff-proxy</span>
           <span
-            class="fp-num normal-case tracking-normal text-[var(--fp-muted)] ml-auto"
-            >{versionInfo?.current_version ?? "dev"}</span
+            title={fullVersion}
+            class="fp-num normal-case tracking-normal text-[var(--fp-muted)] ml-auto shrink-0"
+            >{shortVersion}</span
           >
         </div>
         <div class="flex items-center justify-end">
@@ -409,13 +419,14 @@
           </a>
         {/if}
         <div
-          class="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--fp-dim)]"
+          class="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--fp-dim)] min-w-0"
         >
-          <span class="led led-idle" aria-hidden="true"></span>
-          <span>freebuff-proxy</span>
+          <span class="led led-idle shrink-0" aria-hidden="true"></span>
+          <span class="truncate">freebuff-proxy</span>
           <span
-            class="fp-num ml-auto normal-case tracking-normal text-[var(--fp-muted)]"
-            >{versionInfo?.current_version ?? "dev"}</span
+            title={fullVersion}
+            class="fp-num ml-auto shrink-0 normal-case tracking-normal text-[var(--fp-muted)]"
+            >{shortVersion}</span
           >
         </div>
       </div>

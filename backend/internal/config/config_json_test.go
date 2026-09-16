@@ -275,31 +275,6 @@ func TestModelsAllowParsing(t *testing.T) {
 	})
 }
 
-// TestModelAliasesFromJSON verifies MODEL_ALIASES is read from the -config
-// JSON file (rawConfig.ModelAliases is a string field; only the env and .env
-// paths were previously exercised).
-func TestModelAliasesFromJSON(t *testing.T) {
-	clearEnv(t)
-	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"AUTH_TOKENS":["tok-1"],"MODEL_ALIASES":"gpt-4o:deepseek/deepseek-v4-flash,glm:z-ai/glm-5.2"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(cfg.ModelAliases) != 2 {
-		t.Fatalf("ModelAliases len = %d, want 2", len(cfg.ModelAliases))
-	}
-	if cfg.ModelAliases["gpt-4o"] != "deepseek/deepseek-v4-flash" {
-		t.Errorf("ModelAliases[gpt-4o] = %q, want deepseek/deepseek-v4-flash (from JSON config)", cfg.ModelAliases["gpt-4o"])
-	}
-	if cfg.ModelAliases["glm"] != "z-ai/glm-5.2" {
-		t.Errorf("ModelAliases[glm] = %q, want z-ai/glm-5.2 (from JSON config)", cfg.ModelAliases["glm"])
-	}
-}
-
 // TestJSONExplicitEmptyAuthTokensBridge is the C8 distinction: a JSON
 // `"AUTH_TOKENS": []` (explicit empty array) must record presence — bridge
 // mode, and CLI auto-discovery must NOT refill the pool — unlike an absent

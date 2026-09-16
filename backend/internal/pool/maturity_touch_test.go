@@ -13,8 +13,8 @@ import (
 
 // touchRunSatisfied is the run check: upstream advances streaks on agent-run
 // message rows, not bare admission, so a touch counts only when it STARTed a
-// run, sent at least one chat turn, and FINISHed the run. Probe-only and
-// admit-only touches leave all three counters at zero.
+// run, sent at least one chat turn, and FINISHed the run. Admit-only touches
+// leave all three counters at zero.
 func touchRunSatisfied(mock *testutil.MockUpstream) bool {
 	return len(mock.StartedRunsSnapshot()) > 0 &&
 		len(mock.RecordedChatBodiesSnapshot()) > 0 &&
@@ -28,7 +28,7 @@ func touchRunSatisfied(mock *testutil.MockUpstream) bool {
 func TestMaturityLiveTouchAdmitsTurnReleases(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
@@ -103,42 +103,12 @@ func TestMaturityLiveTouchAdmitsTurnReleases(t *testing.T) {
 	}
 }
 
-// A dry-run touch probes only: no run starts, no turn, no finish — the run
-// check stays unsatisfied and the activity ledger stays empty.
-func TestMaturityProbeTouchSatisfiesNoRun(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newMaturityPool(t, mock, true)
-	now := windowNow()
-	seedStreak(p, 0, 2, false, now)
-	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	setMaturitySlot(p, 0, now.Add(-time.Hour), laDay(now))
-
-	p.maturityTickAt(context.Background(), now)
-
-	if touchRunSatisfied(mock) {
-		t.Error("probe touch satisfies the run check, want no run without admit-turn-release")
-	}
-	if got := mock.SessionProbesSnapshot(); got != 1 {
-		t.Errorf("SessionProbes = %d, want 1 (dry-run probe)", got)
-	}
-	if got := p.dayRequestCount(0); got != 0 {
-		t.Errorf("dayRequestCount = %d, want 0 (probe never feeds the activity ledger)", got)
-	}
-	action, result := maturityResult(p, 0)
-	if action != "probe" || result != "ok" {
-		t.Errorf("last touch = %q/%q, want probe/ok", action, result)
-	}
-}
-
 // Bare admission leaves no agent-run row: admitting without a turn does not
 // satisfy the run check. This pins the premise the triple is built on.
 func TestMaturityBareAdmissionSatisfiesNoRun(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 
 	toks := p.roster.Load()
 	if _, err := (*toks)[0].session.EnsureSessionForModel(context.Background(), modelB); err != nil {
@@ -159,7 +129,7 @@ func TestMaturityBareAdmissionSatisfiesNoRun(t *testing.T) {
 func TestMaturityTouchReplaysPendingRefund(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newMaturityPool(t, mock, false)
+	p := newMaturityPool(t, mock)
 	now := windowNow()
 	seedStreak(p, 0, 2, false, now)
 	if err := p.SetMaturity(0, true, 7, "", ""); err != nil {

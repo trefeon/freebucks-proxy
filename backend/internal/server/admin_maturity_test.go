@@ -10,7 +10,7 @@ import (
 )
 
 // Maturity lifecycle over the admin API: enable keeps the token leasable,
-// bad params reject, manual touch fires the dry-run probe, disable only
+// bad params reject, manual touch fires the live touch, disable only
 // flips the stored compat flag (the universal run ignores it) and never
 // touches the lock.
 func TestTokenMaturityLifecycle(t *testing.T) {
@@ -20,7 +20,6 @@ func TestTokenMaturityLifecycle(t *testing.T) {
 	ts, p := newTestServerCfg(t, nil, func(c *config.Config) {
 		c.AdminToken = "secret"
 		c.MaturityEnabled = true
-		c.MaturityDryRun = true
 		c.MaturityTouchModel = "deepseek/deepseek-v4-flash"
 	}, mock)
 	cookie := loginCookie(t, ts, "secret")
@@ -69,14 +68,14 @@ func TestTokenMaturityLifecycle(t *testing.T) {
 		t.Errorf("maturity snapshot = %+v, want enabled/7", snap.Maturity)
 	}
 
-	// Manual touch fires the dry-run probe (slot/throttle bypassed).
+	// Manual touch fires the live touch (slot/throttle bypassed).
 	if code, body := post("/admin/tokens/0/maturity/touch", `{}`); code != http.StatusOK {
 		t.Fatalf("touch status = %d, want 200: %s", code, body)
-	} else if !strings.Contains(body, "probe") {
-		t.Errorf("touch body = %s, want probe action named", body)
+	} else if !strings.Contains(body, "admit") {
+		t.Errorf("touch body = %s, want admit action named", body)
 	}
-	if got := mock.SessionProbesSnapshot(); got != 1 {
-		t.Errorf("SessionProbes = %d, want 1 manual probe", got)
+	if got := mock.SessionCreatesSnapshot(); got != 1 {
+		t.Errorf("SessionCreates = %d, want 1 manual live touch", got)
 	}
 
 	// Disable: flips only the stored compat flag, lock untouched.
@@ -101,7 +100,6 @@ func TestTokenMaturityTouchModel(t *testing.T) {
 	ts, p := newTestServerCfg(t, nil, func(c *config.Config) {
 		c.AdminToken = "secret"
 		c.MaturityEnabled = true
-		c.MaturityDryRun = true
 		c.MaturityTouchModel = "deepseek/deepseek-v4-flash"
 	}, mock)
 	cookie := loginCookie(t, ts, "secret")

@@ -106,9 +106,32 @@ func (a *adminHandlers) handleSettingsGet(w http.ResponseWriter, r *http.Request
 		if source == "" {
 			source = "default"
 		}
+		val := values[def.Key].Value
+		if source == "db" {
+			// Echo-stable display for saved rows: report the operator's
+			// saved literal instead of the Go-normalized effective form.
+			// Duration knobs normalize on load (time.Duration.String
+			// rewrites "60s" as "1m0s"), which the dashboard cannot
+			// round-trip: the Pool Strategy badge would read Custom and
+			// the row would re-POST the echo, diverging display from
+			// server until a second tap. The literal is validated at
+			// write and equals the effective value semantically. Bool
+			// spellings still normalize to true/false so toggles keep
+			// one display form.
+			if raw, ok := overlay[def.Key]; ok {
+				raw = strings.TrimSpace(raw)
+				if raw != "" {
+					if def.Kind == "bool" {
+						val = overlayBoolDisplay(raw)
+					} else {
+						val = raw
+					}
+				}
+			}
+		}
 		entries = append(entries, settingsEntry{
 			Key:         def.Key,
-			Value:       values[def.Key].Value,
+			Value:       val,
 			Source:      source,
 			RestartOnly: def.RestartOnly,
 			Secret:      def.Secret,
@@ -139,11 +162,21 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 	// (the pool adopts additions but never removals), so it 400s with a
 	// pointer instead of persisting a row the pool cannot honor.
 	if key == "AUTH_TOKENS" {
-		a.dash.RenderResult(w, http.StatusBadRequest, false, "AUTH_TOKENS is managed on the Tokens page and mode switch, not as a knob (the pool needs reconciling).", "invalid_setting")
+		a.dash.RenderResult(w, http.StatusBadRequest, false, "AUTH_TOKENS is managed on the Pool page and mode switch, not as a knob (the pool needs reconciling).", "invalid_setting")
 		return
 	}
 	if key == "ADMIN_TOKEN" {
 		a.dash.RenderResult(w, http.StatusBadRequest, false, "ADMIN_TOKEN is changed via Change password, not as a knob (the session cookie needs refreshing).", "invalid_setting")
+		return
+	}
+	// ADMIN_FORCE_SECURE_COOKIES is .env-only by owner decision: the cookie
+	// reader consults the process environment with a .env fallback on every
+	// request and never the overlay, so a saved row would sit inert while
+	// looking live. It stays hidden from the instant-save UI (Hidden in the
+	// catalog) and a direct knob write 400s with a pointer, like the other
+	// dedicated-surface keys above.
+	if key == "ADMIN_FORCE_SECURE_COOKIES" {
+		a.dash.RenderResult(w, http.StatusBadRequest, false, "ADMIN_FORCE_SECURE_COOKIES is set in the environment or .env file, not as a knob (the cookie reader never consults the overlay).", "invalid_setting")
 		return
 	}
 	val, ok := settingsValueString(req.Value)
@@ -209,6 +242,13 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 		restartOnly = []string{key}
 		message = key + " saved. It applies after restart."
 		code = "setting_restart_only"
+	}
+	// Env-shadow honesty: the process environment beats the overlay, so a
+	// saved row for an env-pinned key changes nothing until the process env
+	// is unset. Re-read the winning tiers after the write and say so
+	// instead of implying the save took effect.
+	if config.SettingSources(a.configPath, overlay)[key] == "env" {
+		message += " Overridden by process env: the effective value still comes from the environment."
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(dashboard.SettingsPostResponse{
@@ -285,6 +325,20 @@ func settingsValueString(v any) (string, bool) {
 		return strconv.FormatFloat(t, 'f', -1, 64), true
 	default:
 		return "", false
+	}
+}
+
+// overlayBoolDisplay normalizes a saved bool literal to the "true"/"false"
+// display form. The loader accepts 1/true/yes/on spellings (see
+// ValidateSettingValue), and rows are validated at write, so the literal
+// always parses — this keeps the GET display contract byte-identical for
+// bool rows while duration/text rows echo their saved literal.
+func overlayBoolDisplay(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return "true"
+	default:
+		return "false"
 	}
 }
 

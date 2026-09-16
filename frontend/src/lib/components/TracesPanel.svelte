@@ -2,7 +2,10 @@
   import { onMount } from "svelte";
   import { RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
-  import Alert from "./Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import Button from "./Button.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { fetchAPI } from "../api/client.js";
@@ -20,6 +23,17 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
+  let errorToast = $state(0);
+  function notifyError(msg) {
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg
+      ? pushToast({
+          tone: "error",
+          title: $tr("Could not load this page"),
+          body: msg,
+        })
+      : 0;
+  }
   // Local focus dismissal: the parent sets focusReqId (log→trace link); the
   // "Clear" chip below resets to the full list without round-tripping.
   let clearedFocus = $state(false);
@@ -35,8 +49,10 @@
     try {
       data = await fetchAPI(adminApi.traces);
       error = "";
+      notifyError("");
     } catch (e) {
       error = e.message || $tr("Failed to load traces");
+      notifyError(error);
     } finally {
       loading = false;
     }
@@ -126,15 +142,12 @@
       <span class="sr-only">{$tr("Loading traces")}</span>
     </div>
   {:else if error}
-    <Alert tone="error" title={$tr("Could not load this page")}>
-      {error}
-      <div class="mt-3">
-        <Button variant="secondary" onclick={fetchData}>
-          <RefreshCw size={15} />
-          {$tr("Retry")}
-        </Button>
-      </div>
-    </Alert>
+    <div>
+      <Button variant="secondary" onclick={fetchData}>
+        <RefreshCw size={15} />
+        {$tr("Retry")}
+      </Button>
+    </div>
   {:else if data?.enabled}
     {#if effectiveFocus}
       <div class="flex flex-wrap items-center gap-2">
@@ -168,15 +181,19 @@
             >
             <thead>
               <tr>
-                <th scope="col">{$tr("Time")}</th>
-                <th scope="col">{$tr("Account")}</th>
-                <th scope="col">{$tr("Model")}</th>
-                <th scope="col">{$tr("Tokens")}</th>
-                <th scope="col">{$tr("Status")}</th>
-                <th scope="col" class="num">{$tr("Latency")}</th>
+                <th scope="col" class="w-[1%]">{$tr("Time")}</th>
+                <th scope="col" class="w-[1%]">{$tr("Account")}</th>
+                <th scope="col" class="w-48">{$tr("Model")}</th>
+                <th scope="col" class="w-[1%]">{$tr("Tokens")}</th>
+                <th scope="col" class="w-[1%] whitespace-nowrap"
+                  >{$tr("Status")}</th
+                >
+                <th scope="col" class="num w-[1%]">{$tr("Latency")}</th>
                 <th scope="col">{$tr("Phases")}</th>
                 <th scope="col">{$tr("Error")}</th>
-                <th scope="col"><span class="sr-only">{$tr("Links")}</span></th>
+                <th scope="col" class="text-right w-[1%]"
+                  ><span class="sr-only">{$tr("Links")}</span></th
+                >
               </tr>
             </thead>
             <tbody>
@@ -187,10 +204,10 @@
                 {@const usage = tokLine(t)}
                 <tr class={highlightRow(t) ? "bg-amber-500/5" : ""}>
                   <td
-                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
+                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)] w-[1%]"
                     >{formatTime(t.time)}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap">
                     {#if tidx !== null}
                       <button
                         type="button"
@@ -233,7 +250,9 @@
                     {/if}
                   </td>
                   <td class="font-mono text-[11px]"
-                    >{t.model || "—"}
+                    ><span class="block truncate max-w-full" title={t.model}
+                      >{t.model || "—"}</span
+                    >
                     {#if t.agent}
                       <span
                         class="block text-[10px] text-[var(--fp-dim)]"
@@ -242,12 +261,12 @@
                     {/if}
                   </td>
                   <td
-                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)]"
+                    class="whitespace-nowrap font-mono text-[11px] text-[var(--fp-muted)] w-[1%]"
                     title={usage
                       ? $tr("Input / cached / output / total LLM tokens")
                       : ""}>{usage || "—"}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap">
                     <span
                       class={t.status === "error"
                         ? "text-[var(--fp-error)] font-semibold"
@@ -256,7 +275,9 @@
                       {t.status || "ok"}
                     </span>
                   </td>
-                  <td class="num">{t.ms ? t.ms : "—"}</td>
+                  <td class="num w-[1%] whitespace-nowrap"
+                    >{t.ms ? t.ms : "—"}</td
+                  >
                   <td>
                     {#if t.phases?.length}
                       <div class="flex flex-wrap gap-1">
@@ -277,7 +298,7 @@
                     class="text-[var(--fp-error)] text-[11px] max-w-[200px] truncate"
                     >{t.error || ""}</td
                   >
-                  <td>
+                  <td class="w-[1%] whitespace-nowrap text-right">
                     <button
                       type="button"
                       onclick={() => onOpenLogs?.(reqId ? String(reqId) : "")}

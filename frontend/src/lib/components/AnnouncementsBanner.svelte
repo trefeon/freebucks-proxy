@@ -115,18 +115,18 @@
     role="region"
     aria-label={$tr("Upstream Announcements")}
   >
-    <!-- Header bar: wraps on narrow screens so the peak badge drops to its own line -->
+    <!-- Header bar: stacks on mobile so the peak badge drops to its own line -->
     <div
-      class="flex flex-wrap items-center justify-between px-3.5 py-2.5 bg-[var(--fp-surface-2)]/60 border-b border-[var(--fp-border)]/50 gap-2"
+      class="flex flex-col sm:flex-row sm:items-center sm:justify-between px-3.5 py-2.5 bg-[var(--fp-surface-2)]/60 border-b border-[var(--fp-border)]/50 gap-2"
     >
-      <div class="flex items-center gap-2 min-w-0 flex-1">
+      <div class="flex items-center gap-2 min-w-0 w-full sm:w-auto sm:flex-1">
         <span
           class="flex items-center justify-center w-5 h-5 rounded-sm bg-[var(--fp-accent)]/15 text-[var(--fp-accent)] shrink-0"
         >
           <Megaphone size={13} />
         </span>
         <span
-          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] min-w-0"
+          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] min-w-0 truncate"
         >
           {$tr("Upstream Notices & Broadcasts")}
         </span>
@@ -137,10 +137,12 @@
         </span>
       </div>
 
-      <div class="flex items-center gap-1 min-w-0">
+      <div
+        class="flex items-center gap-1 min-w-0 max-w-full w-full sm:w-auto sm:justify-end"
+      >
         {#if peakHours}
           <div
-            class="flex min-w-0 items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono max-w-full break-words {peakHours.is_peak
+            class="flex min-w-0 w-fit max-w-full items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono break-words {peakHours.is_peak
               ? 'bg-[var(--fp-warning)]/15 text-[var(--fp-warning)] border border-[var(--fp-warning)]/30'
               : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}"
             title={peakHours.is_peak

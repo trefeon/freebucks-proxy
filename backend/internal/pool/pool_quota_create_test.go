@@ -129,8 +129,8 @@ func TestAcquireCappedMismatchedStill429(t *testing.T) {
 	// ADR-0027: exhausted cached counts no longer refuse the switch. A
 	// token holding a live session for a DIFFERENT model attempts the
 	// release + fresh admission like an unmetered row, and the lease is
-	// granted when upstream admits. Luna has no QUOTA_FALLBACK_MODELS
-	// mapping in the test config, so no fallback fires either. (Name kept
+	// granted when upstream admits (QUOTA_FALLBACK_MODELS removed, so no
+	// fallback fires either). (Name kept
 	// per the dequota contract; the 429 it pinned now only comes from a
 	// live upstream refusal.)
 	const luna = "openai/gpt-5.6-luna"
