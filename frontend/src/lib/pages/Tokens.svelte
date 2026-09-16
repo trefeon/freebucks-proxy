@@ -22,12 +22,14 @@
     formValues as settingsFormValues,
     rawText as settingsRawText,
     settingSources as settingsSources,
+    loading as settingsLoading,
     settingsDegraded,
     fetchData as fetchSettings,
     resetSetting as resetSettingsKey,
     overlaySaved as settingsOverlaySaved,
     setField as setSettingsField,
   } from "../stores/settings.js";
+  import { detectStrategy } from "../utils/poolStrategy.js";
   import { isDevToolsEnabled } from "../utils/devtools.js";
   import {
     tokensData as tokensStore,
@@ -59,9 +61,29 @@
   let devToolsEnabled = $state(false);
   // Token rotation strategy (TOKEN_ROTATION) + auto-failover flag
   // (RATE_LIMIT_FAILOVER): summary chips fed from the tokens snapshot in
-  // applyTokens. Policy editing lives in the inline Pool controls below.
+  // applyTokens. Policy editing lives in the Pool Strategy card on the
+  // Controls tab.
   let tokenRotation = $state("drain");
   let rateLimitFailover = $state(true);
+  // Queue-posture chip: the same five-key detection the Pool Strategy card
+  // badge uses, read from the shared settings store (the tokens snapshot
+  // still carries rotation + failover only). The store is empty until
+  // fetchSettings() resolves and stays empty — or degraded — when the
+  // overlay is unreachable, so the chip reports nothing until then rather
+  // than guessing a posture from file/loader defaults.
+  let posture = $derived(
+    $settingsLoading ||
+      $settingsDegraded ||
+      Object.keys($settingsFormValues).length === 0
+      ? null
+      : detectStrategy({
+          ROUTING_SMART: $settingsFormValues.ROUTING_SMART,
+          TOKEN_ROTATION: $settingsFormValues.TOKEN_ROTATION,
+          RATE_LIMIT_FAILOVER: $settingsFormValues.RATE_LIMIT_FAILOVER,
+          QUEUE_WAIT: $settingsFormValues.QUEUE_WAIT,
+          QUEUE_DEPTH: $settingsFormValues.QUEUE_DEPTH,
+        }),
+  );
   // Active tab: pool accounts vs pool controls vs account warming. The
   // legacy #maturity hash redirects here one-shot via sessionStorage (see
   // onMount).
@@ -494,12 +516,13 @@
       </div>
       <div
         class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
+        data-testid="rotation-chip"
         title={$tr(
-          "Drain uses each account fully before moving to the next. Edit in the Pool controls below.",
+          "Which account each request picks (TOKEN_ROTATION, effective value). Both presets select Drain; the other modes are picked in the Pool Strategy card.",
         )}
       >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
-          {$tr("Strategy")}
+          {$tr("Rotation")}
         </dt>
         <dd class="text-sm font-semibold text-[var(--fp-text)]">
           {tokenRotation === "drain"
@@ -513,8 +536,32 @@
       </div>
       <div
         class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
+        data-testid="queue-chip"
+        title={posture
+          ? $tr(
+              "Queue posture from the five strategy keys — the same source as the Pool Strategy card's badge.",
+            )
+          : $tr(
+              "Queue posture needs the settings store: still loading, or the overlay is offline.",
+            )}
+      >
+        <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
+          {$tr("Queue")}
+        </dt>
+        <dd class="text-sm font-semibold text-[var(--fp-text)]">
+          {posture === "drain"
+            ? $tr("Drain")
+            : posture === "balance"
+              ? $tr("Balance")
+              : posture === "custom"
+                ? $tr("Custom")
+                : "—"}
+        </dd>
+      </div>
+      <div
+        class="flex flex-col px-2.5 py-1.5 bg-[var(--fp-surface)]"
         title={$tr(
-          "On a 429 the request retries at once on another healthy account. Edit in the Pool controls below.",
+          "On a 429 the request retries at once on another healthy account. Toggle it in the Pool Strategy card on the Controls tab.",
         )}
       >
         <dt class="text-[10px] uppercase tracking-wider text-[var(--fp-dim)]">
@@ -693,6 +740,12 @@
     <StrategyPresetCard
       formValues={$settingsFormValues}
       onField={setSettingsField}
+      rawText={$settingsRawText}
+      sources={$settingsSources}
+      onReset={resetSettingsKey}
+      onSaved={settingsOverlaySaved}
+      degraded={$settingsDegraded}
+      tokenCount={data?.token_count ?? (data?.tokens ?? []).length}
     />
     <TrafficSettings
       cardTitle="Pool Controls"

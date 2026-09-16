@@ -29,7 +29,23 @@
   } from "../stores/settings.js";
   import { tr } from "../i18n.js";
 
-  // Key search across all catalog sections (70 keys).
+  // The general-group catalog keys that are not owned by a curated card
+  // (LOG_LEVEL has its own card; the rest of `general` is covered or
+  // hidden): exactly the four rows the Logs page's Logging & Diagnostics
+  // card rendered before the tab was removed, so the card moves with its
+  // contents unchanged.
+  const LOGGING_KEYS = [
+    "DEBUG_DUMP",
+    "DEVTOOLS_ENABLED",
+    "LOG_ACCESS",
+    "LOG_FORMAT",
+  ];
+
+  // Key search across the rows this page actually renders. The count is the
+  // sum of the sections' own match counts with an empty query (the link-out
+  // stubs count the keys they name) — 13 catalog keys plus the non-catalog
+  // admin-password row today, never the whole 65-key catalog, most of which
+  // is homed on the Pool/Usage/Logs/Warming surfaces.
   let filterQuery = $state("");
   let searching = $derived(filterQuery.trim().length > 0);
   // Per-section visible-row counts (bound from the section components, -1
@@ -41,6 +57,8 @@
   let logLevelMatches = $state(-1);
   let accessMatches = $state(-1);
   let advancedMatches = $state(-1);
+  let loggingMatches = $state(-1);
+  let searchableKeys = $state(0);
   let allEmpty = $derived(
     searching &&
       gatewayMatches === 0 &&
@@ -48,8 +66,25 @@
       routingMatches === 0 &&
       logLevelMatches === 0 &&
       accessMatches === 0 &&
-      advancedMatches === 0,
+      advancedMatches === 0 &&
+      loggingMatches === 0,
   );
+  // Capture the empty-query total once the sections have reported: while a
+  // query is typed those counts shrink, and the placeholder must keep naming
+  // the page's real searchable key count.
+  $effect(() => {
+    if (searching) return;
+    const sum = [
+      accessMatches,
+      gatewayMatches,
+      trafficMatches,
+      routingMatches,
+      logLevelMatches,
+      advancedMatches,
+      loggingMatches,
+    ].reduce((n, c) => (c > 0 ? n + c : n), 0);
+    if (sum > searchableKeys) searchableKeys = sum;
+  });
 
   onMount(() => {
     recordPageVisit("settings");
@@ -82,7 +117,7 @@
     </Alert>
   {/if}
 
-  <!-- Key search across all 70 catalog keys -->
+  <!-- Key search across the keys this page renders -->
   <div class="flex flex-col gap-1.5">
     <label
       for="settings-search"
@@ -93,7 +128,9 @@
       id="settings-search"
       type="search"
       autocomplete="off"
-      placeholder={$tr("Search 70 keys…")}
+      placeholder={searchableKeys > 0
+        ? $tr("Search {n} settings…", { n: searchableKeys })
+        : $tr("Search settings…")}
       bind:value={filterQuery}
       class="fp-input w-full sm:max-w-md"
     />
@@ -152,7 +189,8 @@
     stub
   />
 
-  <!-- 5. Logging (moved to the Logs page - stub links out to #activity) -->
+  <!-- 5. Logging (the working home of the log keys; the Logs page no
+       longer hosts a Logging tab) -->
   <LogLevelSettings
     formValues={$formValues}
     rawText={$rawText}
@@ -162,7 +200,25 @@
     onSaved={overlaySaved}
     query={filterQuery}
     onMatchCount={(n) => (logLevelMatches = n)}
-    stub
+    cardTitle="Server Log Level"
+    degraded={$settingsDegraded}
+  />
+
+  <!-- 5b. Logging & Diagnostics (every other general-group key) -->
+  <AdvancedSettings
+    meta={$meta}
+    formValues={$formValues}
+    rawText={$rawText}
+    onField={setField}
+    sources={$settingSources}
+    onReset={resetSetting}
+    onSaved={overlaySaved}
+    query={filterQuery}
+    onMatchCount={(n) => (loggingMatches = n)}
+    onlyKeys={LOGGING_KEYS}
+    cardTitle="Logging & Diagnostics"
+    cardDescription="Log output and diagnostics."
+    degraded={$settingsDegraded}
   />
 
   <!-- 6. Advanced (every remaining catalog key with its default) -->

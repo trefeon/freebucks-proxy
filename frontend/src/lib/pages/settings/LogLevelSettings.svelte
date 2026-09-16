@@ -7,10 +7,12 @@
   import { parseEnv } from "../../utils/env.js";
 
   /**
-   * Logging settings card (single-key: LOG_LEVEL).
+   * Server log level card (single-key: LOG_LEVEL) — the Settings page is its
+   * one home (it used to be a link-out stub pointing at the Logs page's
+   * Logging tab, which no longer exists).
    * Built using the SettingsCard and SettingsRow template components.
-   * Mirrors the TrafficSettings Pool contract: stub/degraded/cardTitle
-   * props, key-search query + onMatchCount reporting.
+   * Mirrors the TrafficSettings Pool contract: degraded/cardTitle props,
+   * key-search query + onMatchCount reporting.
    *
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
@@ -22,12 +24,10 @@
    * @prop {string} [query] - settings key-search text; hides non-matching rows
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    *   global empty state
-   * @prop {boolean} [stub=false] - link-out stub for the Settings page
-   *   (same search matching + count, body links to #activity)
    * @prop {boolean} [degraded=false] - settings store offline: the row
    *   renders an honest offline note and stays read-only for saves
-   * @prop {string} [cardTitle="Logging"] - card title override (page h1 is
-   *   "Logs", so the title must not equal it)
+   * @prop {string} [cardTitle="Logging"] - card title override (the page h1
+   *   is the page's own name, so the title must not equal it)
    */
   let {
     formValues,
@@ -38,7 +38,6 @@
     onSaved = null,
     query = "",
     onMatchCount = null,
-    stub = false,
     degraded = false,
     cardTitle = "Logging",
   } = $props();
@@ -89,26 +88,7 @@
       {/if}
     {/snippet}
 
-    {#if stub}
-      <div class="py-4 flex flex-col items-start gap-2">
-        <p class="text-xs text-[var(--fp-muted)] leading-relaxed">
-          {$tr("Server log level now lives under the Logs page's Logging tab.")}
-        </p>
-        <a
-          href="#activity"
-          onclick={() => {
-            try {
-              sessionStorage.setItem("fp-page-tab:activity", "logging");
-            } catch {
-              // Storage unavailable — the Logs page opens on its default tab.
-            }
-          }}
-          class="text-xs text-[var(--fp-accent)] hover:underline font-medium"
-        >
-          {$tr("Manage log level (Logs → Logging tab)")}
-        </a>
-      </div>
-    {:else if showLogLevel}
+    {#if showLogLevel}
       <SettingsRow
         first={visibleKeys[0] === "LOG_LEVEL"}
         last={visibleKeys[visibleKeys.length - 1] === "LOG_LEVEL"}
