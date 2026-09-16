@@ -57,8 +57,7 @@ func TestWindowCooldownParksWithoutDroppingSession(t *testing.T) {
 	rle := entry.runs.RateLimitError()
 	if rle == nil {
 		t.Fatal("no remembered rate-limit error after the window refusal (token did not park)")
-	}
-	if want := 71766 * time.Second; rle.RetryAfter != want {
+	} else if want := 71766 * time.Second; rle.RetryAfter != want {
 		t.Errorf("remembered retry_after = %v, want %v (window truncated)", rle.RetryAfter, want)
 	}
 	if until := entry.runs.CooldownUntil(); time.Until(until) < 19*time.Hour {
