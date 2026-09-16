@@ -11,6 +11,15 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [["list"]],
+  // The port below is pinned by every spec's own origin literal, so it cannot be
+  // moved per-worktree. What can be checked is that the server playwright reuses
+  // (reuseExistingServer, i.e. outside CI) is serving *this* checkout's bundle:
+  // serve-static.mjs publishes its build id on /__build-id and this setup fails
+  // the run when the listening server serves a different bundle — typically a
+  // leftover `node e2e/serve-static.mjs` from a parallel worktree, which would
+  // otherwise be graded silently. PORT in e2e/static-server-identity.mjs must
+  // stay in sync with the three literals below.
+  globalSetup: "./e2e/static-server-identity.mjs",
   use: {
     baseURL: "http://127.0.0.1:4173",
     trace: "on-first-retry",

@@ -1,14 +1,21 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
-import { join, extname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, extname } from "node:path";
+import {
+  BUILD_ID_PATH,
+  DIST_DIR,
+  HOST,
+  PORT,
+  readLocalBuildId,
+} from "./static-server-identity.mjs";
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-// dist is at ../backend/internal/dashboard/dist relative to frontend/e2e
-const dist = resolve(__dirname, "../../backend/internal/dashboard/dist");
-const port = 4173;
-const host = "127.0.0.1";
+// Identity of the bundle this process serves: logged on listen and published on
+// BUILD_ID_PATH so a client can tell this server apart from another worktree's.
+const buildId = await readLocalBuildId().catch((err) => {
+  console.error(`[serve-static] ${err.message}`);
+  process.exit(1);
+});
 
 const mime = {
   ".html": "text/html",
@@ -24,8 +31,18 @@ const mime = {
 
 const server = createServer(async (req, res) => {
   try {
-    const url = new URL(req.url, `http://${host}:${port}`);
+    const url = new URL(req.url, `http://${HOST}:${PORT}`);
     let pathname = url.pathname;
+    // Identity probe: lets playwright's globalSetup tell a server started from
+    // this checkout apart from one another worktree left listening on PORT.
+    if (pathname === BUILD_ID_PATH) {
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      });
+      res.end(JSON.stringify({ buildId, dist: DIST_DIR }));
+      return;
+    }
     // SPA fallback: /admin/* serves index.html
     if (
       pathname === "/admin" ||
@@ -34,7 +51,7 @@ const server = createServer(async (req, res) => {
     ) {
       // If it's an asset under /admin/assets/... serve that file
       if (pathname.startsWith("/admin/assets/")) {
-        const filePath = join(dist, pathname.replace("/admin/", ""));
+        const filePath = join(DIST_DIR, pathname.replace("/admin/", ""));
         if (existsSync(filePath) && statSync(filePath).isFile()) {
           const ext = extname(filePath);
           res.writeHead(200, {
@@ -45,7 +62,7 @@ const server = createServer(async (req, res) => {
         }
       }
       // Otherwise serve index.html
-      const indexPath = join(dist, "index.html");
+      const indexPath = join(DIST_DIR, "index.html");
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(await readFile(indexPath));
       return;
@@ -64,8 +81,20 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(port, host, () => {
+server.on("error", (err) => {
+  const taken =
+    err.code === "EADDRINUSE"
+      ? ` — something else is already listening there (a leftover e2e run from this or another worktree); stop it before running the suite`
+      : "";
+  console.error(
+    `[serve-static] cannot listen on http://${HOST}:${PORT}/admin/${taken}`,
+  );
+  console.error(err);
+  process.exit(1);
+});
+
+server.listen(PORT, HOST, () => {
   console.log(
-    `[serve-static] serving ${dist} at http://${host}:${port}/admin/`,
+    `[serve-static] serving ${DIST_DIR} (build ${buildId ?? "unknown"}) at http://${HOST}:${PORT}/admin/`,
   );
 });
