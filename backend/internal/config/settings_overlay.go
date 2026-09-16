@@ -150,6 +150,13 @@ func ValidateSettingValue(key, value string) error {
 			return fmt.Errorf("%s must be a number (requests/second, 0 disables), got %q", n, value)
 		}
 	}
+	// COOLDOWN_IP_JITTER_RATIO renders as a text knob but parses as a
+	// float: same silent-fallthrough guard as RATE_LIMIT_PER_IP above.
+	if n == "COOLDOWN_IP_JITTER_RATIO" {
+		if _, ok := parseFloatPtr(v); !ok {
+			return fmt.Errorf("%s must be a number (+/-fraction, e.g. 0.2), got %q", n, value)
+		}
+	}
 	// Duration knobs are checked here, not left to the Load in the POST
 	// handler: that Load runs after the handler has read the DB overlay, so
 	// a typo would pay a database round trip to earn the same 400. This gate

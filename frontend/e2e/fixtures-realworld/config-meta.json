@@ -192,6 +192,106 @@
     "description": "How long a bridge entry may sit unused before its runs are FINISHed and it is evicted from the cache (sliding TTL; zero or invalid → 72h)."
   },
   {
+    "key": "COOLDOWN_CEILING_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "604800000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Ceiling for any cooldown derived from upstream retry fields, in milliseconds (7d = 604800000). Untrusted upstream values are clamped here so an absurd Retry-After cannot park a token for years. Zero-tolerant: empty or non-positive values fall back to 604800000. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_COUNTRY_BLOCK_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "900000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Token cooldown on upstream region block (country_blocked), in milliseconds (15m = 900000): long enough to stop the hammer, short enough to re-probe after an egress switch. Zero-tolerant: empty or non-positive values fall back to 900000. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_DEFAULT_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "1800000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Token cooldown on upstream auth rejection, in milliseconds (30m = 1800000). Zero-tolerant: empty or non-positive values fall back to 1800000. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_FANOUT_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "60000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Backoff for a free_mode_run_fanout refusal without a Retry-After header, in milliseconds (1m = 60000): the upstream run counter clears in seconds, and re-hitting it feeds a ban-grade sweep signal. Zero-tolerant: empty or non-positive values fall back to 60000. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_INVALID_MODEL_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "60000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Backoff for a free_mode_invalid_agent_model refusal without a Retry-After header, in milliseconds (1m = 60000): retrying sooner only amplifies the 403 storm. Zero-tolerant: empty or non-positive values fall back to 60000. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_IP_JITTER_RATIO",
+    "group": "pool",
+    "kind": "text",
+    "default": "0.2",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "+/-fraction of retryAfterMs applied to the ip_capped re-admission window so concurrent tokens do not re-admit in lockstep (default 0.2 = 20%). Negative values reject the config. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_IP_MAX_READMITS",
+    "group": "pool",
+    "kind": "int",
+    "default": "3",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "How many times one token may re-admit (and be refused ip_capped again) per Pacific day before it locks until the next Pacific midnight (default 3). Negative values reject the config. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_LOADSHED_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "90000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Backoff for a 429 load-saturation refusal, in milliseconds (90s = 90000): upstream sheds load for minutes, not a day. Zero-tolerant: empty or non-positive values fall back to 90000. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_OPAQUE_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "60000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Backoff for a 429 with no timestamp, daily-reset signal, or Retry-After header, in milliseconds (1m = 60000): a fully opaque body must never lock the token until Pacific midnight. Zero-tolerant: empty or non-positive values fall back to 60000. Applies live on reload."
+  },
+  {
+    "key": "COOLDOWN_PEAK_HOURS_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "1800000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Backoff for a 429 peak-hours refusal, in milliseconds (30m = 1800000): the peak lasts hours and its end is not in the body, so re-probe conservatively instead of locking until midnight. Zero-tolerant: empty or non-positive values fall back to 1800000. Applies live on reload."
+  },
+  {
     "key": "IDLE_ROTATION_TIMEOUT",
     "group": "pool",
     "kind": "text",
@@ -200,6 +300,16 @@
     "secret": false,
     "essential": false,
     "description": "Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset)."
+  },
+  {
+    "key": "MATURITY_BACKOFF_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "180000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "How long the nightly maturity walk pauses after a rate-limited touch, in milliseconds (3m = 180000): the walk aborts instead of hammering a throttled upstream. Zero-tolerant: empty or non-positive values fall back to 180000. Applies live on reload."
   },
   {
     "key": "MATURITY_ENABLED",
@@ -408,6 +518,26 @@
     "description": "End upstream sessions after this idle period, freeing the account while the proxy sits unused (0 = disabled, opt-in)."
   },
   {
+    "key": "SESSION_PARK_ENABLED",
+    "group": "pool",
+    "kind": "bool",
+    "default": "true",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Park short-cooldown sessions instead of dropping them (default true): a parked session keeps its row and retries on backoff, so brief 5-15m cooldowns never cause an instant session loss. Fatal refusals (ban, spend-exhausted, endsTheSession) stay terminal regardless. Applies live on reload."
+  },
+  {
+    "key": "SESSION_PARK_THRESHOLD_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "900000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Park-vs-drop boundary in milliseconds (15m = 900000): a session whose computed cooldown is at or below this parks and never drops (while SESSION_PARK_ENABLED). Zero-tolerant: empty or non-positive values fall back to 900000. Applies live on reload."
+  },
+  {
     "key": "SESSION_PERSIST",
     "group": "pool",
     "kind": "bool",
@@ -416,6 +546,16 @@
     "secret": false,
     "essential": false,
     "description": "Persist session state AND active agent runs to disk so a restart resumes them instead of re-creating (default true). Set via container environment."
+  },
+  {
+    "key": "SESSION_POLL_MAX_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "300000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Cap on the session-liveness poll failure backoff in milliseconds (5m = 300000): consecutive failures double from 20s up to this ceiling. Zero-tolerant: empty or non-positive values fall back to 300000. Applies live on reload."
   },
   {
     "key": "SESSION_PROBE_CACHE_TTL",
@@ -448,6 +588,16 @@
     "essential": false,
     "hidden": true,
     "description": "Path of the session state file (used when SESSION_PERSIST=true; token-keyed, 0600, raw tokens never written)."
+  },
+  {
+    "key": "SMART_PROBE_BACKOFF_MAX_MS",
+    "group": "pool",
+    "kind": "int",
+    "default": "1800000",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Ceiling for the quota-probe 429-backoff doubling in milliseconds (30m = 1800000): effective probe intervals never sleep longer than this. Zero-tolerant: empty or non-positive values fall back to 1800000. Applies live on reload."
   },
   {
     "key": "TOKEN_MAX_CONCURRENT",

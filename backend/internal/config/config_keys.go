@@ -98,6 +98,24 @@ type rawConfig struct {
 	// QueueDepth records QUEUE_DEPTH (default 16): the per-token FIFO
 	// queue depth cap.
 	QueueDepth *int `json:"QUEUE_DEPTH"`
+	// Cooldown backoffs (COOLDOWN_*_MS, integer milliseconds) and the
+	// session-park switch: raw ints parsed to Durations in Load
+	// (zero-tolerant → Contract defaults in cooldown.go).
+	CooldownDefaultMs      *int     `json:"COOLDOWN_DEFAULT_MS"`
+	CooldownCountryBlockMs *int     `json:"COOLDOWN_COUNTRY_BLOCK_MS"`
+	CooldownCeilingMs      *int     `json:"COOLDOWN_CEILING_MS"`
+	CooldownFanoutMs       *int     `json:"COOLDOWN_FANOUT_MS"`
+	CooldownInvalidModelMs *int     `json:"COOLDOWN_INVALID_MODEL_MS"`
+	CooldownOpaqueMs       *int     `json:"COOLDOWN_OPAQUE_MS"`
+	CooldownLoadShedMs     *int     `json:"COOLDOWN_LOADSHED_MS"`
+	CooldownPeakHoursMs    *int     `json:"COOLDOWN_PEAK_HOURS_MS"`
+	CooldownIPMaxReadmits  *int     `json:"COOLDOWN_IP_MAX_READMITS"`
+	CooldownIPJitterRatio  *float64 `json:"COOLDOWN_IP_JITTER_RATIO"`
+	SessionParkEnabled     bool     `json:"SESSION_PARK_ENABLED"`
+	SessionParkThresholdMs *int     `json:"SESSION_PARK_THRESHOLD_MS"`
+	SessionPollMaxMs       *int     `json:"SESSION_POLL_MAX_MS"`
+	SmartProbeBackoffMaxMs *int     `json:"SMART_PROBE_BACKOFF_MAX_MS"`
+	MaturityBackoffMs      *int     `json:"MATURITY_BACKOFF_MS"`
 }
 
 // modelsAllowList is the raw MODELS_ALLOW value. The README documents list
@@ -125,47 +143,63 @@ func (m *modelsAllowList) UnmarshalJSON(data []byte) error {
 // defaultRawConfig returns the raw defaults every load source layers over.
 func defaultRawConfig() rawConfig {
 	return rawConfig{
-		ListenAddr:               "127.0.0.1:3457",       // loopback by default (PRD §3); containers set LISTEN_ADDR=:3457
-		UpstreamBaseURL:          "https://codebuff.com", // normalized to www.
-		RotationInterval:         "6h",
-		RequestTimeout:           "15m",
-		HTTPReadTimeout:          "60s",
-		SessionCallTimeout:       "30s",
-		TokenRotation:            "drain",
-		RateLimitFailover:        new(true),
-		CostMode:                 "free",
-		RegistryRefresh:          "6h",
-		IdleRotationTimeout:      "",    // "" = disabled (unset → SAFE_MODE preset may fill)
-		BridgeEnabled:            true,  // hybrid by default: AUTH_TOKENS + bridge relay share one instance
-		BridgeIdleEvict:          "72h", // sliding-TTL for idle bridge-entry eviction
-		SafeMode:                 true,  // anti-ban presets on by default; set SAFE_MODE=false to disable
-		SessionIdleEnd:           "",    // "" = disabled (opt-in: ending a session forces a fresh admission when the user returns)
-		DashboardEnabled:         true,  // dashboard on by default; set DASHBOARD_ENABLED=false to disable
-		DashboardRequireLogin:    true,  // require login on by default; set DASHBOARD_REQUIRE_LOGIN=false to disable
-		LogAccess:                true,
-		DevToolsEnabled:          false, // per-request access lines on by default; LOG_ACCESS=false disables them
-		CORSAllowedOrigin:        "*",   // browser clients reach /v1/* cross-origin by default
-		RequestJitter:            "",    // "" = disabled (unset → SAFE_MODE preset may fill)
-		CLIVersion:               "0.10.7",
-		TransientRetries:         nil,  // nil = 1 (one retry after a transient transport failure; 0 disables)
-		SessionPersist:           true, // session persistence on by default: restart resumes unexpired sessions
-		SessionStateFile:         ".freebuff-session-state.json",
-		HTTP2Upstream:            true,       // h2 ALPN matches real browsers (reference proxy-freebuff USE_HTTP2 default '1'); HTTP2_UPSTREAM=false forces h1 (#51)
-		RunFinishQueueSize:       ptrInt(64), // #90: bounded deferred-FINISH queue
-		RunFinishInlineTimeout:   "250ms",    // #90: inline FINISH fallback bound
-		RunsDrainQueueCap:        ptrInt(64), // #55: draining-runs list cap
-		RunsDrainTTL:             "10m",      // #55: draining-runs TTL eviction
-		SessionReAdmitLead:       "60s",      // #99: pre-emptive re-admit lead
-		SessionProbeCacheTTL:     "15s",      // #60: admission probe cache TTL
-		RoutingSmart:             true,       // smart pool routing on by default; false restores the legacy acquire path
-		TokenMaxConcurrent:       ptrInt(2),  // per-token live turns (floor 1; bunker strictness is 1)
-		QueueWait:                "30s",      // FIFO slot-queue wait bound per parked Acquire
-		QueueDepth:               ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
-		MaturityEnabled:          true,       // streak-maturity automation on by default; touches run live
-		QuotaAutoProbe:           true,       // quota auto-probe scheduler on by default; false restores pre-scheduler behavior
-		QuotaProbeActiveInterval: "60s",      // busy-pool probe cadence
-		QuotaProbeIdleHeartbeat:  "30m",      // idle-pool probe heartbeat (also the 429-backoff ceiling)
-		MaturityTouchModel:       "",         // empty default (= auto): cheapest served unmetered row, explicit id overrides
+		ListenAddr:             "127.0.0.1:3457",       // loopback by default (PRD §3); containers set LISTEN_ADDR=:3457
+		UpstreamBaseURL:        "https://codebuff.com", // normalized to www.
+		RotationInterval:       "6h",
+		RequestTimeout:         "15m",
+		HTTPReadTimeout:        "60s",
+		SessionCallTimeout:     "30s",
+		TokenRotation:          "drain",
+		RateLimitFailover:      new(true),
+		CostMode:               "free",
+		RegistryRefresh:        "6h",
+		IdleRotationTimeout:    "",    // "" = disabled (unset → SAFE_MODE preset may fill)
+		BridgeEnabled:          true,  // hybrid by default: AUTH_TOKENS + bridge relay share one instance
+		BridgeIdleEvict:        "72h", // sliding-TTL for idle bridge-entry eviction
+		SafeMode:               true,  // anti-ban presets on by default; set SAFE_MODE=false to disable
+		SessionIdleEnd:         "",    // "" = disabled (opt-in: ending a session forces a fresh admission when the user returns)
+		DashboardEnabled:       true,  // dashboard on by default; set DASHBOARD_ENABLED=false to disable
+		DashboardRequireLogin:  true,  // require login on by default; set DASHBOARD_REQUIRE_LOGIN=false to disable
+		LogAccess:              true,
+		DevToolsEnabled:        false, // per-request access lines on by default; LOG_ACCESS=false disables them
+		CORSAllowedOrigin:      "*",   // browser clients reach /v1/* cross-origin by default
+		RequestJitter:          "",    // "" = disabled (unset → SAFE_MODE preset may fill)
+		CLIVersion:             "0.10.7",
+		TransientRetries:       nil,  // nil = 1 (one retry after a transient transport failure; 0 disables)
+		SessionPersist:         true, // session persistence on by default: restart resumes unexpired sessions
+		SessionStateFile:       ".freebuff-session-state.json",
+		HTTP2Upstream:          true,       // h2 ALPN matches real browsers (reference proxy-freebuff USE_HTTP2 default '1'); HTTP2_UPSTREAM=false forces h1 (#51)
+		RunFinishQueueSize:     ptrInt(64), // #90: bounded deferred-FINISH queue
+		RunFinishInlineTimeout: "250ms",    // #90: inline FINISH fallback bound
+		RunsDrainQueueCap:      ptrInt(64), // #55: draining-runs list cap
+		RunsDrainTTL:           "10m",      // #55: draining-runs TTL eviction
+		QueueWait:              "30s",      // FIFO slot-queue wait bound per parked Acquire
+		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
+		// Cooldown / session-park defaults mirror cooldown.go (Contract =
+		// previous hardcoded behavior): integer milliseconds, zero-tolerant
+		// in Load.
+		CooldownDefaultMs:        ptrInt(defaultCooldownDefaultMs),
+		CooldownCountryBlockMs:   ptrInt(defaultCooldownCountryBlockMs),
+		CooldownCeilingMs:        ptrInt(defaultCooldownCeilingMs),
+		CooldownFanoutMs:         ptrInt(defaultCooldownFanoutMs),
+		CooldownInvalidModelMs:   ptrInt(defaultCooldownInvalidModelMs),
+		CooldownOpaqueMs:         ptrInt(defaultCooldownOpaqueMs),
+		CooldownLoadShedMs:       ptrInt(defaultCooldownLoadShedMs),
+		CooldownPeakHoursMs:      ptrInt(defaultCooldownPeakHoursMs),
+		CooldownIPMaxReadmits:    ptrInt(defaultCooldownIPMaxReadmits),
+		CooldownIPJitterRatio:    new(defaultCooldownIPJitterRatio),
+		SessionParkEnabled:       true,
+		SessionParkThresholdMs:   ptrInt(defaultSessionParkThresholdMs),
+		SessionPollMaxMs:         ptrInt(defaultSessionPollMaxMs),
+		SmartProbeBackoffMaxMs:   ptrInt(defaultSmartProbeBackoffMaxMs),
+		MaturityBackoffMs:        ptrInt(defaultMaturityBackoffMs),
+		MaturityEnabled:          true,      // streak-maturity automation on by default; touches run live
+		QuotaAutoProbe:           true,      // quota auto-probe scheduler on by default; false restores pre-scheduler behavior
+		QuotaProbeActiveInterval: "60s",     // busy-pool probe cadence
+		QuotaProbeIdleHeartbeat:  "30m",     // idle-pool probe heartbeat (also the 429-backoff ceiling)
+		MaturityTouchModel:       "",        // empty default (= auto): cheapest served unmetered row, explicit id overrides
+		RoutingSmart:             true,      // smart pool routing on by default; false restores the legacy acquire path
+		TokenMaxConcurrent:       ptrInt(2), // per-token live turns (floor 1; bunker strictness is 1)
 	}
 }
 

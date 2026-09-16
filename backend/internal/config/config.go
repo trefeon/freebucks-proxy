@@ -240,6 +240,61 @@ type Config struct {
 	// no queueing (fail over at once when no live-turn slot is free);
 	// negative is rejected in Validate. Live-apply (read per Acquire).
 	QueueDepth int
+	// Cooldown backoffs (COOLDOWN_*_MS, integer milliseconds): every
+	// upstream-refusal backoff the pool and classifier apply, tunable
+	// without a restart. Zero-tolerant: unset or non-positive values fall
+	// back to the Contract defaults (previous hardcoded behavior — 30m
+	// auth default, 15m country block, 7d upstream-field ceiling, 1m
+	// fanout/invalid-model/opaque, 90s load-shed, 30m peak-hours).
+	// Live-apply (read per refusal via the DefaultMs() etc. accessors in
+	// cooldown.go). Displayed back to the dashboard as integer ms.
+	CooldownDefault      time.Duration
+	CooldownCountryBlock time.Duration
+	CooldownCeiling      time.Duration
+	CooldownFanout       time.Duration
+	CooldownInvalidModel time.Duration
+	CooldownOpaque       time.Duration
+	CooldownLoadShed     time.Duration
+	CooldownPeakHours    time.Duration
+	// CooldownIPMaxReadmits caps ip_capped re-admits per Pacific day
+	// (COOLDOWN_IP_MAX_READMITS; default 3, previous hardcoded
+	// maxIpCappedReAdmitsPerDay). Zero-tolerant: 0 falls back to the
+	// default (see IpMaxReadmits). Negative is rejected in Validate.
+	// Live-apply (read per ip_capped refusal via IpMaxReadmits()).
+	CooldownIPMaxReadmits int
+	// CooldownIPJitterRatio is the +/-fraction of retryAfterMs applied to
+	// the ip_capped re-admission window (COOLDOWN_IP_JITTER_RATIO; default
+	// 0.2, previous hardcoded ipCappedCooldownJitter). Negative is
+	// rejected in Validate. Live-apply (read per refusal via
+	// IpJitterRatio()).
+	CooldownIPJitterRatio float64
+	// SessionParkEnabledFlag gates park-vs-drop for short-cooldown
+	// sessions (SESSION_PARK_ENABLED; default true): parked sessions keep
+	// their row and retry on backoff instead of invalidating. (Named
+	// ...Flag because SessionParkEnabled() is the accessor.)
+	// Live-apply (read per refusal via SessionParkEnabled()).
+	SessionParkEnabledFlag bool
+	// SessionParkThreshold is the park-vs-drop boundary
+	// (SESSION_PARK_THRESHOLD_MS; default 15m): a session whose computed
+	// cooldown is at or below this never drops. Zero-tolerant like the
+	// COOLDOWN_*_MS knobs. Live-apply (read per refusal via
+	// SessionParkThresholdMs()).
+	SessionParkThreshold time.Duration
+	// SessionPollMaxMs caps the session-liveness poll failure backoff
+	// (SESSION_POLL_MAX_MS; default 5m, previous hardcoded
+	// sessionPollBackoffMax). Zero-tolerant. Live-apply (read per failed
+	// poll via SessionPollMaxMs()).
+	SessionPollMax time.Duration
+	// SmartProbeBackoffMaxMs caps the quota-probe 429-backoff doubling
+	// (SMART_PROBE_BACKOFF_MAX_MS; default 30m, previous hardcoded
+	// quotaProbeMaxInterval). Zero-tolerant. Live-apply (read per probe
+	// via SmartProbeBackoffMaxMs()).
+	SmartProbeBackoffMax time.Duration
+	// MaturityBackoffMs pauses the nightly maturity walk after a
+	// rate-limited touch (MATURITY_BACKOFF_MS; default 3m, previous
+	// hardcoded maturity429Backoff). Zero-tolerant. Live-apply (read per
+	// 429 via MaturityBackoffMs()).
+	MaturityBackoff time.Duration
 }
 
 // DefaultAdminToken is the default dashboard admin password ("123456") used when ADMIN_TOKEN is unconfigured or empty.
@@ -404,6 +459,7 @@ func splitList(value string) []string {
 	})
 	return compactStrings(fields)
 }
+
 func parseMap(value string) map[string]string {
 	out := make(map[string]string)
 	if strings.TrimSpace(value) == "" {

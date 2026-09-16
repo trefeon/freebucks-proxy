@@ -124,6 +124,21 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideInt(&raw.TokenMaxConcurrent, "TOKEN_MAX_CONCURRENT")
 	overrideString(&raw.QueueWait, "QUEUE_WAIT")
 	overrideInt(&raw.QueueDepth, "QUEUE_DEPTH")
+	overrideInt(&raw.CooldownDefaultMs, "COOLDOWN_DEFAULT_MS")
+	overrideInt(&raw.CooldownCountryBlockMs, "COOLDOWN_COUNTRY_BLOCK_MS")
+	overrideInt(&raw.CooldownCeilingMs, "COOLDOWN_CEILING_MS")
+	overrideInt(&raw.CooldownFanoutMs, "COOLDOWN_FANOUT_MS")
+	overrideInt(&raw.CooldownInvalidModelMs, "COOLDOWN_INVALID_MODEL_MS")
+	overrideInt(&raw.CooldownOpaqueMs, "COOLDOWN_OPAQUE_MS")
+	overrideInt(&raw.CooldownLoadShedMs, "COOLDOWN_LOADSHED_MS")
+	overrideInt(&raw.CooldownPeakHoursMs, "COOLDOWN_PEAK_HOURS_MS")
+	overrideInt(&raw.CooldownIPMaxReadmits, "COOLDOWN_IP_MAX_READMITS")
+	overrideFloat(&raw.CooldownIPJitterRatio, "COOLDOWN_IP_JITTER_RATIO")
+	overrideBool(&raw.SessionParkEnabled, "SESSION_PARK_ENABLED")
+	overrideInt(&raw.SessionParkThresholdMs, "SESSION_PARK_THRESHOLD_MS")
+	overrideInt(&raw.SessionPollMaxMs, "SESSION_POLL_MAX_MS")
+	overrideInt(&raw.SmartProbeBackoffMaxMs, "SMART_PROBE_BACKOFF_MAX_MS")
+	overrideInt(&raw.MaturityBackoffMs, "MATURITY_BACKOFF_MS")
 	overrideBool(&raw.WaitingRoomChain, "WAITING_ROOM_CHAIN")
 	overrideFloat(&raw.RateLimitPerIP, "RATE_LIMIT_PER_IP")
 	overrideInt(&raw.RateLimitBurst, "RATE_LIMIT_BURST")
@@ -406,7 +421,42 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	if raw.QueueDepth != nil {
 		queueDepth = *raw.QueueDepth
 	}
-
+	// COOLDOWN_*_MS / SESSION_*_MS / SMART_PROBE_BACKOFF_MAX_MS /
+	// MATURITY_BACKOFF_MS are integer-millisecond knobs resolved with
+	// msToDuration (cooldown.go): nil or non-positive values fall back to
+	// the Contract defaults, so a blank row can never zero-out a backoff.
+	// Absurd values saturate instead of wrapping (consumers clamp to the
+	// ceiling at use); negative readmits/jitter are rejected in Validate.
+	msVal := func(raw *int, fallback int) time.Duration {
+		if raw == nil {
+			return msToDuration(0, fallback)
+		}
+		return msToDuration(*raw, fallback)
+	}
+	cooldownDefault := msVal(raw.CooldownDefaultMs, defaultCooldownDefaultMs)
+	cooldownCountryBlock := msVal(raw.CooldownCountryBlockMs, defaultCooldownCountryBlockMs)
+	cooldownCeiling := msVal(raw.CooldownCeilingMs, defaultCooldownCeilingMs)
+	cooldownFanout := msVal(raw.CooldownFanoutMs, defaultCooldownFanoutMs)
+	cooldownInvalidModel := msVal(raw.CooldownInvalidModelMs, defaultCooldownInvalidModelMs)
+	cooldownOpaque := msVal(raw.CooldownOpaqueMs, defaultCooldownOpaqueMs)
+	cooldownLoadShed := msVal(raw.CooldownLoadShedMs, defaultCooldownLoadShedMs)
+	cooldownPeakHours := msVal(raw.CooldownPeakHoursMs, defaultCooldownPeakHoursMs)
+	sessionParkThreshold := msVal(raw.SessionParkThresholdMs, defaultSessionParkThresholdMs)
+	sessionPollMax := msVal(raw.SessionPollMaxMs, defaultSessionPollMaxMs)
+	smartProbeBackoffMax := msVal(raw.SmartProbeBackoffMaxMs, defaultSmartProbeBackoffMaxMs)
+	maturityBackoff := msVal(raw.MaturityBackoffMs, defaultMaturityBackoffMs)
+	// Zero readmits falls back to the default like the ms knobs above (an
+	// explicit 0 can never mean "no re-admits": runs would still enforce
+	// the old global). A negative value passes through so Validate
+	// rejects it.
+	cooldownIPMaxReadmits := defaultCooldownIPMaxReadmits
+	if raw.CooldownIPMaxReadmits != nil && *raw.CooldownIPMaxReadmits != 0 {
+		cooldownIPMaxReadmits = *raw.CooldownIPMaxReadmits
+	}
+	cooldownIPJitterRatio := defaultCooldownIPJitterRatio
+	if raw.CooldownIPJitterRatio != nil {
+		cooldownIPJitterRatio = *raw.CooldownIPJitterRatio
+	}
 	cfg := Config{
 		ListenAddr:               strings.TrimSpace(raw.ListenAddr),
 		UpstreamBaseURL:          upstreamBaseURL,
@@ -463,6 +513,21 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		TokenMaxConcurrent:       tokenMaxConcurrent,
 		QueueWait:                queueWait,
 		QueueDepth:               queueDepth,
+		CooldownDefault:          cooldownDefault,
+		CooldownCountryBlock:     cooldownCountryBlock,
+		CooldownCeiling:          cooldownCeiling,
+		CooldownFanout:           cooldownFanout,
+		CooldownInvalidModel:     cooldownInvalidModel,
+		CooldownOpaque:           cooldownOpaque,
+		CooldownLoadShed:         cooldownLoadShed,
+		CooldownPeakHours:        cooldownPeakHours,
+		CooldownIPMaxReadmits:    cooldownIPMaxReadmits,
+		CooldownIPJitterRatio:    cooldownIPJitterRatio,
+		SessionParkEnabledFlag:   raw.SessionParkEnabled,
+		SessionParkThreshold:     sessionParkThreshold,
+		SessionPollMax:           sessionPollMax,
+		SmartProbeBackoffMax:     smartProbeBackoffMax,
+		MaturityBackoff:          maturityBackoff,
 		WaitingRoomChain:         raw.WaitingRoomChain,
 		RateLimitPerIP:           rateLimitPerIP,
 		RateLimitBurst:           rateLimitBurst,
@@ -654,6 +719,21 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideIntFrom(&raw.TokenMaxConcurrent, get, "TOKEN_MAX_CONCURRENT")
 	overrideStringFrom(&raw.QueueWait, get, "QUEUE_WAIT")
 	overrideIntFrom(&raw.QueueDepth, get, "QUEUE_DEPTH")
+	overrideIntFrom(&raw.CooldownDefaultMs, get, "COOLDOWN_DEFAULT_MS")
+	overrideIntFrom(&raw.CooldownCountryBlockMs, get, "COOLDOWN_COUNTRY_BLOCK_MS")
+	overrideIntFrom(&raw.CooldownCeilingMs, get, "COOLDOWN_CEILING_MS")
+	overrideIntFrom(&raw.CooldownFanoutMs, get, "COOLDOWN_FANOUT_MS")
+	overrideIntFrom(&raw.CooldownInvalidModelMs, get, "COOLDOWN_INVALID_MODEL_MS")
+	overrideIntFrom(&raw.CooldownOpaqueMs, get, "COOLDOWN_OPAQUE_MS")
+	overrideIntFrom(&raw.CooldownLoadShedMs, get, "COOLDOWN_LOADSHED_MS")
+	overrideIntFrom(&raw.CooldownPeakHoursMs, get, "COOLDOWN_PEAK_HOURS_MS")
+	overrideIntFrom(&raw.CooldownIPMaxReadmits, get, "COOLDOWN_IP_MAX_READMITS")
+	overrideFloatFrom(&raw.CooldownIPJitterRatio, get, "COOLDOWN_IP_JITTER_RATIO")
+	overrideBoolFrom(&raw.SessionParkEnabled, get, "SESSION_PARK_ENABLED")
+	overrideIntFrom(&raw.SessionParkThresholdMs, get, "SESSION_PARK_THRESHOLD_MS")
+	overrideIntFrom(&raw.SessionPollMaxMs, get, "SESSION_POLL_MAX_MS")
+	overrideIntFrom(&raw.SmartProbeBackoffMaxMs, get, "SMART_PROBE_BACKOFF_MAX_MS")
+	overrideIntFrom(&raw.MaturityBackoffMs, get, "MATURITY_BACKOFF_MS")
 	overrideBoolFrom(&raw.WaitingRoomChain, get, "WAITING_ROOM_CHAIN")
 	overrideFloatFrom(&raw.RateLimitPerIP, get, "RATE_LIMIT_PER_IP")
 	overrideIntFrom(&raw.RateLimitBurst, get, "RATE_LIMIT_BURST")
