@@ -3,7 +3,7 @@
   import PageHeader from "../components/PageHeader.svelte";
   import Card from "../components/Card.svelte";
   import Button from "../components/Button.svelte";
-  import Alert from "../components/Alert.svelte";
+  import { push as pushToast } from "../stores/toast.js";
   import CopyButton from "../components/CopyButton.svelte";
   import SessionSpawnPanel from "../components/SessionSpawnPanel.svelte";
   import BatchTestPanel from "../components/BatchTestPanel.svelte";
@@ -86,8 +86,6 @@
   // --- State for Session Spawner & Tokens ---
   let tokensData = $state(null);
   let loadingTokens = $state(true);
-  let actionMessage = $state("");
-  let actionOK = $state(true);
   let actionPending = $state(false);
 
   let modelsList = $state(fallbackModelOptions);
@@ -343,39 +341,41 @@
       if (!ok) return;
     }
     actionPending = true;
-    actionMessage = "";
     try {
       const res = await postAPI(url, body);
       if (Array.isArray(res)) {
         // Probe-all answers one JSON array with a per-token outcome each
         // (backend/internal/server/admin_tokens.go): summarize it into the
-        // single alert line instead of showing raw JSON.
+        // single toast line instead of showing raw JSON.
         const okCount = res.filter((r) => r && r.ok).length;
-        actionOK = res.length > 0 && okCount === res.length;
+        const probeOK = res.length > 0 && okCount === res.length;
         const firstBad = res.find((r) => r && !r.ok);
-        actionMessage =
-          $tr("Probe complete: {ok}/{n} tokens OK", {
-            ok: okCount,
-            n: res.length,
-          }) + (firstBad?.message ? ` — ${firstBad.message}` : "");
+        pushToast({
+          tone: probeOK ? "success" : "error",
+          title:
+            $tr("Probe complete: {ok}/{n} tokens OK", {
+              ok: okCount,
+              n: res.length,
+            }) + (firstBad?.message ? ` — ${firstBad.message}` : ""),
+        });
       } else {
-        actionOK = res.ok;
-        actionMessage =
-          res.message ||
-          (res.ok ? $tr("Action completed") : $tr("Action failed"));
+        pushToast({
+          tone: res.ok ? "success" : "error",
+          title:
+            res.message ||
+            (res.ok ? $tr("Action completed") : $tr("Action failed")),
+        });
       }
       await refreshTokens();
     } catch (e) {
-      actionOK = false;
-      actionMessage = e.message || $tr("Action failed");
+      pushToast({ tone: "error", title: e.message || $tr("Action failed") });
     } finally {
       actionPending = false;
     }
   }
 
   function handleSpawn({ ok, message }) {
-    actionOK = ok;
-    actionMessage = message;
+    pushToast({ tone: ok ? "success" : "error", title: message });
     refreshTokens();
   }
 </script>
@@ -405,10 +405,6 @@
         </Button>
       {/snippet}
     </PageHeader>
-
-    {#if actionMessage}
-      <Alert tone={actionOK ? "success" : "error"} title={actionMessage} />
-    {/if}
 
     <!-- Section 1: Live Chat Playground -->
     <section aria-label="Model Playground">

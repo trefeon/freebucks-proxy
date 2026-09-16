@@ -1,9 +1,10 @@
 <script>
   import { onMount } from "svelte";
-  import { LogIn, Plus, ExternalLink, RefreshCw, X } from "@lucide/svelte";
+  import { LogIn, Plus, ExternalLink, RefreshCw } from "@lucide/svelte";
   import Button from "../components/Button.svelte";
   import Card from "../components/Card.svelte";
   import Alert from "../components/Alert.svelte";
+  import { push as pushToast } from "../stores/toast.js";
   import CopyButton from "../components/CopyButton.svelte";
   import PageShell from "../components/PageShell.svelte";
   import BridgeTokenCard from "../components/BridgeTokenCard.svelte";
@@ -22,7 +23,6 @@
     rawText as settingsRawText,
     settingSources as settingsSources,
     settingsDegraded,
-    result as settingsResult,
     fetchData as fetchSettings,
     resetSetting as resetSettingsKey,
     overlaySaved as settingsOverlaySaved,
@@ -53,8 +53,6 @@
   // Add-token form
   let newToken = $state("");
   let adding = $state(false);
-  let actionMessage = $state("");
-  let actionOK = $state(true);
   // Dev Tools surfaces (per-token session spawn toolbar) are hidden unless
   // the operator enables DEVTOOLS_ENABLED=true in .env (same gate as the
   // sidebar's Dev Tools tab and the server-side DevTools route).
@@ -133,19 +131,24 @@
       const result = await postAPI(adminActions.tokenAdd, {
         token: newToken.trim(),
       });
-      actionOK = result.ok !== false;
-      actionMessage =
-        result.message ||
-        (actionOK
-          ? $tr("Token added successfully")
-          : $tr("Failed to add token"));
-      if (actionOK) {
+      const addOK = result.ok !== false;
+      pushToast({
+        tone: addOK ? "success" : "error",
+        title:
+          result.message ||
+          (addOK
+            ? $tr("Token added successfully")
+            : $tr("Failed to add token")),
+      });
+      if (addOK) {
         newToken = "";
         refreshTokens();
       }
     } catch (e) {
-      actionOK = false;
-      actionMessage = e.message || $tr("Network error adding token");
+      pushToast({
+        tone: "error",
+        title: e.message || $tr("Network error adding token"),
+      });
     } finally {
       adding = false;
     }
@@ -171,14 +174,19 @@
     actionPending = true;
     try {
       const result = await postAPI(url, body || undefined);
-      actionOK = result.ok !== false;
-      actionMessage =
-        result.message ||
-        (actionOK ? $tr("Action completed") : $tr("Action failed"));
+      const actOK = result.ok !== false;
+      pushToast({
+        tone: actOK ? "success" : "error",
+        title:
+          result.message ||
+          (actOK ? $tr("Action completed") : $tr("Action failed")),
+      });
       refreshTokens();
     } catch (e) {
-      actionOK = false;
-      actionMessage = e.message || $tr("Network error executing action");
+      pushToast({
+        tone: "error",
+        title: e.message || $tr("Network error executing action"),
+      });
     } finally {
       actionPending = false;
     }
@@ -291,10 +299,7 @@
 
   async function startOAuthLogin() {
     oauthStarting = true;
-    oauthStatus = {
-      message: $tr("Starting headless login flow…"),
-      type: "info",
-    };
+    pushToast({ tone: "info", title: $tr("Starting headless login flow…") });
 
     try {
       const res = await fetch(adminActions.loginStart, {
@@ -321,25 +326,24 @@
 
             if (pollData.status === "completed") {
               clearInterval(oauthTimer);
-              oauthStatus = {
-                message: $tr(
-                  "Account #{idx} added to pool and saved to .env.",
-                  {
-                    idx: pollData.token_index + 1,
-                  },
-                ),
-                type: "success",
-              };
+              pushToast({
+                tone: "success",
+                title: $tr("Account #{idx} added to pool and saved to .env.", {
+                  idx: pollData.token_index + 1,
+                }),
+              });
+              oauthStatus = null;
               oauthStarting = false;
               refreshTokens();
             } else if (pollData.status === "error") {
               clearInterval(oauthTimer);
-              oauthStatus = {
-                message: $tr("Login failed: {message}", {
+              pushToast({
+                tone: "error",
+                title: $tr("Login failed: {message}", {
                   message: pollData.message || $tr("unknown error"),
                 }),
-                type: "error",
-              };
+              });
+              oauthStatus = null;
               oauthStarting = false;
             }
           } catch {
@@ -347,17 +351,19 @@
           }
         }, 3000);
       } else {
-        oauthStatus = {
-          message: result.message || $tr("Failed to start login wizard."),
-          type: "error",
-        };
+        pushToast({
+          tone: "error",
+          title: result.message || $tr("Failed to start login wizard."),
+        });
+        oauthStatus = null;
         oauthStarting = false;
       }
     } catch (e) {
-      oauthStatus = {
-        message: $tr("Network error: {message}", { message: e.message }),
-        type: "error",
-      };
+      pushToast({
+        tone: "error",
+        title: $tr("Network error: {message}", { message: e.message }),
+      });
+      oauthStatus = null;
       oauthStarting = false;
     }
   }
@@ -524,44 +530,36 @@
       </div>
     </dl>
   {/snippet}
-  {#if actionMessage}
-    <Alert tone={actionOK ? "success" : "error"} title={actionMessage} />
-  {/if}
-
-  {#if oauthStatus}
-    <Alert
-      tone={oauthStatus.type === "success"
-        ? "success"
-        : oauthStatus.type === "error"
-          ? "error"
-          : "info"}
-      title={oauthStatus.message}
+  {#if oauthStatus?.loginUrl}
+    <div
+      class="rounded border border-[var(--fp-border)] bg-[var(--fp-surface-2)]/60 px-3 py-2.5"
     >
-      {#if oauthStatus.loginUrl}
-        <div class="flex flex-col gap-2 mt-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <code class="fp-num text-xs break-all max-w-full"
-              >{oauthStatus.loginUrl}</code
-            >
-            <CopyButton text={oauthStatus.loginUrl} label={$tr("Copy link")} />
-            <a
-              href={oauthStatus.loginUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-1 text-xs text-[var(--fp-accent)] hover:underline font-medium"
-            >
-              {$tr("Open in New Tab")}
-              <ExternalLink size={12} />
-            </a>
-          </div>
-          <p class="text-xs text-[var(--fp-dim)]">
-            {$tr(
-              "Tip: To add a different FreeBuff account, open this link in an Incognito / Private window so your browser does not reuse an existing GitHub session.",
-            )}
-          </p>
+      <p class="text-[13px] font-semibold text-[var(--fp-text)]">
+        {oauthStatus.message}
+      </p>
+      <div class="flex flex-col gap-2 mt-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <code class="fp-num text-xs break-all max-w-full"
+            >{oauthStatus.loginUrl}</code
+          >
+          <CopyButton text={oauthStatus.loginUrl} label={$tr("Copy link")} />
+          <a
+            href={oauthStatus.loginUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 text-xs text-[var(--fp-accent)] hover:underline font-medium"
+          >
+            {$tr("Open in New Tab")}
+            <ExternalLink size={12} />
+          </a>
         </div>
-      {/if}
-    </Alert>
+        <p class="text-xs text-[var(--fp-dim)]">
+          {$tr(
+            "Tip: To add a different FreeBuff account, open this link in an Incognito / Private window so your browser does not reuse an existing GitHub session.",
+          )}
+        </p>
+      </div>
+    </div>
   {/if}
   <div class="flex flex-col items-start gap-1">
     <div class="flex flex-wrap items-center gap-2">
@@ -690,36 +688,6 @@
         {$tr(
           "The settings store is offline — per-key saves are disabled. Changes cannot be saved right now.",
         )}
-      </Alert>
-    {/if}
-    {#if $settingsResult}
-      <Alert
-        tone={$settingsResult.ok
-          ? $settingsResult.restart_only.length
-            ? "warning"
-            : "success"
-          : "error"}
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            {$settingsResult.message}
-            {#if $settingsResult.ok && $settingsResult.restart_only.length}
-              <p class="mt-1 text-xs">
-                {$tr("Applies after restart: {keys}", {
-                  keys: $settingsResult.restart_only.join(", "),
-                })}
-              </p>
-            {/if}
-          </div>
-          <button
-            type="button"
-            onclick={() => settingsResult.set(null)}
-            class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] transition-colors shrink-0"
-            aria-label={$tr("Dismiss alert")}
-          >
-            <X size={14} />
-          </button>
-        </div>
       </Alert>
     {/if}
     <StrategyPresetCard

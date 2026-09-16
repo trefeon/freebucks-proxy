@@ -4,7 +4,7 @@
    * Data: the overview endpoint (pooled snapshot + token cards), polled every 15s.
    * All KPIs/cards map to real response fields only.
    */
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { ExternalLink } from "@lucide/svelte";
   import PageShell from "../components/PageShell.svelte";
   import KpiGrid from "../components/KpiGrid.svelte";
@@ -13,6 +13,10 @@
   import Card from "../components/Card.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Alert from "../components/Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import AnnouncementsBanner from "../components/AnnouncementsBanner.svelte";
   import { fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
@@ -20,7 +24,6 @@
   import { tr } from "../i18n.js";
   import { recordPageVisit } from "../stores/pageState.js";
   import { formatTime, parseLogFields } from "../utils/format.js";
-  import { cooldownLabel } from "../utils/tokenStatus.js";
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
@@ -174,6 +177,32 @@
       return worst;
     }
     return null;
+  });
+  // At-risk account callout surfaces as a sticky toast (error when banned,
+  // warning for cooldown); the inline slot keeps only the Open Tokens link.
+  // One toast per account+condition — the key guard stops the 15s poll from
+  // re-pushing, and clearing the condition dismisses it.
+  let cooldownToast = $state(0);
+  let cooldownKey = $state("");
+  $effect(() => {
+    const w = worstAccount;
+    const key = w ? `${w.index}-${isBanned(w) ? "banned" : "cooldown"}` : "";
+    if (key === cooldownKey) return;
+    if (cooldownToast) {
+      dismissToast(cooldownToast);
+      cooldownToast = 0;
+    }
+    cooldownKey = key;
+    if (w) {
+      cooldownToast = pushToast({
+        tone: isBanned(w) ? "error" : "warning",
+        title: $tr("Account #{index} needs attention", { index: w.index }),
+        body: w.email || w.session_status || "",
+      });
+    }
+  });
+  onDestroy(() => {
+    if (cooldownToast) dismissToast(cooldownToast);
   });
 
   // Recent-errors mini-list: one-shot logs fetch per mount (no polling).
@@ -370,38 +399,12 @@
       />
       {#if worstAccount}
         {@const w = worstAccount}
-        {@const cd = cooldownLabel(w, Date.now())}
-        <Alert
-          tone={isBanned(w) ? "error" : "warning"}
-          title={$tr("Account #{index} needs attention", {
-            index: w.index,
-          })}
-        >
-          <p class="text-sm">
-            {w.email || $tr("unknown account")}
-          </p>
-          {#if w.cooldown_active}
-            <p class="mt-1 text-xs">
-              {$tr("Cooldown active")}{#if cd !== "—"}<span class="fp-num">
-                  · {cd}
-                  {$tr("remaining")}</span
-                >{:else if w.cooldown_until}<span class="fp-num">
-                  · {w.cooldown_until}</span
-                >{/if}
-            </p>
-          {/if}
-          {#if w.session_status}
-            <p class="mt-1 text-xs">
-              {$tr("Session: {status}", { status: w.session_status })}
-            </p>
-          {/if}
-          <a
-            href="#tokens"
-            class="fp-btn fp-btn-secondary fp-btn-sm mt-3 inline-flex items-center gap-1.5"
+        <p class="text-xs text-[var(--fp-muted)]">
+          {$tr("Account #{index} needs attention", { index: w.index })} ·
+          <a href="#tokens" class="text-[var(--fp-accent)] hover:underline"
+            >{$tr("Open Tokens")}</a
           >
-            <span>{$tr("Open Tokens")}</span>
-          </a>
-        </Alert>
+        </p>
       {/if}
 
       <!-- Hybrid mode: pool summary above plus a compact bridge-relay card -->

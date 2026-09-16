@@ -3,7 +3,10 @@
   import Stat from "./Stat.svelte";
   import Card from "./Card.svelte";
   import Button from "./Button.svelte";
-  import Alert from "./Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import EmptyState from "./EmptyState.svelte";
   import StatusBadge from "./StatusBadge.svelte";
   import CopyButton from "./CopyButton.svelte";
@@ -39,6 +42,17 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
+  let errorToast = $state(0);
+  function notifyError(msg) {
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg
+      ? pushToast({
+          tone: "error",
+          title: $tr("Failed to load models"),
+          body: msg,
+        })
+      : 0;
+  }
 
   // Row state: grant-gated referral rows carry an agent binding but
   // served=false — they render "referral", not "served". Rows without a
@@ -54,10 +68,12 @@
   async function load() {
     loading = true;
     error = "";
+    notifyError("");
     try {
       data = await fetchAPI(adminApi.models);
     } catch (e) {
       error = e.message || $tr("Failed to load models");
+      notifyError(error);
     } finally {
       loading = false;
     }
@@ -108,7 +124,6 @@
   <p class="text-xs text-[var(--fp-dim)] font-mono">{$tr("Loading…")}</p>
 {:else if error}
   <div class="flex flex-col gap-3">
-    <Alert tone="error" title={$tr("Failed to load models")}>{error}</Alert>
     <div>
       <Button variant="secondary" onclick={load}>{$tr("Retry")}</Button>
     </div>

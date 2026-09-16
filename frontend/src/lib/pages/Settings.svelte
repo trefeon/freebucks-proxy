@@ -1,7 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { recordPageVisit } from "../stores/pageState.js";
-  import { RefreshCw, X } from "@lucide/svelte";
+  import { RefreshCw } from "@lucide/svelte";
   import PageShell from "../components/PageShell.svelte";
   import Button from "../components/Button.svelte";
   import Alert from "../components/Alert.svelte";
@@ -22,7 +22,6 @@
     formValues,
     settingSources,
     settingsDegraded,
-    result,
     fetchData,
     resetSetting,
     overlaySaved,
@@ -74,37 +73,6 @@
       {$tr("Refresh")}
     </Button>
   {/snippet}
-
-  {#if $result}
-    <Alert
-      tone={$result.ok
-        ? $result.restart_only.length
-          ? "warning"
-          : "success"
-        : "error"}
-    >
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          {$result.message}
-          {#if $result.ok && $result.restart_only.length}
-            <p class="mt-1 text-xs">
-              {$tr("Applies after restart: {keys}", {
-                keys: $result.restart_only.join(", "),
-              })}
-            </p>
-          {/if}
-        </div>
-        <button
-          type="button"
-          onclick={() => result.set(null)}
-          class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] transition-colors shrink-0"
-          aria-label={$tr("Dismiss alert")}
-        >
-          <X size={14} />
-        </button>
-      </div>
-    </Alert>
-  {/if}
 
   {#if $settingsDegraded}
     <Alert tone="warning" title={$tr("DB overlay unavailable")}>

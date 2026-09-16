@@ -2,7 +2,7 @@
   import { Lock, Key, Eye, EyeOff } from "@lucide/svelte";
   import Modal from "./Modal.svelte";
   import Button from "./Button.svelte";
-  import Alert from "./Alert.svelte";
+  import { push as pushToast } from "../stores/toast.js";
   import Field from "./Field.svelte";
   import { postAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
@@ -20,8 +20,6 @@
 
   let currentPassword = $state("");
   let newPassword = $state("");
-  let errorMsg = $state("");
-  let successMsg = $state("");
   let submitting = $state(false);
   let showCurrentPassword = $state(false);
   let showNewPassword = $state(false);
@@ -29,8 +27,6 @@
   function resetForm() {
     currentPassword = "";
     newPassword = "";
-    errorMsg = "";
-    successMsg = "";
   }
 
   function handleClose() {
@@ -41,19 +37,26 @@
 
   async function handleSubmit(e) {
     e.preventDefault();
-    errorMsg = "";
-    successMsg = "";
 
     if (!currentPassword.trim()) {
-      errorMsg = $tr("Please enter your current password.");
+      pushToast({
+        tone: "error",
+        title: $tr("Please enter your current password."),
+      });
       return;
     }
     if (newPassword.length < 6) {
-      errorMsg = $tr("New password must be at least 6 characters.");
+      pushToast({
+        tone: "error",
+        title: $tr("New password must be at least 6 characters."),
+      });
       return;
     }
     if (newPassword === "123456") {
-      errorMsg = $tr("New password cannot be the default password (123456).");
+      pushToast({
+        tone: "error",
+        title: $tr("New password cannot be the default password (123456)."),
+      });
       return;
     }
 
@@ -65,17 +68,26 @@
       });
 
       if (res.ok) {
-        successMsg = res.message || $tr("Admin password updated successfully!");
+        pushToast({
+          tone: "success",
+          title: res.message || $tr("Admin password updated successfully!"),
+        });
         onSuccess?.();
         setTimeout(() => {
           handleClose();
         }, 1200);
       } else {
-        errorMsg = res.message || $tr("Failed to update password.");
+        pushToast({
+          tone: "error",
+          title: res.message || $tr("Failed to update password."),
+        });
       }
     } catch (err) {
-      errorMsg =
-        err.message || $tr("Could not update password. Check connection.");
+      pushToast({
+        tone: "error",
+        title:
+          err.message || $tr("Could not update password. Check connection."),
+      });
     } finally {
       submitting = false;
     }
@@ -97,17 +109,6 @@
       <Lock size={18} />
     </div>
   {/snippet}
-
-  {#if errorMsg}
-    <div class="mb-4">
-      <Alert tone="error">{errorMsg}</Alert>
-    </div>
-  {/if}
-  {#if successMsg}
-    <div class="mb-4">
-      <Alert tone="success">{successMsg}</Alert>
-    </div>
-  {/if}
 
   <form onsubmit={handleSubmit} class="space-y-4">
     <Field label={$tr("Current Password")} id="current-password">

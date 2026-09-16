@@ -4,6 +4,7 @@ import { adminApi, adminActions } from "../api/paths.js";
 import { confirmAction } from "./confirm.js";
 import { refreshTokens } from "./tokens.js";
 import { parseEnv } from "../utils/env.js";
+import { push as pushToast, dismiss as dismissToast } from "./toast.js";
 import { tr } from "../i18n.js";
 
 function t(key, params) {
@@ -40,6 +41,27 @@ export const result = writable(null);
 // what is saved, even when the settings endpoint is unreachable on a
 // background refresh. Refreshed on every successful settings fetch.
 let lastOverlayValues = {};
+
+// The settings result toast: the global toast mirrors every result the
+// pages used to render as an inline <Alert> (reset/save outcomes).
+// Only one is ever live — a new outcome dismisses the previous receipt.
+let lastResultToast = 0;
+function notifyResult(r) {
+  if (lastResultToast) {
+    dismissToast(lastResultToast);
+    lastResultToast = 0;
+  }
+  if (!r) return;
+  const restartKeys = Array.isArray(r.restart_only) ? r.restart_only : [];
+  lastResultToast = pushToast({
+    tone: !r.ok ? "error" : restartKeys.length > 0 ? "warning" : "success",
+    title: r.message,
+    body:
+      r.ok && restartKeys.length > 0
+        ? t("Applies after restart: {keys}", { keys: restartKeys.join(", ") })
+        : "",
+  });
+}
 
 function isTruthy(v) {
   return v === "true" || v === "1" || v === "on" || v === "yes";
@@ -155,19 +177,23 @@ export async function resetSetting(key) {
   clearPendingSave(key);
   try {
     const res = await deleteAPI(adminApi.settingsDelete(key));
-    result.set({
+    const resetOutcome = {
       ok: true,
       message: res?.message || t("Saved value removed."),
       restart_only: [],
-    });
+    };
+    result.set(resetOutcome);
+    notifyResult(resetOutcome);
     await fetchData();
     refreshTokens();
   } catch (e) {
-    result.set({
+    const resetFailure = {
       ok: false,
       message: e.message || t("Failed to reset saved value"),
       restart_only: [],
-    });
+    };
+    result.set(resetFailure);
+    notifyResult(resetFailure);
   }
 }
 
@@ -192,19 +218,22 @@ export async function saveConfig(e, opts = {}) {
   }
   saving.set(true);
   result.set(null);
+  notifyResult(null);
   try {
     const res = await postForm(adminActions.configSave, {
       content: get(rawText),
     });
     const json = await res.json();
     const ok = res.ok && json.ok;
-    result.set({
+    const saveOutcome = {
       ok,
       message:
         json.message ||
         (res.ok ? t("Configuration saved and reloaded.") : t("Save failed")),
       restart_only: Array.isArray(json.restart_only) ? json.restart_only : [],
-    });
+    };
+    result.set(saveOutcome);
+    notifyResult(saveOutcome);
     if (ok) {
       await fetchData();
       refreshTokens();
@@ -217,11 +246,13 @@ export async function saveConfig(e, opts = {}) {
       formValues.set(applyOverlayWins(deriveValues($base)));
     }
   } catch (e) {
-    result.set({
+    const saveFailure = {
       ok: false,
       message: e.message || t("Network error saving configuration"),
       restart_only: [],
-    });
+    };
+    result.set(saveFailure);
+    notifyResult(saveFailure);
   } finally {
     saving.set(false);
   }

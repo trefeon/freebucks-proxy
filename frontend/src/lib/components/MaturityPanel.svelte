@@ -2,10 +2,15 @@
   import { onMount } from "svelte";
   import { recordPageVisit } from "../stores/pageState.js";
   import Card from "./Card.svelte";
+  import Button from "./Button.svelte";
   import Alert from "./Alert.svelte";
   import StatusBadge from "./StatusBadge.svelte";
   import ToggleSwitch from "./ToggleSwitch.svelte";
   import DbOverrideSave from "./DbOverrideSave.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import { postAPI, fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import {
@@ -46,6 +51,23 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
+  let errorToast = $state(0);
+  let lastErrorMsg = "";
+  function notifyError(msg) {
+    // The shared tokens poll re-fails with the same message: only replace
+    // the toast when it actually changes, so it never flickers and a
+    // manual dismiss is respected until the next distinct failure.
+    if (msg === lastErrorMsg) return;
+    lastErrorMsg = msg;
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  }
+  function retryLoad() {
+    error = "";
+    notifyError("");
+    loading = true;
+    refreshTokens();
+  }
   let unsubStore = null;
   let unsubErr = null;
 
@@ -92,6 +114,7 @@
     }
     globalLoaded = true;
     error = "";
+    notifyError("");
     loading = false;
   }
 
@@ -408,6 +431,7 @@
       if (err) {
         error = err;
         loading = false;
+        notifyError(err);
       }
     });
     function onConfigSaved() {
@@ -436,7 +460,7 @@
   </div>
 {:else if error}
   <div class="flex flex-col items-start gap-2">
-    <Alert tone="error" title={error} />
+    <Button variant="secondary" onclick={retryLoad}>{$tr("Retry")}</Button>
   </div>
 {:else}
   <Card

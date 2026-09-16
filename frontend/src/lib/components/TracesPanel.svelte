@@ -2,7 +2,10 @@
   import { onMount } from "svelte";
   import { RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
-  import Alert from "./Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import Button from "./Button.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { fetchAPI } from "../api/client.js";
@@ -20,6 +23,17 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
+  let errorToast = $state(0);
+  function notifyError(msg) {
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg
+      ? pushToast({
+          tone: "error",
+          title: $tr("Could not load this page"),
+          body: msg,
+        })
+      : 0;
+  }
   // Local focus dismissal: the parent sets focusReqId (log→trace link); the
   // "Clear" chip below resets to the full list without round-tripping.
   let clearedFocus = $state(false);
@@ -35,8 +49,10 @@
     try {
       data = await fetchAPI(adminApi.traces);
       error = "";
+      notifyError("");
     } catch (e) {
       error = e.message || $tr("Failed to load traces");
+      notifyError(error);
     } finally {
       loading = false;
     }
@@ -126,15 +142,12 @@
       <span class="sr-only">{$tr("Loading traces")}</span>
     </div>
   {:else if error}
-    <Alert tone="error" title={$tr("Could not load this page")}>
-      {error}
-      <div class="mt-3">
-        <Button variant="secondary" onclick={fetchData}>
-          <RefreshCw size={15} />
-          {$tr("Retry")}
-        </Button>
-      </div>
-    </Alert>
+    <div>
+      <Button variant="secondary" onclick={fetchData}>
+        <RefreshCw size={15} />
+        {$tr("Retry")}
+      </Button>
+    </div>
   {:else if data?.enabled}
     {#if effectiveFocus}
       <div class="flex flex-wrap items-center gap-2">

@@ -3,7 +3,10 @@
   import { RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
   import Stat from "./Stat.svelte";
-  import Alert from "./Alert.svelte";
+  import {
+    push as pushToast,
+    dismiss as dismissToast,
+  } from "../stores/toast.js";
   import Button from "./Button.svelte";
   import SegmentedControl from "./SegmentedControl.svelte";
   import { fetchAPI } from "../api/client.js";
@@ -24,13 +27,25 @@
   let usage = $state(null);
   let usageLoading = $state(true);
   let usageError = $state("");
+  let errorToast = $state(0);
+  let usageToast = $state(0);
+  function notifyError(msg) {
+    if (errorToast) dismissToast(errorToast);
+    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  }
+  function notifyUsageError(msg) {
+    if (usageToast) dismissToast(usageToast);
+    usageToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  }
 
   async function fetchData() {
     try {
       data = await fetchAPI(adminApi.metrics);
       error = "";
+      notifyError("");
     } catch (e) {
       error = e.message || $tr("Failed to load metrics");
+      notifyError(error);
     } finally {
       loading = false;
     }
@@ -50,8 +65,10 @@
         usage = m?.usage ?? null;
       }
       usageError = "";
+      notifyUsageError("");
     } catch (e) {
       usageError = e.message || $tr("Failed to load usage");
+      notifyUsageError(usageError);
     } finally {
       usageLoading = false;
     }
@@ -106,7 +123,6 @@
     </div>
   {:else if error}
     <div class="space-y-4">
-      <Alert tone="error">{error}</Alert>
       <Button variant="secondary" onclick={fetchData}>
         <RefreshCw size={15} />
         {$tr("Retry")}
@@ -158,7 +174,6 @@
           <span class="sr-only">{$tr("Loading usage")}</span>
         {:else if usageError && !usage}
           <div class="space-y-3">
-            <Alert tone="error">{usageError}</Alert>
             <Button variant="secondary" onclick={() => fetchUsage(usageRange)}>
               <RefreshCw size={15} />
               {$tr("Retry")}

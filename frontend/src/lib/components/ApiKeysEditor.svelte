@@ -4,7 +4,7 @@
   import Card from "./Card.svelte";
   import Button from "./Button.svelte";
   import CopyButton from "./CopyButton.svelte";
-  import Alert from "./Alert.svelte";
+  import { push as pushToast } from "../stores/toast.js";
   import GeneratedKeyModal from "./GeneratedKeyModal.svelte";
   import { fetchAPI, postForm } from "../api/client.js";
   import { adminApi, adminActions } from "../api/paths.js";
@@ -19,8 +19,6 @@
    * generate/delete/reveal flow and the generated-key modal.
    */
   let apiKeys = $state([]);
-  let clientKeyMessage = $state("");
-  let clientKeyOK = $state(true);
   let generatingKey = $state(false);
   let generatedKey = $state("");
   let deletingKey = $state("");
@@ -55,7 +53,6 @@
     if (generatingKey) return;
     generatingKey = true;
     generatedKey = "";
-    clientKeyMessage = "";
     try {
       const newKey = generateRandomApiKey();
       const cfgRes = await fetchAPI(adminApi.config);
@@ -73,23 +70,28 @@
         String(result.message).includes(
           "overridden by the process environment",
         );
-      clientKeyOK = isSaved;
-      if (clientKeyOK) {
+      if (isSaved) {
         openGeneratedKeyModal(newKey);
-        clientKeyMessage = isOverridden
-          ? $tr(
-              "Generated & saved client API key (environment notice: server process environment takes precedence until restart)",
-            )
-          : $tr("Generated & saved client API key");
+        pushToast({
+          tone: "success",
+          title: isOverridden
+            ? $tr(
+                "Generated & saved client API key (environment notice: server process environment takes precedence until restart)",
+              )
+            : $tr("Generated & saved client API key"),
+        });
         fetchConfig();
       } else {
-        clientKeyMessage =
-          result?.message || $tr("Failed to save client API key");
+        pushToast({
+          tone: "error",
+          title: result?.message || $tr("Failed to save client API key"),
+        });
       }
     } catch (e) {
-      clientKeyOK = false;
-      clientKeyMessage =
-        e.message || $tr("Network error generating client key");
+      pushToast({
+        tone: "error",
+        title: e.message || $tr("Network error generating client key"),
+      });
     } finally {
       generatingKey = false;
     }
@@ -107,7 +109,6 @@
     });
     if (!confirmed) return;
     deletingKey = target;
-    clientKeyMessage = "";
     try {
       const cfgRes = await fetchAPI(adminApi.config);
       const envContent = cfgRes?.env_content || "";
@@ -131,22 +132,28 @@
         String(result.message).includes(
           "overridden by the process environment",
         );
-      clientKeyOK = isSaved;
-      if (clientKeyOK) {
-        clientKeyMessage = isOverridden
-          ? $tr(
-              "Deleted client API key (environment notice: server process environment takes precedence until restart)",
-            )
-          : $tr("Deleted client API key");
+      if (isSaved) {
+        pushToast({
+          tone: "success",
+          title: isOverridden
+            ? $tr(
+                "Deleted client API key (environment notice: server process environment takes precedence until restart)",
+              )
+            : $tr("Deleted client API key"),
+        });
         apiKeys = filtered;
         fetchConfig();
       } else {
-        clientKeyMessage =
-          result?.message || $tr("Failed to delete client API key");
+        pushToast({
+          tone: "error",
+          title: result?.message || $tr("Failed to delete client API key"),
+        });
       }
     } catch (e) {
-      clientKeyOK = false;
-      clientKeyMessage = e.message || $tr("Network error deleting client key");
+      pushToast({
+        tone: "error",
+        title: e.message || $tr("Network error deleting client key"),
+      });
     } finally {
       deletingKey = "";
     }
@@ -248,10 +255,6 @@
         "No client API keys configured. In open mode, clients can authenticate with any key or leave it unset.",
       )}
     </p>
-  {/if}
-
-  {#if clientKeyMessage}
-    <Alert tone={clientKeyOK ? "success" : "error"} title={clientKeyMessage} />
   {/if}
 </Card>
 

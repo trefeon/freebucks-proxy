@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { Zap } from "@lucide/svelte";
   import { tr } from "../i18n.js";
-  import Alert from "../components/Alert.svelte";
+  import { push as pushToast } from "../stores/toast.js";
   import Button from "../components/Button.svelte";
   import Card from "../components/Card.svelte";
   import Field from "../components/Field.svelte";
@@ -11,7 +11,6 @@
   import { adminActions, adminRoot } from "../api/paths.js";
 
   let token = $state("");
-  let errorMsg = $state("");
   let loading = $state(false);
   let tokenInput = $state(null);
   // The server replies to failed logins with {"error":"..."} JSON, but a
@@ -45,7 +44,6 @@
     e.preventDefault();
     if (!token.trim() || loading) return;
     loading = true;
-    errorMsg = "";
 
     try {
       const res = await fetch(adminActions.login, {
@@ -65,12 +63,18 @@
         window.location.href =
           tab && tab !== "login" ? `${adminRoot}#${tab}` : adminRoot;
       } else {
-        errorMsg = cleanLoginError(res, await res.text());
+        pushToast({
+          tone: "error",
+          title: cleanLoginError(res, await res.text()),
+        });
       }
     } catch {
-      errorMsg = $tr(
-        "Could not reach the server. Check the connection and try again.",
-      );
+      pushToast({
+        tone: "error",
+        title: $tr(
+          "Could not reach the server. Check the connection and try again.",
+        ),
+      });
     } finally {
       loading = false;
     }
@@ -99,12 +103,6 @@
         >Admin</span
       >
     </div>
-
-    {#if errorMsg}
-      <div class="mb-5">
-        <Alert tone="error">{errorMsg}</Alert>
-      </div>
-    {/if}
 
     <form onsubmit={handleLogin} class="space-y-5">
       <Field label={$tr("Password")} id="token">

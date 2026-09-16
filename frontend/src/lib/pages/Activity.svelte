@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { RefreshCw, X } from "@lucide/svelte";
+  import { RefreshCw } from "@lucide/svelte";
   import PageShell from "../components/PageShell.svelte";
   import Alert from "../components/Alert.svelte";
   import Button from "../components/Button.svelte";
@@ -16,7 +16,6 @@
     rawText as settingsRawText,
     settingSources as settingsSources,
     settingsDegraded,
-    result as settingsResult,
     fetchData as fetchSettings,
     resetSetting as resetSettingsKey,
     overlaySaved as settingsOverlaySaved,
@@ -110,36 +109,6 @@
         {$tr(
           "The settings store is offline — per-key saves are disabled. Changes cannot be saved right now.",
         )}
-      </Alert>
-    {/if}
-    {#if $settingsResult}
-      <Alert
-        tone={$settingsResult.ok
-          ? $settingsResult.restart_only.length
-            ? "warning"
-            : "success"
-          : "error"}
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            {$settingsResult.message}
-            {#if $settingsResult.ok && $settingsResult.restart_only.length}
-              <p class="mt-1 text-xs">
-                {$tr("Applies after restart: {keys}", {
-                  keys: $settingsResult.restart_only.join(", "),
-                })}
-              </p>
-            {/if}
-          </div>
-          <button
-            type="button"
-            onclick={() => settingsResult.set(null)}
-            class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] transition-colors shrink-0"
-            aria-label={$tr("Dismiss alert")}
-          >
-            <X size={14} />
-          </button>
-        </div>
       </Alert>
     {/if}
     <LogLevelSettings
