@@ -286,10 +286,7 @@ func tokenAvailable(tok *tokenEntry, model string) bool {
 	}
 	until := tok.runs.CooldownUntil()
 	if !until.IsZero() && time.Now().Before(until) {
-		if canServeOtherModel(tok.runs.RateLimitError(), model) {
-			return true
-		}
-		return false
+		return canServeOtherModel(tok.runs.RateLimitError(), model)
 	}
 	return tok.runs.BanError() == nil
 }

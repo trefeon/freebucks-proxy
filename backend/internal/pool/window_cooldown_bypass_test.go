@@ -84,12 +84,13 @@ func TestWindowCooldownParksCrossModelWithoutEndingSession(t *testing.T) {
 	rle := entry.runs.RateLimitError()
 	if rle == nil {
 		t.Fatal("no remembered rate-limit error after the parked attempt (token did not stay parked)")
-	}
-	if got := rle.WindowKind(); got != upstream.WindowKindFreebucks {
-		t.Errorf("remembered kind = %q, want %q", got, upstream.WindowKindFreebucks)
-	}
-	if want := 71766 * time.Second; rle.RetryAfter != want {
-		t.Errorf("remembered retry_after = %v, want %v (window truncated)", rle.RetryAfter, want)
+	} else {
+		if got := rle.WindowKind(); got != upstream.WindowKindFreebucks {
+			t.Errorf("remembered kind = %q, want %q", got, upstream.WindowKindFreebucks)
+		}
+		if want := 71766 * time.Second; rle.RetryAfter != want {
+			t.Errorf("remembered retry_after = %v, want %v (window truncated)", rle.RetryAfter, want)
+		}
 	}
 	if until := entry.runs.CooldownUntil(); time.Until(until) < 19*time.Hour {
 		t.Errorf("cooldown window = %v, want ~19.9h parked (memory not preserved)", time.Until(until))
