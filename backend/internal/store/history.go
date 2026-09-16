@@ -14,51 +14,57 @@ func (s *Store) AppendLogs(entries []LogEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("store: logs begin: %w", err)
-	}
-	stmt, err := tx.Prepare(`INSERT INTO log_entries(ts, level, msg, fields, req_id) VALUES(?, ?, ?, ?, ?)`)
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("store: logs prepare: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-	for _, e := range entries {
-		if _, err := stmt.Exec(e.TS, e.Level, e.Msg, e.Fields, e.ReqID); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("store: logs insert: %w", err)
+	return s.withWrite(func() error {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("store: logs begin: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: logs commit: %w", err)
-	}
-	return nil
+		stmt, err := tx.Prepare(`INSERT INTO log_entries(ts, level, msg, fields, req_id) VALUES(?, ?, ?, ?, ?)`)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("store: logs prepare: %w", err)
+		}
+		defer func() { _ = stmt.Close() }()
+		for _, e := range entries {
+			if _, err := stmt.Exec(e.TS, e.Level, e.Msg, e.Fields, e.ReqID); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("store: logs insert: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("store: logs commit: %w", err)
+		}
+		return nil
+	})
 }
 
 // RecordQuota stores one per-model quota sample.
 func (s *Store) RecordQuota(q QuotaSnapshot) error {
-	_, err := s.db.Exec(
-		`INSERT INTO quota_snapshots(ts, token_idx, model, quota_limit, recent_count, reset_at, entitlements)
-		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		q.TS, q.TokenIdx, q.Model, q.Limit, q.Recent, q.ResetAt, q.Entitlements,
-	)
-	if err != nil {
-		return fmt.Errorf("store: quota insert: %w", err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		_, err := s.db.Exec(
+			`INSERT INTO quota_snapshots(ts, token_idx, model, quota_limit, recent_count, reset_at, entitlements)
+			 VALUES(?, ?, ?, ?, ?, ?, ?)`,
+			q.TS, q.TokenIdx, q.Model, q.Limit, q.Recent, q.ResetAt, q.Entitlements,
+		)
+		if err != nil {
+			return fmt.Errorf("store: quota insert: %w", err)
+		}
+		return nil
+	})
 }
 
 // RecordMaturity stores one streak/standing event.
 func (s *Store) RecordMaturity(e MaturityEvent) error {
-	_, err := s.db.Exec(
-		`INSERT INTO maturity_events(ts, token_idx, kind, detail) VALUES(?, ?, ?, ?)`,
-		e.TS, e.TokenIdx, e.Kind, e.Detail,
-	)
-	if err != nil {
-		return fmt.Errorf("store: maturity insert: %w", err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		_, err := s.db.Exec(
+			`INSERT INTO maturity_events(ts, token_idx, kind, detail) VALUES(?, ?, ?, ?)`,
+			e.TS, e.TokenIdx, e.Kind, e.Detail,
+		)
+		if err != nil {
+			return fmt.Errorf("store: maturity insert: %w", err)
+		}
+		return nil
+	})
 }
 
 // RecordRequest stores one /v1 inference outcome for the Logs console view.
@@ -70,14 +76,16 @@ func (s *Store) RecordRequest(rec RequestRecord) error {
 	if rec.ReqID == "" {
 		return nil
 	}
-	if _, err := s.db.Exec(
-		`INSERT OR REPLACE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-		rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err,
-	); err != nil {
-		return fmt.Errorf("store: request insert: %w", err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(
+			`INSERT OR REPLACE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+			rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err,
+		); err != nil {
+			return fmt.Errorf("store: request insert: %w", err)
+		}
+		return nil
+	})
 }
 
 // QueryRequests returns newest-first request outcomes at/after since

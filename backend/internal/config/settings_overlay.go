@@ -150,7 +150,12 @@ func ValidateSettingValue(key, value string) error {
 			return fmt.Errorf("%s must be a number (requests/second, 0 disables), got %q", n, value)
 		}
 	}
-	if n == "QUOTA_PROBE_ACTIVE_INTERVAL" || n == "QUOTA_PROBE_IDLE_HEARTBEAT" {
+	// Duration knobs are checked here, not left to the Load in the POST
+	// handler: that Load runs after the handler has read the DB overlay, so
+	// a typo would pay a database round trip to earn the same 400. This gate
+	// owns the parse only — a zero or negative duration can carry documented
+	// meaning (floor, disabled), and the loader applies it.
+	if durationSettingKeys[n] {
 		if _, err := time.ParseDuration(v); err != nil {
 			return fmt.Errorf("%s must be a Go duration (e.g. 30s, 1m, 30m), got %q", n, value)
 		}

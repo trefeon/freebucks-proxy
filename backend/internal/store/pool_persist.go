@@ -30,13 +30,15 @@ func (s *Store) SavePoolState(key string, value []byte) error {
 	if key == "" {
 		return errors.New("store: pool state key cannot be empty")
 	}
-	if _, err := s.db.Exec(
-		`INSERT INTO pool_state(key, value, updated_at) VALUES(?, ?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
-		key, value, Millis(time.Now())); err != nil {
-		return fmt.Errorf("store: save pool state %q: %w", key, err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(
+			`INSERT INTO pool_state(key, value, updated_at) VALUES(?, ?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+			key, value, Millis(time.Now())); err != nil {
+			return fmt.Errorf("store: save pool state %q: %w", key, err)
+		}
+		return nil
+	})
 }
 
 // LoadPoolState returns the opaque blob for key. ok is false when absent
@@ -61,10 +63,12 @@ func (s *Store) DeletePoolState(key string) error {
 	if key == "" {
 		return errors.New("store: pool state key cannot be empty")
 	}
-	if _, err := s.db.Exec(`DELETE FROM pool_state WHERE key = ?`, key); err != nil {
-		return fmt.Errorf("store: delete pool state %q: %w", key, err)
-	}
-	return nil
+	return s.withWrite(func() error {
+		if _, err := s.db.Exec(`DELETE FROM pool_state WHERE key = ?`, key); err != nil {
+			return fmt.Errorf("store: delete pool state %q: %w", key, err)
+		}
+		return nil
+	})
 }
 
 // ListPoolState returns every pool-state row under prefix (key -> raw

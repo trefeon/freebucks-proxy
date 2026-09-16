@@ -20,6 +20,14 @@ import (
 // returns both session cookies the mutation endpoints require.
 func settingsTestServer(t *testing.T) (*httptest.Server, string, string) {
 	t.Helper()
+	ts, cookie, csrf, _ := settingsStoreTestServer(t)
+	return ts, cookie, csrf
+}
+
+// settingsStoreTestServer is settingsTestServer plus the store handle, for
+// tests that assert what did (or did not) land in the settings table.
+func settingsStoreTestServer(t *testing.T) (*httptest.Server, string, string, *store.Store) {
+	t.Helper()
 	t.Chdir(t.TempDir())
 	st, err := store.Open(filepath.Join(t.TempDir(), "settings.db"))
 	if err != nil {
@@ -45,7 +53,7 @@ func settingsTestServer(t *testing.T) (*httptest.Server, string, string) {
 	if admin == "" || csrf == "" {
 		t.Fatal("login did not set fb_admin + fb_csrf cookies")
 	}
-	return ts, admin + "; fb_csrf=" + csrf, csrf
+	return ts, admin + "; fb_csrf=" + csrf, csrf, st
 }
 
 // settingsDo performs one settings request and decodes the JSON envelope.
@@ -226,6 +234,45 @@ func TestSettingsPostRejects(t *testing.T) {
 		if entries[key]["source"] == "db" {
 			t.Errorf("%s source = db after rejected POSTs, want no overlay row", key)
 		}
+	}
+}
+
+// TestSettingsPostDurationRejectedBeforeTheOverlay pins the order of the
+// instant-save gate: an unparseable duration knob is refused by
+// config.ValidateSettingValue, which runs before the handler reads the DB
+// overlay (and before it takes the save mutex), so the rejection costs no
+// database round trip and leaves no row behind. Which gate answered is
+// visible in the message: the overlay Load inside the handler wraps its
+// errors in "Setting rejected: ...", while the pre-DB gate names the knob's
+// own shape.
+func TestSettingsPostDurationRejectedBeforeTheOverlay(t *testing.T) {
+	ts, cookie, csrf, st := settingsStoreTestServer(t)
+
+	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "QUEUE_WAIT", "value": "bogus"})
+	if code != http.StatusBadRequest || res["code"] != "invalid_setting" {
+		t.Fatalf("POST QUEUE_WAIT=bogus = %d %v, want 400 invalid_setting", code, res)
+	}
+	msg, _ := res["message"].(string)
+	if !strings.Contains(msg, "Go duration") {
+		t.Errorf("message = %q, want the duration shape named", msg)
+	}
+	if strings.Contains(msg, "Setting rejected") {
+		t.Errorf("message = %q came from the post-overlay Load, want the pre-DB validate gate", msg)
+	}
+	if v, ok, err := st.GetSetting("config:QUEUE_WAIT"); err != nil || ok {
+		t.Errorf("QUEUE_WAIT row = %q,%v,%v after a rejected POST, want no row", v, ok, err)
+	}
+
+	// The gate judges parseability only: the zero-tolerant values the loader
+	// documents (a non-positive duration floors to the 30s default) still land.
+	code, res = settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "QUEUE_WAIT", "value": "0s"})
+	if code != http.StatusOK || res["code"] != "setting_saved" {
+		t.Fatalf("POST QUEUE_WAIT=0s = %d %v, want 200 setting_saved", code, res)
+	}
+	if v, ok, err := st.GetSetting("config:QUEUE_WAIT"); err != nil || !ok || v != "0s" {
+		t.Errorf("QUEUE_WAIT row = %q,%v,%v after POST, want 0s,true,nil", v, ok, err)
 	}
 }
 
