@@ -4,7 +4,6 @@
     RefreshCw,
     Check,
     ExternalLink,
-    X,
     Plus,
     Lock,
   } from "@lucide/svelte";
@@ -54,59 +53,57 @@
   let selectedIntent = $derived(
     spawnIntent(token, spawnModel || cheapestFreeOption(modelOptions)),
   );
-  // --- Per-token model-lock editor (MODEL_LOCKS slot syntax) ---
+  // --- Single-model pin (PIN_MODEL slot syntax) ---
   // Instant-saves through the settings overlay (POST /admin/api/settings),
   // the same path every dashboard row uses — no whole-file .env write,
   // hot-applied via pool.SetConfig, no restart. The current map is read
   // from the settings endpoint so other slots' pins survive the write.
-  let lockSaving = $state(false);
-  let lockError = $state("");
-  let lockNotice = $state("");
+  // One model per account at most: picking another model moves the pin,
+  // Clear removes it.
+  let pinSaving = $state(false);
+  let pinError = $state("");
+  let pinNotice = $state("");
   let pinSelect = $state("");
 
-  function parseLocks(serialized) {
-    const locks = {};
+  function parsePins(serialized) {
+    const pins = {};
     for (const part of String(serialized || "").split(";")) {
       const i = part.indexOf(":");
       if (i < 0) continue;
       const slot = Number(part.slice(0, i).trim());
-      const models = part
-        .slice(i + 1)
-        .split(",")
-        .map((m) => m.trim())
-        .filter(Boolean);
-      if (Number.isInteger(slot) && models.length) locks[slot] = models;
+      const model = part.slice(i + 1).trim();
+      if (Number.isInteger(slot) && model) pins[slot] = model;
     }
-    return locks;
+    return pins;
   }
 
-  function serializeLocks(locks) {
-    return Object.keys(locks)
+  function serializePins(pins) {
+    return Object.keys(pins)
       .map(Number)
       .sort((a, b) => a - b)
-      .map((slot) => `${slot}:${locks[slot].join(",")}`)
+      .map((slot) => `${slot}:${pins[slot]}`)
       .join(";");
   }
 
-  function patchSlotLocks(serialized, slot, models) {
-    const locks = parseLocks(serialized);
-    if (models.length) locks[slot] = models;
-    else delete locks[slot];
-    return serializeLocks(locks);
+  function patchSlotPin(serialized, slot, model) {
+    const pins = parsePins(serialized);
+    if (model) pins[slot] = model;
+    else delete pins[slot];
+    return serializePins(pins);
   }
 
-  async function saveLocks(models) {
+  async function savePin(model) {
     const slot = token.index;
-    if (slot == null || lockSaving) return;
-    lockSaving = true;
-    lockError = "";
-    lockNotice = "";
+    if (slot == null || pinSaving) return;
+    pinSaving = true;
+    pinError = "";
+    pinNotice = "";
     try {
       const setRes = await fetchAPI(adminApi.settings);
-      const row = (setRes?.settings ?? []).find((e) => e.key === "MODEL_LOCKS");
-      const value = patchSlotLocks(row?.value ?? "", slot, models);
+      const row = (setRes?.settings ?? []).find((e) => e.key === "PIN_MODEL");
+      const value = patchSlotPin(row?.value ?? "", slot, model);
       const res = await postAPI(adminApi.settingsSave, {
-        key: "MODEL_LOCKS",
+        key: "PIN_MODEL",
         value,
       });
       if (res && res.ok === false)
@@ -117,25 +114,15 @@
         (res && res.code && res.code !== "setting_saved") ||
         /process env/i.test(res?.message ?? "")
       ) {
-        lockNotice = res.message;
+        pinNotice = res.message;
       }
       pinSelect = "";
       await refreshTokens();
     } catch (e) {
-      lockError = e?.message || String(e);
+      pinError = e?.message || String(e);
     } finally {
-      lockSaving = false;
+      pinSaving = false;
     }
-  }
-
-  function pinModel(id) {
-    if (!id) return;
-    const cur = token.allowed_models?.length ? [...token.allowed_models] : [];
-    if (!cur.includes(id)) saveLocks([...cur, id]);
-  }
-
-  function unpinModel(id) {
-    saveLocks((token.allowed_models || []).filter((m) => m !== id));
   }
 </script>
 
@@ -308,49 +295,40 @@
       class="flex items-center justify-between gap-2 text-xs font-semibold text-[var(--fp-muted)] uppercase tracking-wider mb-1"
     >
       <span class="inline-flex items-center gap-1.5"
-        ><Lock size={12} />{$tr("Pinned models")}</span
+        ><Lock size={12} />{$tr("Pinned model")}</span
       >
-      {#if token.allowed_models?.length}
+      {#if token.pinned_model}
         <button
           type="button"
           class="normal-case font-medium text-[var(--fp-accent)] hover:underline disabled:opacity-50"
-          disabled={lockSaving}
-          onclick={() => saveLocks([])}
+          disabled={pinSaving}
+          onclick={() => savePin("")}
         >
-          {$tr("Clear pins")}
+          {$tr("Clear pin")}
         </button>
       {/if}
     </div>
-    {#if token.allowed_models?.length}
+    {#if token.pinned_model}
       <div class="flex flex-wrap gap-1.5">
-        {#each token.allowed_models as m (m)}
-          <span
-            class="inline-flex items-center gap-1 rounded bg-[var(--fp-surface)] border border-[var(--fp-border)] px-1.5 py-0.5"
+        <span
+          class="inline-flex items-center gap-1 rounded bg-[var(--fp-surface)] border border-[var(--fp-border)] px-1.5 py-0.5"
+        >
+          <code class="fp-num text-xs text-[var(--fp-text)]"
+            >{token.pinned_model}</code
           >
-            <code class="fp-num text-xs text-[var(--fp-text)]">{m}</code>
-            <button
-              type="button"
-              class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] disabled:opacity-50"
-              aria-label={$tr("Unpin {model}", { model: m })}
-              disabled={lockSaving}
-              onclick={() => unpinModel(m)}
-            >
-              <X size={12} />
-            </button>
-          </span>
-        {/each}
+        </span>
       </div>
-      {#if token.allowlist_skips > 0}
+      {#if token.pin_skips > 0}
         <p class="mt-1 text-xs text-[var(--fp-dim)]">
           {$tr("{count} request(s) routed elsewhere by this pin", {
-            count: token.allowlist_skips,
+            count: token.pin_skips,
           })}
         </p>
       {/if}
     {:else}
       <p class="text-xs text-[var(--fp-dim)]">
         {$tr(
-          "Unlocked — serves any model. Pin models to dedicate this account.",
+          "Unlocked — serves any model. Pin one model to dedicate this account.",
         )}
       </p>
     {/if}
@@ -359,10 +337,10 @@
         bind:value={pinSelect}
         class="fp-input !text-xs !py-1 !pl-2 !h-7 flex-1 min-w-0"
         aria-label={$tr("Pin a model to this token")}
-        disabled={lockSaving}
+        disabled={pinSaving}
       >
         <option value="">{$tr("Pin a model…")}</option>
-        {#each modelOptions.filter((o) => !(token.allowed_models || []).includes(o.id)) as o (o.id)}
+        {#each modelOptions.filter((o) => o.id !== token.pinned_model) as o (o.id)}
           <option value={o.id}>{o.label}</option>
         {/each}
       </select>
@@ -370,18 +348,18 @@
         variant="secondary"
         size="sm"
         class="!h-7 !text-xs !px-2.5"
-        disabled={lockSaving || !pinSelect}
-        onclick={() => pinModel(pinSelect)}
+        disabled={pinSaving || !pinSelect}
+        onclick={() => savePin(pinSelect)}
       >
         <Plus size={12} />
-        <span>{lockSaving ? $tr("Saving…") : $tr("Pin")}</span>
+        <span>{pinSaving ? $tr("Saving…") : $tr("Pin")}</span>
       </Button>
     </div>
-    {#if lockError}
-      <p class="mt-1 text-xs text-red-400">{lockError}</p>
+    {#if pinError}
+      <p class="mt-1 text-xs text-red-400">{pinError}</p>
     {/if}
-    {#if lockNotice}
-      <p class="mt-1 text-xs text-amber-300">{lockNotice}</p>
+    {#if pinNotice}
+      <p class="mt-1 text-xs text-amber-300">{pinNotice}</p>
     {/if}
   </div>
   {#if !devToolsEnabled && !(token.session_remaining_seconds > 0 && token.session_model) && !token.has_standing}

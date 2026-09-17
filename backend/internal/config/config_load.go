@@ -94,7 +94,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideBool(&raw.BridgeEnabled, "BRIDGE_ENABLED")
 	overrideString(&raw.BridgeIdleEvict, "BRIDGE_IDLE_EVICT")
 	overrideString(&raw.IdleRotationTimeout, "IDLE_ROTATION_TIMEOUT")
-	overrideString(&raw.SessionIdleEnd, "SESSION_IDLE_END")
 	overrideBool(&raw.SafeMode, "SAFE_MODE")
 	overrideBool(&raw.ModelsHideUnavailable, "MODELS_HIDE_UNAVAILABLE")
 	overrideString((*string)(&raw.ModelsAllow), "MODELS_ALLOW")
@@ -114,37 +113,14 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.ModelUnavailableCacheTTL, "MODEL_UNAVAILABLE_CACHE_TTL")
 	overrideString(&raw.WebhookURL, "WEBHOOK_URL")
 	overrideBool(&raw.AdoptCLISession, "ADOPT_CLI_SESSION")
-	overrideBool(&raw.MaturityEnabled, "MATURITY_ENABLED")
-	overrideString(&raw.MaturityTouchModel, "MATURITY_TOUCH_MODEL")
-	overrideInt(&raw.MaturityTargetDays, "MATURITY_TARGET_DAYS")
-	overrideBool(&raw.QuotaAutoProbe, "QUOTA_AUTO_PROBE")
-	overrideString(&raw.QuotaProbeActiveInterval, "QUOTA_PROBE_ACTIVE_INTERVAL")
-	overrideString(&raw.QuotaProbeIdleHeartbeat, "QUOTA_PROBE_IDLE_HEARTBEAT")
-	overrideBool(&raw.RoutingSmart, "ROUTING_SMART")
-	overrideInt(&raw.TokenMaxConcurrent, "TOKEN_MAX_CONCURRENT")
+	overrideInt(&raw.SlotsPerAccount, "SLOTS_PER_ACCOUNT")
 	overrideString(&raw.QueueWait, "QUEUE_WAIT")
 	overrideInt(&raw.QueueDepth, "QUEUE_DEPTH")
-	overrideInt(&raw.CooldownDefaultMs, "COOLDOWN_DEFAULT_MS")
-	overrideInt(&raw.CooldownCountryBlockMs, "COOLDOWN_COUNTRY_BLOCK_MS")
-	overrideInt(&raw.CooldownCeilingMs, "COOLDOWN_CEILING_MS")
-	overrideInt(&raw.CooldownFanoutMs, "COOLDOWN_FANOUT_MS")
-	overrideInt(&raw.CooldownInvalidModelMs, "COOLDOWN_INVALID_MODEL_MS")
-	overrideInt(&raw.CooldownOpaqueMs, "COOLDOWN_OPAQUE_MS")
-	overrideInt(&raw.CooldownLoadShedMs, "COOLDOWN_LOADSHED_MS")
-	overrideInt(&raw.CooldownPeakHoursMs, "COOLDOWN_PEAK_HOURS_MS")
-	overrideInt(&raw.CooldownIPMaxReadmits, "COOLDOWN_IP_MAX_READMITS")
-	overrideFloat(&raw.CooldownIPJitterRatio, "COOLDOWN_IP_JITTER_RATIO")
-	overrideBool(&raw.SessionParkEnabled, "SESSION_PARK_ENABLED")
-	overrideInt(&raw.SessionParkThresholdMs, "SESSION_PARK_THRESHOLD_MS")
-	overrideInt(&raw.SessionPollMaxMs, "SESSION_POLL_MAX_MS")
-	overrideInt(&raw.SmartProbeBackoffMaxMs, "SMART_PROBE_BACKOFF_MAX_MS")
-	overrideInt(&raw.MaturityBackoffMs, "MATURITY_BACKOFF_MS")
+	overrideInt(&raw.MaxSpillAccounts, "MAX_SPILL_ACCOUNTS")
 	overrideBool(&raw.WaitingRoomChain, "WAITING_ROOM_CHAIN")
 	overrideFloat(&raw.RateLimitPerIP, "RATE_LIMIT_PER_IP")
 	overrideInt(&raw.RateLimitBurst, "RATE_LIMIT_BURST")
-	overrideString(&raw.TokenRotation, "TOKEN_ROTATION")
-	overrideBoolPtr(&raw.RateLimitFailover, "RATE_LIMIT_FAILOVER")
-	overrideString(&raw.ModelLocks, "MODEL_LOCKS")
+	overrideString(&raw.PinModel, "PIN_MODEL")
 	overrideBool(&raw.DashboardEnabled, "DASHBOARD_ENABLED")
 	overrideBool(&raw.DashboardRequireLogin, "DASHBOARD_REQUIRE_LOGIN")
 	// Convert feature-translation modes (issue #277): COMPRESS_PROMPT,
@@ -259,16 +235,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 			return Config{}, err
 		}
 	}
-	// SESSION_IDLE_END is zero-tolerant like IDLE_ROTATION_TIMEOUT: "" or "0"
-	// both mean disabled (opt-in knob — ending a session costs a fresh
-	// daily-slot admission when traffic resumes).
-	sessionIdleEnd := time.Duration(0)
-	if strings.TrimSpace(raw.SessionIdleEnd) != "" && strings.TrimSpace(raw.SessionIdleEnd) != "0" {
-		sessionIdleEnd, err = parseDuration(raw.SessionIdleEnd, "SESSION_IDLE_END")
-		if err != nil {
-			return Config{}, err
-		}
-	}
 	requestJitterSet := strings.TrimSpace(raw.RequestJitter) != ""
 	requestJitter := time.Duration(0)
 	if requestJitterSet {
@@ -341,66 +307,19 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		adminToken = DefaultAdminToken
 	}
 
-	tokenRotation := strings.ToLower(strings.TrimSpace(raw.TokenRotation))
-	switch tokenRotation {
-	case "", "drain":
-		tokenRotation = "drain"
-	case "round_robin", "roundrobin", "rr":
-		tokenRotation = "round_robin"
-	case "least_used", "leastused":
-		tokenRotation = "least_used"
-	case "random", "rand":
-		tokenRotation = "random"
-	default:
-		return Config{}, fmt.Errorf("invalid TOKEN_ROTATION: %q (must be drain, round_robin, least_used, or random)", raw.TokenRotation)
-	}
-
-	modelLocks, err := parseModelLocks(raw.ModelLocks)
+	pinModel, err := parsePinModel(raw.PinModel)
 	if err != nil {
 		return Config{}, err
 	}
-	// MATURITY_TARGET_DAYS defaults to 7 (one full streak interval); an
-	// explicit value is range-checked in Validate (1..28).
-	maturityTargetDays := 7
-	if raw.MaturityTargetDays != nil {
-		maturityTargetDays = *raw.MaturityTargetDays
-	}
-	// MATURITY_TOUCH_MODEL defaults to "" (= auto): the cheapest served
-	// unmetered row per token. "auto" is accepted as an explicit alias;
-	// an explicit provider/model id overrides auto.
-	maturityTouchModel := strings.TrimSpace(raw.MaturityTouchModel)
-	// Probe cadences are zero-tolerant: "" falls back to
-	// the documented default, and an explicit non-positive value falls back
-	// the same way (a zero cadence would probe on every tick).
-	quotaProbeActiveInterval := 60 * time.Second
-	if v := strings.TrimSpace(raw.QuotaProbeActiveInterval); v != "" {
-		quotaProbeActiveInterval, err = parseDuration(v, "QUOTA_PROBE_ACTIVE_INTERVAL")
-		if err != nil {
-			return Config{}, err
-		}
-		if quotaProbeActiveInterval <= 0 {
-			quotaProbeActiveInterval = 60 * time.Second
-		}
-	}
-	quotaProbeIdleHeartbeat := 30 * time.Minute
-	if v := strings.TrimSpace(raw.QuotaProbeIdleHeartbeat); v != "" {
-		quotaProbeIdleHeartbeat, err = parseDuration(v, "QUOTA_PROBE_IDLE_HEARTBEAT")
-		if err != nil {
-			return Config{}, err
-		}
-		if quotaProbeIdleHeartbeat <= 0 {
-			quotaProbeIdleHeartbeat = 30 * time.Minute
-		}
-	}
-	// TOKEN_MAX_CONCURRENT defaults to 2 (the approved anti-ban pacing).
+	// SLOTS_PER_ACCOUNT defaults to 2 (the approved anti-ban pacing).
 	// 0 = unlimited: no live-turn slot gating applies at all. Negative
 	// values floor to 0 instead of failing the load.
-	tokenMaxConcurrent := 2
-	if raw.TokenMaxConcurrent != nil {
-		tokenMaxConcurrent = *raw.TokenMaxConcurrent
+	slotsPerAccount := 2
+	if raw.SlotsPerAccount != nil {
+		slotsPerAccount = *raw.SlotsPerAccount
 	}
-	if tokenMaxConcurrent < 0 {
-		tokenMaxConcurrent = 0
+	if slotsPerAccount < 0 {
+		slotsPerAccount = 0
 	}
 	// QUEUE_WAIT is zero-tolerant: "" falls back to the
 	// 30s default, and an explicit non-positive value falls back the same
@@ -421,41 +340,11 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	if raw.QueueDepth != nil {
 		queueDepth = *raw.QueueDepth
 	}
-	// COOLDOWN_*_MS / SESSION_*_MS / SMART_PROBE_BACKOFF_MAX_MS /
-	// MATURITY_BACKOFF_MS are integer-millisecond knobs resolved with
-	// msToDuration (cooldown.go): nil or non-positive values fall back to
-	// the Contract defaults, so a blank row can never zero-out a backoff.
-	// Absurd values saturate instead of wrapping (consumers clamp to the
-	// ceiling at use); negative readmits/jitter are rejected in Validate.
-	msVal := func(raw *int, fallback int) time.Duration {
-		if raw == nil {
-			return msToDuration(0, fallback)
-		}
-		return msToDuration(*raw, fallback)
-	}
-	cooldownDefault := msVal(raw.CooldownDefaultMs, defaultCooldownDefaultMs)
-	cooldownCountryBlock := msVal(raw.CooldownCountryBlockMs, defaultCooldownCountryBlockMs)
-	cooldownCeiling := msVal(raw.CooldownCeilingMs, defaultCooldownCeilingMs)
-	cooldownFanout := msVal(raw.CooldownFanoutMs, defaultCooldownFanoutMs)
-	cooldownInvalidModel := msVal(raw.CooldownInvalidModelMs, defaultCooldownInvalidModelMs)
-	cooldownOpaque := msVal(raw.CooldownOpaqueMs, defaultCooldownOpaqueMs)
-	cooldownLoadShed := msVal(raw.CooldownLoadShedMs, defaultCooldownLoadShedMs)
-	cooldownPeakHours := msVal(raw.CooldownPeakHoursMs, defaultCooldownPeakHoursMs)
-	sessionParkThreshold := msVal(raw.SessionParkThresholdMs, defaultSessionParkThresholdMs)
-	sessionPollMax := msVal(raw.SessionPollMaxMs, defaultSessionPollMaxMs)
-	smartProbeBackoffMax := msVal(raw.SmartProbeBackoffMaxMs, defaultSmartProbeBackoffMaxMs)
-	maturityBackoff := msVal(raw.MaturityBackoffMs, defaultMaturityBackoffMs)
-	// Zero readmits falls back to the default like the ms knobs above (an
-	// explicit 0 can never mean "no re-admits": runs would still enforce
-	// the old global). A negative value passes through so Validate
-	// rejects it.
-	cooldownIPMaxReadmits := defaultCooldownIPMaxReadmits
-	if raw.CooldownIPMaxReadmits != nil && *raw.CooldownIPMaxReadmits != 0 {
-		cooldownIPMaxReadmits = *raw.CooldownIPMaxReadmits
-	}
-	cooldownIPJitterRatio := defaultCooldownIPJitterRatio
-	if raw.CooldownIPJitterRatio != nil {
-		cooldownIPJitterRatio = *raw.CooldownIPJitterRatio
+	// MAX_SPILL_ACCOUNTS defaults to 0 (unbounded spill chain); negative
+	// is rejected in Validate.
+	maxSpillAccounts := 0
+	if raw.MaxSpillAccounts != nil {
+		maxSpillAccounts = *raw.MaxSpillAccounts
 	}
 	cfg := Config{
 		ListenAddr:               strings.TrimSpace(raw.ListenAddr),
@@ -465,8 +354,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		RequestTimeout:           requestTimeout,
 		HTTPReadTimeout:          httpReadTimeout,
 		SessionCallTimeout:       sessionCallTimeout,
-		TokenRotation:            tokenRotation,
-		ModelLocks:               modelLocks,
+		PinModel:                 pinModel,
 		APIKeys:                  dedupeStrings(raw.APIKeys),
 		AdminToken:               adminToken,
 		DashboardRequireLogin:    dashboardRequireLogin,
@@ -484,7 +372,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		BridgeEnabled:            raw.BridgeEnabled,
 		BridgeIdleEvict:          bridgeIdleEvict,
 		IdleRotationTimeout:      idleRotationTimeout,
-		SessionIdleEnd:           sessionIdleEnd,
 		SafeMode:                 raw.SafeMode,
 		ModelsHideUnavailable:    raw.ModelsHideUnavailable,
 		ModelsAllow:              splitList(string(raw.ModelsAllow)),
@@ -502,32 +389,11 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		SessionProbeCacheTTL:     sessionProbeCacheTTL,
 		ModelUnavailableCacheTTL: modelUnavailableCacheTTL,
 		WebhookURL:               strings.TrimSpace(raw.WebhookURL),
-		AdoptCLISession:          raw.AdoptCLISession,
-		MaturityEnabled:          raw.MaturityEnabled,
-		MaturityTouchModel:       maturityTouchModel,
-		MaturityTargetDays:       maturityTargetDays,
-		QuotaAutoProbe:           raw.QuotaAutoProbe,
-		QuotaProbeActiveInterval: quotaProbeActiveInterval,
-		QuotaProbeIdleHeartbeat:  quotaProbeIdleHeartbeat,
-		RoutingSmart:             raw.RoutingSmart,
-		TokenMaxConcurrent:       tokenMaxConcurrent,
+		SlotsPerAccount:          slotsPerAccount,
 		QueueWait:                queueWait,
 		QueueDepth:               queueDepth,
-		CooldownDefault:          cooldownDefault,
-		CooldownCountryBlock:     cooldownCountryBlock,
-		CooldownCeiling:          cooldownCeiling,
-		CooldownFanout:           cooldownFanout,
-		CooldownInvalidModel:     cooldownInvalidModel,
-		CooldownOpaque:           cooldownOpaque,
-		CooldownLoadShed:         cooldownLoadShed,
-		CooldownPeakHours:        cooldownPeakHours,
-		CooldownIPMaxReadmits:    cooldownIPMaxReadmits,
-		CooldownIPJitterRatio:    cooldownIPJitterRatio,
-		SessionParkEnabledFlag:   raw.SessionParkEnabled,
-		SessionParkThreshold:     sessionParkThreshold,
-		SessionPollMax:           sessionPollMax,
-		SmartProbeBackoffMax:     smartProbeBackoffMax,
-		MaturityBackoff:          maturityBackoff,
+		MaxSpillAccounts:         maxSpillAccounts,
+		AdoptCLISession:          raw.AdoptCLISession,
 		WaitingRoomChain:         raw.WaitingRoomChain,
 		RateLimitPerIP:           rateLimitPerIP,
 		RateLimitBurst:           rateLimitBurst,
@@ -536,7 +402,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		CompressPrompt:           parseCompressPrompt(raw.CompressPrompt),
 		CacheControlInjection:    parseCacheControlInjection(raw.CacheControlInjection),
 		ReasoningInContent:       parseReasoningInContent(raw.ReasoningInContent),
-		RateLimitFailover:        raw.RateLimitFailover == nil || *raw.RateLimitFailover,
 	}
 
 	// Auto-discover CLI token if a discovery hook was wired (LoadOpts,
@@ -666,9 +531,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.RequestTimeout, get, "REQUEST_TIMEOUT")
 	overrideStringFrom(&raw.HTTPReadTimeout, get, "HTTP_READ_TIMEOUT")
 	overrideStringFrom(&raw.SessionCallTimeout, get, "SESSION_CALL_TIMEOUT")
-	overrideStringFrom(&raw.TokenRotation, get, "TOKEN_ROTATION")
-	overrideBoolPtrFrom(&raw.RateLimitFailover, get, "RATE_LIMIT_FAILOVER")
-	overrideStringFrom(&raw.ModelLocks, get, "MODEL_LOCKS")
+	overrideStringFrom(&raw.PinModel, get, "PIN_MODEL")
 	overrideCSVFrom(&raw.APIKeys, get, "API_KEYS")
 	overrideStringFrom(&raw.AdminToken, get, "ADMIN_TOKEN")
 	overrideStringFrom(&raw.CostMode, get, "COST_MODE")
@@ -686,7 +549,6 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideBoolFrom(&raw.BridgeEnabled, get, "BRIDGE_ENABLED")
 	overrideStringFrom(&raw.BridgeIdleEvict, get, "BRIDGE_IDLE_EVICT")
 	overrideStringFrom(&raw.IdleRotationTimeout, get, "IDLE_ROTATION_TIMEOUT")
-	overrideStringFrom(&raw.SessionIdleEnd, get, "SESSION_IDLE_END")
 	// The remaining keys mirror the real-environment override set in Load.
 	// AUTO_DISCOVER_TOKEN is intentionally env-only (it controls the .env
 	// read itself, so honoring it from .env would be circular).
@@ -709,31 +571,10 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.ModelUnavailableCacheTTL, get, "MODEL_UNAVAILABLE_CACHE_TTL")
 	overrideStringFrom(&raw.WebhookURL, get, "WEBHOOK_URL")
 	overrideBoolFrom(&raw.AdoptCLISession, get, "ADOPT_CLI_SESSION")
-	overrideBoolFrom(&raw.MaturityEnabled, get, "MATURITY_ENABLED")
-	overrideStringFrom(&raw.MaturityTouchModel, get, "MATURITY_TOUCH_MODEL")
-	overrideIntFrom(&raw.MaturityTargetDays, get, "MATURITY_TARGET_DAYS")
-	overrideBoolFrom(&raw.QuotaAutoProbe, get, "QUOTA_AUTO_PROBE")
-	overrideStringFrom(&raw.QuotaProbeActiveInterval, get, "QUOTA_PROBE_ACTIVE_INTERVAL")
-	overrideStringFrom(&raw.QuotaProbeIdleHeartbeat, get, "QUOTA_PROBE_IDLE_HEARTBEAT")
-	overrideBoolFrom(&raw.RoutingSmart, get, "ROUTING_SMART")
-	overrideIntFrom(&raw.TokenMaxConcurrent, get, "TOKEN_MAX_CONCURRENT")
+	overrideIntFrom(&raw.SlotsPerAccount, get, "SLOTS_PER_ACCOUNT")
 	overrideStringFrom(&raw.QueueWait, get, "QUEUE_WAIT")
 	overrideIntFrom(&raw.QueueDepth, get, "QUEUE_DEPTH")
-	overrideIntFrom(&raw.CooldownDefaultMs, get, "COOLDOWN_DEFAULT_MS")
-	overrideIntFrom(&raw.CooldownCountryBlockMs, get, "COOLDOWN_COUNTRY_BLOCK_MS")
-	overrideIntFrom(&raw.CooldownCeilingMs, get, "COOLDOWN_CEILING_MS")
-	overrideIntFrom(&raw.CooldownFanoutMs, get, "COOLDOWN_FANOUT_MS")
-	overrideIntFrom(&raw.CooldownInvalidModelMs, get, "COOLDOWN_INVALID_MODEL_MS")
-	overrideIntFrom(&raw.CooldownOpaqueMs, get, "COOLDOWN_OPAQUE_MS")
-	overrideIntFrom(&raw.CooldownLoadShedMs, get, "COOLDOWN_LOADSHED_MS")
-	overrideIntFrom(&raw.CooldownPeakHoursMs, get, "COOLDOWN_PEAK_HOURS_MS")
-	overrideIntFrom(&raw.CooldownIPMaxReadmits, get, "COOLDOWN_IP_MAX_READMITS")
-	overrideFloatFrom(&raw.CooldownIPJitterRatio, get, "COOLDOWN_IP_JITTER_RATIO")
-	overrideBoolFrom(&raw.SessionParkEnabled, get, "SESSION_PARK_ENABLED")
-	overrideIntFrom(&raw.SessionParkThresholdMs, get, "SESSION_PARK_THRESHOLD_MS")
-	overrideIntFrom(&raw.SessionPollMaxMs, get, "SESSION_POLL_MAX_MS")
-	overrideIntFrom(&raw.SmartProbeBackoffMaxMs, get, "SMART_PROBE_BACKOFF_MAX_MS")
-	overrideIntFrom(&raw.MaturityBackoffMs, get, "MATURITY_BACKOFF_MS")
+	overrideIntFrom(&raw.MaxSpillAccounts, get, "MAX_SPILL_ACCOUNTS")
 	overrideBoolFrom(&raw.WaitingRoomChain, get, "WAITING_ROOM_CHAIN")
 	overrideFloatFrom(&raw.RateLimitPerIP, get, "RATE_LIMIT_PER_IP")
 	overrideIntFrom(&raw.RateLimitBurst, get, "RATE_LIMIT_BURST")
@@ -880,22 +721,6 @@ func overrideBool(target *bool, envName string) {
 
 func overrideBoolFrom(target *bool, get func(string) string, envName string) {
 	override(target, get, envName, parseBool)
-}
-
-func overrideBoolPtr(target **bool, envName string) {
-	override(target, os.Getenv, envName, parseBoolPtr)
-}
-
-func overrideBoolPtrFrom(target **bool, get func(string) string, envName string) {
-	override(target, get, envName, parseBoolPtr)
-}
-
-func parseBoolPtr(s string) (*bool, bool) {
-	b, ok := parseBool(s)
-	if !ok {
-		return nil, false
-	}
-	return new(b), true
 }
 
 // overrideInt sets target from int env vars; unset or

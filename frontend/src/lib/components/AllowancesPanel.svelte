@@ -1,11 +1,3 @@
-<script module>
-  // Visit auto-probe guard (ADR-0025): the mount fires one silent ?auto=1
-  // probe after the first tokens load. Module-scoped so a double-mount
-  // (HMR / StrictMode-style remount) still fires once per page load; the
-  // server throttles pool-wide to one upstream pass per hour regardless.
-  let visitAutoProbeSent = false;
-</script>
-
 <script>
   import { onMount } from "svelte";
   import { recordPageVisit } from "../stores/pageState.js";
@@ -21,7 +13,6 @@
     tokensError,
     ensureTokensStore,
     refreshTokens,
-    probeAllQuotas,
   } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
   import {
@@ -53,10 +44,6 @@
   // Countdown tick: the global reset strip re-renders "resets in" against
   // this clock every second. Refetches nothing on its own.
   let now = $state(Date.now());
-
-  // Auto-probe failure line only: the probe itself is silent (no success
-  // banner), and manual probing lives under Dev Tools.
-  let probeMsg = $state("");
 
   // Global reset strip: the first account carrying a daily reset time sets
   // the shared Pacific-midnight countdown for every account on the page.
@@ -148,15 +135,6 @@
         loading = false;
         error = "";
         notifyError("");
-        // Visit auto-probe (ADR-0025): one silent ?auto=1 probe after the
-        // first tokens load, then the store reload carries the numbers.
-        // No success banner; a failure surfaces on the probeMsg error path.
-        if (!visitAutoProbeSent) {
-          visitAutoProbeSent = true;
-          probeAllQuotas({ auto: true }).catch((e) => {
-            probeMsg = e.message || $tr("Quota refresh failed.");
-          });
-        }
       }
     });
     unsubErr = tokensError.subscribe((err) => {
@@ -178,12 +156,6 @@
     };
   });
 </script>
-
-{#if probeMsg}
-  <p class="text-xs font-mono text-red-400" role="status">
-    {probeMsg}
-  </p>
-{/if}
 
 {#if loading}
   <p class="text-xs text-[var(--fp-dim)] font-mono">{$tr("Loading…")}</p>

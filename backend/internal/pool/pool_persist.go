@@ -4,9 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"time"
-
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
 
 // pool_persist.go — pool runtime write-through cache (DB-unified-storage).
@@ -23,29 +22,20 @@ import (
 // live-only and never blocks the request hot path.
 //
 // Persist allowlist (parent-scoped): ledger counters, admissions counts,
-// bridge daily usage plus survivors, the smart-probe scheduler
-// timer (lastProbe, backoff, overloadedAt, idleSlept) and the live
-// per-token quota cache (QuotaByModel + QuotaSavedAt). Never persisted:
-// live handles (channels, sync.Once, WaitGroup, CancelFunc,
-// atomic.Pointer, Logger, Registry, tokenEntry pointers), the transient
-// scheduler dispatch flags (kick, inflight — a persisted inflight would
-// suppress ticks forever; restore hard-resets both), the boot flag
-// (a restart always re-arms the boot round event; with the quota cache
-// restored it probes nothing when warm), and the unfit registry (pure
-// 5-minute TTL episode state; a restart starts servable and re-marks on
-// the next upstream limited_ip refusal).
+// bridge daily usage plus survivors, and the live per-token quota cache
+// (QuotaByModel + QuotaSavedAt). Never persisted: live handles (channels,
+// sync.Once, WaitGroup, CancelFunc, atomic.Pointer, Logger, Registry,
+// tokenEntry pointers).
 //
 // Key namespace (stable strings; store never interprets values):
 //
 //	pool/ledger/<sha256hex(token)>       one AccountLedger blob per token
 //	pool/admissions                       in-flight session admissions by model
-//	pool/probe/scheduler                  smart-probe scheduler timer (pool-scoped)
 //	pool/probe/quota/<sha256hex(token)>   live quota cache per token (SHA-keyed:
 //	                                      roster order is unstable across restarts)
 const (
 	poolStateAdmissions  = "pool/admissions"
 	poolLedgerPrefix     = "pool/ledger/"
-	poolProbeScheduler   = "pool/probe/scheduler"
 	poolProbeQuotaPrefix = "pool/probe/quota/"
 )
 
@@ -86,18 +76,6 @@ type poolLedgerBlob struct {
 	Spend       poolSpendBlob `json:"spend"`
 	ReqDayStart int64         `json:"req_day_start"`
 	ReqDayCount int64         `json:"req_day_count"`
-}
-
-// poolSmartProbeBlob is the JSON-stable mirror of the persisted scheduler
-// timer fields (Unix millis UTC, 0 = zero time). Only the timer crosses a
-// restart: bootDone is excluded (a restart re-arms the boot round event),
-// and kick/inflight are transient dispatch state (restore hard-resets
-// both — a persisted inflight would suppress ticks forever).
-type poolSmartProbeBlob struct {
-	LastProbe    int64 `json:"last_probe"`
-	Backoff      int   `json:"backoff"`
-	IdleSlept    bool  `json:"idle_slept"`
-	OverloadedAt int64 `json:"overloaded_at"`
 }
 
 // poolQuotaRow mirrors one live quota row. ResetAt is Unix millis UTC
@@ -280,22 +258,6 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveQuotas map
 		liveQuotas[key] = true
 	}
 
-	// Smart-probe scheduler timer (own mutex; bootDone/kick/inflight are
-	// transient and never staged — see poolSmartProbeBlob).
-	p.smartProbe.mu.Lock()
-	sched := poolSmartProbeBlob{
-		Backoff:   p.smartProbe.backoff,
-		IdleSlept: p.smartProbe.idleSlept,
-	}
-	if !p.smartProbe.lastProbe.IsZero() {
-		sched.LastProbe = p.smartProbe.lastProbe.UnixMilli()
-	}
-	if !p.smartProbe.overloadedAt.IsZero() {
-		sched.OverloadedAt = p.smartProbe.overloadedAt.UnixMilli()
-	}
-	p.smartProbe.mu.Unlock()
-	staged = append(staged, poolKV{key: poolProbeScheduler, val: mustMarshalPool(sched)})
-
 	// Admissions (transient in-flight counts; restored as-is, self-heals
 	// on the next admission cycle).
 	p.admissionsMu.Lock()
@@ -344,9 +306,8 @@ func marshalLedger(l *AccountLedger) poolLedgerBlob {
 // corrupt rows warn and are skipped — restore never fails the boot.
 // TTL/expiry is enforced on the way in: out-of-window usage timestamps are
 // dropped and stale spend buckets roll, so a restart never resurrects
-// expired windows. Restored quota rows seed the
-// session cache as last-known (stale-marked, dashboard-visible at once);
-// the scheduler's freshness gate re-probes them only once aged out.
+// expired windows. Restored quota rows seed the session cache as
+// last-known (stale-marked, dashboard-visible at once).
 func (p *Pool) RestorePoolPersist() {
 	p.persistMu.Lock()
 	st := p.persist
@@ -357,49 +318,7 @@ func (p *Pool) RestorePoolPersist() {
 	now := time.Now()
 	p.restoreLedgers(st, now)
 	p.restoreAdmissions(st)
-	p.restoreSmartProbe(st)
 	p.restoreProbeQuota(st)
-}
-
-// restoreSmartProbe loads the scheduler timer persisted by the last flush.
-// A missing row is a fresh boot (zero state, current behavior); a corrupt
-// row warns and is skipped. The transient dispatch flags are hard-reset:
-// kick=false (no spurious forced round) and inflight=false (a persisted
-// inflight would suppress ticks forever). bootDone is never persisted —
-// a restart always re-arms the boot round event, and the restored quota
-// cache keeps that round a zero-probe no-op while warm.
-func (p *Pool) restoreSmartProbe(st PoolPersist) {
-	raw, ok, err := st.LoadPoolState(poolProbeScheduler)
-	if err != nil {
-		p.logger.Warn("pool: runtime persist restore failed (starting fresh)", "key", poolProbeScheduler, "error", err)
-		return
-	}
-	if !ok {
-		return
-	}
-	var blob poolSmartProbeBlob
-	if err := json.Unmarshal(raw, &blob); err != nil {
-		p.logger.Warn("pool: runtime persist row corrupt (starting fresh)", "key", poolProbeScheduler, "error", err)
-		return
-	}
-	p.smartProbe.mu.Lock()
-	defer p.smartProbe.mu.Unlock()
-	if blob.LastProbe > 0 {
-		p.smartProbe.lastProbe = time.UnixMilli(blob.LastProbe)
-	}
-	if blob.Backoff >= 0 {
-		if blob.Backoff > maxSmartProbeBackoff {
-			p.smartProbe.backoff = maxSmartProbeBackoff
-		} else {
-			p.smartProbe.backoff = blob.Backoff
-		}
-	}
-	if blob.OverloadedAt > 0 {
-		p.smartProbe.overloadedAt = time.UnixMilli(blob.OverloadedAt)
-	}
-	p.smartProbe.idleSlept = blob.IdleSlept
-	p.smartProbe.kick = false
-	p.smartProbe.inflight = false
 }
 
 // restoreProbeQuota seeds each live token's session quota cache from its

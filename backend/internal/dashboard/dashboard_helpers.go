@@ -27,7 +27,7 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 		OldestWaiterMS:   t.OldestWaiterMS,
 		RequestsPerDay:   t.RequestsPerDay,
 		TransientRetries: t.TransientRetries,
-		AllowlistSkips:   t.AllowlistSkips,
+		PinSkips:         t.PinSkips,
 		Locked:           t.Locked,
 	}
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
@@ -89,7 +89,7 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 	if t.Maturity != nil {
 		card.Maturity = maturityCardFromSnapshot(t.Maturity)
 	}
-	card.AllowedModels = t.AllowedModels
+	card.PinnedModel = t.PinnedModel
 	return card
 }
 
@@ -158,9 +158,9 @@ type tokenLiveCard struct {
 	BanType             string `json:"ban_type,omitempty"`
 	BannedUntil         string `json:"banned_until,omitempty"`
 	TransientRetries    int64  `json:"transient_retries"`
-	// AllowlistSkips is live (like TransientRetries): every poll refreshes
+	// PinSkips is live (like TransientRetries): every poll refreshes
 	// it, so it stays out of the SPA's static cache.
-	AllowlistSkips int64 `json:"allowlist_skips,omitempty"`
+	PinSkips int64 `json:"pin_skips,omitempty"`
 	// LastRefund / PendingRefund ride the hot poll like Freebucks: a
 	// release or replay can settle or park a refund between full fetches,
 	// and the account card reads the merged view.
@@ -192,7 +192,7 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 		TransientRetries: t.TransientRetries,
 		Locked:           t.Locked,
 	}
-	card.AllowlistSkips = t.AllowlistSkips
+	card.PinSkips = t.PinSkips
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
 		card.CooldownActive = true
 		card.CooldownUntil = t.CooldownUntil.Format(time.RFC3339)

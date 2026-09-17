@@ -2,14 +2,12 @@ package server
 
 import (
 	"context"
-	"io"
-	"net/http"
-	"time"
-
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/phasetiming"
 	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"net/http"
+	"time"
 )
 
 // --- Shared completion engine (protocol-neutral) ---
@@ -140,30 +138,6 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 			tok = provided
 		}
 	}
-	// Issue #74: refuse new requests fast when (egress, model) is marked
-	// unfit — the direct egress cannot serve this model for ~5 min. The
-	// pooled path only: bridge clients relay their own token (the client's
-	// own account may serve the model on this egress and their session
-	// slots are theirs to spend), so the registry never gates them.
-	// MarkModelUnfit always stores a LimitedIpError, so lie is non-nil in
-	// practice; the bare sentinel keeps the refusal deterministic if it
-	// ever is nil.
-	if !bridge {
-		if until, lie := s.pool.ModelUnfit(model); !until.IsZero() && time.Now().Before(until) {
-			phases.Since(phasetiming.TotalMS, start)
-			s.logger.Info(kind+" request refused", "req_id", reqID, "model", model, "reason", "model_limited_on_egress", "until", until.Format(time.RFC3339))
-			// Never mutate the registry's stored error (SEC-1): concurrent
-			// refusals would race on RetryAfter. Surface a per-request
-			// shallow copy carrying the computed window.
-			refuseErr := upstream.ErrModelIPLimited
-			if lie != nil {
-				refuseErr = &upstream.LimitedIpError{Model: lie.Model, Body: lie.Body, RetryAfter: time.Until(until)}
-			}
-			s.traceChat(nil, model, time.Since(start).Milliseconds(), "error", "model_ip_limited", phases.All(), st)
-			s.writeError(w, r, refuseErr, model, nil)
-			return
-		}
-	}
 	// The chatBackend abstracts the pooled-vs-bridge acquire/chat/invalidate/
 	// cooldown/lease hooks (issue #255); the timing wrapper records the
 	// acquire phase.
@@ -273,8 +247,7 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	s.recordUsage(ctx, stats, model)
 	// Traces enrichment: carry the split onto the "chat trace" line below
 	// (traceChat omits the keys when no usage block was observed).
-	st.usageInput, st.usageOutput, st.usageCached, st.usageReasoning, st.usageTotal =
-		stats.usageInput, stats.usageOutput, stats.usageCached, stats.usageReasoning, stats.usageTokens
+	st.usageInput, st.usageOutput, st.usageCached, st.usageReasoning, st.usageTotal = stats.usageInput, stats.usageOutput, stats.usageCached, stats.usageReasoning, stats.usageTokens
 	phases.Since(phasetiming.TotalMS, start)
 	ms := time.Since(start).Milliseconds()
 	s.logger.Info(kind+" done", chatDoneAttrs(reqID, model, lease.AgentID, stream, ms, stats.chunks, stats.bytes, reasoningEffort)...)

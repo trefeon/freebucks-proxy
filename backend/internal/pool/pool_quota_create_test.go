@@ -6,10 +6,9 @@ package pool
 
 import (
 	"context"
+	"freebuff-proxy/backend/internal/testutil"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // futureReset is a ResetAt ~1h out for quota fixtures.
@@ -55,7 +54,7 @@ func TestAcquireQuotaAwareOrdering(t *testing.T) {
 	admitBoth(t, p, modelA)
 
 	toks := p.roster.Load()
-	order, limited := p.acquireOrder(toks, 0, modelA)
+	order, limited := p.spillOrder(toks, modelA)
 	if len(limited) != 0 {
 		t.Fatalf("unexpected quota-limited errors: %v", limited)
 	}
@@ -82,7 +81,7 @@ func TestAcquireKnownQuotaBeforeUnknown(t *testing.T) {
 	admitBoth(t, p, modelA)
 
 	toks := p.roster.Load()
-	order, _ := p.acquireOrder(toks, 0, modelA)
+	order, _ := p.spillOrder(toks, modelA)
 	if len(order) < 2 || order[0] != 0 {
 		t.Fatalf("order = %v, want unknown-quota token 0 first (counts ignored)", order)
 	}
@@ -175,7 +174,7 @@ func TestAcquireStaleQuotaNotCapped(t *testing.T) {
 	admitBoth(t, p, modelA)
 
 	toks := p.roster.Load()
-	order, limited := p.acquireOrder(toks, 0, modelA)
+	order, limited := p.spillOrder(toks, modelA)
 	if len(limited) != 0 {
 		t.Fatalf("stale-quota token wrongly capped: %v", limited)
 	}

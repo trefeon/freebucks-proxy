@@ -97,18 +97,12 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.SessionPersist), false
 	case "SESSION_STATE_FILE":
 		return c.SessionStateFile, false
-	case "TOKEN_ROTATION":
-		return c.TokenRotation, false
-	case "RATE_LIMIT_FAILOVER":
-		return strconv.FormatBool(c.RateLimitFailover), false
-	case "MODEL_LOCKS":
-		return formatModelLocks(c.ModelLocks), false
+	case "PIN_MODEL":
+		return formatPinModel(c.PinModel), false
 	case "BRIDGE_ENABLED":
 		return strconv.FormatBool(c.BridgeEnabled), false
 	case "BRIDGE_IDLE_EVICT":
 		return c.BridgeIdleEvict.String(), false
-	case "SESSION_IDLE_END":
-		return c.SessionIdleEnd.String(), false
 	case "SESSION_PROBE_CACHE_TTL":
 		return c.SessionProbeCacheTTL.String(), false
 	case "SESSION_RE_ADMIT_LEAD":
@@ -141,56 +135,14 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.AdoptCLISession), false
 	case "WAITING_ROOM_CHAIN":
 		return strconv.FormatBool(c.WaitingRoomChain), false
-	case "MATURITY_ENABLED":
-		return strconv.FormatBool(c.MaturityEnabled), false
-	case "MATURITY_TOUCH_MODEL":
-		return c.MaturityTouchModel, false
-	case "MATURITY_TARGET_DAYS":
-		return strconv.Itoa(c.MaturityTargetDays), false
-	case "QUOTA_AUTO_PROBE":
-		return strconv.FormatBool(c.QuotaAutoProbe), false
-	case "QUOTA_PROBE_ACTIVE_INTERVAL":
-		return c.QuotaProbeActiveInterval.String(), false
-	case "QUOTA_PROBE_IDLE_HEARTBEAT":
-		return c.QuotaProbeIdleHeartbeat.String(), false
-	case "ROUTING_SMART":
-		return strconv.FormatBool(c.RoutingSmart), false
-	case "TOKEN_MAX_CONCURRENT":
-		return strconv.Itoa(c.TokenMaxConcurrent), false
+	case "SLOTS_PER_ACCOUNT":
+		return strconv.Itoa(c.SlotsPerAccount), false
 	case "QUEUE_WAIT":
 		return c.QueueWait.String(), false
 	case "QUEUE_DEPTH":
 		return strconv.Itoa(c.QueueDepth), false
-	case "COOLDOWN_DEFAULT_MS":
-		return strconv.FormatInt(c.DefaultMs().Milliseconds(), 10), false
-	case "COOLDOWN_COUNTRY_BLOCK_MS":
-		return strconv.FormatInt(c.CountryBlockMs().Milliseconds(), 10), false
-	case "COOLDOWN_CEILING_MS":
-		return strconv.FormatInt(c.CeilingMs().Milliseconds(), 10), false
-	case "COOLDOWN_FANOUT_MS":
-		return strconv.FormatInt(c.FanoutMs().Milliseconds(), 10), false
-	case "COOLDOWN_INVALID_MODEL_MS":
-		return strconv.FormatInt(c.InvalidModelMs().Milliseconds(), 10), false
-	case "COOLDOWN_OPAQUE_MS":
-		return strconv.FormatInt(c.OpaqueMs().Milliseconds(), 10), false
-	case "COOLDOWN_LOADSHED_MS":
-		return strconv.FormatInt(c.LoadShedMs().Milliseconds(), 10), false
-	case "COOLDOWN_PEAK_HOURS_MS":
-		return strconv.FormatInt(c.PeakHoursMs().Milliseconds(), 10), false
-	case "COOLDOWN_IP_MAX_READMITS":
-		return strconv.Itoa(c.IpMaxReadmits()), false
-	case "COOLDOWN_IP_JITTER_RATIO":
-		return strconv.FormatFloat(c.IpJitterRatio(), 'f', -1, 64), false
-	case "SESSION_PARK_ENABLED":
-		return strconv.FormatBool(c.SessionParkEnabled()), false
-	case "SESSION_PARK_THRESHOLD_MS":
-		return strconv.FormatInt(c.SessionParkThresholdMs().Milliseconds(), 10), false
-	case "SESSION_POLL_MAX_MS":
-		return strconv.FormatInt(c.SessionPollMaxMs().Milliseconds(), 10), false
-	case "SMART_PROBE_BACKOFF_MAX_MS":
-		return strconv.FormatInt(c.SmartProbeBackoffMaxMs().Milliseconds(), 10), false
-	case "MATURITY_BACKOFF_MS":
-		return strconv.FormatInt(c.MaturityBackoffMs().Milliseconds(), 10), false
+	case "MAX_SPILL_ACCOUNTS":
+		return strconv.Itoa(c.MaxSpillAccounts), false
 	case "COMPRESS_PROMPT":
 		return strconv.FormatBool(c.CompressPrompt), false
 	case "CACHE_CONTROL_INJECTION":
@@ -218,20 +170,20 @@ func defaultFor(key string) string {
 	return ""
 }
 
-// formatModelLocks renders the parsed MODEL_LOCKS map back to canonical
-// "idx:model,model;..." form (slots ascending) for dashboard display.
-func formatModelLocks(locks map[int][]string) string {
-	if len(locks) == 0 {
+// formatPinModel renders the parsed PIN_MODEL map back to canonical
+// "idx:model;..." form (slots ascending) for dashboard display.
+func formatPinModel(pins map[int]string) string {
+	if len(pins) == 0 {
 		return ""
 	}
-	idxs := make([]int, 0, len(locks))
-	for idx := range locks {
+	idxs := make([]int, 0, len(pins))
+	for idx := range pins {
 		idxs = append(idxs, idx)
 	}
 	sort.Ints(idxs)
 	parts := make([]string, 0, len(idxs))
 	for _, idx := range idxs {
-		parts = append(parts, strconv.Itoa(idx)+":"+strings.Join(locks[idx], ","))
+		parts = append(parts, strconv.Itoa(idx)+":"+pins[idx])
 	}
 	return strings.Join(parts, ";")
 }

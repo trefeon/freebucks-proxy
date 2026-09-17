@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -62,8 +61,7 @@ type Config struct {
 	// records, the console's default VIEW window is 1h, and the history
 	// purge keeps log_entries/request_records for 168h (7d). Quota and
 	// maturity history keep their own 90d retention.
-	IdleRotationTimeout time.Duration // 0 = disabled: pause rotation/refresh after this idle period
-	SessionIdleEnd      time.Duration // 0 = disabled: end upstream sessions after this idle period (SESSION_IDLE_END)
+	IdleRotationTimeout time.Duration // 0 = disabled: pause run rotation/refresh after this idle period
 	// BridgeEnabled gates bridge-mode traffic when AUTH_TOKENS are configured
 	// (BRIDGE_ENABLED; default true). When enabled alongside a token pool the
 	// proxy runs in hybrid mode: a request whose credential matches an
@@ -87,14 +85,11 @@ type Config struct {
 	CORSAllowedOrigin string        // Access-Control-Allow-Origin for /v1/* responses (CORS_ALLOWED_ORIGIN; default "*")
 	RequestJitter     time.Duration // random delay range [0, RequestJitter) before upstream chat calls
 	CLIVersion        string        // upstream CLI version string (default: 0.10.7)
-	TokenRotation     string        // "drain" (default) | "round_robin" | "least_used" | "random"
-	RateLimitFailover bool          // true = automatically lease another token when an in-flight request encounters 429 rate limit (RATE_LIMIT_FAILOVER; default true)
-	// ModelLocks pins pool slots to models (MODEL_LOCKS, issue #325):
-	// map from AUTH_TOKENS slot index to the model ids that slot may
-	// serve, e.g. {0: ["z-ai/glm-5.2"]}. Slots without an entry are
-	// unlocked (today's behavior). Parsed at Load; malformed values
-	// reject the config.
-	ModelLocks       map[int][]string
+	// PinModel pins pool slots to one model each (PIN_MODEL): map from
+	// AUTH_TOKENS slot index to the model id that slot serves, e.g.
+	// {0: "z-ai/glm-5.2"}. Slots without an entry are unpinned (serve any
+	// model). Parsed at Load; malformed values reject the config.
+	PinModel         map[int]string
 	TransientRetries int    // max additional attempts after a transient transport failure (0 = disabled; default 1)
 	SessionPersist   bool   // true = persist session state to disk so restart resumes unexpired sessions (SESSION_PERSIST)
 	SessionStateFile string // path to the session state file (SESSION_STATE_FILE; default .freebuff-session-state.json)
@@ -214,21 +209,16 @@ type Config struct {
 	// message content for clients that do not render a reasoning channel
 	// (REASONING_IN_CONTENT; default "" = off). See CompressPrompt.
 	ReasoningInContent string
-	// RoutingSmart is the master switch for smart pool routing
-	// (ROUTING_SMART; default true): per-token live-turn slot semaphore
-	// with a FIFO waiter queue plus the unified scorer over eligible
-	// tokens. False restores the legacy acquire path byte-identically.
-	// Live-apply (atomic pointer swap, no pool rebuild).
-	RoutingSmart bool
-	// TokenMaxConcurrent caps concurrent live turns per pooled token
-	// (TOKEN_MAX_CONCURRENT; default 2, the approved anti-ban pacing): a
-	// token leases a new turn only while fewer than this many are live on
-	// that account, so one account never fans out past the cap no matter
-	// how many models share it. 0 = unlimited (no slot gating at all, for
-	// full operator control); negative values floor to 0. The strictest
-	// anti-ban posture is 1 (bunker: fully sequential turns per account).
+	// SlotsPerAccount caps concurrent live turns per pooled account-model
+	// lane (SLOTS_PER_ACCOUNT; default 2, the approved anti-ban pacing): a
+	// token leases a new turn for a model only while fewer than this many
+	// are live on that account for that model, so one account may hold 2
+	// turns of model A and 2 of model B at the same time. 0 = unlimited
+	// (no slot gating at all, for full operator control); negative values
+	// floor to 0. The strictest anti-ban posture is 1 (bunker: fully
+	// sequential turns per account-model lane).
 	// Live-apply (read per Acquire).
-	TokenMaxConcurrent int
+	SlotsPerAccount int
 	// QueueWait bounds how long one Acquire parks on a full token's FIFO
 	// slot queue before failing over (QUEUE_WAIT; default 30s).
 	// Zero-tolerant like BURST_WINDOW: empty or non-positive values fall
@@ -240,6 +230,12 @@ type Config struct {
 	// no queueing (fail over at once when no live-turn slot is free);
 	// negative is rejected in Validate. Live-apply (read per Acquire).
 	QueueDepth int
+	// MaxSpillAccounts bounds how many continuation accounts one Acquire
+	// may spill to after its head lane's QUEUE_WAIT elapses
+	// (MAX_SPILL_ACCOUNTS; default 0 = unbounded, the full index chain).
+	// A 429 quota requeue never consumes spill budget. Live-apply (read
+	// per Acquire).
+	MaxSpillAccounts int
 	// Cooldown backoffs (COOLDOWN_*_MS, integer milliseconds): every
 	// upstream-refusal backoff the pool and classifier apply, tunable
 	// without a restart. Zero-tolerant: unset or non-positive values fall
@@ -458,42 +454,6 @@ func splitList(value string) []string {
 		return r == ',' || r == '\n' || r == '\r'
 	})
 	return compactStrings(fields)
-}
-
-// parseModelLocks parses MODEL_LOCKS (issue #325): semicolon/newline
-// separated slot entries, each "<slot-index>:<model>[,<model>...]", e.g.
-// "0:z-ai/glm-5.2;1:upstage/solar-pro4,mimo/mimo-v2.5". Slot indexes
-// address AUTH_TOKENS positions. Empty input yields nil (feature off).
-// Malformed entries (missing colon, bad index, empty model list) are an
-// error: a silently-ignored lock would route quota to the wrong account.
-func parseModelLocks(value string) (map[int][]string, error) {
-	locks := make(map[int][]string)
-	entries := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ';' || r == '\n' || r == '\r'
-	})
-	for _, e := range entries {
-		e = strings.TrimSpace(e)
-		if e == "" {
-			continue
-		}
-		parts := strings.SplitN(e, ":", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid MODEL_LOCKS entry %q (want <slot>:<model>[,<model>...])", e)
-		}
-		idx, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-		if err != nil || idx < 0 {
-			return nil, fmt.Errorf("invalid MODEL_LOCKS slot %q (want non-negative index)", strings.TrimSpace(parts[0]))
-		}
-		models := dedupeStrings(strings.Split(parts[1], ","))
-		if len(models) == 0 {
-			return nil, fmt.Errorf("invalid MODEL_LOCKS entry %q (no models listed)", e)
-		}
-		locks[idx] = models
-	}
-	if len(locks) == 0 {
-		return nil, nil
-	}
-	return locks, nil
 }
 
 func compactStrings(values []string) []string {

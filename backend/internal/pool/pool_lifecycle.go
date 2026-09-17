@@ -8,14 +8,13 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/binary"
 	"errors"
-	"log/slog"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"log/slog"
+	"time"
 )
 
 // maintainInterval is how often the background job rotates aged runs and
@@ -40,13 +39,12 @@ const (
 	// sessionPollBackoffBase is the first failure backoff (20s); each
 	// consecutive failure doubles it up to sessionPollBackoffMax.
 	sessionPollBackoffBase = 20 * time.Second
+	// sessionPollBackoffMax caps the failed-poll backoff (5m):
+	// consecutive-failure doubling and the server Retry-After floor both
+	// clamp here (polling-backoff.ts semantics). Hardcoded vendor shape
+	// (no knobs); SESSION_POLL_MAX_MS is excised.
+	sessionPollBackoffMax = 5 * time.Minute
 )
-
-// sessionPollBackoffMax caps the failed-poll backoff (300s default):
-// consecutive-failure doubling and the server Retry-After floor both clamp
-// here (polling-backoff.ts semantics). Tunable via SESSION_POLL_MAX_MS
-// (live-applied from pool.SetConfig); the default preserves the 300s cap.
-var sessionPollBackoffMax = 300 * time.Second
 
 // retiredDrainGrace is how long a retired token may sit without a lease
 // before maintainTick drops it from the retired map. RemoveLastToken drains
@@ -127,15 +125,10 @@ func pollSession(ctx context.Context, sess *session.Manager, cfg *config.Config,
 func (p *Pool) Start(ctx context.Context) {
 	p.once.Do(func() {
 		// Restore the persisted runtime state first (pool_state): the
-		// smart-probe timer plus the live per-token quota cache, so a
-		// restart resumes warm — the boot round below still fires as an
-		// event but probes nothing while the restored cache is fresh.
+		// live per-token quota cache, so a restart resumes warm.
 		// Missing rows are a fresh boot (current behavior); a nil store
 		// is a no-op; restore never fails the boot (warn-only).
 		p.RestorePoolPersist()
-		// Anchor the smart-probe boot round before the maintain loop
-		// launches (spawn happens-before the first tick).
-		p.quotaBootAt = time.Now()
 		runCtx, cancel := context.WithCancel(ctx)
 		p.cancel = cancel
 		p.wg.Add(1)
@@ -234,73 +227,6 @@ func (p *Pool) tryIdleFinish(cfg *config.Config) bool {
 	return true
 }
 
-// trySweepIdleSessions atomically checks whether the pool has been idle
-// past cfg.SessionIdleEnd and marks sessionsEnded. Returns true only for
-// the first caller past the threshold per idle stretch.
-// Atomicity: threshold check and flag set are one lastActiveMu critical
-// section so concurrent maintainTicks cannot both sweep (TOCTOU).
-func (p *Pool) trySweepIdleSessions(cfg *config.Config) bool {
-	p.lastActiveMu.Lock()
-	defer p.lastActiveMu.Unlock()
-	if cfg.SessionIdleEnd <= 0 {
-		return false
-	}
-	if p.lastActive.IsZero() {
-		return false
-	}
-	if time.Since(p.lastActive) <= cfg.SessionIdleEnd {
-		return false
-	}
-	if p.sessionsEnded {
-		return false
-	}
-	p.sessionsEnded = true
-	return true
-}
-
-// endIdleSessions implements SESSION_IDLE_END: once the pool has been idle
-// past cfg.SessionIdleEnd (opt-in, default off), release every fixed
-// token's upstream session slot so an overnight-idle proxy stops holding
-// daily admission slots. Tradeoff (documented on the config knob): when
-// traffic resumes, EnsureSession re-admits each token, consuming a fresh
-// daily slot. Best-effort per token — a failed DELETE is logged and the
-// session simply persists until the next use (same as leaving the knob
-// unset); no retry within the episode.
-func (p *Pool) endIdleSessions(ctx context.Context, cfg *config.Config, toks *[]*tokenEntry) {
-	for i, tok := range *toks {
-		// Upstream calls during a cooldown read as abuse (maintain-pass
-		// policy); skip silently and keep the session.
-		if !tok.runs.MaintenanceEligible() {
-			continue
-		}
-		// Re-checked immediately before the DELETE: an Acquire can land
-		// between the caller's threshold check and this loop.
-		if tok.runs.InflightCount() > 0 {
-			continue
-		}
-		mCtx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
-		err := tok.session.EndSession(mCtx)
-		cancel()
-		if err != nil {
-			p.logger.Warn("pool: idle session end failed", "err", err, "token_index", i)
-		} else {
-			p.logger.Info("pool: ended idle session", "token_index", i)
-		}
-	}
-}
-
-// sweepIdleSessions runs the SESSION_IDLE_END sweep when its threshold is
-// crossed, exactly once per idle stretch. Called from every maintainTick
-// exit path so the knob works with or without IDLE_ROTATION_TIMEOUT and
-// regardless of which threshold fires first.
-// Atomicity: delegates to trySweepIdleSessions so the threshold check and
-// sessionsEnded flag are set in one critical section (TOCTOU fix).
-func (p *Pool) sweepIdleSessions(ctx context.Context, cfg *config.Config, toks *[]*tokenEntry) {
-	if p.trySweepIdleSessions(cfg) {
-		p.endIdleSessions(ctx, cfg, toks)
-	}
-}
-
 // maintainLoop ticks every maintainInterval: per token, rotate aged runs and
 // advance queued sessions. Session-liveness polls run on their own finer
 // jittered schedule (sessionPollTick fires when a token's nextPollAt is
@@ -349,24 +275,10 @@ func (p *Pool) maintainTick(ctx context.Context) {
 	// LeaseRelease drains them; the park grace covers an Acquire that loaded
 	// the pre-removal snapshot (see RemoveLastToken).
 	p.pruneRetired()
-	// Streak-maturity automation rides every pass — including idle
-	// stretches, whose quiet accounts are exactly the ones whose streaks
-	// need keeping. It never fires on unhealthy accounts (banned, cooling,
-	// quarantined, country-blocked) and fires live touches.
-	p.maturityTick(ctx)
-	// Smart quota probe rides every pass alongside maturity — including
-	// idle stretches, whose first tick runs the idle single-probe so quota
-	// is fresh when traffic resumes. Session-less ProbeToken, warn-only;
-	// QUOTA_AUTO_PROBE=false skips the pass entirely. The tick only runs
-	// the cheap scheduler decision (issue #484): a due round dispatches to
-	// a detached single-flight worker-pool goroutine, so maintainTick never
-	// blocks on probe traffic.
-	p.smartProbeTick(ctx)
 	// Idle handling — tryIdleFinish atomically checks the threshold and
 	// marks idleFinished in one lastActiveMu critical section (TOCTOU fix).
 	// The first idle pass FINISHes all runs so rotation/refresh stops
-	// upstream; sessions are left untouched. Later passes skip per-token
-	// work and only sweep.
+	// upstream; sessions are left untouched.
 	if p.tryIdleFinish(cfg) {
 		for _, tok := range *toks {
 			// Skip tokens with outstanding leases: FINISHing this run
@@ -380,7 +292,6 @@ func (p *Pool) maintainTick(ctx context.Context) {
 			// shutdown for the full upstream call timeout.
 			tok.runs.FinishAllRuns(ctx)
 		}
-		p.sweepIdleSessions(ctx, cfg, toks)
 		p.bridgeMaintain(ctx, true)
 		return
 	}
@@ -390,7 +301,6 @@ func (p *Pool) maintainTick(ctx context.Context) {
 		// are never evicted while the pool stays idle and their sessions
 		// stay admitted upstream until expiry.
 		p.bridgeMaintain(ctx, true)
-		p.sweepIdleSessions(ctx, cfg, toks)
 		return
 	}
 	for i, tok := range *toks {
@@ -401,7 +311,6 @@ func (p *Pool) maintainTick(ctx context.Context) {
 		p.clearLiftedQuarantine(tok)
 		maintainToken(ctx, tok.session, tok.runs, p.reg, cfg, i+1, p.logger)
 	}
-	p.sweepIdleSessions(ctx, cfg, toks)
 	// Bridge sweep: drop entries idle past the idle-eviction TTL (runs FINISHed
 	// best-effort), maintain the rest like the fixed tokens above.
 	p.bridgeMaintain(ctx, false)

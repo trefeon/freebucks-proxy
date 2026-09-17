@@ -2,14 +2,13 @@ package server_test
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // Wiring replays: every new classify arm must surface the same client code on
@@ -91,8 +90,9 @@ func TestReplayMessagesHierarchyGate(t *testing.T) {
 }
 
 // TestChatPeakHoursUnderscoreSurfaced429 replays the underscore body form: a
-// 429 carrying peak_hours must surface exactly like the space form — 429
-// peak_hours with the bounded 30m Retry-After, never generic rate_limited.
+// 429 carrying peak_hours must surface as 429 peak_hours with no synthesized
+// Retry-After (the body carries no upstream window) — never generic
+// rate_limited.
 func TestChatPeakHoursUnderscoreSurfaced429(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -110,8 +110,10 @@ func TestChatPeakHoursUnderscoreSurfaced429(t *testing.T) {
 	if got := errorCode(t, data); got != "peak_hours" {
 		t.Errorf("code = %q, want peak_hours: %s", got, data)
 	}
-	if ra := resp.Header.Get("Retry-After"); ra != "1800" {
-		t.Errorf("Retry-After = %q, want 1800 (bounded 30m, not midnight)", ra)
+	// MASQ: no synthesized window — none arrives upstream, so none is
+	// emitted (honest upstream window only).
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		t.Errorf("Retry-After = %q, want none (no synthesized 30m default)", ra)
 	}
 }
 

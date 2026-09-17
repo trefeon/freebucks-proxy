@@ -10,6 +10,10 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/server"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,11 +23,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/server"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // parkedChatResult carries the parked request's outcome out of its goroutine
@@ -41,8 +40,7 @@ func TestChatTraceCarriesQueueWaitWhenParked(t *testing.T) {
 	ring := logring.NewHandler(slog.NewTextHandler(&sink, nil), 200)
 	srv, p := server.NewTestServerStack(t, nil, []*testutil.MockUpstream{mock}, func(c *config.Config) {
 		c.AdminToken = config.DefaultAdminToken
-		c.RoutingSmart = true
-		c.TokenMaxConcurrent = 1
+		c.SlotsPerAccount = 1
 		c.QueueWait = 10 * time.Second
 		c.QueueDepth = 16
 	}, slog.New(ring), ring)
@@ -140,5 +138,4 @@ func TestChatTraceCarriesQueueWaitWhenParked(t *testing.T) {
 	// Print the line once: it is the sample evidence for the PR body and
 	// the fastest way to see the shape in a failing run.
 	t.Logf("parked chat trace: %s", joined)
-
 }

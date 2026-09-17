@@ -208,106 +208,6 @@
     "description": "How long a bridge entry may sit unused before its runs are FINISHed and it is evicted from the cache (sliding TTL; zero or invalid → 72h)."
   },
   {
-    "key": "COOLDOWN_CEILING_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "604800000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Ceiling for any cooldown derived from upstream retry fields, in milliseconds (7d = 604800000). Untrusted upstream values are clamped here so an absurd Retry-After cannot park a token for years. Zero-tolerant: empty or non-positive values fall back to 604800000. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_COUNTRY_BLOCK_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "900000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Token cooldown on upstream region block (country_blocked), in milliseconds (15m = 900000): long enough to stop the hammer, short enough to re-probe after an egress switch. Zero-tolerant: empty or non-positive values fall back to 900000. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_DEFAULT_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "1800000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Token cooldown on upstream auth rejection, in milliseconds (30m = 1800000). Zero-tolerant: empty or non-positive values fall back to 1800000. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_FANOUT_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "60000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Backoff for a free_mode_run_fanout refusal without a Retry-After header, in milliseconds (1m = 60000): the upstream run counter clears in seconds, and re-hitting it feeds a ban-grade sweep signal. Zero-tolerant: empty or non-positive values fall back to 60000. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_INVALID_MODEL_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "60000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Backoff for a free_mode_invalid_agent_model refusal without a Retry-After header, in milliseconds (1m = 60000): retrying sooner only amplifies the 403 storm. Zero-tolerant: empty or non-positive values fall back to 60000. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_IP_JITTER_RATIO",
-    "group": "pool",
-    "kind": "text",
-    "default": "0.2",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "+/-fraction of retryAfterMs applied to the ip_capped re-admission window so concurrent tokens do not re-admit in lockstep (default 0.2 = 20%). Negative values reject the config. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_IP_MAX_READMITS",
-    "group": "pool",
-    "kind": "int",
-    "default": "3",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "How many times one token may re-admit (and be refused ip_capped again) per Pacific day before it locks until the next Pacific midnight (default 3). Negative values reject the config. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_LOADSHED_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "90000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Backoff for a 429 load-saturation refusal, in milliseconds (90s = 90000): upstream sheds load for minutes, not a day. Zero-tolerant: empty or non-positive values fall back to 90000. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_OPAQUE_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "60000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Backoff for a 429 with no timestamp, daily-reset signal, or Retry-After header, in milliseconds (1m = 60000): a fully opaque body must never lock the token until Pacific midnight. Zero-tolerant: empty or non-positive values fall back to 60000. Applies live on reload."
-  },
-  {
-    "key": "COOLDOWN_PEAK_HOURS_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "1800000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Backoff for a 429 peak-hours refusal, in milliseconds (30m = 1800000): the peak lasts hours and its end is not in the body, so re-probe conservatively instead of locking until midnight. Zero-tolerant: empty or non-positive values fall back to 1800000. Applies live on reload."
-  },
-  {
     "key": "IDLE_ROTATION_TIMEOUT",
     "group": "pool",
     "kind": "text",
@@ -318,55 +218,14 @@
     "description": "Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset)."
   },
   {
-    "key": "MATURITY_BACKOFF_MS",
+    "key": "MAX_SPILL_ACCOUNTS",
     "group": "pool",
     "kind": "int",
-    "default": "180000",
+    "default": "0",
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "How long the nightly maturity walk pauses after a rate-limited touch, in milliseconds (3m = 180000): the walk aborts instead of hammering a throttled upstream. Zero-tolerant: empty or non-positive values fall back to 180000. Applies live on reload."
-  },
-  {
-    "key": "MATURITY_ENABLED",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": true,
-    "description": "Global kill-switch for the nightly streak-maintenance run (the ONLY streak control): every account is classified automatically once nightly in the 15 minutes before the Pacific-midnight reset (23:45-00:00), and eligible accounts fire one live touch in the final 5 minutes. Default true (live touches); set false to disable all automated touches."
-  },
-  {
-    "key": "MATURITY_TARGET_DAYS",
-    "group": "pool",
-    "kind": "int",
-    "default": "7",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "DEPRECATED (hidden): the streak is universally automatic now — per-account targets are dead, every account is touched nightly. Kept parsed for compat; this value is unused."
-  },
-  {
-    "key": "MATURITY_TOUCH_MODEL",
-    "group": "pool",
-    "kind": "text",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Global touch model for the nightly run: empty (default, same as \"auto\") admits the cheapest served price-0/exempt row per account and falls back to this key's explicit value when no unmetered served row exists; an explicit provider/model id overrides auto. The touch never spends Freebucks (fail-closed on priced rows). Accounts with client traffic since the last Pacific reset are skipped, as are quarantined/banned/cooling/country-blocked/locked ones."
-  },
-  {
-    "key": "MODEL_LOCKS",
-    "group": "pool",
-    "kind": "text",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Pin pool slots to models (slot-indexed allowlist, e.g. \"0:z-ai/glm-5.2;1:upstage/solar-pro4,mimo/mimo-v2.5\"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config."
+    "description": "How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain). A 429 quota requeue never consumes spill budget. Applies live on reload."
   },
   {
     "key": "MODEL_UNAVAILABLE_CACHE_TTL",
@@ -379,6 +238,16 @@
     "description": "How long a model_unavailable admission refusal is remembered per model (off-window models short-circuit to the fallback within the TTL)."
   },
   {
+    "key": "PIN_MODEL",
+    "group": "pool",
+    "kind": "text",
+    "default": "",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Pin pool slots to one model each (e.g. \"0:z-ai/glm-5.2;1:deepseek/deepseek-v4-flash\"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config."
+  },
+  {
     "key": "QUEUE_DEPTH",
     "group": "pool",
     "kind": "int",
@@ -386,7 +255,7 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "Cap on parked FIFO waiters per token for smart-routing live-turn slots (0 = no queueing: fail over at once when no slot is free; negative rejects the config). A full queue fails over with the existing 429 shape. Applies live on reload."
+    "description": "Cap on parked FIFO waiters per account-model lane (0 = no queueing: spill at once when no slot is free; negative rejects the config). A full queue spills with the existing 429 shape. Applies live on reload."
   },
   {
     "key": "QUEUE_WAIT",
@@ -396,37 +265,7 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "How long one acquire parks on a full token's FIFO live-turn queue before failing over with the existing 429 shape (Go duration, e.g. 5s, 30s). Zero-tolerant: empty or non-positive values fall back to 30s. Applies live on reload."
-  },
-  {
-    "key": "QUOTA_AUTO_PROBE",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Master switch for the activity-aware quota prober: a busy pool probes every QUOTA_PROBE_ACTIVE_INTERVAL, a warming pool every 5m, an idle pool once plus the QUOTA_PROBE_IDLE_HEARTBEAT heartbeat. Applies live on reload; false restores pre-scheduler behavior (manual probes only)."
-  },
-  {
-    "key": "QUOTA_PROBE_ACTIVE_INTERVAL",
-    "group": "pool",
-    "kind": "text",
-    "default": "60s",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "How often each pooled token is quota-probed while the pool is busy (traffic under 2m ago). Go duration (default 60s); the warming cadence stays 5m, idle is covered by QUOTA_PROBE_IDLE_HEARTBEAT. Applies live on reload."
-  },
-  {
-    "key": "QUOTA_PROBE_IDLE_HEARTBEAT",
-    "group": "pool",
-    "kind": "text",
-    "default": "30m",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "How often each pooled token is quota-probed while the pool sits idle (no traffic for 15m or more): one probe fires when traffic stops, then only this heartbeat until traffic resumes. Go duration (default 30m, also the ceiling for 429-backoff doubling). Applies live on reload."
+    "description": "How long one acquire parks on a full lane's FIFO live-turn queue before spilling with the existing 429 shape (Go duration, e.g. 5s, 30s). Zero-tolerant: empty or non-positive values fall back to 30s. Applies live on reload."
   },
   {
     "key": "RATE_LIMIT_BURST",
@@ -437,16 +276,6 @@
     "secret": false,
     "essential": false,
     "description": "Burst request capacity per client IP (0 = defaults to 2 × RATE_LIMIT_PER_IP)."
-  },
-  {
-    "key": "RATE_LIMIT_FAILOVER",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Rotate to another available token when an in-flight request hits a token-level 429 (rate limit / throttle). turn_spend_limited is TERMINAL (upstream per-turn spend breaker — a retry re-trips instantly) and is excluded from failover (default true)."
   },
   {
     "key": "RATE_LIMIT_PER_IP",
@@ -468,16 +297,6 @@
     "essential": false,
     "hidden": true,
     "description": "Agent-run rotation interval."
-  },
-  {
-    "key": "ROUTING_SMART",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Master switch for smart pool routing: per-token live-turn slots with a FIFO waiter queue plus the unified scorer over eligible tokens. Applies live on reload; false restores the legacy acquire path exactly."
   },
   {
     "key": "RUNS_DRAIN_QUEUE_CAP",
@@ -524,36 +343,6 @@
     "description": "Bounded deferred-FINISH worker queue for rotated/drained runs (full queue falls back to a synchronous FINISH)."
   },
   {
-    "key": "SESSION_IDLE_END",
-    "group": "pool",
-    "kind": "text",
-    "default": "0",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "End upstream sessions after this idle period, freeing the account while the proxy sits unused (0 = disabled, opt-in)."
-  },
-  {
-    "key": "SESSION_PARK_ENABLED",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Park short-cooldown sessions instead of dropping them (default true): a parked session keeps its row and retries on backoff, so brief 5-15m cooldowns never cause an instant session loss. Fatal refusals (ban, spend-exhausted, endsTheSession) stay terminal regardless. Applies live on reload."
-  },
-  {
-    "key": "SESSION_PARK_THRESHOLD_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "900000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Park-vs-drop boundary in milliseconds (15m = 900000): a session whose computed cooldown is at or below this parks and never drops (while SESSION_PARK_ENABLED). Zero-tolerant: empty or non-positive values fall back to 900000. Applies live on reload."
-  },
-  {
     "key": "SESSION_PERSIST",
     "group": "pool",
     "kind": "bool",
@@ -562,16 +351,6 @@
     "secret": false,
     "essential": false,
     "description": "Persist session state AND active agent runs to disk so a restart resumes them instead of re-creating (default true). Set via container environment."
-  },
-  {
-    "key": "SESSION_POLL_MAX_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "300000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Cap on the session-liveness poll failure backoff in milliseconds (5m = 300000): consecutive failures double from 20s up to this ceiling. Zero-tolerant: empty or non-positive values fall back to 300000. Applies live on reload."
   },
   {
     "key": "SESSION_PROBE_CACHE_TTL",
@@ -606,41 +385,14 @@
     "description": "Path of the session state file (used when SESSION_PERSIST=true; token-keyed, 0600, raw tokens never written)."
   },
   {
-    "key": "SMART_PROBE_BACKOFF_MAX_MS",
-    "group": "pool",
-    "kind": "int",
-    "default": "1800000",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Ceiling for the quota-probe 429-backoff doubling in milliseconds (30m = 1800000): effective probe intervals never sleep longer than this. Zero-tolerant: empty or non-positive values fall back to 1800000. Applies live on reload."
-  },
-  {
-    "key": "TOKEN_MAX_CONCURRENT",
+    "key": "SLOTS_PER_ACCOUNT",
     "group": "pool",
     "kind": "int",
     "default": "2",
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "Cap on concurrent live turns per pooled token (default 2, the approved anti-ban pacing; 0 = unlimited, no slot gating at all). A lease is granted only while the token holds fewer live turns; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload. BUNKER PRESET: 1 — fully sequential turns per account, zero parallel fingerprint."
-  },
-  {
-    "key": "TOKEN_ROTATION",
-    "group": "pool",
-    "kind": "select",
-    "enum": [
-      "drain",
-      "round_robin",
-      "least_used",
-      "random"
-    ],
-    "default": "drain",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Token selection strategy: drain (exhaust a token's session before rotating), round_robin, least_used, or random. Managed interactively on the Pool page."
+    "description": "Cap on concurrent live turns per account-model lane (default 2, the approved anti-ban pacing; 0 = unlimited, no slot gating at all). A lease is granted only while the account holds fewer live turns for that model; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload. BUNKER PRESET: 1 — fully sequential turns per account-model lane, zero parallel fingerprint."
   },
   {
     "key": "WAITING_ROOM_CHAIN",

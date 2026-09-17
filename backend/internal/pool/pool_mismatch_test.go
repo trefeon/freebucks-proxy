@@ -2,14 +2,13 @@ package pool
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/notify"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestMismatchEscalationFiresOncePerWindow pins the issue #140 guard:
@@ -33,7 +32,7 @@ func TestMismatchEscalationFiresOncePerWindow(t *testing.T) {
 	p := newTestPool(t)
 	p.SetNotifier(notify.New(srv.URL, nil))
 
-	rle := &upstream.RateLimitError{Status: "free_mode_invalid_agent_model", RetryAfter: upstream.InvalidModelCooldown}
+	rle := &upstream.RateLimitError{Status: "free_mode_invalid_agent_model", RetryAfter: time.Minute}
 
 	// Two hits: below threshold, no POST.
 	p.recordMismatchEscalation(0, rle)

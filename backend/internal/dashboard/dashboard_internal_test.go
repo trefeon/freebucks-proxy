@@ -5,16 +5,15 @@ package dashboard
 // package (43.8% → the functions below were almost entirely untested).
 
 import (
-	"slices"
-	"strings"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/modelcat"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/upstream"
+	"slices"
+	"strings"
+	"testing"
+	"time"
 )
 
 // testDashboard builds a dashboard over an empty (bridge-mode) pool: enough
@@ -76,6 +75,7 @@ func TestSparklineSVG(t *testing.T) {
 		}
 	}
 }
+
 func TestHumanDuration(t *testing.T) {
 	cases := []struct {
 		in   time.Duration
@@ -264,22 +264,22 @@ func TestCardFromSnapshotStanding(t *testing.T) {
 	}
 }
 
-// TestCardFromSnapshotAllowlist pins the MODEL_LOCKS card fields (issue
-// #325): the allowlist rides the full card, the skip counter rides both the
-// full card (via TokenSnapshot) and the live card.
-func TestCardFromSnapshotAllowlist(t *testing.T) {
+// TestCardFromSnapshotPin pins the PIN_MODEL card fields: the pin rides
+// the full card, the skip counter rides both the full card (via
+// TokenSnapshot) and the live card.
+func TestCardFromSnapshotPin(t *testing.T) {
 	snap := pool.TokenSnapshot{
-		Token:          0,
-		AllowedModels:  []string{"z-ai/glm-5.2"},
-		AllowlistSkips: 7,
+		Token:       0,
+		PinnedModel: "z-ai/glm-5.2",
+		PinSkips:    7,
 	}
 	card := cardFromSnapshot(snap)
-	if len(card.AllowedModels) != 1 || card.AllowedModels[0] != "z-ai/glm-5.2" {
-		t.Errorf("AllowedModels = %v, want [z-ai/glm-5.2]", card.AllowedModels)
+	if card.PinnedModel != "z-ai/glm-5.2" {
+		t.Errorf("PinnedModel = %q, want z-ai/glm-5.2", card.PinnedModel)
 	}
 	live := liveCardFromSnapshot(snap)
-	if live.AllowlistSkips != 7 {
-		t.Errorf("live AllowlistSkips = %d, want 7", live.AllowlistSkips)
+	if live.PinSkips != 7 {
+		t.Errorf("live PinSkips = %d, want 7", live.PinSkips)
 	}
 }
 

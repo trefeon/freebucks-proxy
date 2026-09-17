@@ -25,71 +25,6 @@ func TestNewLengthMismatch(t *testing.T) {
 	}
 }
 
-func TestRoundRobinDistribution(t *testing.T) {
-	mock0 := testutil.NewMock()
-	defer mock0.Close()
-	mock1 := testutil.NewMock()
-	defer mock1.Close()
-	p := newTestPool(t, mock0, mock1)
-
-	// Strict round-robin only applies while no token holds a live session:
-	// hot-session-first selection routes every acquire to a live session
-	// once one exists. Invalidate both cached sessions before each acquire
-	// so the cold path is exercised, and assert the historical order is
-	// unchanged (selection-order change must not regress cold failover).
-	const n = 6
-	got := make([]int, n)
-	for i := 0; i < n; i++ {
-		// Unconditional invalidation (test intent: force the cold path) —
-		// the pool's InvalidateSession is now instance-guarded (#132).
-		toks := p.roster.Load()
-		(*toks)[0].session.Invalidate()
-		(*toks)[1].session.Invalidate()
-		lease, err := p.Acquire(context.Background(), modelA)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got[i] = lease.Token
-		if lease.AgentID != agentA {
-			t.Errorf("lease agent = %q, want %q", lease.AgentID, agentA)
-		}
-		p.LeaseRelease(lease)
-	}
-	for i, want := range []int{0, 1, 0, 1, 0, 1} {
-		if got[i] != want {
-			t.Errorf("acquire %d token = %d, want %d", i, got[i], want)
-		}
-	}
-	// Both tokens created the run for the agent exactly once (runs survive
-	// session invalidation).
-	for i, mock := range []*testutil.MockUpstream{mock0, mock1} {
-		started := mock.StartedRunsSnapshot()
-		if len(started) != 1 || started[0] != agentA {
-			t.Errorf("mock%d started runs = %v, want [%s]", i, started, agentA)
-		}
-		if len(mock.FinishedRunsSnapshot()) != 0 {
-			t.Errorf("mock%d finished runs = %v, want none", i, mock.FinishedRunsSnapshot())
-		}
-	}
-
-	snaps := p.Snapshot()
-	for i, snap := range snaps {
-		if snap.ActiveRuns != 1 || snap.Requests != 3 {
-			t.Errorf("token %d snapshot: active=%d requests=%d, want 1/3", i, snap.ActiveRuns, snap.Requests)
-		}
-	}
-	// The last acquire (round-robin start 1) re-created token 1's session
-	// fresh; token 0's was invalidated before it and is gone. Every acquire
-	// admitted a fresh session: the cold path never reused a live one (3
-	// creates per token, one per acquire).
-	if snaps[1].SessionStatus != "active" || snaps[1].SessionInstanceID != "inst-abc-123" {
-		t.Errorf("token 1 session snapshot = %q/%q, want active/inst-abc-123", snaps[1].SessionStatus, snaps[1].SessionInstanceID)
-	}
-	if mock0.SessionCreates != 3 || mock1.SessionCreates != 3 {
-		t.Errorf("session creates = %d/%d, want 3/3 (cold path only)", mock0.SessionCreates, mock1.SessionCreates)
-	}
-}
-
 func TestAcquirePrefersTokenWithLiveSession(t *testing.T) {
 	mock1 := testutil.NewMock() // token 1 (index 0): will hold the live session
 	defer mock1.Close()
@@ -177,19 +112,15 @@ func TestFailoverOnAuthReject(t *testing.T) {
 		t.Errorf("healthy token started runs = %v, want 1", good.StartedRuns)
 	}
 
-	// The dead token must be on a 30-min cooldown; subsequent acquires skip
-	// it entirely (round-robin returns to it on the 3rd acquire).
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.Before(time.Now().Add(29 * time.Minute)) {
-		t.Errorf("cooldown until = %v, want ~now+30m", snap.CooldownUntil)
-	}
+	// MASQ: a 401 writes no cooldown — a per-account credential refusal is
+	// re-tried live on every pass, then fails over to the healthy token.
 	for i := 0; i < 2; i++ {
 		lease, err := p.Acquire(context.Background(), modelA)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if lease.Token != 1 {
-			t.Errorf("acquire %d token = %d, want 1 (dead token skipped)", i, lease.Token)
+			t.Errorf("acquire %d token = %d, want 1 (failover to healthy each pass)", i, lease.Token)
 		}
 		p.LeaseRelease(lease)
 	}
@@ -273,11 +204,6 @@ func TestAllFailedCombinedError(t *testing.T) {
 			t.Errorf("combined error missing %s: %q", tok, err)
 		}
 	}
-	for _, snap := range p.Snapshot() {
-		if snap.CooldownUntil.Before(time.Now().Add(29 * time.Minute)) {
-			t.Errorf("token %d not cooled down: %v", snap.Token, snap.CooldownUntil)
-		}
-	}
 }
 
 func TestWaitingRoomSurfacesOnAnyQueuedToken(t *testing.T) {
@@ -357,14 +283,27 @@ func TestInvalidateSessionRecreates(t *testing.T) {
 		t.Fatalf("session creates = %d, want 1", mock.SessionCreates)
 	}
 
+	// MASQ precious: the granted lease marked the session precious, so a
+	// generic recovery invalidation keeps it — the terminal superseded
+	// reason is the path that still drops and recreates.
 	p.InvalidateSession(lease.Token, lease.SessionInstanceID)
+	leaseKept, err := p.Acquire(context.Background(), modelA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.LeaseRelease(leaseKept)
+	if mock.SessionCreates != 1 {
+		t.Errorf("session creates = %d, want still 1 (precious kept)", mock.SessionCreates)
+	}
+
+	p.InvalidateSessionWithReason(lease.Token, leaseKept.SessionInstanceID, session.ReasonSuperseded, http.StatusConflict)
 	lease2, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.LeaseRelease(lease2)
 	if mock.SessionCreates != 2 {
-		t.Errorf("session creates = %d, want 2 (recreated after invalidate)", mock.SessionCreates)
+		t.Errorf("session creates = %d, want 2 (recreated after superseded invalidate)", mock.SessionCreates)
 	}
 	if lease2.SessionInstanceID != "inst-abc-123" {
 		t.Errorf("recreated instance = %q, want inst-abc-123", lease2.SessionInstanceID)

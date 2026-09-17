@@ -187,33 +187,31 @@ func TestOverlayCoversCatalog(t *testing.T) {
 // handler, but Validate itself accepts them so migrated rows read back.
 func TestValidateSettingValue(t *testing.T) {
 	for key, value := range map[string]string{
-		"LOG_LEVEL":            "debug",
-		"SAFE_MODE":            "false",
-		"RATE_LIMIT_BURST":     "30",
-		"RATE_LIMIT_PER_IP":    "2.5",
-		"MODELS_ALLOW":         "deepseek/deepseek-v4-flash",
-		"MATURITY_TARGET_DAYS": "14",
-		"HTTP_READ_TIMEOUT":    "90s",
-		"AUTH_TOKENS":          "fb-test-fake-token-1",
-		"ADMIN_TOKEN":          "fb-test-fake-admin-1",
-		"API_KEYS":             "fb-test-fake-client-1",
-		"WEBHOOK_URL":          "https://example.invalid/hook",
-		"UPSTREAM_BASE_URL":    "https://example.invalid",
-		"AUTO_DISCOVER_TOKEN":  "false",
+		"LOG_LEVEL":           "debug",
+		"SAFE_MODE":           "false",
+		"RATE_LIMIT_BURST":    "30",
+		"RATE_LIMIT_PER_IP":   "2.5",
+		"MODELS_ALLOW":        "deepseek/deepseek-v4-flash",
+		"HTTP_READ_TIMEOUT":   "90s",
+		"AUTH_TOKENS":         "fb-test-fake-token-1",
+		"ADMIN_TOKEN":         "fb-test-fake-admin-1",
+		"API_KEYS":            "fb-test-fake-client-1",
+		"WEBHOOK_URL":         "https://example.invalid/hook",
+		"UPSTREAM_BASE_URL":   "https://example.invalid",
+		"AUTO_DISCOVER_TOKEN": "false",
 	} {
 		if err := ValidateSettingValue(key, value); err != nil {
 			t.Errorf("ValidateSettingValue(%s,%s) = %v, want nil", key, value, err)
 		}
 	}
 	for key, value := range map[string]string{
-		"NOPE_NOT_A_KEY":       "x",
-		"DB_PATH":              "/tmp/x.db",
-		"SAFE_MODE":            "banana",
-		"RATE_LIMIT_BURST":     "lots",
-		"RATE_LIMIT_PER_IP":    "fast",
-		"MATURITY_TARGET_DAYS": "seven",
-		"LOG_LEVEL":            "",
-		"":                     "x",
+		"NOPE_NOT_A_KEY":    "x",
+		"DB_PATH":           "/tmp/x.db",
+		"SAFE_MODE":         "banana",
+		"RATE_LIMIT_BURST":  "lots",
+		"RATE_LIMIT_PER_IP": "fast",
+		"LOG_LEVEL":         "",
+		"":                  "x",
 	} {
 		if err := ValidateSettingValue(key, value); err == nil {
 			t.Errorf("ValidateSettingValue(%q,%q) accepted, want an error", key, value)
@@ -426,11 +424,10 @@ func TestOverlayFromRowsDropsMalformed(t *testing.T) {
 		t.Errorf("OverlayFromRows = %v, want exactly the 4 valid rows", ov)
 	}
 	malformed := OverlayFromRows(map[string]string{
-		"config:SAFE_MODE":            "banana",
-		"config:RATE_LIMIT_BURST":     "lots",
-		"config:RATE_LIMIT_PER_IP":    "fast",
-		"config:MATURITY_TARGET_DAYS": "seven",
-		"config:LOG_LEVEL2":           "debug",
+		"config:SAFE_MODE":         "banana",
+		"config:RATE_LIMIT_BURST":  "lots",
+		"config:RATE_LIMIT_PER_IP": "fast",
+		"config:LOG_LEVEL2":        "debug",
 	})
 	if len(malformed) != 0 {
 		t.Errorf("OverlayFromRows kept malformed rows: %v", malformed)

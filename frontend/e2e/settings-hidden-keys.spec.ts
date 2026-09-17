@@ -34,7 +34,6 @@ const SECRET_SENTINELS: Record<string, string> = {
 // and must not be duplicated into the hidden-keys disclosure.
 const OWNED_ELSEWHERE = [
   "HTTP_READ_TIMEOUT",
-  "TOKEN_ROTATION",
   "SESSION_RE_ADMIT_LEAD",
   "WAITING_ROOM_CHAIN",
 ];
@@ -139,7 +138,7 @@ test.describe("settings hidden keys", () => {
       ).toHaveCount(1);
     }
     // The section is exactly the un-edited remainder: one row per key, and
-    // the four exceptions stay with their own editors.
+    // the three exceptions stay with their own editors.
     await expect(page.locator("[data-setting-key]")).toHaveCount(
       inSection.length,
     );
@@ -157,7 +156,7 @@ test.describe("settings hidden keys", () => {
     await expect(page.locator("#setting-SESSION_RE_ADMIT_LEAD")).toBeVisible();
     await expect(page.locator("#setting-WAITING_ROOM_CHAIN")).toBeVisible();
     await expect(
-      page.getByRole("radiogroup", { name: "Token Rotation Policy" }),
+      page.getByRole("radiogroup", { name: "Pool strategy" }),
     ).toBeVisible();
   });
 

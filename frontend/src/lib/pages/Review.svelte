@@ -80,12 +80,6 @@
         { m: "GET", p: "/admin/api/tokens", note: "Pool snapshot" },
         {
           m: "POST",
-          p: "/admin/tokens/test-all",
-          note: "Probe every pool token",
-          json: true,
-        },
-        {
-          m: "POST",
           p: "/admin/tokens/add",
           note: "Add one upstream token",
           json: true,
@@ -139,24 +133,6 @@
           m: "POST",
           p: "/admin/tokens/{id}/session",
           note: "Admit session on {id}",
-          json: true,
-        },
-        {
-          m: "POST",
-          p: "/admin/tokens/{id}/maturity",
-          note: "Maturity probe on {id}",
-          json: true,
-        },
-        {
-          m: "POST",
-          p: "/admin/tokens/{id}/maturity/touch",
-          note: "Touch maturity on {id}",
-          json: true,
-        },
-        {
-          m: "POST",
-          p: "/admin/tokens/{id}/maturity/warn-reset",
-          note: "Reset maturity warning on {id}",
           json: true,
         },
       ],

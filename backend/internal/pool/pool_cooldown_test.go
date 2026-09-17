@@ -3,16 +3,14 @@ package pool
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 func TestCooldownToken(t *testing.T) {
@@ -293,50 +291,6 @@ func TestMultiTokenRateLimitAndBanFailover(t *testing.T) {
 	}
 }
 
-// TestAcquirePrecedenceBannedOverRateLimit pins the mixed-bucket precedence
-// chain: a banned token outranks a rate-limited one, so the pool surfaces
-// 403 banned instead of the generic 502 the historical all-or-nothing
-// aggregation produced.
-func TestAcquirePrecedenceBannedOverRateLimit(t *testing.T) {
-	mock0 := testutil.NewMock()
-	defer mock0.Close()
-	mock1 := testutil.NewMock()
-	defer mock1.Close()
-	p := newTestPool(t, mock0, mock1)
-
-	be := &upstream.BanError{Body: "banned", ResumesAt: time.Now().Add(time.Hour)}
-	rle := &upstream.RateLimitError{Body: "rate limit", RetryAfter: 10 * time.Minute}
-	p.CooldownTokenBan(0, be)
-	p.CooldownTokenRateLimit(1, rle)
-
-	_, err := p.Acquire(context.Background(), modelA)
-	if err == nil || !errors.Is(err, upstream.ErrBanned) {
-		t.Fatalf("banned + rate-limited = %v, want ban (highest precedence)", err)
-		return
-	}
-}
-
-// TestAcquirePrecedenceCountryOverRateLimit pins country > rate: a
-// country-blocked token outranks a rate-limited one.
-func TestAcquirePrecedenceCountryOverRateLimit(t *testing.T) {
-	mock0 := testutil.NewMock()
-	defer mock0.Close()
-	mock1 := testutil.NewMock()
-	defer mock1.Close()
-	p := newTestPool(t, mock0, mock1)
-
-	cbe := &upstream.CountryBlockedError{CountryCode: "CN", CountryBlockReason: "region_restricted"}
-	rle := &upstream.RateLimitError{Body: "rate limit", RetryAfter: 10 * time.Minute}
-	p.CooldownTokenCountryBlocked(0, cbe)
-	p.CooldownTokenRateLimit(1, rle)
-
-	_, err := p.Acquire(context.Background(), modelA)
-	if err == nil || !errors.Is(err, upstream.ErrCountryBlocked) {
-		t.Fatalf("country-blocked + rate-limited = %v, want country (precedence over rate)", err)
-		return
-	}
-}
-
 // TestAcquirePrecedenceRateOverWaiting pins rate > waiting: with one token
 // queued and another rate-limited, the remembered 429 wins.
 func TestAcquirePrecedenceRateOverWaiting(t *testing.T) {
@@ -354,51 +308,6 @@ func TestAcquirePrecedenceRateOverWaiting(t *testing.T) {
 	if err == nil || !errors.Is(err, upstream.ErrRateLimited) {
 		t.Fatalf("waiting + rate-limited = %v, want rate limit (precedence over waiting)", err)
 		return
-	}
-}
-
-// TestAcquireAllCountryBlocked drives the country bucket end-to-end through
-// the session layer: every token's admission returns a 403 country_blocked,
-// the pool cools each down ~15m, records the block for the snapshot, and
-// surfaces the CountryBlockedError (not a generic 502) while remembered.
-func TestAcquireAllCountryBlocked(t *testing.T) {
-	mock0 := testutil.NewMock()
-	defer mock0.Close()
-	mock0.SessionMode = "country_blocked"
-	mock1 := testutil.NewMock()
-	defer mock1.Close()
-	mock1.SessionMode = "country_blocked"
-	p := newTestPool(t, mock0, mock1)
-
-	_, err := p.Acquire(context.Background(), modelA)
-	var cbe *upstream.CountryBlockedError
-	if !errors.As(err, &cbe) {
-		t.Fatalf("want *upstream.CountryBlockedError, got %v", err)
-	}
-	if !errors.Is(err, upstream.ErrCountryBlocked) {
-		t.Errorf("errors.Is(ErrCountryBlocked) = false")
-	}
-
-	// The token cooled down ~15m and the block is recorded in the snapshot
-	// even though the session never admitted (session snapshot is empty).
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.Before(time.Now().Add(14 * time.Minute)) {
-		t.Errorf("cooldown until = %v, want ~now+15m", snap.CooldownUntil)
-	}
-	if snap.CountryCode != "CN" || snap.CountryBlockReason != "region_restricted" {
-		t.Errorf("snapshot country = %q/%q, want CN/region_restricted (remembered block)", snap.CountryCode, snap.CountryBlockReason)
-	}
-
-	// The remembered error keeps surfacing on the cooldown skip, and the
-	// blocked tokens are not re-hit upstream.
-	creates := mock0.SessionCreates + mock1.SessionCreates
-	_, err = p.Acquire(context.Background(), modelA)
-	var cbe2 *upstream.CountryBlockedError
-	if !errors.As(err, &cbe2) {
-		t.Fatalf("second acquire: want *upstream.CountryBlockedError, got %v", err)
-	}
-	if got := mock0.SessionCreates + mock1.SessionCreates; got != creates {
-		t.Errorf("session creates after cooldown = %d, want %d (country-cooled tokens must not re-hit)", got, creates)
 	}
 }
 
@@ -451,11 +360,13 @@ func TestIdleFinishAllRunsHonorsMaintainCtx(t *testing.T) {
 
 // ── Wave 1 issue tests (#81, #77) ───────────────────────────────────────────────────────────────────────
 
-// TestAcquireIpCappedCooldownBounded verifies #81: an ip_capped admission
-// refusal surfaces the distinct IpCappedError and cools the token ONLY until
-// the body's retryAfterMs — never the Pacific-midnight quota lock — and the
-// remembered error keeps surfacing 429 ip_capped during the window.
-func TestAcquireIpCappedCooldownBounded(t *testing.T) {
+// TestAcquireIpCappedSurfacesDistinctError verifies #81: an ip_capped
+// admission refusal surfaces the distinct IpCappedError (never folded into
+// the generic rate-limit bucket) carrying the body's retryAfterMs. MASQ
+// writes no cooldown for it: a correlative egress-IP refusal would hit the
+// same wall on the next account, so there is no failover walk and no
+// cooldown memory — every pass re-tries live and surfaces the same shape.
+func TestAcquireIpCappedSurfacesDistinctError(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -488,50 +399,13 @@ func TestAcquireIpCappedCooldownBounded(t *testing.T) {
 		t.Errorf("RetryAfter = %s, want 45s (bounded to retryAfterMs)", ice.RetryAfter)
 	}
 
-	// Cooldown is bounded to the retry window ±20% jitter (#118), NOT the
-	// Pacific midnight quota lock (which would be many hours away).
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.IsZero() {
-		t.Fatal("CooldownUntil zero, want bounded window")
-	}
-	want := time.Now().Add(45 * time.Second)
-	diff := snap.CooldownUntil.Sub(want)
-	if diff < -11*time.Second || diff > 11*time.Second {
-		t.Errorf("CooldownUntil = %v, want ≈ now+45s ±20%% jitter (bounded), not Pacific midnight", snap.CooldownUntil)
-	}
-
-	// While the window is active, a second acquire surfaces the remembered
-	// ip_capped error (not a generic cooldown 502).
+	// A second acquire re-tries live (no cooldown memory) and surfaces the
+	// same distinct shape, not a generic cooldown 502.
 	_, err = p.Acquire(context.Background(), modelA)
 	var ice2 *upstream.IpCappedError
 	if !errors.As(err, &ice2) {
 		t.Fatalf("second acquire: want *upstream.IpCappedError, got %v", err)
 	}
-}
-
-// TestPoolCooldownTokenIpCappedBounded verifies the pool-level cooldown
-// entry point (used by the server's chat-path recovery) bounds the window
-// to the error's RetryAfter only.
-func TestPoolCooldownTokenIpCappedBounded(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPool(t, mock)
-
-	p.CooldownTokenIpCapped(0, &upstream.IpCappedError{RetryAfter: 30 * time.Second, ActiveUsersForIP: 5, Limit: 4})
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.IsZero() {
-		t.Fatal("CooldownUntil zero, want bounded window")
-	}
-	want := time.Now().Add(30 * time.Second)
-	diff := snap.CooldownUntil.Sub(want)
-	if diff < -8*time.Second || diff > 8*time.Second {
-		t.Errorf("CooldownUntil = %v, want ≈ now+30s ±20%% jitter (bounded), not Pacific midnight", snap.CooldownUntil)
-	}
-
-	// Out-of-range tokens are ignored without panicking.
-	p.CooldownTokenIpCapped(99, &upstream.IpCappedError{RetryAfter: time.Second})
-	p.CooldownTokenIpCapped(-1, &upstream.IpCappedError{RetryAfter: time.Second})
-	p.CooldownTokenIpCapped(0, nil)
 }
 
 // TestSessionPollSkipsWhileChatInFlight verifies #77: the session-liveness
@@ -662,80 +536,5 @@ func TestBanViewDerivation(t *testing.T) {
 	banType, _ = banView(&upstream.BanError{Body: "banned", ResumesAt: expired}, expired)
 	if banType != "" {
 		t.Errorf("expired ban view = %q, want empty", banType)
-	}
-}
-
-func TestSessionIdleEndReleasesSessions(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) { c.SessionIdleEnd = time.Hour }, mock)
-
-	// Prime a session so the sweep has something to release.
-	lease, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-
-	// Below the threshold: a maintain pass must not touch sessions.
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-30 * time.Minute)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 0 {
-		t.Fatalf("session ends below threshold = %d, want 0", mock.SessionEnds)
-	}
-
-	// Past the threshold: one pass releases the upstream session slot.
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-2 * time.Hour)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 1 {
-		t.Fatalf("session ends after idle = %d, want 1", mock.SessionEnds)
-	}
-
-	for range 2 {
-		p.maintainTick(context.Background())
-	}
-	if mock.SessionEnds != 1 {
-		t.Fatalf("session ends after repeat idle passes = %d, want still 1", mock.SessionEnds)
-	}
-
-	// Fresh traffic re-arms the knob: the next idle stretch ends the
-	// re-admitted session exactly once more.
-	lease2, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease2)
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-2 * time.Hour)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 2 {
-		t.Fatalf("session ends after second idle stretch = %d, want 2", mock.SessionEnds)
-	}
-}
-
-func TestSessionIdleEndSkipsCooldownToken(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) { c.SessionIdleEnd = time.Hour }, mock)
-
-	lease, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-	// A cooled-down token keeps its session: an upstream DELETE during
-	// cooldown reads as abuse (same policy as the maintain pass).
-	p.CooldownTokenRateLimit(0, &upstream.RateLimitError{Body: "rate limit", RetryAfter: time.Hour})
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-2 * time.Hour)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 0 {
-		t.Fatalf("session ends during cooldown = %d, want 0", mock.SessionEnds)
 	}
 }

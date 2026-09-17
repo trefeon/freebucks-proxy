@@ -1,25 +1,24 @@
 package server_test
 
 import (
-	"encoding/json"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // prodFreebucksWindowBody is the freebucks-window refusal observed in
 // production on 2026-09-16: the vendor's daily freebucks ceiling. It must be
-// distinguishable end to end — a distinct ledger code in /metrics and the
-// three additive cooldown fields on the tokens payload.
+// distinguishable end to end — a distinct ledger code in /metrics alongside
+// the 429 surface.
 const prodFreebucksWindowBody = `{"status":"rate_limited","accessTier":"limited","model":"deepseek/deepseek-v4-flash","period":"pacific_day","windowHours":24,"resetAt":"2026-09-17T07:00:00.000Z","retryAfterMs":71766587,"freebucksShortfall":{"price":2,"balance":0,"claimable":0}}`
 
-// TestFreebucksWindowSurfacedInMetricsAndHealthz pins both operator surfaces
-// for the prod refusal: /metrics counts it under its own code inside the
-// existing rate_limit_events_total family, and /healthz names the kind, the
-// declared window and the reset instant on the cooling token.
+// TestFreebucksWindowSurfacedInMetricsAndHealthz pins the operator surfaces
+// for the prod refusal: the 429 shape on the chat surface and /metrics
+// counting it under its own code inside the existing
+// rate_limit_events_total family. MASQ writes no cooldown memory, so there
+// are no healthz cooldown fields to assert.
 func TestFreebucksWindowSurfacedInMetricsAndHealthz(t *testing.T) {
 	testutil.UnsetConfigEnv(t)
 	mock := testutil.NewMock()
@@ -45,38 +44,5 @@ func TestFreebucksWindowSurfacedInMetricsAndHealthz(t *testing.T) {
 	metrics := string(data)
 	if want := `freebuff_proxy_rate_limit_events_total{token="1",code="freebucks_window"} 1`; !strings.Contains(metrics, want) {
 		t.Errorf("metrics missing %s in:\n%s", want, metrics)
-	}
-
-	// /healthz: the cooling token states the reason and the lift instant.
-	resp, data = doJSON(t, http.MethodGet, ts.URL+"/healthz", nil, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("healthz status = %d, want 200: %s", resp.StatusCode, data)
-	}
-	var out struct {
-		Tokens []struct {
-			CooldownUntil       string `json:"CooldownUntil"`
-			CooldownKind        string `json:"cooldown_kind"`
-			CooldownResetsAt    string `json:"cooldown_resets_at"`
-			CooldownWindowHours int    `json:"cooldown_window_hours"`
-		} `json:"tokens"`
-	}
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("healthz is not JSON: %v: %s", err, data)
-	}
-	if len(out.Tokens) != 1 {
-		t.Fatalf("healthz tokens = %d, want 1: %s", len(out.Tokens), data)
-	}
-	tok := out.Tokens[0]
-	if tok.CooldownKind != "freebucks_window" {
-		t.Errorf("healthz cooldown_kind = %q, want freebucks_window", tok.CooldownKind)
-	}
-	if tok.CooldownResetsAt != "2026-09-17T07:00:00Z" {
-		t.Errorf("healthz cooldown_resets_at = %q, want 2026-09-17T07:00:00Z", tok.CooldownResetsAt)
-	}
-	if tok.CooldownWindowHours != 24 {
-		t.Errorf("healthz cooldown_window_hours = %d, want 24", tok.CooldownWindowHours)
-	}
-	if tok.CooldownUntil == "" {
-		t.Error("healthz CooldownUntil empty, want the live proxy deadline")
 	}
 }

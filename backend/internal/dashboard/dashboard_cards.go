@@ -3,18 +3,17 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/upstream"
 	"net"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // --- overview ---
@@ -76,10 +75,10 @@ type tokenCard struct {
 	ActiveRuns    int    `json:"active_runs"`
 	Requests      int    `json:"requests"`
 	Messages24h   int    `json:"messages_24h"`
-	// LiveTurns / QueuedWaiters / OldestWaiterMS are the smart-routing
-	// live-turn lane view (TOKEN_MAX_CONCURRENT, route_smart.go): how many
-	// turns hold this account's slot, how many requests are parked on its
-	// FIFO queue, and how long the oldest one has waited. They are the
+	// LiveTurns / QueuedWaiters / OldestWaiterMS are the MASQ slot-ledger
+	// lane view (SLOTS_PER_ACCOUNT, slot_ledger.go): how many turns hold
+	// this account's slots, how many requests are parked on its FIFO
+	// queues, and how long the oldest one has waited. They are the
 	// "saturated vs free" signal the Logs console reads off the payload.
 	LiveTurns      int    `json:"live_turns"`
 	QueuedWaiters  int    `json:"queued_waiters"`
@@ -100,7 +99,7 @@ type tokenCard struct {
 	BanType             string  `json:"ban_type,omitempty"`
 	BannedUntil         string  `json:"banned_until,omitempty"`
 	TransientRetries    int64   `json:"transient_retries"`
-	AllowlistSkips      int64   `json:"allowlist_skips,omitempty"`
+	PinSkips            int64   `json:"pin_skips,omitempty"`
 	HasStanding         bool    `json:"has_standing"`
 	StandingLevel       string  `json:"standing_level"`
 	StandingLabel       string  `json:"standing_label"`
@@ -132,13 +131,13 @@ type tokenCard struct {
 	// Freebucks (issue #232): balance + daily/weekly/monthly windows +
 	// bindingWindow + prices. Nil when the session has not reported it.
 	Freebucks *freebucksCard `json:"freebucks,omitempty"`
-	// AllowedModels is the slot's MODEL_LOCKS allowlist (issue #325); nil
-	// when unlocked. Config-static: rides the full fetch, cached by the SPA.
-	AllowedModels   []string `json:"allowed_models,omitempty"`
-	Streak          int      `json:"streak,omitempty"`
-	TodayUsed       bool     `json:"today_used,omitempty"`
-	LastUsage       string   `json:"last_usage,omitempty"`
-	StreakUpdatedAt string   `json:"streak_updated_at,omitempty"`
+	// PinnedModel is the slot's PIN_MODEL pin; "" when unpinned.
+	// Config-static: rides the full fetch, cached by the SPA.
+	PinnedModel     string `json:"pinned_model,omitempty"`
+	Streak          int    `json:"streak,omitempty"`
+	TodayUsed       bool   `json:"today_used,omitempty"`
+	LastUsage       string `json:"last_usage,omitempty"`
+	StreakUpdatedAt string `json:"streak_updated_at,omitempty"`
 	// Maturity is the streak-maturity automation view (nil until maturity
 	// is first enabled for the token).
 	Maturity *maturityCard `json:"maturity,omitempty"`
@@ -443,20 +442,18 @@ type tokensData struct {
 	HasTokens        bool              `json:"has_tokens"`
 	// UnmeteredModels is the modelcat-derived unlimited-session rows
 	// (issue #342); the SPA falls back to its static list when absent.
-	UnmeteredModels   []unmeteredRow `json:"unmetered_models,omitempty"`
-	TokenRotation     string         `json:"token_rotation,omitempty"`
-	RateLimitFailover bool           `json:"rate_limit_failover"`
-	MaturityEnabled   bool           `json:"maturity_enabled"`
-	// Queue posture (route_smart.go): the authoritative knobs behind the
+	UnmeteredModels []unmeteredRow `json:"unmetered_models,omitempty"`
+	MaturityEnabled bool           `json:"maturity_enabled"`
+	// Queue posture (slot_ledger.go): the authoritative knobs behind the
 	// per-token live_turns/queued_waiters numbers, so the console can label
 	// a queue honestly instead of guessing a cap. queue_wait is the
 	// QUEUE_WAIT duration string, queue_depth the QUEUE_DEPTH bound,
-	// token_max_concurrent the live-turn cap (0 = unlimited) and
-	// routing_smart the master switch (false = the numbers are inert).
-	QueueWait          string `json:"queue_wait"`
-	QueueDepth         int    `json:"queue_depth"`
-	TokenMaxConcurrent int    `json:"token_max_concurrent"`
-	RoutingSmart       bool   `json:"routing_smart"`
+	// slots_per_account the live-turn cap (0 = unlimited) and
+	// max_spill_accounts the spill walk bound (0 = unbounded).
+	QueueWait        string `json:"queue_wait"`
+	QueueDepth       int    `json:"queue_depth"`
+	SlotsPerAccount  int    `json:"slots_per_account"`
+	MaxSpillAccounts int    `json:"max_spill_accounts"`
 	// MaturityWindowStart/End are tonight's maintenance window (the 60
 	// minutes before the Pacific-midnight reset, RFC3339 absolute
 	// instants): the SPA formats the next-run countdown from these, so
@@ -517,24 +514,17 @@ func (d *Dashboard) tokensData() tokensData {
 	cfg := d.cfg()
 	mode := cfg.EffectiveMode()
 	td := tokensData{
-		BridgeTokens:      d.pool.BridgeCount(),
-		TokenCount:        d.pool.TokenCount(),
-		Mode:              mode,
-		InBridge:          mode == "bridge",
-		TokenRotation:     cfg.TokenRotation,
-		RateLimitFailover: cfg.RateLimitFailover,
-		MaturityEnabled:   cfg.MaturityEnabled,
-		// Queue posture: same knobs routeSlotParams resolves for the slot
+		BridgeTokens:    d.pool.BridgeCount(),
+		TokenCount:      d.pool.TokenCount(),
+		Mode:            mode,
+		InBridge:        mode == "bridge",
+		MaturityEnabled: cfg.MaturityEnabled,
+		// Queue posture: same knobs slotParams resolves for the slot
 		// wall, so the console never has to infer the cap.
-		QueueWait:          cfg.QueueWait.String(),
-		QueueDepth:         cfg.QueueDepth,
-		TokenMaxConcurrent: cfg.TokenMaxConcurrent,
-		RoutingSmart:       cfg.RoutingSmart,
-	}
-	wStart, wEnd := d.pool.MaturityWindow()
-	if !wStart.IsZero() && !wEnd.IsZero() {
-		td.MaturityWindowStart = wStart.Format(time.RFC3339)
-		td.MaturityWindowEnd = wEnd.Format(time.RFC3339)
+		QueueWait:        cfg.QueueWait.String(),
+		QueueDepth:       cfg.QueueDepth,
+		SlotsPerAccount:  cfg.SlotsPerAccount,
+		MaxSpillAccounts: cfg.MaxSpillAccounts,
 	}
 	// client cards. Pure bridge hides the (empty) pooled table; pure pooled
 	// has no bridge cards.
@@ -676,20 +666,18 @@ type tokenLiveDetail struct {
 
 // tokensLiveData is the hot-poll subset of tokensData: live numbers only.
 type tokensLiveData struct {
-	BridgeTokens      int               `json:"bridge_tokens"`
-	BridgeTokenCards  []bridgeTokenCard `json:"bridge_token_cards,omitempty"`
-	TokenCount        int               `json:"token_count"`
-	Tokens            []tokenLiveDetail `json:"tokens"`
-	HasTokens         bool              `json:"has_tokens"`
-	TokenRotation     string            `json:"token_rotation,omitempty"`
-	RateLimitFailover bool              `json:"rate_limit_failover"`
-	MaturityEnabled   bool              `json:"maturity_enabled"`
+	BridgeTokens     int               `json:"bridge_tokens"`
+	BridgeTokenCards []bridgeTokenCard `json:"bridge_token_cards,omitempty"`
+	TokenCount       int               `json:"token_count"`
+	Tokens           []tokenLiveDetail `json:"tokens"`
+	HasTokens        bool              `json:"has_tokens"`
+	MaturityEnabled  bool              `json:"maturity_enabled"`
 	// Queue posture, mirroring tokensData: the live poll must not drop the
 	// knobs the console labels the queue with.
-	QueueWait          string `json:"queue_wait"`
-	QueueDepth         int    `json:"queue_depth"`
-	TokenMaxConcurrent int    `json:"token_max_concurrent"`
-	RoutingSmart       bool   `json:"routing_smart"`
+	QueueWait        string `json:"queue_wait"`
+	QueueDepth       int    `json:"queue_depth"`
+	SlotsPerAccount  int    `json:"slots_per_account"`
+	MaxSpillAccounts int    `json:"max_spill_accounts"`
 }
 
 // tokensLiveData builds the 10s hot-poll payload directly from pool
@@ -700,15 +688,13 @@ func (d *Dashboard) tokensLiveData() tokensLiveData {
 	cfg := d.cfg()
 	mode := cfg.EffectiveMode()
 	live := tokensLiveData{
-		BridgeTokens:       d.pool.BridgeCount(),
-		TokenCount:         d.pool.TokenCount(),
-		TokenRotation:      cfg.TokenRotation,
-		RateLimitFailover:  cfg.RateLimitFailover,
-		MaturityEnabled:    cfg.MaturityEnabled,
-		QueueWait:          cfg.QueueWait.String(),
-		QueueDepth:         cfg.QueueDepth,
-		TokenMaxConcurrent: cfg.TokenMaxConcurrent,
-		RoutingSmart:       cfg.RoutingSmart,
+		BridgeTokens:     d.pool.BridgeCount(),
+		TokenCount:       d.pool.TokenCount(),
+		MaturityEnabled:  cfg.MaturityEnabled,
+		QueueWait:        cfg.QueueWait.String(),
+		QueueDepth:       cfg.QueueDepth,
+		SlotsPerAccount:  cfg.SlotsPerAccount,
+		MaxSpillAccounts: cfg.MaxSpillAccounts,
 	}
 	showBridge := mode == "bridge" || mode == "hybrid"
 	live.BridgeTokenCards = d.bridgeCards(showBridge)

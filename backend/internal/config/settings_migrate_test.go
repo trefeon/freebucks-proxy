@@ -49,7 +49,7 @@ func TestEffectiveOverlayRoundTrip(t *testing.T) {
 		"AUTO_DISCOVER_TOKEN":  "false",
 		"BRIDGE_ENABLED":       "false",
 		"MODELS_ALLOW":         "deepseek/deepseek-v4-flash",
-		"MODEL_LOCKS":          "0:z-ai/glm-5.2",
+		"PIN_MODEL":            "0:z-ai/glm-5.2",
 		"REASONING_IN_CONTENT": "thinking",
 		"RATE_LIMIT_PER_IP":    "2.5",
 	}

@@ -5,6 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -12,15 +16,12 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
-const agentA = "agent-alpha"
-const agentB = "agent-beta"
+const (
+	agentA = "agent-alpha"
+	agentB = "agent-beta"
+)
 
 // newTestManager wires the mock upstream through a real client and session
 // manager.
@@ -195,11 +196,11 @@ func TestCooldownBlocksAcquire(t *testing.T) {
 	if _, err := mgr.Acquire(context.Background(), agentA); err != nil {
 		t.Fatal(err)
 	}
-	mgr.Cooldown(DefaultCooldown)
+	mgr.Cooldown(30 * time.Minute)
 
 	until := mgr.CooldownUntil()
-	if until.Before(time.Now().Add(DefaultCooldown - time.Second)) {
-		t.Errorf("CooldownUntil = %v, want ~now+%s", until, DefaultCooldown)
+	if until.Before(time.Now().Add(30*time.Minute - time.Second)) {
+		t.Errorf("CooldownUntil = %v, want ~now+%s", until, 30*time.Minute)
 	}
 	if snap := mgr.Snapshot(); snap.CooldownUntil != until {
 		t.Errorf("snapshot CooldownUntil = %v, want %v", snap.CooldownUntil, until)
@@ -457,6 +458,7 @@ func (e *atomicError) get() error {
 	defer e.mu.Unlock()
 	return e.err
 }
+
 func TestFinishAllRuns(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -560,6 +562,7 @@ func TestCountryBlockDoesNotDowngradeBan(t *testing.T) {
 		t.Errorf("CountryBlockedError() != nil, country must not overwrite an active ban")
 	}
 }
+
 func TestInvalidateRun(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -732,48 +735,33 @@ func TestClearCooldowns(t *testing.T) {
 	}
 }
 
-// TestCooldownDeadlineCeiling pins the defensive deadline cap: a huge
-// upstream RetryAfter or a far-future ResetAt must park the token in a
-// cooldown no farther than cooldownCeiling (7 days) instead of years.
+// TestCooldownDeadlineCeiling pins the pass-through deadline rule: an
+// upstream RetryAfter or far-future ResetAt lands on the token verbatim
+// (no truncation to a small default, no wrap on absurd input — the
+// upstream parse already saturates at the largest representable
+// duration, so what runs receives always fits).
 func TestCooldownDeadlineCeiling(t *testing.T) {
 	m := NewRunManager(nil, nil, time.Hour)
 
-	t.Run("huge RetryAfter", func(t *testing.T) {
+	t.Run("huge RetryAfter passes through", func(t *testing.T) {
 		m.ClearCooldowns()
 		m.CooldownRateLimit(&upstream.RateLimitError{RetryAfter: 1000 * 24 * time.Hour})
 		until := m.CooldownUntil()
 		now := time.Now()
-		// Capped at the 7-day ceiling — not the 1000-day RetryAfter, not
-		// a wrapped negative deadline.
-		if until.Before(now) || until.After(now.Add(cooldownCeiling)) {
-			t.Errorf("CooldownUntil = %v, want within %v of now", until, cooldownCeiling)
-		}
-		// At the ceiling (not truncated to some small default): the cap
-		// must land at ~7d for an absurd input.
-		if until.Before(now.Add(6 * 24 * time.Hour)) {
-			t.Errorf("CooldownUntil = %v, want ~%v (at the ceiling, not a short default)", until, cooldownCeiling)
+		// No truncation to a short default and no wrap to a
+		// past/near deadline: the window stays ~1000d out.
+		if until.Before(now.Add(900 * 24 * time.Hour)) {
+			t.Errorf("CooldownUntil = %v, want ~1000d out (pass-through, not truncated/wrapped)", until)
 		}
 	})
 
-	t.Run("far-future ResetAt", func(t *testing.T) {
+	t.Run("far-future ResetAt passes through", func(t *testing.T) {
 		m.ClearCooldowns()
 		m.CooldownRateLimit(&upstream.RateLimitError{ResetAt: time.Now().Add(500 * 24 * time.Hour)})
 		until := m.CooldownUntil()
 		now := time.Now()
-		if until.Before(now) || until.After(now.Add(cooldownCeiling)) {
-			t.Errorf("CooldownUntil = %v, want within %v of now", until, cooldownCeiling)
-		}
-		if until.Before(now.Add(6 * 24 * time.Hour)) {
-			t.Errorf("CooldownUntil = %v, want ~%v (at the ceiling, not the far-future ResetAt)", until, cooldownCeiling)
-		}
-	})
-
-	t.Run("ip_capped RetryAfter capped with jitter", func(t *testing.T) {
-		m.ClearCooldowns()
-		m.CooldownIpCapped(&upstream.IpCappedError{RetryAfter: 10 * 24 * time.Hour})
-		until := m.CooldownUntil()
-		if until.After(time.Now().Add(cooldownCeiling)) {
-			t.Errorf("CooldownUntil = %v, want within %v of now", until, cooldownCeiling)
+		if until.Before(now.Add(400*24*time.Hour)) || until.After(now.Add(600*24*time.Hour)) {
+			t.Errorf("CooldownUntil = %v, want ~500d out (the far-future ResetAt)", until)
 		}
 	})
 
@@ -786,123 +774,6 @@ func TestCooldownDeadlineCeiling(t *testing.T) {
 			t.Errorf("CooldownUntil = %v, want ~5m from now (unchanged)", until)
 		}
 	})
-}
-
-// TestCooldownIpCappedCapsReAdmits pins #118: the CLI treats ip_capped as
-// terminal-until-reset (never an automatic re-admission loop), so the
-// proxy's CooldownIpCapped honors the FULL retryAfterMs (+jitter) for the
-// first refusals of a Pacific day, then locks the token until the next
-// Pacific midnight after maxIpCappedReAdmitsPerDay — with the remembered
-// error's Retry-After reflecting the remaining window.
-func TestCooldownIpCappedCapsReAdmits(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mgr, _ := newTestManager(t, mock, time.Hour)
-
-	ice := &upstream.IpCappedError{ActiveUsersForIP: 8, Limit: 6, RetryAfter: 60 * time.Second, Body: `{"status":"ip_capped"}`}
-
-	// Refusals 1..max-1: bounded window = full retryAfterMs + jitter (the
-	// jitter only ever extends the window, never shrinks it).
-	for i := 1; i < maxIpCappedReAdmitsPerDay; i++ {
-		mgr.CooldownIpCapped(ice)
-		until := mgr.CooldownUntil()
-		if !time.Now().Before(until) {
-			t.Fatalf("refusal %d: cooldown already expired, want now+retryAfter(+jitter)", i)
-		}
-		if time.Until(until) < ice.RetryAfter-time.Second {
-			t.Errorf("refusal %d: window %v shorter than retryAfterMs %v (jitter must not shrink it)",
-				i, time.Until(until), ice.RetryAfter)
-		}
-		if got := mgr.IpCappedError(); got == nil || got.RetryAfter != 60*time.Second {
-			t.Errorf("refusal %d: IpCappedError = %+v, want remembered original window", i, got)
-		}
-	}
-
-	// Budget exhausted: terminal until the next Pacific midnight.
-	mgr.CooldownIpCapped(ice)
-	want := upstream.NextPacificMidnight()
-	if until := mgr.CooldownUntil(); until.Sub(want) > time.Second || want.Sub(until) > time.Second {
-		t.Errorf("terminal lock until = %v, want ~Pacific midnight %v", until, want)
-	}
-	got := mgr.IpCappedError()
-	if got == nil {
-		t.Fatal("IpCappedError() = nil after budget exhausted, want remembered terminal error")
-		return
-	}
-	// The remembered error surfaces the REMAINING window to midnight. Near
-	// Pacific midnight that window is legitimately short — the suite can
-	// run across the boundary — so assert it matches the actual window
-	// (within test-execution drift) instead of a fixed floor.
-	if got.RetryAfter <= 0 {
-		t.Fatal("terminal RetryAfter = 0, want the remaining window to midnight")
-	}
-	if d := got.RetryAfter - time.Until(want); d > 2*time.Second || d < -2*time.Second {
-		t.Errorf("terminal RetryAfter = %v, want the remaining window to midnight (~%v)", got.RetryAfter, time.Until(want))
-	}
-
-	// Further refusals the same day must not move the lock (no re-admit loop).
-	first := mgr.CooldownUntil()
-	mgr.CooldownIpCapped(ice)
-	if until := mgr.CooldownUntil(); !until.Equal(first) {
-		t.Errorf("terminal lock moved on extra refusal: %v -> %v", first, until)
-	}
-
-	// Acquire skips the token during the terminal window (shared cooldown).
-	if _, err := mgr.Acquire(context.Background(), agentA); err == nil {
-		t.Error("Acquire during terminal ip_capped lock succeeded, want skip error")
-	}
-
-	// Pacific day rollover resets the budget: the next refusal gets a
-	// bounded window again instead of staying locked.
-	mgr.mu.Lock()
-	mgr.ipCappedDayReset = time.Time{} // force the "new day" branch
-	mgr.mu.Unlock()
-	mgr.CooldownIpCapped(ice)
-	until := mgr.CooldownUntil()
-	if until.Equal(want) {
-		t.Fatal("lock did not lift on the new Pacific day")
-	}
-	if !time.Now().Before(until) || time.Until(until) > ice.RetryAfter+2*time.Minute {
-		t.Errorf("post-reset window = %v, want now+retryAfterMs(+jitter)", time.Until(until))
-	}
-
-	// ClearCooldowns (dashboard unlock) resets the budget too.
-	mgr.CooldownIpCapped(ice)
-	mgr.CooldownIpCapped(ice)
-	mgr.CooldownIpCapped(ice)
-	if !time.Now().Before(mgr.CooldownUntil()) {
-		t.Fatal("expected terminal lock before ClearCooldowns")
-	}
-	mgr.ClearCooldowns()
-	mgr.CooldownIpCapped(ice)
-	if until := mgr.CooldownUntil(); !time.Now().Before(until) || time.Until(until) > ice.RetryAfter+2*time.Minute {
-		t.Errorf("post-ClearCooldowns window = %v, want bounded window (budget reset)", time.Until(until))
-	}
-}
-
-// TestIpCappedZeroJitterNoPanic pins the integrate fix: a zero jitter ratio
-// (COOLDOWN_IP_JITTER_RATIO=0 disables jitter, or a zero-value test config
-// pushed through SetCooldownTuning) must degrade to a jitter-free window,
-// never an integer divide-by-zero in the modulo below.
-func TestIpCappedZeroJitterNoPanic(t *testing.T) {
-	prev := ipCappedCooldownJitter
-	defer func() { ipCappedCooldownJitter = prev }()
-	SetCooldownTuning(0, 0, 0, 0, 0)
-	if got := ipCappedJitter(5 * time.Minute); got != 0 {
-		t.Errorf("ipCappedJitter(5m) with ratio 0 = %v, want 0 (jitter disabled)", got)
-	}
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mgr, _ := newTestManager(t, mock, time.Hour)
-	ice := &upstream.IpCappedError{RetryAfter: 5 * time.Minute, Body: `{"status":"ip_capped"}`}
-	mgr.CooldownIpCapped(ice) // panicked pre-fix: u % uint64(5m*0)
-	until := mgr.CooldownUntil()
-	if !time.Now().Before(until) {
-		t.Fatal("cooldown already expired with jitter disabled, want now+retryAfterMs")
-	}
-	if time.Until(until) > ice.RetryAfter+time.Second {
-		t.Errorf("window %v exceeds retryAfterMs %v with jitter disabled", time.Until(until), ice.RetryAfter)
-	}
 }
 
 func TestSingleFlightRunAcquisition(t *testing.T) {

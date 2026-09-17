@@ -251,8 +251,16 @@ test.describe("real-world data", () => {
     // The pack must describe the live catalog: these pool rows render from
     // config-meta, and the superseded pack hid them (or lacked the key), so
     // these assertions fail when the pack drifts again.
+    // QUOTA_AUTO_PROBE was excised with the Fase E prober removal, so the
+    // MASQ queue-posture rows stand in as the catalog-rendered pool proof.
     await expect(
-      page.getByText("QUOTA_AUTO_PROBE", { exact: true }),
+      page.getByText("SLOTS_PER_ACCOUNT", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("QUEUE_WAIT", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("QUEUE_DEPTH", { exact: true }).first(),
     ).toBeVisible();
     await expect(
       page.getByText("RATE_LIMIT_BURST", { exact: true }),

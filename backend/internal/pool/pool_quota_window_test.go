@@ -10,16 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/notify"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestTemporaryBanQuarantineLiftsAfterResumesAt pins the lift-aware
@@ -209,7 +208,7 @@ func TestQuotaStateWindowSemantics(t *testing.T) {
 			if tc.quota != nil {
 				(*toks)[0].session.UpdateQuotaFromProbe(&upstream.SessionState{RateLimitsByModel: tc.quota})
 			}
-			order, limited := p.acquireOrder(toks, 0, tc.model)
+			order, limited := p.spillOrder(toks, tc.model)
 			if len(limited) != 0 {
 				t.Errorf("%s: quotaLimited = %v, want empty (counts never gate)", tc.name, limited)
 			}
@@ -323,8 +322,10 @@ func TestMismatchEscalationModelUsesRefusedModel(t *testing.T) {
 	p.SetNotifier(notify.New(srv.URL, nil))
 
 	// Model carried in the body: the event must carry it, indexed 1-based.
-	rle := &upstream.RateLimitError{Status: "free_mode_invalid_agent_model", Model: modelA,
-		RetryAfter: upstream.InvalidModelCooldown}
+	rle := &upstream.RateLimitError{
+		Status: "free_mode_invalid_agent_model", Model: modelA,
+		RetryAfter: time.Minute,
+	}
 	p.recordMismatchEscalation(1, rle)
 	p.recordMismatchEscalation(1, rle)
 	p.recordMismatchEscalation(1, rle)
@@ -366,12 +367,18 @@ func TestMismatchEscalationModelUsesRefusedModel(t *testing.T) {
 	}))
 	defer srv2.Close()
 	p.SetNotifier(notify.New(srv2.URL, nil))
-	p.recordMismatchEscalation(2, &upstream.RateLimitError{Status: "free_mode_invalid_agent_model",
-		RetryAfter: upstream.InvalidModelCooldown})
-	p.recordMismatchEscalation(2, &upstream.RateLimitError{Status: "free_mode_invalid_agent_model",
-		RetryAfter: upstream.InvalidModelCooldown})
-	p.recordMismatchEscalation(2, &upstream.RateLimitError{Status: "free_mode_invalid_agent_model",
-		RetryAfter: upstream.InvalidModelCooldown})
+	p.recordMismatchEscalation(2, &upstream.RateLimitError{
+		Status:     "free_mode_invalid_agent_model",
+		RetryAfter: time.Minute,
+	})
+	p.recordMismatchEscalation(2, &upstream.RateLimitError{
+		Status:     "free_mode_invalid_agent_model",
+		RetryAfter: time.Minute,
+	})
+	p.recordMismatchEscalation(2, &upstream.RateLimitError{
+		Status:     "free_mode_invalid_agent_model",
+		RetryAfter: time.Minute,
+	})
 	testutil.WaitFor(t, 3*time.Second, func() bool {
 		return gotModel.Load().(string) == "free_mode_invalid_agent_model"
 	}, "code-fallback webhook never posted a model")

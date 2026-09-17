@@ -10,11 +10,6 @@ package dashboard_test
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/dashboard"
 	"freebuff-proxy/backend/internal/pool"
@@ -22,6 +17,10 @@ import (
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
 )
 
 // queueTelemetryServer mounts the tokens JSON handlers over one pooled token
@@ -39,11 +38,9 @@ func queueTelemetryServer(t *testing.T) (*httptest.Server, *pool.Pool) {
 		SessionCallTimeout: 5 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    mock.URL(),
-		RoutingSmart:       true,
-		TokenMaxConcurrent: 1,
+		SlotsPerAccount:    1,
 		QueueWait:          30 * time.Second,
 		QueueDepth:         16,
-		TokenRotation:      "drain",
 	}
 	client, err := upstream.New("tok-queue-0", cfg)
 	if err != nil {
@@ -92,11 +89,11 @@ func TestTokensPayloadCarriesQueueTelemetry(t *testing.T) {
 		if got := body["queue_depth"]; got != float64(16) {
 			t.Errorf("%s: queue_depth = %v, want 16", url, got)
 		}
-		if got := body["token_max_concurrent"]; got != float64(1) {
-			t.Errorf("%s: token_max_concurrent = %v, want 1", url, got)
+		if got := body["slots_per_account"]; got != float64(1) {
+			t.Errorf("%s: slots_per_account = %v, want 1", url, got)
 		}
-		if got := body["routing_smart"]; got != true {
-			t.Errorf("%s: routing_smart = %v, want true", url, got)
+		if got := body["max_spill_accounts"]; got != float64(0) {
+			t.Errorf("%s: max_spill_accounts = %v, want 0", url, got)
 		}
 		card := firstTokenCard(t, body)
 		for _, key := range []string{"live_turns", "queued_waiters", "oldest_waiter_ms"} {

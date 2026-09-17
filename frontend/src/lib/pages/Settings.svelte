@@ -246,7 +246,7 @@
     <EmptyState
       title={$tr('No settings match "{q}"', { q: filterQuery.trim() })}
       description={$tr(
-        "Try a key name like TOKEN_ROTATION, or clear the search to see all sections.",
+        "Try a key name like PIN_MODEL, or clear the search to see all sections.",
       )}
     >
       {#snippet action()}

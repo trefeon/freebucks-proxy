@@ -18,13 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
-
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // shutdownTimeout bounds Shutdown when the caller passes a context without a
@@ -126,23 +125,6 @@ type RunManager struct {
 	// during the window (mirrors the rate-limit/ban memory).
 	countryBlock *upstream.CountryBlockedError
 	countryUntil time.Time
-	// ipCapped is the last ip_capped admission refusal applied to this
-	// token's cooldown. Surfaced by IpCappedError() during its short window
-	// (mirrors rateLimit) so an IP-capped token keeps returning 429
-	// ip_capped + Retry-After instead of a generic cooldown 502.
-	ipCapped      *upstream.IpCappedError
-	ipCappedUntil time.Time
-	// ipCappedReAdmits counts how many times this token has been refused
-	// ip_capped during the current Pacific day (issue #118): after
-	// maxIpCappedReAdmitsPerDay refusals the token is locked until the
-	// next Pacific midnight instead of re-admitting in a pacing loop.
-	// Guarded by mu.
-	ipCappedReAdmits int
-	// ipCappedDayReset is the Pacific midnight that ends the day
-	// ipCappedReAdmits was counted in (upstream.NextPacificMidnight at the
-	// first refusal that day); a new midnight resets the budget. Guarded
-	// by mu.
-	ipCappedDayReset time.Time
 	// totalRequests is the cumulative count of Acquire leases handed out.
 	// It is kept separate from the per-run counters because rotated runs
 	// that get FINISHed leave the active+draining sets and would otherwise

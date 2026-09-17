@@ -12,14 +12,13 @@ package pool
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // newBridgeSmartPool is newBridgePool with the smart-routing knobs applied
@@ -31,11 +30,9 @@ func newBridgeSmartPool(t *testing.T, mut func(*config.Config), mock *testutil.M
 	t.Helper()
 	p := newBridgePool(t, mock)
 	cfg := *p.cfg.Load()
-	cfg.RoutingSmart = true
-	cfg.TokenMaxConcurrent = 2
+	cfg.SlotsPerAccount = 2
 	cfg.QueueWait = 30 * time.Second
 	cfg.QueueDepth = 16
-	cfg.TokenRotation = "drain"
 	if mut != nil {
 		mut(&cfg)
 	}
@@ -76,7 +73,7 @@ func TestBridgeSlotCapHoldsUnderContention(t *testing.T) {
 	if first.routeSlot == nil || second.routeSlot == nil {
 		t.Fatal("granted bridge lease carries no live-turn slot")
 	}
-	if got := p.routeSlotLive(entry); got != 2 {
+	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 2 {
 		t.Fatalf("live slots = %d, want 2", got)
 	}
 
@@ -85,8 +82,8 @@ func TestBridgeSlotCapHoldsUnderContention(t *testing.T) {
 		lease, err := p.AcquireBridge(context.Background(), token, modelA)
 		thirdCh <- acquireResult{lease, err}
 	}()
-	eventually(t, "third bridge acquire parks", func() bool { return p.routeSlotQueued(entry) == 1 })
-	if got := p.routeSlotLive(entry); got != 2 {
+	eventually(t, "third bridge acquire parks", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
+	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 2 {
 		t.Fatalf("live slots while parked = %d, want 2 (never a third live turn)", got)
 	}
 	select {
@@ -109,12 +106,12 @@ func TestBridgeSlotCapHoldsUnderContention(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("third acquire never woke after release")
 	}
-	if got := p.routeSlotLive(entry); got != 2 {
+	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 2 {
 		t.Errorf("live slots after grant = %d, want 2", got)
 	}
 	p.LeaseRelease(second)
 	p.LeaseRelease(third)
-	eventually(t, "slots drain", func() bool { return p.routeSlotLive(entry) == 0 })
+	eventually(t, "slots drain", func() bool { return p.slotLive(slotKey{entry: entry, model: modelA}) == 0 })
 	p.routeMu.Lock()
 	lanes := len(p.routeSlots)
 	p.routeMu.Unlock()
@@ -130,7 +127,7 @@ func TestBridgeSlotCapHoldsUnderContention(t *testing.T) {
 func TestBridgeSlotFIFOOrder(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newBridgeSmartPool(t, func(c *config.Config) { c.TokenMaxConcurrent = 1 }, mock)
+	p := newBridgeSmartPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
 	const token = "bridge-slot-fifo"
 	entry := bridgeLane(t, p, token)
 
@@ -143,14 +140,14 @@ func TestBridgeSlotFIFOOrder(t *testing.T) {
 		lease, err := p.AcquireBridge(context.Background(), token, modelA)
 		aCh <- acquireResult{lease, err}
 	}()
-	eventually(t, "waiter A parks", func() bool { return p.routeSlotQueued(entry) == 1 })
+	eventually(t, "waiter A parks", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
 	bCh := make(chan acquireResult, 1)
 	go func() {
 		lease, err := p.AcquireBridge(context.Background(), token, modelA)
 		bCh <- acquireResult{lease, err}
 	}()
-	eventually(t, "waiter B parks behind A", func() bool { return p.routeSlotQueued(entry) == 2 })
-	if got := p.routeSlotLive(entry); got != 1 {
+	eventually(t, "waiter B parks behind A", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 2 })
+	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 1 {
 		t.Fatalf("live slots with two waiters = %d, want 1", got)
 	}
 
@@ -170,7 +167,7 @@ func TestBridgeSlotFIFOOrder(t *testing.T) {
 		t.Fatalf("waiter B granted before A released: %v %v", r.lease, r.err)
 	default:
 	}
-	if got := p.routeSlotQueued(entry); got != 1 {
+	if got := p.slotQueued(slotKey{entry: entry, model: modelA}); got != 1 {
 		t.Fatalf("queued after A's grant = %d, want 1 (B still parked)", got)
 	}
 	p.LeaseRelease(leaseA)
@@ -183,7 +180,7 @@ func TestBridgeSlotFIFOOrder(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("waiter B never granted after A released")
 	}
-	eventually(t, "slots drain", func() bool { return p.routeSlotLive(entry) == 0 })
+	eventually(t, "slots drain", func() bool { return p.slotLive(slotKey{entry: entry, model: modelA}) == 0 })
 }
 
 // TestBridgeSlotQueueWaitExpiry proves a parked bridge waiter surfaces the
@@ -193,7 +190,7 @@ func TestBridgeSlotQueueWaitExpiry(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newBridgeSmartPool(t, func(c *config.Config) {
-		c.TokenMaxConcurrent = 1
+		c.SlotsPerAccount = 1
 		c.QueueWait = 120 * time.Millisecond
 	}, mock)
 	const token = "bridge-slot-wait"
@@ -219,10 +216,10 @@ func TestBridgeSlotQueueWaitExpiry(t *testing.T) {
 	if rle.RetryAfter <= 0 {
 		t.Error("expiry 429 carries no Retry-After hint")
 	}
-	if got := p.routeSlotLive(entry); got != 1 {
+	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 1 {
 		t.Errorf("live slots after expiry = %d, want 1 (holder keeps its slot)", got)
 	}
-	if got := p.routeSlotQueued(entry); got != 0 {
+	if got := p.slotQueued(slotKey{entry: entry, model: modelA}); got != 0 {
 		t.Errorf("queued after expiry = %d, want 0 (the waiter dequeued)", got)
 	}
 }
@@ -234,7 +231,7 @@ func TestBridgeSlotQueueOverflow429(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newBridgeSmartPool(t, func(c *config.Config) {
-		c.TokenMaxConcurrent = 1
+		c.SlotsPerAccount = 1
 		c.QueueDepth = 1
 	}, mock)
 	const token = "bridge-slot-overflow"
@@ -249,7 +246,7 @@ func TestBridgeSlotQueueOverflow429(t *testing.T) {
 		lease, err := p.AcquireBridge(context.Background(), token, modelA)
 		parkedCh <- acquireResult{lease, err}
 	}()
-	eventually(t, "waiter parks", func() bool { return p.routeSlotQueued(entry) == 1 })
+	eventually(t, "waiter parks", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
 
 	_, err = p.AcquireBridge(context.Background(), token, modelA)
 	if err == nil {
@@ -262,7 +259,7 @@ func TestBridgeSlotQueueOverflow429(t *testing.T) {
 	if !strings.Contains(rle.Body, "queue full") {
 		t.Errorf("overflow body = %q, want queue-full wording", rle.Body)
 	}
-	if got := p.routeSlotLive(entry); got != 1 {
+	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 1 {
 		t.Errorf("live slots after overflow = %d, want 1 (the loser took nothing)", got)
 	}
 	select {
@@ -281,7 +278,7 @@ func TestBridgeSlotQueueOverflow429(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("parked waiter never granted after release")
 	}
-	eventually(t, "slots drain", func() bool { return p.routeSlotLive(entry) == 0 })
+	eventually(t, "slots drain", func() bool { return p.slotLive(slotKey{entry: entry, model: modelA}) == 0 })
 }
 
 // TestBridgeSlotReleaseOnErrorPaths proves the slot never leaks when a
@@ -306,10 +303,10 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 		if _, err := p.AcquireBridge(context.Background(), token, modelA); err == nil {
 			t.Fatal("acquire succeeded against a failing admission, want an error")
 		}
-		if got := p.routeSlotLive(entry); got != 0 {
+		if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 0 {
 			t.Errorf("live slots after admission error = %d, want 0 (slot released)", got)
 		}
-		if got := p.routeSlotQueued(entry); got != 0 {
+		if got := p.slotQueued(slotKey{entry: entry, model: modelA}); got != 0 {
 			t.Errorf("queued after admission error = %d, want 0", got)
 		}
 	})
@@ -318,7 +315,7 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
 		p := newBridgeSmartPool(t, func(c *config.Config) {
-			c.TokenMaxConcurrent = 1
+			c.SlotsPerAccount = 1
 		}, mock)
 		const token = "bridge-slot-nocap"
 		entry := bridgeLane(t, p, token)
@@ -328,7 +325,7 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 			t.Fatal(err)
 		}
 		p.LeaseRelease(lease)
-		if got := p.routeSlotLive(entry); got != 0 {
+		if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 0 {
 			t.Fatalf("live slots after release = %d, want 0", got)
 		}
 		lease2, err := p.AcquireBridge(context.Background(), token, modelA)
@@ -336,7 +333,7 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 			t.Fatalf("second acquire err = %v, want success (no local caps remain)", err)
 		}
 		p.LeaseRelease(lease2)
-		if got := p.routeSlotLive(entry); got != 0 {
+		if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 0 {
 			t.Errorf("live slots after second release = %d, want 0 (slot released)", got)
 		}
 	})
@@ -344,7 +341,7 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 	t.Run("cancelled ctx while parked", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
-		p := newBridgeSmartPool(t, func(c *config.Config) { c.TokenMaxConcurrent = 1 }, mock)
+		p := newBridgeSmartPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
 		const token = "bridge-slot-cancel"
 		entry := bridgeLane(t, p, token)
 
@@ -358,7 +355,7 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 			_, err := p.AcquireBridge(ctx, token, modelA)
 			waitErr <- err
 		}()
-		eventually(t, "waiter parks", func() bool { return p.routeSlotQueued(entry) == 1 })
+		eventually(t, "waiter parks", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
 		cancel()
 		select {
 		case err := <-waitErr:
@@ -368,72 +365,13 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("cancelled waiter never returned")
 		}
-		if got := p.routeSlotQueued(entry); got != 0 {
+		if got := p.slotQueued(slotKey{entry: entry, model: modelA}); got != 0 {
 			t.Errorf("queued after cancel = %d, want 0", got)
 		}
-		if got := p.routeSlotLive(entry); got != 1 {
+		if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 1 {
 			t.Errorf("live slots after cancel = %d, want 1 (holder untouched)", got)
 		}
 		p.LeaseRelease(holder)
-		eventually(t, "slots drain", func() bool { return p.routeSlotLive(entry) == 0 })
+		eventually(t, "slots drain", func() bool { return p.slotLive(slotKey{entry: entry, model: modelA}) == 0 })
 	})
-}
-
-// TestBridgeSlotSmartOffKeepsSingleFlight proves ROUTING_SMART=false leaves
-// bridge exactly as it was: no slot gating (a second concurrent acquire is
-// not parked by TOKEN_MAX_CONCURRENT=1), no slot state, no permit on the
-// lease, and the per-entry admission single-flight still admits the session
-// once for both callers.
-func TestBridgeSlotSmartOffKeepsSingleFlight(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgeSmartPool(t, func(c *config.Config) {
-		c.RoutingSmart = false
-		c.TokenMaxConcurrent = 1
-	}, mock)
-	const token = "bridge-slot-off"
-	entry := bridgeLane(t, p, token)
-
-	type result struct {
-		lease *Lease
-		err   error
-	}
-	const n = 3
-	results := make(chan result, n)
-	for range n {
-		go func() {
-			lease, err := p.AcquireBridge(context.Background(), token, modelA)
-			results <- result{lease, err}
-		}()
-	}
-	leases := make([]*Lease, 0, n)
-	for range n {
-		select {
-		case r := <-results:
-			if r.err != nil {
-				t.Fatalf("off-path acquire err = %v, want success (no slot gating)", r.err)
-			}
-			if r.lease.routeSlot != nil {
-				t.Error("off-path bridge lease carries a slot permit")
-			}
-			leases = append(leases, r.lease)
-		case <-time.After(5 * time.Second):
-			t.Fatal("off-path acquire never returned (slot gating still active)")
-		}
-	}
-	if got := p.routeSlotLive(entry); got != 0 {
-		t.Errorf("off-path live slots = %d, want 0 (nothing tracked)", got)
-	}
-	p.routeMu.Lock()
-	lanes := len(p.routeSlots)
-	p.routeMu.Unlock()
-	if lanes != 0 {
-		t.Errorf("off-path slot lanes = %d, want 0", lanes)
-	}
-	if mock.SessionCreates != 1 {
-		t.Errorf("session creates = %d, want 1 (per-entry single-flight preserved)", mock.SessionCreates)
-	}
-	for _, lease := range leases {
-		p.LeaseRelease(lease)
-	}
 }

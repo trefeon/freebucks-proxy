@@ -72,7 +72,12 @@ func TestPoolSnapshotQuotaByModel(t *testing.T) {
 	}
 }
 
-func TestAcquireRateLimitCooldowns(t *testing.T) {
+// TestAcquireRateLimitRetryAfterShape pins the admission 429 shape: a
+// quota-capped token surfaces the upstream RetryAfter verbatim on every
+// pass. MASQ writes no cooldown for the refusal (a short window requeues
+// same-lane; a long one is re-derived live), so there is no CooldownUntil
+// to assert — only the stable client-visible 429.
+func TestAcquireRateLimitRetryAfterShape(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.RateLimit = true
@@ -90,13 +95,8 @@ func TestAcquireRateLimitCooldowns(t *testing.T) {
 		t.Errorf("quota = %v/%v, want 3/3.6", rle.RecentCount, rle.Limit)
 	}
 
-	// The token cooled down for the upstream retry window, so subsequent
-	// acquires skip it AND still surface the remembered 429 (not a generic
-	// combined error) — the client keeps getting Retry-After.
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.Before(time.Now().Add(13 * time.Hour)) {
-		t.Errorf("cooldown until = %v, want ~now+13.5h", snap.CooldownUntil)
-	}
+	// A second acquire surfaces the same 429 (not a generic combined
+	// error) — the client keeps getting Retry-After.
 	_, err = p.Acquire(context.Background(), modelA)
 	var rle2 *upstream.RateLimitError
 	if !errors.As(err, &rle2) {
@@ -347,11 +347,11 @@ func TestPoolSnapshotZeroCountersWhenNoRetries(t *testing.T) {
 
 // TestAcquireChatConcurrentTokenMutation is the regression guard for the
 // snapshot double-load race: Acquire used to load p.toks once, then
-// acquireOrder loaded it AGAIN and built indices against the newer
-// (longer) snapshot — an AddToken between the two loads made the failover
-// loop index the stale snapshot past its end and panic with
-// index-out-of-range. The fix passes the single snapshot into acquireOrder
-// (plus a defensive bounds check in the loop), so this hammers Acquire+Chat
+// spillOrder loaded it AGAIN and built indices against the newer
+// (longer) snapshot - an AddToken between the two loads made the spill
+// walk index the stale snapshot past its end and panic with
+// index-out-of-range. The fix passes the single snapshot into spillOrder
+// (plus a defensive bounds check in the walk), so this hammers Acquire+Chat
 // while a driver goroutine churns AddToken/RemoveLastToken/RemoveAllTokens.
 // The panic window is narrow, so the loop repeats many times; with -race any
 // reintroduced double-load that survives the panics still trips the race
@@ -443,7 +443,7 @@ func TestAcquireChatConcurrentTokenMutation(t *testing.T) {
 	}
 
 	// Driver: churn the token list while the workers acquire/chat. AddToken
-	// is the dangerous direction (it grows the snapshot acquireOrder builds
+	// is the dangerous direction (it grows the snapshot spillOrder builds
 	// indices against); RemoveLastToken is refused while a lease is in
 	// flight (ignored here), RemoveAllTokens empties the list.
 	for i := 0; i < cycles; i++ {

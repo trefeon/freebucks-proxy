@@ -1,12 +1,13 @@
-// admission_leader_election_test.go — comprehensive tests for the channel-based
-// leader-election gate (issue #191 follow-up): verifies that concurrent cold-path
-// Acquire calls for the same model converge on a single session admission instead
-// of splitting across tokens and creating duplicate sessions.
+// admission_leader_election_test.go — concurrency tests for cold-path
+// admission dedup: concurrent cold-path Acquire calls for the same model
+// converge on a single session admission (via the session manager's
+// per-entry single-flight) instead of creating duplicate sessions.
 package pool
 
 import (
 	"context"
 	"fmt"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
@@ -14,8 +15,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestLeaderElection_BasicLeaderFollower verifies the fundamental flow:
@@ -61,13 +60,14 @@ func TestLeaderElection_BasicLeaderFollower(t *testing.T) {
 
 // TestLeaderElection_ConcurrentFollowersAllLandOnLeader verifies that when N
 // concurrent requests arrive for the same cold model, ALL of them end up on
-// the leader's token (Token 0) and exactly ONE session is created.
+// the same token (Token 0, strict spill order) and exactly ONE session is
+// created.
 //
-// Determinism (issue #211): the leader's session create is parked on a
-// hold channel while followers pile up as waiters on the gate (proven via
-// testGatePark, called while modelAdmissionGateMu is held before <-ch).
-// The exactly-one-session assertion is schedule-independent; a caller
-// arriving after a completed round would be a new leader, not a follower.
+// Determinism: cold-path dedup rides the session manager's per-entry
+// single-flight (acquire_route.go), not the old per-model election gate, so
+// the exactly-one-session assertion is schedule-independent — a caller
+// arriving after the leader completes just rides the hot session on the
+// same token.
 func TestLeaderElection_ConcurrentFollowersAllLandOnLeader(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -75,19 +75,21 @@ func TestLeaderElection_ConcurrentFollowersAllLandOnLeader(t *testing.T) {
 	defer mock1.Close()
 
 	hold := make(chan struct{})
+	leaderParked := make(chan struct{}, 1)
 	p := newTestPool(t, mock0, mock1)
 	const model = "deepseek/deepseek-v4-pro"
 
 	const goroutines = 8
-	const followers = goroutines - 1
-	arrived := make(chan struct{}, followers)
-	p.testGatePark = func() { arrived <- struct{}{} }
 
-	// Park the leader's session create on hold until every follower has
-	// registered as a waiter. Mimics TestSingleFlightFailureBounded's
-	// HoldRateLimit + testWaiterPark pattern for the pool gate.
+	// Park the leader's session create on hold; leaderParked proves the
+	// leader is in flight upstream. Followers pile onto the per-entry
+	// single-flight behind it (no gate registration to observe).
 	mock0.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/freebuff/session") {
+			select {
+			case leaderParked <- struct{}{}:
+			default:
+			}
 			select {
 			case <-hold:
 			case <-r.Context().Done():
@@ -129,16 +131,17 @@ func TestLeaderElection_ConcurrentFollowersAllLandOnLeader(t *testing.T) {
 			p.LeaseRelease(lease)
 		}()
 	}
-	// Every follower must have observed gate exists and elected to wait
-	// before the leader's response is released.
-	for range followers {
-		select {
-		case <-arrived:
-		case <-time.After(10 * time.Second):
-			close(hold)
-			t.Fatalf("only %d/%d followers registered as waiters (testGatePark)", len(arrived), followers)
-		}
+	// The leader must be parked upstream before its response is released;
+	// the settle lets followers arrive and park on the single-flight so the
+	// exactly-one-create assertion exercises the dedup. The outcome holds
+	// regardless — a late follower rides the hot session on token 0.
+	select {
+	case <-leaderParked:
+	case <-time.After(10 * time.Second):
+		close(hold)
+		t.Fatal("leader session create never reached upstream")
 	}
+	time.Sleep(200 * time.Millisecond)
 	close(hold)
 	wg.Wait()
 
@@ -273,10 +276,10 @@ func TestLeaderElection_IndependentModels(t *testing.T) {
 	}
 }
 
-// TestLeaderElection_ChannelCleanupAfterLeaderExit verifies that the
-// modelAdmissionGate map is cleaned up after the leader exits, so subsequent
-// acquires start a fresh leader election (not stuck on a closed channel).
-func TestLeaderElection_ChannelCleanupAfterLeaderExit(t *testing.T) {
+// TestLeaderElection_SequentialAcquiresDoNotBlock verifies that sequential
+// acquires never block each other: the second reuses the hot session, so
+// exactly one session is created across both.
+func TestLeaderElection_SequentialAcquiresDoNotBlock(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
 	mock1 := testutil.NewMock()
@@ -285,22 +288,14 @@ func TestLeaderElection_ChannelCleanupAfterLeaderExit(t *testing.T) {
 	p := newTestPool(t, mock0, mock1)
 	const model = "deepseek/deepseek-v4-pro"
 
-	// First acquire: leader.
+	// First acquire: cold admit.
 	lease1, err := p.Acquire(context.Background(), model)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.LeaseRelease(lease1)
 
-	// Verify gate is cleaned up.
-	p.modelAdmissionGateMu.Lock()
-	_, exists := p.modelAdmissionGate[model]
-	p.modelAdmissionGateMu.Unlock()
-	if exists {
-		t.Error("modelAdmissionGate not cleaned up after leader exit")
-	}
-
-	// Second acquire: should start a new leader election (not block).
+	// Second acquire: must not block.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	lease2, err := p.Acquire(ctx, model)
@@ -310,14 +305,14 @@ func TestLeaderElection_ChannelCleanupAfterLeaderExit(t *testing.T) {
 	p.LeaseRelease(lease2)
 
 	if mock0.SessionCreates != 1 {
-		t.Errorf("mock0 session creates = %d, want 1 (fresh leader election)", mock0.SessionCreates)
+		t.Errorf("mock0 session creates = %d, want 1 (second acquire reuses the hot session)", mock0.SessionCreates)
 	}
 }
 
-// TestLeaderElection_HotPathBypassesLeaderElection verifies that when a token
-// already holds an active session for the model, the acquire goes through the
-// hot path and does NOT enter the leader-election gate.
-func TestLeaderElection_HotPathBypassesLeaderElection(t *testing.T) {
+// TestLeaderElection_HotPathReusesSession verifies that when a token
+// already holds an active session for the model, the acquire reuses it
+// with no new admission.
+func TestLeaderElection_HotPathReusesSession(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
 	mock1 := testutil.NewMock()
@@ -333,7 +328,7 @@ func TestLeaderElection_HotPathBypassesLeaderElection(t *testing.T) {
 	}
 	p.LeaseRelease(lease1)
 
-	// Second acquire: hot path (session exists), should NOT enter gate.
+	// Second acquire: hot path (session exists).
 	lease2, err := p.Acquire(context.Background(), model)
 	if err != nil {
 		t.Fatal(err)
@@ -345,21 +340,13 @@ func TestLeaderElection_HotPathBypassesLeaderElection(t *testing.T) {
 
 	// Only 1 session created (cold admit), second was hot reuse.
 	if mock0.SessionCreates != 1 {
-		t.Errorf("mock0 session creates = %d, want 1 (hot path bypasses gate)", mock0.SessionCreates)
-	}
-
-	// Gate should be clean (no stale entries).
-	p.modelAdmissionGateMu.Lock()
-	gateLen := len(p.modelAdmissionGate)
-	p.modelAdmissionGateMu.Unlock()
-	if gateLen != 0 {
-		t.Errorf("modelAdmissionGate len = %d, want 0 (hot path should not touch gate)", gateLen)
+		t.Errorf("mock0 session creates = %d, want 1 (hot path reuses the session)", mock0.SessionCreates)
 	}
 }
 
-// TestLeaderElection_RapidSequentialAcquires verifies that after a leader
-// exits and the gate is cleaned up, a rapid sequence of acquires each starts
-// a fresh leader election without getting stuck.
+// TestLeaderElection_RapidSequentialAcquires verifies that a rapid sequence
+// of acquires never gets stuck: the first cold-admits, the rest reuse the
+// hot session.
 func TestLeaderElection_RapidSequentialAcquires(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()

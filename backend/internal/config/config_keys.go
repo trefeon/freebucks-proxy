@@ -50,7 +50,6 @@ type rawConfig struct {
 	BridgeIdleEvict          string          `json:"BRIDGE_IDLE_EVICT"`
 	IdleRotationTimeout      string          `json:"IDLE_ROTATION_TIMEOUT"`
 	SafeMode                 bool            `json:"SAFE_MODE"`
-	SessionIdleEnd           string          `json:"SESSION_IDLE_END"`
 	ModelsHideUnavailable    bool            `json:"MODELS_HIDE_UNAVAILABLE"`
 	ModelsAllow              modelsAllowList `json:"MODELS_ALLOW"`
 	CORSAllowedOrigin        string          `json:"CORS_ALLOWED_ORIGIN"`
@@ -69,53 +68,27 @@ type rawConfig struct {
 	ModelUnavailableCacheTTL string          `json:"MODEL_UNAVAILABLE_CACHE_TTL"`
 	WebhookURL               string          `json:"WEBHOOK_URL"`
 	AdoptCLISession          bool            `json:"ADOPT_CLI_SESSION"`
-	MaturityEnabled          bool            `json:"MATURITY_ENABLED"`
-	MaturityTouchModel       string          `json:"MATURITY_TOUCH_MODEL"`
-	MaturityTargetDays       *int            `json:"MATURITY_TARGET_DAYS"`
-	QuotaAutoProbe           bool            `json:"QUOTA_AUTO_PROBE"`
-	QuotaProbeActiveInterval string          `json:"QUOTA_PROBE_ACTIVE_INTERVAL"`
-	QuotaProbeIdleHeartbeat  string          `json:"QUOTA_PROBE_IDLE_HEARTBEAT"`
 	WaitingRoomChain         bool            `json:"WAITING_ROOM_CHAIN"`
 	RateLimitPerIP           *float64        `json:"RATE_LIMIT_PER_IP"`
 	RateLimitBurst           *int            `json:"RATE_LIMIT_BURST"`
-	TokenRotation            string          `json:"TOKEN_ROTATION"`
-	RateLimitFailover        *bool           `json:"RATE_LIMIT_FAILOVER"`
-	ModelLocks               string          `json:"MODEL_LOCKS"`
+	PinModel                 string          `json:"PIN_MODEL"`
 	DashboardEnabled         bool            `json:"DASHBOARD_ENABLED"`
 	DashboardRequireLogin    bool            `json:"DASHBOARD_REQUIRE_LOGIN"`
 	CompressPrompt           string          `json:"COMPRESS_PROMPT"`
 	CacheControlInjection    string          `json:"CACHE_CONTROL_INJECTION"`
 	ReasoningInContent       string          `json:"REASONING_IN_CONTENT"`
-	// RoutingSmart records ROUTING_SMART (default true via
-	// defaultRawConfig): the smart-routing master switch.
-	RoutingSmart bool `json:"ROUTING_SMART"`
-	// TokenMaxConcurrent records TOKEN_MAX_CONCURRENT (default 2, floor
-	// 1): the per-token live-turn cap.
-	TokenMaxConcurrent *int `json:"TOKEN_MAX_CONCURRENT"`
+	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 2, floor
+	// 1): the per account-model live-turn cap.
+	SlotsPerAccount *int `json:"SLOTS_PER_ACCOUNT"`
 	// QueueWait records QUEUE_WAIT (default "30s"): the FIFO slot-queue
 	// wait bound.
 	QueueWait string `json:"QUEUE_WAIT"`
 	// QueueDepth records QUEUE_DEPTH (default 16): the per-token FIFO
 	// queue depth cap.
 	QueueDepth *int `json:"QUEUE_DEPTH"`
-	// Cooldown backoffs (COOLDOWN_*_MS, integer milliseconds) and the
-	// session-park switch: raw ints parsed to Durations in Load
-	// (zero-tolerant → Contract defaults in cooldown.go).
-	CooldownDefaultMs      *int     `json:"COOLDOWN_DEFAULT_MS"`
-	CooldownCountryBlockMs *int     `json:"COOLDOWN_COUNTRY_BLOCK_MS"`
-	CooldownCeilingMs      *int     `json:"COOLDOWN_CEILING_MS"`
-	CooldownFanoutMs       *int     `json:"COOLDOWN_FANOUT_MS"`
-	CooldownInvalidModelMs *int     `json:"COOLDOWN_INVALID_MODEL_MS"`
-	CooldownOpaqueMs       *int     `json:"COOLDOWN_OPAQUE_MS"`
-	CooldownLoadShedMs     *int     `json:"COOLDOWN_LOADSHED_MS"`
-	CooldownPeakHoursMs    *int     `json:"COOLDOWN_PEAK_HOURS_MS"`
-	CooldownIPMaxReadmits  *int     `json:"COOLDOWN_IP_MAX_READMITS"`
-	CooldownIPJitterRatio  *float64 `json:"COOLDOWN_IP_JITTER_RATIO"`
-	SessionParkEnabled     bool     `json:"SESSION_PARK_ENABLED"`
-	SessionParkThresholdMs *int     `json:"SESSION_PARK_THRESHOLD_MS"`
-	SessionPollMaxMs       *int     `json:"SESSION_POLL_MAX_MS"`
-	SmartProbeBackoffMaxMs *int     `json:"SMART_PROBE_BACKOFF_MAX_MS"`
-	MaturityBackoffMs      *int     `json:"MATURITY_BACKOFF_MS"`
+	// MaxSpillAccounts records MAX_SPILL_ACCOUNTS (default 0): the spill
+	// walk bound, 0 = unbounded.
+	MaxSpillAccounts *int `json:"MAX_SPILL_ACCOUNTS"`
 }
 
 // modelsAllowList is the raw MODELS_ALLOW value. The README documents list
@@ -149,15 +122,12 @@ func defaultRawConfig() rawConfig {
 		RequestTimeout:         "15m",
 		HTTPReadTimeout:        "60s",
 		SessionCallTimeout:     "30s",
-		TokenRotation:          "drain",
-		RateLimitFailover:      new(true),
 		CostMode:               "free",
 		RegistryRefresh:        "6h",
 		IdleRotationTimeout:    "",    // "" = disabled (unset → SAFE_MODE preset may fill)
 		BridgeEnabled:          true,  // hybrid by default: AUTH_TOKENS + bridge relay share one instance
 		BridgeIdleEvict:        "72h", // sliding-TTL for idle bridge-entry eviction
 		SafeMode:               true,  // anti-ban presets on by default; set SAFE_MODE=false to disable
-		SessionIdleEnd:         "",    // "" = disabled (opt-in: ending a session forces a fresh admission when the user returns)
 		DashboardEnabled:       true,  // dashboard on by default; set DASHBOARD_ENABLED=false to disable
 		DashboardRequireLogin:  true,  // require login on by default; set DASHBOARD_REQUIRE_LOGIN=false to disable
 		LogAccess:              true,
@@ -175,31 +145,8 @@ func defaultRawConfig() rawConfig {
 		RunsDrainTTL:           "10m",      // #55: draining-runs TTL eviction
 		QueueWait:              "30s",      // FIFO slot-queue wait bound per parked Acquire
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
-		// Cooldown / session-park defaults mirror cooldown.go (Contract =
-		// previous hardcoded behavior): integer milliseconds, zero-tolerant
-		// in Load.
-		CooldownDefaultMs:        ptrInt(defaultCooldownDefaultMs),
-		CooldownCountryBlockMs:   ptrInt(defaultCooldownCountryBlockMs),
-		CooldownCeilingMs:        ptrInt(defaultCooldownCeilingMs),
-		CooldownFanoutMs:         ptrInt(defaultCooldownFanoutMs),
-		CooldownInvalidModelMs:   ptrInt(defaultCooldownInvalidModelMs),
-		CooldownOpaqueMs:         ptrInt(defaultCooldownOpaqueMs),
-		CooldownLoadShedMs:       ptrInt(defaultCooldownLoadShedMs),
-		CooldownPeakHoursMs:      ptrInt(defaultCooldownPeakHoursMs),
-		CooldownIPMaxReadmits:    ptrInt(defaultCooldownIPMaxReadmits),
-		CooldownIPJitterRatio:    new(defaultCooldownIPJitterRatio),
-		SessionParkEnabled:       true,
-		SessionParkThresholdMs:   ptrInt(defaultSessionParkThresholdMs),
-		SessionPollMaxMs:         ptrInt(defaultSessionPollMaxMs),
-		SmartProbeBackoffMaxMs:   ptrInt(defaultSmartProbeBackoffMaxMs),
-		MaturityBackoffMs:        ptrInt(defaultMaturityBackoffMs),
-		MaturityEnabled:          true,      // streak-maturity automation on by default; touches run live
-		QuotaAutoProbe:           true,      // quota auto-probe scheduler on by default; false restores pre-scheduler behavior
-		QuotaProbeActiveInterval: "60s",     // busy-pool probe cadence
-		QuotaProbeIdleHeartbeat:  "30m",     // idle-pool probe heartbeat (also the 429-backoff ceiling)
-		MaturityTouchModel:       "",        // empty default (= auto): cheapest served unmetered row, explicit id overrides
-		RoutingSmart:             true,      // smart pool routing on by default; false restores the legacy acquire path
-		TokenMaxConcurrent:       ptrInt(2), // per-token live turns (floor 1; bunker strictness is 1)
+		SlotsPerAccount:        ptrInt(2),  // per account-model live turns (floor 1; bunker strictness is 1)
+		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
 	}
 }
 

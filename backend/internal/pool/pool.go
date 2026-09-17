@@ -21,23 +21,19 @@ package pool
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"math/rand/v2"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/notify"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // usageWindow is the rolling window of per-token successful chat history:
@@ -65,13 +61,13 @@ type Lease struct {
 	// reused by a later AddToken), and a bounds-checked release would leak
 	// the run's inflight or hit an unrelated manager.
 	entry *tokenEntry
-	// routeSlot is the smart-routing live-turn slot held for this lease
-	// (route_smart.go, TOKEN_MAX_CONCURRENT). Set at grant time on the
-	// smart path only, for pooled AND bridge leases; released through the
-	// lease by LeaseRelease/LeaseAbandon. Nil on the legacy path
-	// (ROUTING_SMART off), when the cap is unlimited, or for synthetic
-	// leases.
-	routeSlot *routeSlotPermit
+	// routeSlot is the MASQ slot-ledger live-turn slot held for this lease
+	// (slot_ledger.go, SLOTS_PER_ACCOUNT per account-model lane). Set at
+	// grant time on the smart path only, for pooled AND bridge leases;
+	// released through the lease by LeaseRelease/LeaseAbandon. Nil on the
+	// legacy path (ROUTING_SMART off), when the cap is unlimited, or for
+	// synthetic leases.
+	routeSlot *slotPermit
 	// QueueWait is how long this lease's request sat parked in the
 	// account's FIFO live-turn queue before the slot was granted (zero
 	// when it never parked, or when the slot was free immediately). It is
@@ -81,10 +77,6 @@ type Lease struct {
 	QueueWait time.Duration
 	// AcquiredAt is when this lease was handed out (per acquire attempt,
 	// not per run — a chat retry re-acquires and gets a fresh timestamp).
-	// The chat success path uses it to clear unfit marks that PREDATE this
-	// admission (a retry's fresh acquire proves the mark stale, while an
-	// older in-flight chat's success must not erase a mark that landed
-	// after its admission).
 	AcquiredAt time.Time
 }
 
@@ -121,7 +113,7 @@ type TokenSnapshot struct {
 	Requests         int
 	Messages24h      int // successful chats in the last 24h (dashboard display; upstream quota/429 is the enforcement)
 	// LiveTurns is how many chat turns currently hold this account's
-	// smart-routing live-turn slot (TOKEN_MAX_CONCURRENT, route_smart.go);
+	// MASQ slot-ledger lanes (SLOTS_PER_ACCOUNT, slot_ledger.go);
 	// QueuedWaiters is how many requests are parked on its FIFO live-turn
 	// queue, and OldestWaiterMS is how long the longest-parked waiter has
 	// been waiting (0 when none). Together they are the "this account is
@@ -226,11 +218,10 @@ type TokenSnapshot struct {
 	// dead and why.
 	Quarantined      bool   `json:"quarantined,omitempty"`
 	QuarantineReason string `json:"quarantine_reason,omitempty"`
-	// AllowedModels is the slot's MODEL_LOCKS allowlist (issue #325); nil
-	// when unlocked. AllowlistSkips counts Acquire-time skips for models
-	// outside it.
-	AllowedModels  []string `json:"allowed_models,omitempty"`
-	AllowlistSkips int64    `json:"allowlist_skips,omitempty"`
+	// PinnedModel is the slot's PIN_MODEL pin; "" when unpinned.
+	// PinSkips counts Acquire-time skips for models outside the pin.
+	PinnedModel string `json:"pinned_model,omitempty"`
+	PinSkips    int64  `json:"pin_skips,omitempty"`
 	// BanType / BannedUntil surface the token's active upstream ban
 	// (issues #198/#199): BanType is "temporary" when the ban carries a
 	// resumes_at deadline (auto-lifts at BannedUntil) and "hard" when it
@@ -242,8 +233,10 @@ type TokenSnapshot struct {
 	TodayUsed       bool      `json:"today_used,omitempty"`
 	LastUsageDate   string    `json:"last_usage,omitempty"`
 	StreakUpdatedAt time.Time `json:"streak_updated_at,omitempty"`
-	// Maturity is the streak-maturity automation view (nil until maturity
-	// is first enabled for the token).
+	// Maturity is the streak-maturity automation view. The automation is
+	// excised (Fase E): the snapshot always leaves it nil and the
+	// dashboard renders no card. The type is kept so historical payloads
+	// and the dashboard mapper still compile.
 	Maturity *MaturitySnapshot `json:"maturity,omitempty"`
 }
 
@@ -271,14 +264,7 @@ type Pool struct {
 	retiredMu sync.Mutex
 	retired   map[*tokenEntry]time.Time
 
-	rr     atomic.Uint64 // round-robin start index
 	logger *slog.Logger
-	// quotaBootAt anchors the smart-probe boot round. Set once in Start
-	// before the maintain loop launches (happens-before the first tick via
-	// the goroutine spawn); zero until then, which also keeps unit tests
-	// that never Start boot-force-free. Never reset — Shutdown is terminal
-	// and a second Start is a no-op (p.once).
-	quotaBootAt time.Time
 	// histSink is the optional maturity history consumer (ADR-0016); nil
 	// keeps the pool free of persistence. Set once via SetHistorySink.
 	histSink atomic.Pointer[HistorySink]
@@ -291,12 +277,6 @@ type Pool struct {
 	once   sync.Once
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	// probeCtx roots every detached smart-probe round (issue #484): rounds
-	// run off the maintain goroutine but stay wg-tracked, and Shutdown
-	// cancels this context (then wg-waits), so a wedged probe can neither
-	// outlive the pool nor hold Shutdown open past the round deadline.
-	probeCtx    context.Context
-	probeCancel context.CancelFunc
 	// draining is set at the START of Shutdown: request-path admissions are
 	// refused from then on, so no session POST or run START can land after
 	// the shutdown drain has released the upstream sessions (post-drain
@@ -309,10 +289,6 @@ type Pool struct {
 	lastActiveMu sync.Mutex
 	lastActive   time.Time
 	idleFinished bool
-	// sessionsEnded mirrors idleFinished for the opt-in SESSION_IDLE_END
-	// sweep: whether upstream sessions were already released for the
-	// current idle stretch. Guarded by lastActiveMu.
-	sessionsEnded bool
 
 	// refundMu + refundInflight cap concurrent pending-refund refreshes per
 	// account (single-flight): concurrent RefreshTokenRefund calls for the
@@ -331,58 +307,11 @@ type Pool struct {
 	// prevents thundering-herd creation when many new client tokens
 	// arrive simultaneously.
 	bridgeCreateGate chan struct{}
-
-	// unfit is the per-(egress, model) unfit registry (issue #74): models
-	// refused upstream with limited_ip on this egress are marked unfit for
-	// modelUnfitTTL so new requests are refused fast (409 model_ip_limited)
-	// and re-admission does not burn a daily session slot. The server guards
-	// NEW requests against it; Acquire deliberately does NOT consult it (the
-	// chat recovery loop re-acquires through the plain acquire closure and
-	// must reach a different token in mixed pools). Guarded by unfitMu.
-	unfitMu sync.Mutex
-	unfit   map[unfitKey]unfitEntry
-
-	// lastTokenByModel tracks the token index last successfully acquired for
-	// each model (model stickiness / multi-turn session preservation).
-	// Guarded by lastTokenMu.
-	lastTokenMu      sync.Mutex
-	lastTokenByModel map[string]int
-
 	// admissions tracks in-flight session admissions per model across the pool
 	// (issue #191: prevents concurrent requests from creating duplicate sessions
 	// on different tokens for the same model). Guarded by admissionsMu.
 	admissionsMu sync.Mutex
 	admissions   map[string]int
-
-	// lastBulkProbe is the pool-scoped timestamp of the last bulk probe
-	// pass (manual Probe-all button or stale visit auto-probe, ADR-0025).
-	// In-memory only (a restart re-probes on the next stale visit); the
-	// slot is claimed before probing so concurrent tabs share one pass.
-	// Guarded by bulkProbeMu.
-	bulkProbeMu   sync.Mutex
-	lastBulkProbe time.Time
-	// smartProbe is the activity-aware quota prober state (tiers, 429
-	// backoff, boot/kick/idle-sleep flags). In-memory only. Guarded by its
-	// own mutex; see quota_smartprobe.go.
-	smartProbe smartProbeState
-	// maturityBackoffUntil is the pool-scoped 429 backoff for the nightly
-	// streak-maintenance run: a rate-limited touch aborts the walk and
-	// pauses further touches until this instant. In-memory only (a restart
-	// clears it; the touchDay/todayUsed idempotency still prevents
-	// double-touches). Guarded by maturityBackoffMu.
-	maturityBackoffMu    sync.Mutex
-	maturityBackoffUntil time.Time
-
-	// modelAdmissionGate serializes cold-path Acquire per model: the leader
-	// creates a gate on registration; concurrent followers block on it
-	// Guarded by modelAdmissionGateMu; entries are deleted when the channel
-	// is closed.
-	modelAdmissionGateMu sync.Mutex
-	modelAdmissionGate   map[string]*admissionGate
-	// testGatePark, when non-nil (tests only), runs while modelAdmissionGateMu is held
-	// at the moment a follower is about to park on the leader's gate. Lets tests
-	// deterministically count parked waiters before the leader releases.
-	testGatePark func()
 	// store persists session state across restarts (SESSION_PERSIST); nil
 	// disables. Injected by the caller (main) via SetSessionStore so there
 	// is exactly one store shared by pooled and bridge entries.
@@ -396,12 +325,6 @@ type Pool struct {
 	notify   *notify.Sender
 	notifyMu sync.Mutex // guards notify reads/writes (data race)
 
-	// maturityStore persists per-token maturity automation blobs across
-	// restarts (Account Maturity rev 2). Interface, not a concrete store:
-	// the pool must never import the store package (archtest leaf rule).
-	// nil disables persistence (in-memory only, pre-rev-2 behavior).
-	maturityStoreMu sync.Mutex
-	maturityStore   MaturityStore
 	// storeSessionPersist and storeStateFile record the persistence config
 	// the store was created with (captured by SetSessionStore), so SetConfig
 	// can detect a reload that changes the persistence semantics — the live
@@ -421,31 +344,26 @@ type Pool struct {
 	persist      PoolPersist
 	persistDirty atomic.Bool
 
-	// randMu and randGen support stochastic rotation ("random" TokenRotation mode)
-	randMu  sync.Mutex
-	randGen *rand.Rand
-
-	// Smart routing state (route_smart.go): per-lane live-turn slot
-	// semaphores with FIFO waiter queues (routeSlots, keyed by the lane's
-	// entry pointer — *tokenEntry pooled, *bridgeEntry bridge — so
-	// dashboard reorders and concurrent clients never merge lanes) plus
-	// the consecutive-turn anti-clump cursor (routePrev). Guarded by
-	// routeMu. In-memory only: a restart resets every counter to zero
-	// (same discipline as the probe scheduler's transient flags) — no
-	// pool_state rows, no SQL.
+	// MASQ slot ledger (slot_ledger.go): per-lane live-turn slot
+	// semaphores with FIFO waiter queues (routeSlots, keyed by
+	// slotKey{entry, model} - *tokenEntry pooled, *bridgeEntry bridge -
+	// so dashboard reorders and concurrent clients never merge lanes).
+	// Guarded by routeMu. In-memory only: a restart resets every counter
+	// to zero (same discipline as the probe scheduler's transient flags)
+	// - no pool_state rows, no SQL.
 	routeMu    sync.Mutex
-	routeSlots map[any]*routeSlotState
-	routePrev  *tokenEntry
+	routeSlots map[slotKey]*slotState
+
+	// MASQ precious sessions (precious.go): open set of (entry, model)
+	// pairs whose live session is never proactively dropped (load drops,
+	// recovery invalidations and operator drops keep them; superseded and
+	// entry teardown still drop). Guarded by preciousMu, never nested
+	// with routeMu, the roster or session locks. In-memory only like the
+	// slot ledger: a restart resets every mark to zero.
+	preciousMu sync.Mutex
+	precious   map[preciousKey]struct{}
 }
 
-// admissionGate is the per-model leader election gate: the leader creates
-// the gate, followers block on gate.ch, and the chosen token is
-// communicated via gate.token/hasToken (guarded by modelAdmissionGateMu).
-type admissionGate struct {
-	ch       chan struct{}
-	token    int
-	hasToken bool
-}
 type tokenEntry struct {
 	session   *session.Manager
 	runs      *runs.RunManager
@@ -481,10 +399,10 @@ type tokenEntry struct {
 	// locked is set by LockToken/UnlockLockToken to administratively
 	// exclude a token from Acquire without clearing its cooldown state.
 	locked atomic.Bool
-	// allowlistSkips counts Acquire-time model-allowlist skips for this slot
-	// (MODEL_LOCKS, issue #325): requests for models the slot is not locked
-	// to. Surfaced per-token in snapshots, cards, and metrics.
-	allowlistSkips atomic.Int64
+	// pinSkips counts Acquire-time single-pin skips for this slot
+	// (PIN_MODEL): requests for models the slot is not pinned to.
+	// Surfaced per-token in snapshots, cards, and metrics.
+	pinSkips atomic.Int64
 
 	// quarantine, when non-nil, marks this fixed pooled token permanently
 	// ineligible for leasing: its account reached a terminal state (a live
@@ -498,27 +416,6 @@ type tokenEntry struct {
 	quarantine  atomic.Pointer[quarantineState]
 	streak      atomic.Pointer[upstream.StreakInfo]
 	streakFetch atomic.Bool
-	// routeSmooth is the smart-routing smooth weighted-round-robin
-	// accumulator (route_smart.go): bumped by each pick's effective
-	// weight, debited by the round total on a win, so near-equal
-	// candidates rotate instead of clumping. On the entry (not in a
-	// pool map) so dashboard reorders and slot rebuilds cannot
-	// misattribute it; entry rebuilds reset it (fresh account, fresh
-	// smoothing). In-memory only (zero on restart).
-	routeSmooth atomic.Int64
-	// routeLastLease is the last smart-path grant time (unixnano) for
-	// the idle-longest tiebreak (zero = never served = longest idle).
-	routeLastLease atomic.Int64
-	// routeTransientCount/At record recent transport-transient failures
-	// for the decaying scorer penalty (routeNoteTransient): the count
-	// arms the penalty, At (unixnano) drives the 1m-full/5m-half decay.
-	routeTransientCount atomic.Int64
-	routeTransientAt    atomic.Int64
-	// maturityMu guards maturity, the streak-maturity automation state
-	// (docs/maturity-plan.md PR2). Zero value = disabled; entry rebuilds
-	// (SetConfig slot changes) drop it — re-enable after a token swap.
-	maturityMu sync.Mutex
-	maturity   maturityState
 }
 
 func (e *tokenEntry) Email() string {
@@ -546,6 +443,7 @@ func (e *tokenEntry) SetAccountID(id string) {
 		e.accountID.Store(&id)
 	}
 }
+
 func (e *tokenEntry) Streak() *upstream.StreakInfo {
 	return e.streak.Load()
 }
@@ -662,12 +560,8 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 		return nil, fmt.Errorf("pool: %d sessions for %d tokens", len(sessions), len(cfg.AuthTokens))
 	}
 
-	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), unfit: make(map[unfitKey]unfitEntry), bridgeCreateGate: make(chan struct{}, 4), lastTokenByModel: make(map[string]int), admissions: make(map[string]int), modelAdmissionGate: make(map[string]*admissionGate)}
-	p.probeCtx, p.probeCancel = context.WithCancel(context.Background())
+	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), admissions: make(map[string]int)}
 	p.cfg.Store(cfg)
-	// Push the operator's cooldown tuning (COOLDOWN_*/SESSION_* backoffs)
-	// into runs/upstream/pool enforcement points; re-pushed by SetConfig.
-	p.applyCooldownTuning(cfg)
 	toks := make([]*tokenEntry, 0, len(cfg.AuthTokens))
 	for i := range cfg.AuthTokens {
 		if sessions[i] == nil || clients[i] == nil {
@@ -677,11 +571,6 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 		sess.SetReAdmitLead(cfg.SessionReAdmitLead)
 		sess.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		sess.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
-		// SessionPreserve seam: push the session-park gate next to the
-		// other per-manager knobs (no-op when their branch merges first
-		// with the Manager method; guarded call keeps this branch
-		// compiling standalone until the integrate step).
-		pushParkConfig(sess, cfg)
 		entry := &tokenEntry{
 			session: sess,
 			runs:    runs.NewRunManagerOpts(clients[i], sess, runOptions(cfg)),
@@ -712,9 +601,6 @@ func runOptions(cfg *config.Config) runs.Options {
 // Acquire/maintain pass without rebuilding the pool, except that an AUTH_TOKENS slot change rebuilds that entry (see below).
 func (p *Pool) SetConfig(cfg *config.Config) {
 	p.cfg.Store(cfg)
-	// Re-push live cooldown tuning (COOLDOWN_*/SESSION_POLL_* backoffs and
-	// the session-park threshold) after every reload.
-	p.applyCooldownTuning(cfg)
 
 	// Runtime-adjustable knobs: the session re-admit lead / probe cache TTL
 	// (#99/#60) follow config reloads.
@@ -723,14 +609,12 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 		tok.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 		tok.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		tok.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
-		pushParkConfig(tok.session, cfg)
 	}
 	p.bridgeMu.Lock()
 	for _, entry := range p.bridge {
 		entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 		entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
-		pushParkConfig(entry.session, cfg)
 	}
 	p.bridgeMu.Unlock()
 
@@ -840,12 +724,6 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 			}
 		}
 	}
-	// A rebuilt roster changes probe membership: kick the smart prober so
-	// the next tick runs a round for the new slots without waiting out the
-	// tier timer.
-	if changed {
-		p.smartProbeKick()
-	}
 
 	// Session persistence is decided at startup: the store is built from the
 	// boot config and injected once via SetSessionStore, so a reload cannot
@@ -887,7 +765,6 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 	sess.SetReAdmitLead(cfg.SessionReAdmitLead)
 	sess.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 	sess.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
-	pushParkConfig(sess, cfg)
 	entry := &tokenEntry{
 		session: sess,
 		runs:    runs.NewRunManagerOpts(client, sess, runOptions(cfg)),
@@ -928,9 +805,6 @@ func (p *Pool) AddToken(token string) (int, error) {
 	// index-aligned usage/spend slice needs to be extended — the publish
 	// order rule is satisfied by construction.
 	idx = p.roster.add(entry)
-	// New membership: the next tick probes it without waiting out the tier
-	// timer (event trigger, like the boot round).
-	p.smartProbeKick()
 	return idx, nil
 }
 
@@ -972,108 +846,6 @@ func (p *Pool) SetNotifier(n *notify.Sender) {
 	p.notifyMu.Lock()
 	defer p.notifyMu.Unlock()
 	p.notify = n
-}
-
-// MaturityStore persists per-token maturity automation blobs across
-// restarts. Keyed by the SHA-256 hex of the token value: raw tokens never
-// cross this boundary. stateJSON is the opaque automation blob
-// (marshalMaturity), streakJSON the opaque upstream streak JSON; both may
-// be empty. The store package implements this implicitly (no import here).
-type MaturityStore interface {
-	SaveMaturity(tokenHash string, stateJSON string, streakJSON []byte) error
-	LoadMaturity(tokenHash string) (stateJSON string, streakJSON []byte, ok bool, err error)
-}
-
-// SetMaturityStore wires the maturity persistence backend (nil disables).
-// Safe to call at runtime (nil-friendly); call RestoreMaturity once at boot
-// after wiring so automation state survives restarts.
-func (p *Pool) SetMaturityStore(s MaturityStore) {
-	p.maturityStoreMu.Lock()
-	defer p.maturityStoreMu.Unlock()
-	p.maturityStore = s
-}
-
-// maturityTokenHash keys maturity rows without ever persisting the raw
-// token (mirrors the 8-hex log labels, but full-length for store keys).
-func maturityTokenHash(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return fmt.Sprintf("%x", sum)
-}
-
-// saveMaturity persists one token's automation state best-effort (nil store
-// or never-enrolled token = no-op; errors only warn, never fail the tick).
-func (p *Pool) saveMaturity(idx int, tok *tokenEntry) {
-	p.maturityStoreMu.Lock()
-	st := p.maturityStore
-	p.maturityStoreMu.Unlock()
-	if st == nil {
-		return
-	}
-	ms := p.maturityCopy(tok)
-	if !ms.enabled && ms.lastAction == "" && ms.lastResult == "" && ms.touchModel == "" {
-		return
-	}
-	stateJSON, err := ms.marshalMaturity()
-	if err != nil {
-		p.logger.Warn("pool: maturity persist marshal failed", "token", idx+1, "err", err)
-		return
-	}
-	var streakJSON []byte
-	if cached := tok.Streak(); cached != nil {
-		streakJSON, err = json.Marshal(cached)
-		if err != nil {
-			p.logger.Warn("pool: maturity persist streak marshal failed", "token", idx+1, "err", err)
-			return
-		}
-	}
-	if err := st.SaveMaturity(maturityTokenHash(tok.token), stateJSON, streakJSON); err != nil {
-		p.logger.Warn("pool: maturity persist save failed", "token", idx+1, "err", err)
-	}
-}
-
-// RestoreMaturity loads persisted automation state into the roster (boot
-// path; the owner calls it once after SetMaturityStore). Tokens with no row
-// stay never-enrolled; corrupt rows warn and stay never-enrolled (never
-// fatal: automation must not block boot). Restored locks are never
-// applied: enrollment keeps every account leasable, and only the operator
-// locks.
-func (p *Pool) RestoreMaturity() error {
-	p.maturityStoreMu.Lock()
-	st := p.maturityStore
-	p.maturityStoreMu.Unlock()
-	if st == nil {
-		return nil
-	}
-	toks := p.roster.Load()
-	if toks == nil {
-		return nil
-	}
-	for i, tok := range *toks {
-		stateJSON, streakJSON, ok, err := st.LoadMaturity(maturityTokenHash(tok.token))
-		if err != nil {
-			return fmt.Errorf("pool: restore maturity token %d: %w", i, err)
-		}
-		if !ok || stateJSON == "" {
-			continue
-		}
-		ms, err := unmarshalMaturity(stateJSON)
-		if err != nil {
-			p.logger.Warn("pool: maturity restore skips corrupt row", "token", i+1, "err", err)
-			continue
-		}
-		tok.maturityMu.Lock()
-		tok.maturity = ms
-		tok.maturityMu.Unlock()
-		if len(streakJSON) > 0 {
-			var si upstream.StreakInfo
-			if err := json.Unmarshal(streakJSON, &si); err != nil {
-				p.logger.Warn("pool: maturity restore skips corrupt streak", "token", i+1, "err", err)
-			} else {
-				tok.SetStreak(&si)
-			}
-		}
-	}
-	return nil
 }
 
 // Chat sends a chat-completion request through the leased token's upstream

@@ -1,8 +1,6 @@
-// acquire_route.go - pooled acquire route: Acquire (round-robin start,
-// leader-election gate, hot-first order via acquireOrder) plus the
-// leaseFromOrder failover loop (per-token skip gates, session and run
-// admission, lease grant, bucket precedence). Pure move from acquire.go;
-// no behavior change.
+// acquire_route.go - pooled acquire route: Acquire (strict index order via
+// spillOrder) plus the leaseFromOrder spill walk (per-token skip
+// gates, session and run admission, lease grant, bucket precedence).
 package pool
 
 import (
@@ -12,16 +10,47 @@ import (
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/notify"
 	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
 	"strings"
 	"time"
 )
 
-// Acquire resolves the model's agent, picks a start token round-robin, and
-// fails over linearly until a token yields both a run and a session. Returns
-// a lease on success. Registry misses (unknown model) are returned as-is.
+// tagRateLimitModel stamps the requested model on a WALK-LOCAL copy of a
+// rate-limit refusal when the upstream body omits it, so the surfaced
+// error is self-describing. The *upstream.RateLimitError handed out by the
+// session single-flight is SHARED by every waiter parked on the same
+// refresh (Acquire documents the sharing above; the manager retains one
+// refreshErr pointer for all of them): stamping Model in place races
+// concurrent walks (concurrent read+write on one struct). The copy is
+// confined to this goroutine; the shared value is never mutated. A refusal
+// that already names a model is returned as-is (read-only downstream).
+func tagRateLimitModel(rle *upstream.RateLimitError, model string) *upstream.RateLimitError {
+	if rle == nil || rle.Model != "" {
+		return rle
+	}
+	tagged := *rle
+	tagged.Model = model
+	return &tagged
+}
+
+// tagLimitedIPModel stamps the requested model on a WALK-LOCAL copy of a
+// limited_ip refusal. Same single-flight sharing as tagRateLimitModel: the
+// stamp must not land on the shared value. Unlike the rate-limit tag the
+// pool always names the requested model, even when the upstream body
+// carried one.
+func tagLimitedIPModel(lie *upstream.LimitedIpError, model string) *upstream.LimitedIpError {
+	if lie == nil {
+		return nil
+	}
+	tagged := *lie
+	tagged.Model = model
+	return &tagged
+}
+
+// Acquire resolves the model's agent and walks the strict index order
+// until a token yields both a run and a session. Returns a lease on
+// success. Registry misses (unknown model) are returned as-is.
 func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 	// Post-drain re-admission gate: once Shutdown starts draining, no new
 	// session POST or run START may be admitted — an admission landing
@@ -40,126 +69,53 @@ func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 		return nil, err
 	}
 
-	// Model-allowlist fail-fast (MODEL_LOCKS, issue #325): when every slot
-	// is locked away from the requested model, no admission can succeed —
-	// surface the routing error without touching upstream at all.
-	if allLockedOut(toks, cfg, p.reg, model) {
+	// Single-pin fail-fast (PIN_MODEL): when every slot is pinned away
+	// from the requested model, no admission can succeed — surface the
+	// routing error without touching upstream at all.
+	if allPinnedOut(toks, cfg, p.reg, model) {
 		// The ordering/filter stages are bypassed entirely here, so count
 		// the skip decision per slot (the counter tracks decisions, not
 		// requests — a slot can count twice across filter + failover).
 		for _, tok := range *toks {
-			tok.allowlistSkips.Add(1)
+			tok.pinSkips.Add(1)
 		}
-		return nil, lockFailFastError(model, len(*toks))
+		return nil, pinFailFastError(model, len(*toks))
 	}
 
-	start := int(p.rr.Add(1)-1) % len(*toks)
-	// Issue #191: leader-election gate per model. The first Acquire for a
-	// model registers as the leader (creates a gate); concurrent
-	// followers block on it. When the leader picks a token (or fails), it
-	// sets gate.token/hasToken and closes the channel so followers re-read
-	// the leader's choice via the gate — preventing duplicate session creates
-	// across different cold tokens. The gate is the single source of truth;
-	// p.admissions is kept for acquireOrder pinning but followers do not
-	// rely on it after channel close.
-	p.modelAdmissionGateMu.Lock()
-	gate, exists := p.modelAdmissionGate[model]
-	isLeader := !exists
-	if isLeader {
-		// Leader: create the gate and register admission.
-		gate = &admissionGate{ch: make(chan struct{})}
-		p.modelAdmissionGate[model] = gate
-		p.modelAdmissionGateMu.Unlock()
-		p.admissionsMu.Lock()
-		p.admissions[model] = -1 // sentinel: "leader, target unknown"
-		p.admissionsMu.Unlock()
-		p.markPersistDirty()
-		// Ensure the gate is closed and cleaned up on every exit path.
-		defer func() {
-			p.modelAdmissionGateMu.Lock()
-			close(gate.ch)
-			delete(p.modelAdmissionGate, model)
-			p.modelAdmissionGateMu.Unlock()
-		}()
-	} else {
-		// Follower: invoke test hook while lock is held so tests can count
-		// parked waiters deterministically before the leader releases.
-		if p.testGatePark != nil {
-			p.testGatePark()
-		}
-		followerGate := gate
-		p.modelAdmissionGateMu.Unlock()
-		select {
-		case <-followerGate.ch:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		// Leader finished: read the leader's token via the gate.
-		p.modelAdmissionGateMu.Lock()
-		hasToken := followerGate.hasToken
-		leaderToken := followerGate.token
-		p.modelAdmissionGateMu.Unlock()
-		if hasToken && leaderToken >= 0 {
-			// Candidate #2: followers try ONLY the leader's token. If that
-			// token fails (e.g. transient), fall through to the normal full
-			// order path — don't silently create a second session on another
-			// token inside the follow branch, but allow the normal failover
-			// loop to run after.
-			lease, err := p.leaseFromOrder(ctx, model, agentID, cfg, toks, []int{leaderToken}, nil)
-			if err == nil {
-				return lease, nil
-			}
-			// Fall through to normal path on follower follow failure.
-		}
-		// Leader failed (no token) or follower follow failed — fall through
-		// to normal hot-order path without publishing to leader's gate.
-		order, quotaLimited := p.acquireOrder(toks, start, model)
-		if cfg.RoutingSmart {
-			order = p.routeSmartRank(cfg, toks, order, model)
-		}
-		return p.leaseFromOrder(ctx, model, agentID, cfg, toks, order, quotaLimited)
-	}
-	// Hot-session-first selection (leader path): tokens that already hold a
-	// live session are tried before any fresh account, so a request reuses
-	// the live slot instead of admitting a new session (never create where
-	// one already exists — the lowest fingerprint/quota-burn path). When at
-	// least one token is hot, the pass iterates only over hot tokens; only
-	// when every hot token fails does it fall back to the remaining eligible
-	// tokens from the round-robin start (cold path), exactly like the
-	// historical linear failover. When no token is hot the order is unchanged.
-	order, quotaLimited := p.acquireOrder(toks, start, model)
-	if cfg.RoutingSmart {
-		order = p.routeSmartRank(cfg, toks, order, model)
-	}
-	lease, err := p.leaseFromOrder(ctx, model, agentID, cfg, toks, order, quotaLimited)
-	if err == nil {
-		// Leader success: publish token via gate before channel close so
-		// followers read it deterministically via gate.token.
-		p.modelAdmissionGateMu.Lock()
-		gate.token = lease.Token
-		gate.hasToken = true
-		p.modelAdmissionGateMu.Unlock()
-	}
-	return lease, err
+	// Strict index order (spill_order.go): concurrent requests share the
+	// per-entry single-flight in the session manager, so no leader gate
+	// is needed to prevent duplicate session creates.
+	order, quotaLimited := p.spillOrder(toks, model)
+	return p.leaseFromOrder(ctx, model, agentID, cfg, toks, order, quotaLimited)
 }
 
-// leaseFromOrder runs the token failover loop against the given order.
-// Extracted from Acquire so the leader-election follower path can call it
-// with a reordered token list without duplicating the loop.
+// leaseFromOrder runs the token spill walk against the given order.
+// Extracted from Acquire so tests can drive the walk with an explicit
+// order without duplicating the loop.
 func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string, cfg *config.Config, toks *[]*tokenEntry, order []int, quotaLimited []rateLimitEntry) (*Lease, error) {
 	var errs []string
 	var waiting []*session.WaitingRoomError
 	var rateLimited []rateLimitEntry
-	var ipCapped []*upstream.IpCappedError
 	var banned []*upstream.BanError
-	var countryBlocked []*upstream.CountryBlockedError
-	var modelLimited []*upstream.LimitedIpError
-failoverLoop:
-	for _, idx := range order {
+	// MASQ spill walk (spill_queue.go): lane-exhausted lanes move the
+	// request to the next account silently, bounded by
+	// MAX_SPILL_ACCOUNTS; the last signal surfaces end-of-chain below.
+	spill := newSpillChain(cfg, model)
+	// queueWait accumulates every lane's park duration across spill hops:
+	// a waiter that parked on lane #1 then granted on lane #2 reports the
+	// full wait, not just the granting lane's. Recorded only when the
+	// request actually parked somewhere; a waiter that timed out or was
+	// cancelled held no slot and reports nothing on that lane.
+	var queueWait time.Duration
+	// Indexed (not range): a same-lane quota requeue (I5) rewinds oi to
+	// retry the lane after its RetryAfter elapses — no spill hop consumed,
+	// no failover. Every other path advances normally.
+	for oi := 0; oi < len(order); oi++ {
+		idx := order[oi]
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		// Defensive bounds check: acquireOrder builds its order against the
+		// Defensive bounds check: spillOrder builds its order against the
 		// SAME snapshot loaded above, but a removal racing this call must
 		// never index past the slice it computed the order from. Skip
 		// indices that are no longer present instead of panicking.
@@ -198,30 +154,19 @@ failoverLoop:
 				if !dup {
 					banned = append(banned, terr)
 				}
-			case *upstream.CountryBlockedError:
-				dup := false
-				for _, existing := range countryBlocked {
-					if existing.Error() == terr.Error() {
-						dup = true
-						break
-					}
-				}
-				if !dup {
-					countryBlocked = append(countryBlocked, terr)
-				}
 			}
 			continue
 		}
-		// Model-allowlist routing (MODEL_LOCKS, issue #325): a slot locked
-		// to other models is skipped before any session/run contact, so a
-		// request never burns the wrong account's quota or churns its
-		// session (upstream model_locked 409). Sits after the quarantine
-		// gate so terminal states keep their error-bucket precedence, and
-		// mirrors the eligible() filter for custom-order callers.
-		if lockedOutByModel(cfg, p.reg, idx, model) {
-			tok.allowlistSkips.Add(1)
-			errs = append(errs, fmt.Sprintf("%s: model %q not in token allowlist", name, model))
-			p.logger.Debug("pool: token skipped (model allowlist)", "token", idx+1, "model", model)
+		// Single-pin routing (PIN_MODEL): a slot pinned to another model
+		// is skipped before any session/run contact, so a request never
+		// burns the wrong account's quota or churns its session. Sits
+		// after the quarantine gate so terminal states keep their
+		// error-bucket precedence, and mirrors the eligible() filter for
+		// custom-order callers.
+		if pinnedOut(cfg, p.reg, idx, model) {
+			tok.pinSkips.Add(1)
+			errs = append(errs, fmt.Sprintf("%s: model %q not pinned to this slot", name, model))
+			p.logger.Debug("pool: token skipped (model pin)", "token", idx+1, "model", model)
 			continue
 		}
 
@@ -246,127 +191,60 @@ failoverLoop:
 						banned = append(banned, be)
 					}
 				}
-				if cbe := tok.runs.CountryBlockedError(); cbe != nil {
-					dup := false
-					for _, existing := range countryBlocked {
-						if existing.Error() == cbe.Error() {
-							dup = true
-							break
-						}
-					}
-					if !dup {
-						countryBlocked = append(countryBlocked, cbe)
-					}
-				}
 				if rle := tok.runs.RateLimitError(); rle != nil {
 					rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
-				}
-				if ice := tok.runs.IpCappedError(); ice != nil {
-					dup := false
-					for _, existing := range ipCapped {
-						if existing.Error() == ice.Error() {
-							dup = true
-							break
-						}
-					}
-					if !dup {
-						ipCapped = append(ipCapped, ice)
-					}
 				}
 				continue
 			}
 		}
-		// Smart-routing live-turn slot (TOKEN_MAX_CONCURRENT, route_smart.go):
-		// a lease is granted only while the token holds fewer live turns
-		// than the cap; otherwise the caller parks FIFO until QUEUE_WAIT
-		// elapses. The slot is taken BEFORE any upstream admission so a
-		// queued request never burns a session slot or run START while it
-		// waits. Overflow/timeout maps to the existing 429 rate-limit
-		// shape and fails over to the next token — except a same-model
-		// drain waiter timed out on its stick holder, which overflows to
-		// ONE deterministic helper or fails closed (see below); the
-		// caller's own ctx expiry returns as-is (today's gate behavior).
-		// Skipped entirely when ROUTING_SMART is off (legacy path untouched).
-		var routeSlot *routeSlotPermit
-		// queueWait is this attempt's park duration: set only when the
-		// request actually parked AND the slot was granted. A waiter that
-		// timed out or was cancelled held no slot and reports nothing.
-		var queueWait time.Duration
-		if cfg.RoutingSmart {
-			slotCap, slotDepth, slotWait := routeSlotParams(cfg)
-			// TOKEN_MAX_CONCURRENT=0 skips slot gating entirely: no
-			// counter, no queue — the upstream quota/429 is the brake.
-			if slotCap > 0 {
-				parkStart := time.Now()
-				permit, parked, slotErr := p.routeSlotAcquire(ctx, tok, idx+1, slotCap, slotDepth, slotWait)
-				if slotErr != nil {
-					if routeIsQueueExhausted(slotErr) {
-						// Same-model overflow assist (operator ruling 2026-09-16,
-						// drain-only): a waiter that parked FIFO on the usable
-						// same-model holder past QUEUE_WAIT opens the model on
-						// ONE helper — the lowest-index eligible free account
-						// (deterministic, never round-robin/cycling) — to
-						// assist. Exactly one helper attempt per park: the
-						// recursion below carries order=[helper], and the
-						// helper never equals the holder, so it cannot
-						// overflow again (depth at most 1, no cascade). No
-						// eligible helper, or a failed assist, records the
-						// holder's own queue-timeout and breaks fail-closed:
-						// the existing queue-timeout error surfaces unchanged
-						// through the buckets below (never a spread-to-all).
-						// Queue-full (refused without parking) and
-						// cross-model/non-drain traffic keep the legacy
-						// continue below.
-						if qerr, ok := slotErr.(*routeQueueExhaustedError); ok && qerr.Reason == "timeout" {
-							if holders := p.routeStickHolders(cfg, toks, model); len(holders) > 0 && idx == holders[0] {
-								if helper, ok := p.routeOverflowHelper(cfg, toks, model, idx); ok {
-									p.logger.Debug("pool: same-model queue timeout, overflowing to helper", "holder", idx+1, "helper", helper+1, "model", model)
-									if lease, herr := p.leaseFromOrder(ctx, model, agentID, cfg, toks, []int{helper}, quotaLimited); herr == nil {
-										return lease, nil
-									} else if ctx.Err() != nil {
-										return nil, ctx.Err()
-									}
-								}
-								live := p.routeSlotLive(tok)
-								rateLimited = appendRateLimitEntry(rateLimited, routeQueueRateLimit(qerr, model, slotCap, live), idx)
-								errs = append(errs, fmt.Sprintf("%s: %v", name, slotErr))
-								p.logger.Debug("pool: token skipped (live-turn queue exhausted)", "token", idx+1, "err", slotErr)
-								break failoverLoop
-							}
-						}
-						live := p.routeSlotLive(tok)
-						rateLimited = appendRateLimitEntry(rateLimited, routeQueueRateLimit(slotErr.(*routeQueueExhaustedError), model, slotCap, live), idx)
-						errs = append(errs, fmt.Sprintf("%s: %v", name, slotErr))
-						p.logger.Debug("pool: token skipped (live-turn queue exhausted)", "token", idx+1, "err", slotErr)
+		// Live-turn slot (SLOTS_PER_ACCOUNT per account-model lane,
+		// slot_ledger.go): a lease is granted only while the token holds
+		// fewer live turns for this model than the cap; otherwise the
+		// caller parks FIFO until QUEUE_WAIT elapses. The slot is taken
+		// BEFORE any upstream admission so a queued request never burns a
+		// session slot or run START while it waits. A lane-exhausted
+		// waiter spills silently to the next lane (spill_queue.go) - a
+		// full lane is not an upstream refusal, so it writes no bucket
+		// and no error string. The caller's own ctx expiry returns
+		// as-is.
+		var routeSlot *slotPermit
+		slotCap, slotDepth, slotWait := slotParams(cfg)
+		// SLOTS_PER_ACCOUNT=0 skips slot gating entirely: no
+		// counter, no queue - the upstream quota/429 is the brake.
+		if slotCap > 0 {
+			parkStart := time.Now()
+			permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: tok, model: model}, idx+1, slotCap, slotDepth, slotWait)
+			if slotErr != nil {
+				if qerr, ok := slotErr.(*slotQueueExhaustedError); ok {
+					// Trust the signal's carried lane wait: the
+					// lane's own timer elapsed, so the park is the
+					// configured laneWait — not the wall clock
+					// around the call, which a failing assertion
+					// in this file once zeroed.
+					if qerr.Reason == "timeout" {
+						queueWait += qerr.Wait
+					}
+					if spill.note(qerr, slotCap) {
+						p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", slotErr)
 						continue
 					}
-					return nil, slotErr
+					break
 				}
-				// Queue-wait telemetry: the park duration rides the
-				// request's phase accumulator (the server puts it on the
-				// chat trace, inside the console's request card) and the
-				// lease. Never recorded for a request that did not park.
-				if parked {
-					queueWait = time.Since(parkStart)
-					phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, parkStart)
-				}
-				routeSlot = permit
+				return nil, slotErr
 			}
+			// Queue-wait telemetry: the accumulated park rides the
+			// request's phase accumulator (the server puts it on the
+			// chat trace, inside the console's request card) and the
+			// lease. Never recorded for a request that did not park.
+			if parked {
+				queueWait += time.Since(parkStart)
+				phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+			}
+			routeSlot = permit
 		}
 
-		// Session admission: the pre-registered per-model leader slot is
-		// updated with the actual token index so sibling waiters can reuse
-		// the admitted session. The smart-path live-turn slot above is the
-		// only local concurrency bound here (the retired create gate used
-		// to cap concurrent admits).
-		p.admissionsMu.Lock()
-		if p.admissions == nil {
-			p.admissions = make(map[string]int)
-		}
-		// Update the pre-registered leader slot with the actual token index.
-		p.admissions[model] = idx
-		p.admissionsMu.Unlock()
-		p.markPersistDirty()
+		// Session admission: the live-turn slot above is the only local
+		// concurrency bound here.
 
 		// Re-validate the entry is still current BEFORE the admission POST:
 		// a concurrent RemoveLastToken/RemoveAllTokens must never admit a
@@ -375,12 +253,6 @@ failoverLoop:
 		// post-admission check below stays: the removal can still land
 		// during the create.
 		if cur := p.roster.Load(); idx < 0 || idx >= len(*cur) || (*cur)[idx] != tok {
-			p.admissionsMu.Lock()
-			if p.admissions != nil && (p.admissions[model] == idx || p.admissions[model] == -1) {
-				delete(p.admissions, model)
-			}
-			p.admissionsMu.Unlock()
-			p.markPersistDirty()
 			routeSlot.Release()
 			continue
 		}
@@ -395,34 +267,69 @@ failoverLoop:
 			tok.client.FireWaitingRoomChain(ctx)
 		}
 		instanceID, err := tok.session.EnsureSessionForModel(ctx, model)
-		p.admissionsMu.Lock()
-		if p.admissions != nil && (p.admissions[model] == idx || p.admissions[model] == -1) {
-			delete(p.admissions, model)
-		}
-		p.admissionsMu.Unlock()
 		p.markPersistDirty()
 		phasetiming.FromContext(ctx).Since(phasetiming.SessionRefreshMS, sessionStart)
 		if err != nil {
 			c := p.classifyAndCooldown(tok.runs, err)
 			if c.authRejected {
-				// 401 invalid is a time-bound park (runs.DefaultCooldown),
-				// never a terminal quarantine: the account may recover
-				// (rotated secret, upstream flap) and the cooldown expiry
-				// revives it automatically.
-				p.logger.Debug("pool: token cooling down", "token", idx+1, "duration", runs.DefaultCooldown.String())
+				// 401 invalid is a per-account credential refusal, never a
+				// terminal quarantine: other accounts may still serve, so the
+				// loop continues with no cooldown write.
+				p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1)
 			}
 			var wr *session.WaitingRoomError
 			if errors.As(err, &wr) {
 				waiting = append(waiting, wr)
 			}
+			if rle := c.rateLimited; rle != nil && !c.authRejected && c.banned == nil && c.ipCapped == nil && c.countryBlocked == nil && c.limitedIp == nil {
+				// MASQ same-lane quota requeue (I5, spill_queue.go): a
+				// short-window quota jail is waited out on this lane -
+				// no cooldown write, no failover, no spill hop. Longer
+				// (or windowless) windows fall through to the per-lane
+				// record below.
+				if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
+					if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
+						// No Model tag here: the refusal is discarded after
+						// the requeue (only RetryAfter is read above), and
+						// rle is single-flight-shared — stamping it would
+						// mutate state owned by every parked waiter.
+						// Issue #122: count spend_limited on the ledger.
+						if c.spendLimited {
+							tok.ledger.recordSpendLimited()
+						}
+						routeSlot.Release()
+						p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter)
+						rqStart := time.Now()
+						_, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+						if rerr != nil {
+							if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
+								if qerr.Reason == "timeout" {
+									queueWait += qerr.Wait
+								}
+								if spill.note(qerr, sCap) {
+									p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+									continue
+								}
+								break
+							}
+							return nil, rerr
+						}
+						if parked {
+							queueWait += time.Since(rqStart)
+							phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+						}
+						oi--
+						continue
+					}
+				}
+			}
 			if rle := c.rateLimited; rle != nil {
 				// Issue #178: tag the refusal with the requested model when
-				// the upstream body omits it, so the remembered cooldown can
-				// be isolated per model — a quota cap on one model (glm-5.2,
-				// gpt-5.6-luna) must not block the same token's other models.
-				if rle.Model == "" {
-					rle.Model = model
-				}
+				// the upstream body omits it, so the surfaced refusal is
+				// self-describing. Tag a walk-local copy: rle is
+				// single-flight-shared and concurrent walks must not
+				// mutate it (data race on Model).
+				rle = tagRateLimitModel(rle, model)
 				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
 				// Issue #122: the fresh-admission spend ceiling is the
 				// upstream's primary spend gate, so an admission-path
@@ -433,7 +340,10 @@ failoverLoop:
 				}
 			}
 			if ice := c.ipCapped; ice != nil {
-				ipCapped = appendIpCapped(ipCapped, ice)
+				// Correlative refusal (one egress IP share): failover would
+				// hit the same wall on the next account, so surface directly.
+				routeSlot.Release()
+				return nil, ice
 			}
 			if be := c.banned; be != nil {
 				// Display index resolved live (see run-path below).
@@ -449,33 +359,20 @@ failoverLoop:
 				banned = appendBan(banned, be)
 			}
 			if cbe := c.countryBlocked; cbe != nil {
-				// country_blocked is a time-bound park
-				// (runs countryBlockCooldown), never a terminal
-				// quarantine: short region/egress transients must ride
-				// out the window instead of killing the token.
-				countryBlocked = appendCountryBlock(countryBlocked, cbe)
+				// Correlative refusal like ip_capped: surface directly.
+				routeSlot.Release()
+				return nil, cbe
 			}
 			if lie := c.limitedIp; lie != nil {
-				// Issue #74: the egress IP cannot serve this model
-				// (limited_ip). The session row is fine — it stays bound to
-				// its admitted model — so nothing is invalidated or cooled
-				// per-token: the (egress, model) pair is marked unfit so
-				// new requests are refused fast instead of re-admitting and
-				// burning a daily session slot on every token. The lie is
-				// pool-owned here (fresh from the admission error), so
-				// stamping Model makes the surfaced refusal self-describing;
-				// the registry stores its own copy.
-				lie.Model = model
-				p.MarkModelUnfit(model, lie)
-				modelLimited = append(modelLimited, lie)
-				errs = append(errs, fmt.Sprintf("%s: %v", name, err))
+				// The egress IP cannot serve this model. The session row is
+				// fine — it stays bound to its admitted model — so nothing
+				// is invalidated. Surface a walk-local Model-stamped copy
+				// (never mutate the single-flight-shared value), no
+				// failover walk.
 				routeSlot.Release()
-				continue
+				return nil, tagLimitedIPModel(lie, model)
 			}
 			errs = append(errs, fmt.Sprintf("%s: %v", name, err))
-			if cfg.RoutingSmart && c.unclassified() && wr == nil {
-				p.routeNoteTransient(tok)
-			}
 			routeSlot.Release()
 			continue
 		}
@@ -516,27 +413,69 @@ failoverLoop:
 		if err != nil {
 			c := p.classifyAndCooldown(tok.runs, err)
 			if c.authRejected {
-				// 401 invalid is a time-bound park (runs.DefaultCooldown),
-				// never a terminal quarantine — see the admission path.
-				p.logger.Debug("pool: token cooling down", "token", idx+1, "duration", runs.DefaultCooldown.String())
+				// 401 invalid is a per-account credential refusal, never a
+				// terminal quarantine — see the admission path.
+				p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1)
+			}
+			// MASQ same-lane quota requeue (I5, spill_queue.go): a
+			// short-window run-start quota jail is waited out on this
+			// lane - no cooldown write, no failover, no spill hop.
+			// Longer (or windowless) windows fall through to the per-lane
+			// record below. Terminal mixes (ban, correlative
+			// refusals, auth rejection) never requeue.
+			if rle := c.rateLimited; rle != nil && !c.authRejected && c.banned == nil && c.ipCapped == nil && c.countryBlocked == nil && c.limitedIp == nil {
+				if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
+					if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
+						// No Model tag here: the refusal is discarded after
+						// the requeue (only RetryAfter is read above) — see
+						// the admission path.
+						// Issue #122: count spend_limited on the ledger.
+						if c.spendLimited {
+							tok.ledger.recordSpendLimited()
+						}
+						routeSlot.Release()
+						p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "phase", "run-start")
+						rqStart := time.Now()
+						_, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+						if rerr != nil {
+							if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
+								if qerr.Reason == "timeout" {
+									queueWait += qerr.Wait
+								}
+								if spill.note(qerr, sCap) {
+									p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+									continue
+								}
+								break
+							}
+							return nil, rerr
+						}
+						if parked {
+							queueWait += time.Since(rqStart)
+							phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+						}
+						oi--
+						oi--
+						continue
+					}
+				}
 			}
 			if rle := c.rateLimited; rle != nil {
 				// Issue #178: tag the refusal with the requested model when
-				// the upstream body omits it, so the remembered cooldown can
-				// be isolated per model — a quota cap on one model (glm-5.2,
-				// gpt-5.6-luna) must not block the same token's other models.
-				if rle.Model == "" {
-					rle.Model = model
-				}
+				// the upstream body omits it, so the surfaced refusal is
+				// self-describing. Tag a walk-local copy — see the
+				// admission path (single-flight-shared values must never
+				// be mutated by concurrent walks).
+				rle = tagRateLimitModel(rle, model)
 				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
-				// Issue #122: count run-start spend_limited refusals on the
-				// ledger (same counter as the chat-path refusal).
 				if c.spendLimited {
 					tok.ledger.recordSpendLimited()
 				}
 			}
 			if ice := c.ipCapped; ice != nil {
-				ipCapped = appendIpCapped(ipCapped, ice)
+				// Correlative refusal (one egress IP share): surface directly.
+				routeSlot.Release()
+				return nil, ice
 			}
 			if be := c.banned; be != nil {
 				// Display index resolved live: a dashboard reorder
@@ -553,14 +492,11 @@ failoverLoop:
 				banned = appendBan(banned, be)
 			}
 			if cbe := c.countryBlocked; cbe != nil {
-				// country_blocked is a time-bound park, never a terminal
-				// quarantine — see the admission path.
-				countryBlocked = appendCountryBlock(countryBlocked, cbe)
+				// Correlative refusal like ip_capped: surface directly.
+				routeSlot.Release()
+				return nil, cbe
 			}
 			errs = append(errs, fmt.Sprintf("%s: %v", name, err))
-			if cfg.RoutingSmart && c.unclassified() {
-				p.routeNoteTransient(tok)
-			}
 			routeSlot.Release()
 			continue
 		}
@@ -585,51 +521,39 @@ failoverLoop:
 			Token: idx, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: instanceID,
 			entry: tok, routeSlot: routeSlot, QueueWait: queueWait, AcquiredAt: time.Now(),
 		}
-		if cfg.RoutingSmart {
-			p.routeNoteGranted(tok)
-		}
+		// MASQ precious (precious.go): the account served this model, so its
+		// live session is never proactively dropped from here on.
+		p.markPrecious(tok, effectiveModel)
 		// Track the activity and end any idle-maintenance pause: the next
 		// maintain tick resumes rotation/refresh work.
 		p.lastActiveMu.Lock()
 		p.lastActive = time.Now()
 		p.idleFinished = false
-		p.sessionsEnded = false
 		p.lastActiveMu.Unlock()
-		p.lastTokenMu.Lock()
-		if p.lastTokenByModel == nil {
-			p.lastTokenByModel = make(map[string]int)
-		}
-		p.lastTokenByModel[effectiveModel] = idx
-		p.lastTokenMu.Unlock()
 		return lease, nil
 	}
 
-	// Failover precedence (PRD §6 error matrix): when buckets are mixed the
-	// highest-precedence non-empty bucket wins — ban > country-blocked >
-	// model-IP-limited > rate-limit > ip-capped > waiting-room.
-	// Each bucket contributes its best error (first ban, shortest rate
-	// window, first ip_capped, lowest queue position). Only when every bucket
-	// is empty — all tokens failed with errors outside the matrix — is the
-	// generic error surfaced.
-	// Freebucks-capped tokens were excluded in acquireOrder (never
+	// Spill precedence: when buckets are mixed the highest-precedence
+	// non-empty bucket wins - ban > rate-limit > waiting-room >
+	// spill-exhausted. Correlative refusals (ip_capped, country-blocked,
+	// limited_ip) surface directly at the failing token and never reach
+	// these buckets. Each bucket contributes its best error (first ban,
+	// shortest rate window, lowest queue position, last spilled lane).
+	// Only when every bucket is empty - all tokens failed with errors
+	// outside the matrix - is the generic error surfaced.
+	// Freebucks-capped tokens were excluded in spillOrder (never
 	// attempted); their rate-limit reasons land here so a fully-capped pool
 	// surfaces a real 429 with the earliest window reset instead of a
 	// generic combined error.
 	rateLimited = append(rateLimited, quotaLimited...)
-	// Every slot locked away from the model (direct-order callers reach
+	// Every slot pinned away from the model (direct-order callers reach
 	// here via the loop gates): the dedicated routing error beats the
 	// generic combined one.
-	if allLockedOut(toks, cfg, p.reg, model) {
-		return nil, lockFailFastError(model, len(*toks))
+	if allPinnedOut(toks, cfg, p.reg, model) {
+		return nil, pinFailFastError(model, len(*toks))
 	}
 	if len(banned) > 0 {
 		return nil, banned[0]
-	}
-	if len(countryBlocked) > 0 {
-		return nil, countryBlocked[0]
-	}
-	if len(modelLimited) > 0 {
-		return nil, modelLimited[0]
 	}
 	if len(rateLimited) > 0 {
 		// Pool exhausted (issue #48): every token failed and the highest-
@@ -648,13 +572,15 @@ failoverLoop:
 		}
 		return nil, bestRateLimitEntry(rateLimited)
 	}
-	if len(ipCapped) > 0 {
-		return nil, ipCapped[0]
-	}
 	if len(waiting) > 0 {
 		wr := bestWaitingRoom(waiting)
 		p.logger.Debug("pool: waiting room surfaced", "position", wr.Position, "queue_depth", wr.QueueDepth, "retry_after", wr.RetryAfter.String())
 		return nil, wr
+	}
+	// Every lane spilled and nothing else was recorded: surface the last
+	// lane's signal once as the existing 429 shape.
+	if err := spill.exhausted(); err != nil {
+		return nil, err
 	}
 	return nil, fmt.Errorf("unable to acquire run from any token: %s", strings.Join(errs, "; "))
 }

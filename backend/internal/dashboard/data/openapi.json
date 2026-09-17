@@ -172,25 +172,6 @@
         ],
         "type": "object"
       },
-      "MaturityUpdateRequest": {
-        "properties": {
-          "enabled": {
-            "nullable": true,
-            "type": "boolean"
-          },
-          "mode": {
-            "type": "string"
-          },
-          "target": {
-            "nullable": true,
-            "type": "integer"
-          },
-          "touch_model": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
       "ModeSwitchRequest": {
         "properties": {
           "mode": {
@@ -1585,15 +1566,6 @@
                 "active_runs": {
                   "type": "integer"
                 },
-                "allowed_models": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "allowlist_skips": {
-                  "type": "integer"
-                },
                 "ban_type": {
                   "type": "string"
                 },
@@ -1849,6 +1821,12 @@
                   "type": "integer"
                 },
                 "pending_refund": {
+                  "type": "string"
+                },
+                "pin_skips": {
+                  "type": "integer"
+                },
+                "pinned_model": {
                   "type": "string"
                 },
                 "queue_depth": {
@@ -2173,32 +2151,6 @@
         ],
         "type": "object"
       },
-      "tokenTestAllResponse": {
-        "items": {
-          "properties": {
-            "instance_id": {
-              "type": "string"
-            },
-            "message": {
-              "type": "string"
-            },
-            "ok": {
-              "type": "boolean"
-            },
-            "token": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "instance_id",
-            "message",
-            "ok",
-            "token"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      },
       "tokensData": {
         "properties": {
           "bridge_token_cards": {
@@ -2414,6 +2366,9 @@
           "maturity_window_start": {
             "type": "string"
           },
+          "max_spill_accounts": {
+            "type": "integer"
+          },
           "mode": {
             "type": "string"
           },
@@ -2423,23 +2378,14 @@
           "queue_wait": {
             "type": "string"
           },
-          "rate_limit_failover": {
-            "type": "boolean"
-          },
-          "routing_smart": {
-            "type": "boolean"
-          },
           "show_bridge": {
             "type": "boolean"
           },
+          "slots_per_account": {
+            "type": "integer"
+          },
           "token_count": {
             "type": "integer"
-          },
-          "token_max_concurrent": {
-            "type": "integer"
-          },
-          "token_rotation": {
-            "type": "string"
           },
           "tokens": {
             "items": {
@@ -2451,15 +2397,6 @@
                   "type": "string"
                 },
                 "active_runs": {
-                  "type": "integer"
-                },
-                "allowed_models": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "allowlist_skips": {
                   "type": "integer"
                 },
                 "ban_type": {
@@ -2722,6 +2659,12 @@
                 "pending_refund": {
                   "type": "string"
                 },
+                "pin_skips": {
+                  "type": "integer"
+                },
+                "pinned_model": {
+                  "type": "string"
+                },
                 "queue_depth": {
                   "type": "integer"
                 },
@@ -2966,14 +2909,13 @@
           "has_tokens",
           "in_bridge",
           "maturity_enabled",
+          "max_spill_accounts",
           "mode",
           "queue_depth",
           "queue_wait",
-          "rate_limit_failover",
-          "routing_smart",
           "show_bridge",
+          "slots_per_account",
           "token_count",
-          "token_max_concurrent",
           "tokens"
         ],
         "type": "object"
@@ -4975,43 +4917,6 @@
         ]
       }
     },
-    "/admin/tokens/test-all": {
-      "post": {
-        "operationId": "tokenTestAll",
-        "parameters": [
-          {
-            "description": "auto=1 serves the throttled quota snapshot without probing",
-            "in": "query",
-            "name": "auto",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/tokenTestAllResponse"
-                }
-              }
-            },
-            "description": "Probe every pooled token (?auto=1 returns the throttled snapshot)"
-          }
-        },
-        "security": [
-          {
-            "cookieAuth": []
-          }
-        ],
-        "summary": "Probe every pooled token (?auto=1 returns the throttled snapshot)",
-        "tags": [
-          "tokens"
-        ]
-      }
-    },
     "/admin/tokens/{id}/drop-session": {
       "post": {
         "operationId": "tokenDropSession",
@@ -5115,88 +5020,6 @@
           }
         ],
         "summary": "Take one token out of rotation",
-        "tags": [
-          "tokens"
-        ]
-      }
-    },
-    "/admin/tokens/{id}/maturity": {
-      "post": {
-        "operationId": "tokenMaturity",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MaturityUpdateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResultEnvelope"
-                }
-              }
-            },
-            "description": "Set per-token streak-maturity automation"
-          }
-        },
-        "security": [
-          {
-            "cookieAuth": []
-          }
-        ],
-        "summary": "Set per-token streak-maturity automation",
-        "tags": [
-          "tokens"
-        ]
-      }
-    },
-    "/admin/tokens/{id}/maturity/touch": {
-      "post": {
-        "operationId": "tokenMaturityTouch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResultEnvelope"
-                }
-              }
-            },
-            "description": "Fire one manual maturity touch outside the daily slot"
-          }
-        },
-        "security": [
-          {
-            "cookieAuth": []
-          }
-        ],
-        "summary": "Fire one manual maturity touch outside the daily slot",
         "tags": [
           "tokens"
         ]

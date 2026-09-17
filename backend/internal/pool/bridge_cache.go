@@ -9,12 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
 
 // maxBridgeEntries caps the in-memory bridge cache: one entry (upstream
@@ -142,7 +141,6 @@ func (p *Pool) bridgeEntryFor(clientToken string) (*bridgeEntry, error) {
 	entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 	entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 	entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
-	pushParkConfig(entry.session, cfg)
 	entry.runs = runs.NewRunManagerOpts(client, entry.session, runOptions(cfg))
 	entry.lastUsed = time.Now()
 
@@ -400,16 +398,13 @@ func (p *Pool) bridgeMaintain(ctx context.Context, idle bool) {
 			toMaintain = append(toMaintain, entry)
 			continue
 		}
-		// Parked entry: a live CooldownUntil inside the session-park
-		// window means the entry is riding out a short transient —
-		// killing it here would end a session the next request could
-		// still use once the window lapses. Keep it cached; the sweep
-		// reaps it once the cooldown lapses and it stays idle. The
-		// gate is threshold-aware (same shouldPark boundary as the
-		// acquire path): a terminal-length cooldown (e.g. the 30m
-		// auth-rejection window past the 15m park threshold) still
-		// evicts on idle instead of squatting the cache.
-		if until := entry.runs.CooldownUntil(); time.Now().Before(until) && shouldPark(cfg, time.Until(until)) {
+		// Cooling entry: a live CooldownUntil means the entry is riding
+		// out a transient — killing it here would end a session the next
+		// request could still use once the window lapses. Keep it cached;
+		// the sweep reaps it once the cooldown lapses and it stays idle.
+		// (The old session-park threshold gate is excised with
+		// SESSION_PARK_*: any live window now holds.)
+		if until := entry.runs.CooldownUntil(); time.Now().Before(until) {
 			toMaintain = append(toMaintain, entry)
 			continue
 		}

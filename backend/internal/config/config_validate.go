@@ -43,18 +43,23 @@ func (c Config) Validate() error {
 		return errors.New("RATE_LIMIT_PER_IP cannot be negative")
 	case c.RateLimitBurst < 0:
 		return errors.New("RATE_LIMIT_BURST cannot be negative")
-	case c.MaturityTargetDays < 0 || c.MaturityTargetDays > 28:
-		return errors.New("MATURITY_TARGET_DAYS must be between 1 and 28 (one full streak interval is 7)")
 	case c.QueueDepth < 0:
 		return errors.New("QUEUE_DEPTH cannot be negative (0 disables slot queueing)")
-	case c.TokenMaxConcurrent < 0:
-		return errors.New("TOKEN_MAX_CONCURRENT cannot be negative (0 = unlimited)")
-	case c.CooldownIPMaxReadmits < 0:
-		return errors.New("COOLDOWN_IP_MAX_READMITS cannot be negative")
-	case c.CooldownIPJitterRatio < 0:
-		return errors.New("COOLDOWN_IP_JITTER_RATIO cannot be negative")
+	case c.SlotsPerAccount < 0:
+		return errors.New("SLOTS_PER_ACCOUNT cannot be negative (0 = unlimited)")
+	case c.MaxSpillAccounts < 0:
+		return errors.New("MAX_SPILL_ACCOUNTS cannot be negative (0 = unbounded)")
 	}
-	// Model fallback is excised: saved QUOTA_FALLBACK_MODELS values are
+	// PIN_MODEL cross-check: every pinned slot must address a configured
+	// AUTH_TOKENS position, so a typo surfaces at load instead of silently
+	// pinning nothing (an out-of-range pin would never match an Acquire).
+	// Skipped when no pool is configured: pin syntax is still parsed at
+	// Load, and the range only means something against real slots.
+	for idx := range c.PinModel {
+		if len(c.AuthTokens) > 0 && (idx < 0 || idx >= len(c.AuthTokens)) {
+			return fmt.Errorf("PIN_MODEL slot %d out of range (only %d AUTH_TOKENS slot(s) configured)", idx, len(c.AuthTokens))
+		}
+	}
 	// tolerated as unknown keys and ignored, so there is nothing to validate.
 
 	if c.WebhookURL != "" {
@@ -100,16 +105,6 @@ func (c Config) Validate() error {
 		}
 	}
 
-	// The maturity touch model must look like a catalog id
-	// (provider/model) or be the "auto" sentinel (cheapest served
-	// unmetered row, the new default). Whether an explicit id is
-	// actually served and unpriced (never spends Freebucks) is enforced
-	// where modelcat is visible — the pool skips misconfigured touches
-	// with a warn log and the admin maturity endpoint rejects them
-	// (config is a bottom-layer package and must not import modelcat).
-	if c.MaturityTouchModel != "" && !strings.EqualFold(strings.TrimSpace(c.MaturityTouchModel), "auto") && !strings.Contains(c.MaturityTouchModel, "/") {
-		return fmt.Errorf("MATURITY_TOUCH_MODEL %q must be a provider/model id (e.g. upstage/solar-pro4) or \"auto\"", c.MaturityTouchModel)
-	}
 	if c.LogLevel != "" {
 		if _, ok := ParseLevel(c.LogLevel); !ok {
 			return fmt.Errorf("LOG_LEVEL %q must be one of: debug, info, warn, error, trace", c.LogLevel)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/session"
 	"log/slog"
 	"strings"
 	"time"
@@ -136,6 +137,13 @@ func (p *Pool) InvalidateSessionWithReason(token int, instanceID, reason string,
 	if token < 0 || token >= len(*toks) {
 		return
 	}
+	// MASQ precious (precious.go): a live precious session survives every
+	// non-terminal invalidation. Superseded still drops (the cached row is
+	// dead — another instance took over the account).
+	if entry := (*toks)[token]; reason != session.ReasonSuperseded && p.keepSession(entry) {
+		p.logger.Debug("pool: keeping precious session", "token", token+1, "reason", reason)
+		return
+	}
 	(*toks)[token].session.InvalidateInstanceWithReason(instanceID, reason, status)
 }
 
@@ -163,6 +171,12 @@ func (p *Pool) InvalidateLeaseSession(lease *Lease) {
 // InvalidateSessionWithReason (see InvalidateLeaseSession, #159).
 func (p *Pool) InvalidateLeaseSessionWithReason(lease *Lease, reason string, status int) {
 	if lease == nil || lease.entry == nil {
+		return
+	}
+	// MASQ precious (precious.go): see InvalidateSessionWithReason —
+	// superseded still drops.
+	if reason != session.ReasonSuperseded && p.keepSession(lease.entry) {
+		p.logger.Debug("pool: keeping precious session", "reason", reason)
 		return
 	}
 	lease.entry.session.InvalidateInstanceWithReason(lease.SessionInstanceID, reason, status)
@@ -242,9 +256,6 @@ func (p *Pool) RemoveLastToken() error {
 	if !slip {
 		p.drainRemovedToken(last)
 	}
-	// Membership changed: the next tick probes the remaining roster without
-	// waiting out the tier timer.
-	p.smartProbeKick()
 	return nil
 }
 
@@ -279,9 +290,6 @@ func (p *Pool) RemoveTokenAt(idx int) error {
 	p.retired[target] = time.Now()
 	p.retiredMu.Unlock()
 	p.drainRemovedToken(target)
-	// Membership changed: the next tick probes the remaining roster without
-	// waiting out the tier timer.
-	p.smartProbeKick()
 	return nil
 }
 
@@ -333,6 +341,8 @@ func (p *Pool) MoveToken(from, to int) error {
 // tokenEntry.drained sync.Once to prevent double-drain when both
 // LeaseRelease and pruneRetired race on the same retired entry.
 func (p *Pool) drainRemovedToken(entry *tokenEntry) {
+	// MASQ precious: the account is gone, so its marks go with it.
+	p.unmarkPreciousEntry(entry)
 	entry.drained.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
@@ -353,6 +363,8 @@ func (p *Pool) drainRemovedToken(entry *tokenEntry) {
 func (p *Pool) RemoveAllTokens(ctx context.Context) {
 	toks := p.roster.Load()
 	for _, t := range *toks {
+		// MASQ precious: every account is gone, so its marks go too.
+		p.unmarkPreciousEntry(t)
 		t.runs.FinishAllRuns(ctx)
 		if err := t.session.EndSession(ctx); err != nil {
 			p.logger.Warn("pool: removed token EndSession failed",
@@ -362,9 +374,6 @@ func (p *Pool) RemoveAllTokens(ctx context.Context) {
 	// Clear the roster (entries, per-entry ledgers, and the mismatch map)
 	// through the single mutation entry point.
 	p.roster.clear()
-	// Membership changed (possibly to zero): the next tick re-evaluates the
-	// roster without waiting out the tier timer.
-	p.smartProbeKick()
 }
 
 // FinishTokenRuns finishes all active runs of token (dashboard action).
@@ -387,6 +396,13 @@ func (p *Pool) DropTokenSession(ctx context.Context, token int) error {
 	}
 	entry := (*toks)[token]
 	snap := entry.session.Snapshot()
+	// MASQ precious (precious.go): an operator drop keeps a live precious
+	// session — model switches re-admit naturally through the session
+	// manager, so the drop would only churn a healthy upstream slot.
+	if p.keepSession(entry) {
+		p.logger.Info("pool: keeping precious session", "token", token, "model", snap.Model, "instance", snap.InstanceID)
+		return nil
+	}
 	p.logger.Info("pool: dropping session", "token", token, "model", snap.Model, "instance", snap.InstanceID)
 	entry.runs.FinishAllRuns(ctx)
 	if err := entry.session.EndSession(ctx); err != nil {
@@ -409,12 +425,6 @@ func (p *Pool) Shutdown(ctx context.Context) {
 	p.draining.Store(true)
 	if p.cancel != nil {
 		p.cancel()
-	}
-	// Cancel detached smart-probe rounds (issue #484) before waiting: a
-	// wedged round holds the single-flight slot and a wg count, so the
-	// Wait below would hang until the round deadline without this.
-	if p.probeCancel != nil {
-		p.probeCancel()
 	}
 	p.wg.Wait()
 	// Best-effort runtime persist flush: the maintain loop is stopped, so

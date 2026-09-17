@@ -1,24 +1,15 @@
 package runs
 
-// Token cooldown management: the cooldown durations and the classifiers
-// that put a token into a cooldown window while remembering the triggering
-// upstream error (rate limit, ip_capped, ban, country block) so Acquires
-// keep surfacing the exact 429/403 + Retry-After instead of re-hitting
-// upstream during the window.
+// Token cooldown management: the remembered upstream errors (rate limit,
+// ban, country block) so Acquires keep surfacing the exact 429/403 +
+// Retry-After instead of re-hitting upstream during the window. Only
+// terminal bans are written by the pool's classifier now; 429s pass their
+// upstream RetryAfter through to the caller with no cooldown write.
 
 import (
-	cryptoRand "crypto/rand"
-	"encoding/binary"
-	"time"
-
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
-
-// DefaultCooldown is the token cooldown applied on upstream auth rejection
-// (PRD §5.3: "401 triggers 30-min token cooldown"). Tunable via
-// COOLDOWN_DEFAULT_MS (SetCooldownTuning, live-applied from pool.SetConfig);
-// the default preserves the 30m behavior.
-var DefaultCooldown = 30 * time.Minute
 
 // countryBlockCooldown is the token cooldown applied when upstream reports a
 // region block (country_blocked): long enough to stop the request hammer
@@ -28,32 +19,14 @@ var DefaultCooldown = 30 * time.Minute
 // quarantines a country block, so expiry always revives the token.
 var countryBlockCooldown = 15 * time.Minute
 
-// cooldownCeiling is the farthest future any cooldown deadline may extend
-// (7 days, mirroring upstream.MaxCooldown). Tunable via COOLDOWN_CEILING_MS.
-// Applied defensively when converting upstream-controlled retry durations
-// to deadlines: without it a huge RetryAfter (or a far-future ResetAt)
-// would park the token in a cooldown for years.
-var cooldownCeiling = 7 * 24 * time.Hour
-
-// SetCooldownTuning overrides the cooldown durations from operator config
-// (pool.SetConfig pushes the live values on boot and every reload).
-// Non-positive durations, non-positive readmit budgets, and negative jitter
-// ratios are ignored so a zero-value or partial config keeps the defaults.
+// SetCooldownTuning keeps the operator-config push point (pool.SetConfig
+// pushes the live values on boot and every reload) for the surviving
+// country-block window. The retired knobs (default, ceiling, ip readmits,
+// ip jitter) are ignored — their windows died with the bounded cooldowns
+// (the pool/cooldown_tuning.go caller is removed with them).
 func SetCooldownTuning(defaultD, countryBlock, ceiling time.Duration, ipMaxReadmits int, ipJitterRatio float64) {
-	if defaultD > 0 {
-		DefaultCooldown = defaultD
-	}
 	if countryBlock > 0 {
 		countryBlockCooldown = countryBlock
-	}
-	if ceiling > 0 {
-		cooldownCeiling = ceiling
-	}
-	if ipMaxReadmits > 0 {
-		maxIpCappedReAdmitsPerDay = ipMaxReadmits
-	}
-	if ipJitterRatio >= 0 {
-		ipCappedCooldownJitter = ipJitterRatio
 	}
 }
 
@@ -67,63 +40,20 @@ type TuningSnapshot struct {
 	IPJitterRatio                  float64
 }
 
-// SnapshotTuning captures the current cooldown tuning values.
+// SnapshotTuning captures the current cooldown tuning values. Removed
+// windows read back zero; Restore only re-applies the surviving
+// country-block window.
 func SnapshotTuning() TuningSnapshot {
-	return TuningSnapshot{
-		Default:       DefaultCooldown,
-		CountryBlock:  countryBlockCooldown,
-		Ceiling:       cooldownCeiling,
-		IPMaxReadmits: maxIpCappedReAdmitsPerDay,
-		IPJitterRatio: ipCappedCooldownJitter,
-	}
+	return TuningSnapshot{CountryBlock: countryBlockCooldown}
 }
 
-// Restore re-applies a captured snapshot, bypassing SetCooldownTuning's
-// non-positive guards so a saved zero jitter ratio (disabled) round-trips.
+// Restore re-applies a captured snapshot's surviving window.
 func (s TuningSnapshot) Restore() {
-	DefaultCooldown = s.Default
 	countryBlockCooldown = s.CountryBlock
-	cooldownCeiling = s.Ceiling
-	maxIpCappedReAdmitsPerDay = s.IPMaxReadmits
-	ipCappedCooldownJitter = s.IPJitterRatio
 }
 
-// cappedAfter returns now.Add(d) clamped to at most now+cooldownCeiling.
-func cappedAfter(now time.Time, d time.Duration) time.Time {
-	if d > cooldownCeiling {
-		d = cooldownCeiling
-	}
-	return now.Add(d)
-}
-
-// cappedDeadline clamps a future deadline to at most now+cooldownCeiling.
-func cappedDeadline(t time.Time) time.Time {
-	if ceiling := time.Now().Add(cooldownCeiling); t.After(ceiling) {
-		return ceiling
-	}
-	return t
-}
-
-// maxIpCappedReAdmitsPerDay caps how many times one token may re-admit
-// (and be refused ip_capped again) per Pacific day before it is locked
-// until the next Pacific midnight. The CLI treats ip_capped as
-// terminal-until-reset — it never loops an automatic re-admission — so the
-// proxy mirrors that with this bounded budget instead of pacing an endless
-// POST loop (issue #118). Tunable via COOLDOWN_IP_MAX_READMITS (see
-// SetCooldownTuning); the default preserves the 3/day behavior.
-// Test-shrinkable like the pool's unfit TTL
-// (backend/internal/pool/unfit.go modelUnfitTTL).
-var maxIpCappedReAdmitsPerDay = 3
-
-// ipCappedCooldownJitter is the ±fraction of retryAfterMs applied to the
-// ip_capped re-admission window so concurrent tokens do not re-admit in
-// lockstep (mirrors the CLI's 30s±20% poll jitter; upstream/freebuff
-// cli/src/hooks/use-freebuff-session.ts). Tunable via
-// COOLDOWN_IP_JITTER_RATIO; the default preserves the 0.2 behavior.
-var ipCappedCooldownJitter = 0.2
-
-// Cooldown puts the token in a cooldown window of duration d (e.g.
-// DefaultCooldown after an auth rejection). Durations <= 0 are ignored.
+// Cooldown puts the token in a cooldown window of duration d. Durations
+// <= 0 are ignored.
 func (m *RunManager) Cooldown(d time.Duration) {
 	if d <= 0 {
 		return
@@ -134,15 +64,11 @@ func (m *RunManager) Cooldown(d time.Duration) {
 	m.ban = nil
 	m.banPermanent = false
 	m.countryBlock = nil
-	m.ipCapped = nil
 	// The ban/country windows die with their remembered errors: leaving the
 	// deadlines set would surface a stale future BannedUntil (healthz risk
 	// gating via Snapshot) with no ban attached. Mirror ClearCooldowns.
 	m.banUntil = time.Time{}
 	m.countryUntil = time.Time{}
-	m.ipCappedUntil = time.Time{}
-	m.ipCappedReAdmits = 0
-	m.ipCappedDayReset = time.Time{}
 	m.mu.Unlock()
 }
 
@@ -157,10 +83,6 @@ func (m *RunManager) ClearCooldowns() {
 	m.banUntil = time.Time{}
 	m.countryBlock = nil
 	m.countryUntil = time.Time{}
-	m.ipCapped = nil
-	m.ipCappedUntil = time.Time{}
-	m.ipCappedReAdmits = 0
-	m.ipCappedDayReset = time.Time{}
 	m.mu.Unlock()
 }
 
@@ -196,9 +118,9 @@ func (m *RunManager) CooldownRateLimit(rle *upstream.RateLimitError) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if rle.RetryAfter > 0 {
-		m.cooldownUntil = cappedAfter(time.Now(), rle.RetryAfter)
+		m.cooldownUntil = time.Now().Add(rle.RetryAfter)
 	} else if !rle.ResetAt.IsZero() && rle.ResetAt.After(time.Now()) {
-		m.cooldownUntil = cappedDeadline(rle.ResetAt)
+		m.cooldownUntil = rle.ResetAt
 	} else {
 		m.cooldownUntil = upstream.NextPacificMidnight()
 	}
@@ -208,86 +130,6 @@ func (m *RunManager) CooldownRateLimit(rle *upstream.RateLimitError) {
 	m.banPermanent = false
 	m.countryBlock = nil
 	m.countryUntil = time.Time{}
-	m.ipCapped = nil
-	m.ipCappedUntil = time.Time{}
-}
-
-// CooldownIpCapped applies an ip_capped cooldown bounded to the body's
-// retryAfterMs ONLY — never the Pacific-midnight quota lock (ip_capped is
-// admission-only, not tied to a quota reset). The window honors the FULL
-// retryAfterMs plus the CLI's Â±20% poll jitter (#118). The CLI treats
-// ip_capped as terminal-until-reset — it never loops an automatic
-// re-admission — so the token's re-admission budget is capped at
-// maxIpCappedReAdmitsPerDay per Pacific day: once exhausted the token stays
-// locked (remembered 429 ip_capped + Retry-After reflecting the remaining
-// window) until the next Pacific midnight. Remembered so Acquires keep
-// surfacing 429 ip_capped + Retry-After during the window instead of
-// re-hitting upstream (mirrors CooldownRateLimit). Errors with
-// RetryAfter <= 0 are ignored.
-func (m *RunManager) CooldownIpCapped(ice *upstream.IpCappedError) {
-	if ice == nil || ice.RetryAfter <= 0 {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	now := time.Now()
-	reset := upstream.NextPacificMidnight()
-	if m.ipCappedDayReset.IsZero() || !m.ipCappedDayReset.Equal(reset) {
-		// New Pacific day (or first refusal): fresh re-admission budget.
-		m.ipCappedReAdmits = 0
-		m.ipCappedDayReset = reset
-	}
-	m.ipCappedReAdmits++
-	m.rateLimit = nil
-	m.ban = nil
-	m.banUntil = time.Time{}
-	m.banPermanent = false
-	m.countryBlock = nil
-	m.countryUntil = time.Time{}
-	if m.ipCappedReAdmits >= maxIpCappedReAdmitsPerDay {
-		// Budget exhausted: terminal until the next Pacific reset. Surface
-		// the REMAINING window as Retry-After so downstream 429s are honest
-		// about the lock instead of promising a re-admit that will not
-		// happen today.
-		terminal := *ice
-		terminal.RetryAfter = time.Until(reset)
-		m.ipCapped = &terminal
-		m.ipCappedUntil = reset
-		m.cooldownUntil = reset
-		return
-	}
-	m.ipCapped = ice
-	m.ipCappedUntil = cappedAfter(now, ice.RetryAfter+ipCappedJitter(ice.RetryAfter))
-	m.cooldownUntil = m.ipCappedUntil
-}
-
-// ipCappedJitter returns a one-sided jitter of up to
-// ipCappedCooldownJitter (20%) of base, crypto/rand-seeded so concurrent
-// tokens never re-admit in lockstep (mirrors the CLI's 30sÂ±20% poll
-// jitter; upstream/freebuff cli/src/hooks/use-freebuff-session.ts).
-// A non-positive ratio (COOLDOWN_IP_JITTER_RATIO=0 disables jitter, or a
-// zero-value test config) returns 0: the modulo below would divide by zero
-// on a sub-nanosecond window.
-func ipCappedJitter(base time.Duration) time.Duration {
-	if base <= 0 || ipCappedCooldownJitter <= 0 {
-		return 0
-	}
-	var b [8]byte
-	_, _ = cryptoRand.Read(b[:])
-	u := binary.BigEndian.Uint64(b[:])
-	extra := int64(u % uint64(float64(base)*ipCappedCooldownJitter))
-	return time.Duration(extra)
-}
-
-// IpCappedError returns the remembered ip_capped error while its short
-// cooldown window is active, nil otherwise.
-func (m *RunManager) IpCappedError() *upstream.IpCappedError {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if time.Now().Before(m.ipCappedUntil) && m.ipCapped != nil {
-		return m.ipCapped
-	}
-	return nil
 }
 
 // RateLimitError returns the remembered rate-limit error while its
@@ -337,7 +179,6 @@ func (m *RunManager) CooldownBan(be *upstream.BanError) {
 	m.cooldownUntil = m.banUntil
 	m.rateLimit = nil // a ban supersedes any rate-limit cooldown
 	m.countryBlock = nil
-	m.ipCapped = nil
 	m.mu.Unlock()
 }
 
@@ -377,7 +218,6 @@ func (m *RunManager) CooldownCountryBlocked(cbe *upstream.CountryBlockedError) {
 	m.ban = nil
 	m.banPermanent = false
 	m.banUntil = time.Time{}
-	m.ipCapped = nil
 }
 
 // CountryBlockedError returns the remembered country-block error while its

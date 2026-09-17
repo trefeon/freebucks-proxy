@@ -1,16 +1,22 @@
 package upstream
 
-// Cooldown-clamping regression tests: upstream-controlled retry fields
-// (retryAfterMs, Retry-After, resetAt) are untrusted input and must be
-// clamped at parse time to MaxCooldown — before the int64-nanosecond
-// duration multiply can wrap — instead of locking a token for years.
+// Overflow-guard regression tests: upstream-controlled retry fields
+// (retryAfterMs, Retry-After, resetAt) are untrusted input and must
+// saturate at parse time — before the int64-nanosecond duration multiply
+// can wrap — instead of wrapping into a bogus window.
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"testing"
 	"time"
 )
+
+// saturationDuration is the parse-time overflow saturation point: the
+// largest representable duration (classify.go saturates here instead of
+// wrapping the ms→ns multiply).
+const saturationDuration = time.Duration(math.MaxInt64)
 
 func TestCooldownFromMillis(t *testing.T) {
 	cases := []struct {
@@ -21,8 +27,8 @@ func TestCooldownFromMillis(t *testing.T) {
 		{"zero", 0, 0},
 		{"negative", -5, 0},
 		{"60s unchanged", 60000, 60 * time.Second},
-		{"huge but not overflowing", 1e15, MaxCooldown}, // ~31.7 years
-		{"max int64", float64(1<<63 - 1), MaxCooldown},  // would wrap the multiply
+		{"huge saturates", 1e15, saturationDuration},
+		{"max int64 saturates", float64(1<<63 - 1), saturationDuration},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -33,9 +39,9 @@ func TestCooldownFromMillis(t *testing.T) {
 	}
 }
 
-// TestParseRateLimitClampsCooldown pins the parse-time ceiling: an absurd
-// retryAfterMs must clamp to MaxCooldown (not wrap positive), a
-// centuries-out resetAt must clamp too, and a normal value stays unchanged.
+// TestParseRateLimitClampsCooldown pins the parse-time overflow guard: an
+// absurd retryAfterMs must saturate (not wrap positive), a centuries-out
+// resetAt must saturate too, and a normal value stays unchanged.
 func TestParseRateLimitClampsCooldown(t *testing.T) {
 	t.Run("max retryAfterMs clamps", func(t *testing.T) {
 		err := parseRateLimit(`{"status":"rate_limited","retryAfterMs":9223372036854775807}`, 0)
@@ -43,8 +49,8 @@ func TestParseRateLimitClampsCooldown(t *testing.T) {
 		if !errors.As(err, &rle) {
 			t.Fatalf("err = %v, want RateLimitError", err)
 		}
-		if rle.RetryAfter != MaxCooldown {
-			t.Errorf("RetryAfter = %v, want %v (clamped, not wrapped)", rle.RetryAfter, MaxCooldown)
+		if rle.RetryAfter != saturationDuration {
+			t.Errorf("RetryAfter = %v, want %v (saturated, not wrapped)", rle.RetryAfter, saturationDuration)
 		}
 	})
 	t.Run("centuries-out resetAt clamps", func(t *testing.T) {
@@ -53,8 +59,8 @@ func TestParseRateLimitClampsCooldown(t *testing.T) {
 		if !errors.As(err, &rle) {
 			t.Fatalf("err = %v, want RateLimitError", err)
 		}
-		if rle.RetryAfter != MaxCooldown {
-			t.Errorf("RetryAfter = %v, want %v (resetAt-derived, clamped)", rle.RetryAfter, MaxCooldown)
+		if rle.RetryAfter != saturationDuration {
+			t.Errorf("RetryAfter = %v, want %v (resetAt-derived, saturated)", rle.RetryAfter, saturationDuration)
 		}
 	})
 	t.Run("normal 60s unchanged", func(t *testing.T) {
@@ -69,16 +75,16 @@ func TestParseRateLimitClampsCooldown(t *testing.T) {
 	})
 }
 
-// TestParseIpCappedClampsCooldown pins the same ceiling on the ip_capped
-// parse path.
+// TestParseIpCappedClampsCooldown pins the same saturation guard on the
+// ip_capped parse path.
 func TestParseIpCappedClampsCooldown(t *testing.T) {
 	err := parseIpCapped(`{"status":"ip_capped","retryAfterMs":9223372036854775807}`, 0)
 	var ice *IpCappedError
 	if !errors.As(err, &ice) {
 		t.Fatalf("err = %v, want IpCappedError", err)
 	}
-	if ice.RetryAfter != MaxCooldown {
-		t.Errorf("RetryAfter = %v, want %v (clamped, not wrapped)", ice.RetryAfter, MaxCooldown)
+	if ice.RetryAfter != saturationDuration {
+		t.Errorf("RetryAfter = %v, want %v (saturated, not wrapped)", ice.RetryAfter, saturationDuration)
 	}
 
 	err = parseIpCapped(`{"status":"ip_capped","retryAfterMs":60000}`, 0)
@@ -90,20 +96,20 @@ func TestParseIpCappedClampsCooldown(t *testing.T) {
 	}
 }
 
-// TestParseRetryAfterClampsCooldown pins the Retry-After header ceiling:
-// a max-int32 seconds header (68 years) and a centuries-out HTTP date both
-// clamp to MaxCooldown; a normal value stays unchanged.
+// max-int32 seconds header (68 years) passes through verbatim (it fits the
+// int64-nanosecond range, so there is nothing to saturate) while a
+// centuries-out HTTP date saturates; a normal value stays unchanged.
 func TestParseRetryAfterClampsCooldown(t *testing.T) {
-	t.Run("max int32 seconds clamps", func(t *testing.T) {
+	t.Run("max int32 seconds verbatim", func(t *testing.T) {
 		hdr := http.Header{"Retry-After": {"2147483647"}}
-		if got := parseRetryAfter(hdr); got != MaxCooldown {
-			t.Errorf("parseRetryAfter(2147483647) = %v, want %v", got, MaxCooldown)
+		if got, want := parseRetryAfter(hdr), time.Duration(2147483647)*time.Second; got != want {
+			t.Errorf("parseRetryAfter(2147483647) = %v, want %v (verbatim, fits int64)", got, want)
 		}
 	})
 	t.Run("centuries-out http date clamps", func(t *testing.T) {
 		hdr := http.Header{"Retry-After": {"Sat, 01 Jan 2500 00:00:00 GMT"}}
-		if got := parseRetryAfter(hdr); got != MaxCooldown {
-			t.Errorf("parseRetryAfter(year 2500 date) = %v, want %v", got, MaxCooldown)
+		if got := parseRetryAfter(hdr); got != saturationDuration {
+			t.Errorf("parseRetryAfter(year 2500 date) = %v, want %v", got, saturationDuration)
 		}
 	})
 	t.Run("normal 60s unchanged", func(t *testing.T) {
@@ -152,13 +158,13 @@ func TestParseRateLimit30MinutesText(t *testing.T) {
 // TestParseRateLimitResetAtText verifies that a body containing
 // "reset at <ISO>" (without JSON resetAt field) yields the parsed ResetAt.
 func TestParseRateLimitResetAtText(t *testing.T) {
-	body := `{"error":"session_quota_exhausted","message":"Daily quota exceeded. Resets at 2026-08-22T07:00:00Z."}`
+	body := `{"error":"session_quota_exhausted","message":"Daily quota exceeded. Resets at 2032-08-22T07:00:00Z."}`
 	err := parseRateLimit(body, 0)
 	var rle *RateLimitError
 	if !errors.As(err, &rle) {
 		t.Fatalf("err = %v, want RateLimitError", err)
 	}
-	want, _ := time.Parse(time.RFC3339, "2026-08-22T07:00:00Z")
+	want, _ := time.Parse(time.RFC3339, "2032-08-22T07:00:00Z")
 	if !rle.ResetAt.Equal(want) {
 		t.Errorf("ResetAt = %v, want %v", rle.ResetAt, want)
 	}

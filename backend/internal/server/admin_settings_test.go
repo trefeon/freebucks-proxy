@@ -629,18 +629,15 @@ func TestSettingsDurationEchoStable(t *testing.T) {
 		}
 	}
 
-	// The five Pool Strategy owned keys (Balance posture) plus one sibling
-	// duration knob sharing the normalize path.
-	post("ROUTING_SMART", "true")
-	post("TOKEN_ROTATION", "drain")
-	post("RATE_LIMIT_FAILOVER", "true")
+	// The MASQ owned keys (strict spill posture).
+	post("SLOTS_PER_ACCOUNT", "2")
+	post("MAX_SPILL_ACCOUNTS", "0")
 	post("QUEUE_WAIT", "60s")
 	post("QUEUE_DEPTH", "16")
-	post("QUOTA_PROBE_ACTIVE_INTERVAL", "90s")
 	for key, want := range map[string]string{
-		"ROUTING_SMART": "true", "TOKEN_ROTATION": "drain",
-		"RATE_LIMIT_FAILOVER": "true", "QUEUE_WAIT": "60s",
-		"QUEUE_DEPTH": "16", "QUOTA_PROBE_ACTIVE_INTERVAL": "90s",
+		"SLOTS_PER_ACCOUNT":  "2",
+		"MAX_SPILL_ACCOUNTS": "0", "QUEUE_WAIT": "60s",
+		"QUEUE_DEPTH": "16",
 	} {
 		echo(key, want)
 	}
@@ -655,10 +652,9 @@ func TestSettingsDurationEchoStable(t *testing.T) {
 	post("QUEUE_DEPTH", "16")
 	echo("QUEUE_WAIT", "60s")
 	echo("QUEUE_DEPTH", "16")
-
 	// Bool spellings still normalize to one display form.
-	post("RATE_LIMIT_FAILOVER", "on")
-	echo("RATE_LIMIT_FAILOVER", "true")
+	post("SAFE_MODE", "on")
+	echo("SAFE_MODE", "true")
 
 	// Knob-chain agreement: the raw db-tier echo ("60s") and the live
 	// effective rendering (Go-normalized, e.g. "1m0s") denote the same

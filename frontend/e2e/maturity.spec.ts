@@ -558,20 +558,17 @@ test.describe("streak maintenance", () => {
     });
     // The saved model retired from the served catalog (stale snapshot):
     // the select must still display the saved value, never fall back to
-    // the Auto default.
-    await page.unroute("**/admin/api/config");
-    await page.route("**/admin/api/config", async (route) => {
-      const cfg = maintenanceConfig();
-      cfg.effective = cfg.effective.map((e) =>
-        e.key === "MATURITY_TOUCH_MODEL"
-          ? { ...e, value: "retired/old-model" }
-          : e,
-      );
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(cfg),
-      });
+    // the Auto default. The saved value rides the DB overlay (the
+    // instant-save persist channel): MASQ excised the MATURITY_* catalog
+    // entries, so effective config no longer carries this key.
+    await mockSettingsOverlay(page, [], {
+      seed: [
+        {
+          key: "MATURITY_TOUCH_MODEL",
+          value: "retired/old-model",
+          source: "db",
+        },
+      ],
     });
     await gotoWarming(page);
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(

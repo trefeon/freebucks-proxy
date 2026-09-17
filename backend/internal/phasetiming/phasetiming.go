@@ -32,7 +32,7 @@ const (
 	// pool per token attempt.
 	RunAcquireMS = "run_acquire_ms"
 	// QueueWaitMS is how long the request sat parked in an account's FIFO
-	// live-turn queue (TOKEN_MAX_CONCURRENT slot wall, route_smart.go)
+	// live-turn queue (SLOTS_PER_ACCOUNT slot wall, route_smart.go)
 	// before a slot was granted, recorded by the pool around the slot
 	// acquire. It is written ONLY when the request actually parked AND was
 	// granted: a request that never queued — or one whose QUEUE_WAIT

@@ -1,71 +1,503 @@
 [
-  {"method": "POST", "path": "/admin/reload", "auth": "adminToken", "js": null},
-  {"method": "GET", "path": "/admin/login", "auth": "none", "js": {"export": "adminActions", "key": "login"}},
-  {"method": "POST", "path": "/admin/login", "auth": "none", "js": {"export": "adminActions", "key": "login"}},
-  {"method": "POST", "path": "/admin/logout", "auth": "none", "js": {"export": "adminActions", "key": "logout"}},
-
-  {"method": "GET", "path": "/admin/api/overview", "auth": "dashboard", "js": {"export": "adminApi", "key": "overview"}},
-  {"method": "GET", "path": "/admin/api/tokens", "auth": "dashboard", "js": {"export": "adminApi", "key": "tokens"}},
-  {"method": "GET", "path": "/admin/api/models", "auth": "dashboard", "js": {"export": "adminApi", "key": "models"}},
-  {"method": "GET", "path": "/admin/api/traces", "auth": "dashboard", "js": {"export": "adminApi", "key": "traces"}},
-  {"method": "GET", "path": "/admin/api/setup", "auth": "dashboard", "js": {"export": "adminApi", "key": "setup"}},
-  {"method": "GET", "path": "/admin/api/config", "auth": "sensitive", "js": {"export": "adminApi", "key": "config"}},
-  {"method": "GET", "path": "/admin/api/config/meta", "auth": "dashboard", "js": {"export": "adminApi", "key": "configMeta"}},
-  {"method": "GET", "path": "/admin/api/settings", "auth": "dashboard", "js": {"export": "adminApi", "key": "settings"}},
-  {"method": "POST", "path": "/admin/api/settings", "auth": "sensitive", "js": {"export": "adminApi", "key": "settingsSave"}},
-  {"method": "DELETE", "path": "/admin/api/settings/{key}", "auth": "sensitive", "js": {"export": "adminApi", "key": "settingsDelete"}},
-  {"method": "GET", "path": "/admin/api/pages/{id}", "auth": "dashboard", "js": {"export": "adminApi", "key": "pageState"}},
-  {"method": "PUT", "path": "/admin/api/pages/{id}", "auth": "sensitive", "js": {"export": "adminApi", "key": "pageState"}},
-  {"method": "GET", "path": "/admin/api/logs", "auth": "sensitive", "js": {"export": "adminApi", "key": "logs"}},
-  {"method": "GET", "path": "/admin/api/quota/history", "auth": "dashboard", "js": {"export": "adminApi", "key": "quotaHistory"}},
-  {"method": "GET", "path": "/admin/api/maturity/history", "auth": "dashboard", "js": {"export": "adminApi", "key": "maturityHistory"}},
-  {"method": "GET", "path": "/admin/api/logs/history", "auth": "sensitive", "js": {"export": "adminApi", "key": "logsHistory"}},
-  {"method": "GET", "path": "/admin/api/logs/rollup", "auth": "sensitive", "js": null},
-  {"method": "GET", "path": "/admin/api/logs/export", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/api/logs/import", "auth": "sensitive", "js": null},
-  {"method": "GET", "path": "/admin/api/metrics", "auth": "dashboard", "js": {"export": "adminApi", "key": "metrics"}},
-  {"method": "GET", "path": "/admin/api/usage", "auth": "dashboard", "js": {"export": "adminApi", "key": "usage"}},
-  {"method": "GET", "path": "/admin/api/version", "auth": "dashboard", "js": {"export": "adminApi", "key": "version"}},
-  {"method": "GET", "path": "/admin/api/events", "auth": "dashboard", "js": {"export": "adminApi", "key": "events"}},
-  {"method": "GET", "path": "/admin/api/auth/status", "auth": "dashboard", "js": {"export": "adminApi", "key": "authStatus"}},
-  {"method": "GET", "path": "/admin/api/notices", "auth": "dashboard", "js": {"export": "adminApi", "key": "notices"}},
-
-  {"method": "GET", "path": "/admin", "auth": "dashboard", "js": null},
-  {"method": "GET", "path": "/admin/", "auth": "dashboard", "js": null},
-  {"method": "GET", "path": "/admin/tokens", "auth": "dashboard", "js": null},
-  {"method": "GET", "path": "/admin/models", "auth": "dashboard", "js": null},
-  {"method": "GET", "path": "/admin/traces", "auth": "dashboard", "js": null},
-  {"method": "GET", "path": "/admin/setup", "auth": "dashboard", "js": null},
-  {"method": "GET", "path": "/admin/playground", "auth": "dashboard", "js": null},
-  {"method": "GET", "path": "/admin/config", "auth": "sensitive", "js": null},
-  {"method": "GET", "path": "/admin/logs", "auth": "sensitive", "js": null},
-  {"method": "GET", "path": "/admin/metrics", "auth": "dashboard", "js": null},
-
-  {"method": "POST", "path": "/admin/playground/chat", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/login/start", "auth": "sensitive", "js": {"export": "adminActions", "key": "loginStart"}},
-  {"method": "GET", "path": "/admin/login/status", "auth": "sensitive", "js": {"export": "adminApi", "key": "loginStatus"}},
-  {"method": "POST", "path": "/admin/config", "auth": "sensitive", "js": {"export": "adminActions", "key": "configSave"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/unlock", "auth": "sensitive", "js": {"export": "tokenActions", "key": "unlock"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/lock", "auth": "sensitive", "js": {"export": "tokenActions", "key": "lock"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/unlock-lock", "auth": "sensitive", "js": {"export": "tokenActions", "key": "unlockLock"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/maturity", "auth": "sensitive", "js": {"export": "tokenActions", "key": "maturity"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/maturity/touch", "auth": "sensitive", "js": {"export": "tokenActions", "key": "maturityTouch"}},
-  {"method": "POST", "path": "/admin/bridge-tokens/{key}/lock", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/bridge-tokens/{key}/unlock", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/tokens/{id}/finish", "auth": "sensitive", "js": {"export": "tokenActions", "key": "finish"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/drop-session", "auth": "sensitive", "js": {"export": "tokenActions", "key": "dropSession"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/refund-refresh", "auth": "sensitive", "js": {"export": "tokenActions", "key": "refundRefresh"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/test", "auth": "sensitive", "js": {"export": "tokenActions", "key": "test"}},
-  {"method": "POST", "path": "/admin/tokens/{id}/session", "auth": "sensitive", "js": {"export": "tokenActions", "key": "session"}},
-  {"method": "POST", "path": "/admin/tokens/test-all", "auth": "sensitive", "js": {"export": "adminActions", "key": "tokenTestAll"}},
-  {"method": "POST", "path": "/admin/tokens/add", "auth": "sensitive", "js": {"export": "adminActions", "key": "tokenAdd"}},
-  {"method": "POST", "path": "/admin/tokens/remove", "auth": "sensitive", "js": {"export": "adminActions", "key": "tokenRemove"}},
-  {"method": "POST", "path": "/admin/tokens/swap", "auth": "sensitive", "js": {"export": "adminActions", "key": "tokenSwap"}},
-  {"method": "POST", "path": "/admin/mode", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/diag", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/api/change-password", "auth": "sensitive", "js": {"export": "adminApi", "key": "changePassword"}},
-  {"method": "POST", "path": "/admin/api/require-login", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/smoke", "auth": "sensitive", "js": null},
-  {"method": "POST", "path": "/admin/restart", "auth": "sensitive", "js": {"export": "adminActions", "key": "restart"}},
-  {"method": "GET", "path": "/admin/assets/", "auth": "none", "js": null}
+  {
+    "method": "POST",
+    "path": "/admin/reload",
+    "auth": "adminToken",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/login",
+    "auth": "none",
+    "js": {
+      "export": "adminActions",
+      "key": "login"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/login",
+    "auth": "none",
+    "js": {
+      "export": "adminActions",
+      "key": "login"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/logout",
+    "auth": "none",
+    "js": {
+      "export": "adminActions",
+      "key": "logout"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/overview",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "overview"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/tokens",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "tokens"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/models",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "models"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/traces",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "traces"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/setup",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "setup"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/config",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "config"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/config/meta",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "configMeta"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/settings",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "settings"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/api/settings",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "settingsSave"
+    }
+  },
+  {
+    "method": "DELETE",
+    "path": "/admin/api/settings/{key}",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "settingsDelete"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/pages/{id}",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "pageState"
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "/admin/api/pages/{id}",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "pageState"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/logs",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "logs"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/quota/history",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "quotaHistory"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/maturity/history",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "maturityHistory"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/logs/history",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "logsHistory"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/logs/rollup",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/logs/export",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/api/logs/import",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/metrics",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "metrics"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/usage",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "usage"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/version",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "version"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/events",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "events"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/auth/status",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "authStatus"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/notices",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "notices"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/tokens",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/models",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/traces",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/setup",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/playground",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/config",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/logs",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/metrics",
+    "auth": "dashboard",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/playground/chat",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/login/start",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminActions",
+      "key": "loginStart"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/login/status",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "loginStatus"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/config",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminActions",
+      "key": "configSave"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/unlock",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "unlock"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/lock",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "lock"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/unlock-lock",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "unlockLock"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/bridge-tokens/{key}/lock",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/bridge-tokens/{key}/unlock",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/finish",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "finish"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/drop-session",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "dropSession"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/refund-refresh",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "refundRefresh"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/test",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "test"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/{id}/session",
+    "auth": "sensitive",
+    "js": {
+      "export": "tokenActions",
+      "key": "session"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/add",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminActions",
+      "key": "tokenAdd"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/remove",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminActions",
+      "key": "tokenRemove"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/tokens/swap",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminActions",
+      "key": "tokenSwap"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/mode",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/diag",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/api/change-password",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminApi",
+      "key": "changePassword"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/admin/api/require-login",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/smoke",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "POST",
+    "path": "/admin/restart",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminActions",
+      "key": "restart"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/assets/",
+    "auth": "none",
+    "js": null
+  }
 ]

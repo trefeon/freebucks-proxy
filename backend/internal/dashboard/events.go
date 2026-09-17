@@ -51,8 +51,8 @@ func newEventStreamHub() *eventStreamHub {
 // spammed), plus mode, token count, and per-model quota recent counts.
 func (d *Dashboard) tokenStateHash(td tokensData) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "mode=%s;count=%d;rot=%s;failover=%v;mat_en=%v;",
-		td.Mode, td.TokenCount, td.TokenRotation, td.RateLimitFailover, td.MaturityEnabled)
+	fmt.Fprintf(&b, "mode=%s;count=%d;slots=%d;spill=%d;mat_en=%v;",
+		td.Mode, td.TokenCount, td.SlotsPerAccount, td.MaxSpillAccounts, td.MaturityEnabled)
 	for i := range td.Tokens {
 		t := &td.Tokens[i]
 		fmt.Fprintf(&b, "[%d]%s=%s;cd=%s;runs=%d;rem=%d;sess=%s;rpd=%d;lock=%v;ban=%s:%s;",

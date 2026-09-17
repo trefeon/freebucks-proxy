@@ -10,16 +10,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
-	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestChatOversizedBody413 pins the 32MiB body cap: a larger payload is
@@ -348,41 +346,6 @@ func TestHealthzQueueFields(t *testing.T) {
 	}
 }
 
-// TestHealthzCooldownFields pins the cooldown serialization: after an
-// auth-rejected chat the token's CooldownUntil is surfaced in /healthz.
-func TestHealthzCooldownFields(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.ChatStatus = 401
-	mock.ChatErrorBody = `{"error":{"message":"unauthorized","type":"authentication_error"}}`
-	ts, _ := newTestServer(t, nil, mock)
-
-	doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-
-	resp, data := doJSON(t, http.MethodGet, ts.URL+"/healthz", nil, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("healthz status = %d, want 200: %s", resp.StatusCode, data)
-	}
-	var out struct {
-		Tokens []struct {
-			CooldownUntil time.Time `json:"CooldownUntil"`
-		} `json:"tokens"`
-	}
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("healthz is not JSON: %v: %s", err, data)
-	}
-	if len(out.Tokens) != 1 {
-		t.Fatalf("tokens = %d, want 1", len(out.Tokens))
-	}
-	cd := out.Tokens[0].CooldownUntil
-	if cd.IsZero() {
-		t.Fatal("CooldownUntil is zero — cooldown not serialized after a 401")
-	}
-	if !cd.After(time.Now().Add(29 * time.Minute)) {
-		t.Errorf("CooldownUntil = %v, want ~now+30m", cd)
-	}
-}
-
 // TestMetricsLabelEscapingBackslashNewline extends the label-escaping test to
 // backslashes and newlines (only quotes were covered before): both must be
 // escaped so the Prometheus text format stays parseable.
@@ -501,15 +464,16 @@ func TestModelsHEAD(t *testing.T) {
 	}
 }
 
-// TestChatCountryBlockCooldown pins the chat-path country-block cooldown:
-// a chat that hits 403 country_blocked cools the token down, and the next
-// request surfaces the remembered 403 without re-hitting the upstream.
+// TestChatCountryBlockCooldown pins the chat-path country-block surface: a
+// chat that hits 403 country_blocked surfaces 403 country_blocked with no
+// cooldown memory — once upstream heals the next request re-hits upstream
+// and flows (never a remembered refusal).
 func TestChatCountryBlockCooldown(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatStatus = 403
 	mock.ChatErrorBody = `{"status":"country_blocked","countryCode":"US","countryBlockReason":"region_restricted"}`
-	ts, p := newTestServer(t, nil, mock)
+	ts, _ := newTestServer(t, nil, mock)
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
 	if resp.StatusCode != http.StatusForbidden {
@@ -518,54 +482,16 @@ func TestChatCountryBlockCooldown(t *testing.T) {
 	if !strings.Contains(string(data), "country_blocked") {
 		t.Errorf("body missing country_blocked: %s", data)
 	}
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.Before(time.Now().Add(14 * time.Minute)) {
-		t.Errorf("cooldown until = %v, want ~now+15m (chat-path country block must cooldown)", snap.CooldownUntil)
-	}
-	if snap.CountryBlockReason != "region_restricted" {
-		t.Errorf("countryBlockReason = %q, want region_restricted", snap.CountryBlockReason)
-	}
 
-	// The upstream heals, but the remembered block surfaces without a re-hit.
+	// The upstream heals: the next request re-hits upstream and succeeds —
+	// no remembered block.
 	mock.ChatStatus = 200
 	resp2, data2 := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp2.StatusCode != http.StatusForbidden {
-		t.Fatalf("second request status = %d, want 403 (remembered block): %s", resp2.StatusCode, data2)
-	}
-	if !strings.Contains(string(data2), "country_blocked") {
-		t.Errorf("second body missing country_blocked: %s", data2)
-	}
-	if got := len(mock.RecordedChatHeaders); got != 1 {
-		t.Errorf("upstream chat calls = %d, want 1 (cooldown skipped the second request)", got)
-	}
-}
-
-// TestBridgeChatSessionInvalidBoundedRetry pins the bridge-path recovery
-// budget: a session-invalid chat error recreates the session once and
-// retries, then fails with 502 — never an unbounded recreate loop.
-// session_superseded is its OWN terminal sentinel (see
-// TestBridgeChatSessionSupersededTerminal) — this test uses session_expired
-// to pin the invalidate+reacquire-once budget for ErrSessionInvalid.
-func TestBridgeChatSessionInvalidBoundedRetry(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.ChatStatus = http.StatusBadRequest
-	mock.ChatErrorBody = `{"error":{"message":"session_expired"}}`
-	ts, _ := newBridgeTestServer(t, mock)
-
-	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA),
-		map[string]string{"Authorization": "Bearer client-tok-ss"})
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502: %s", resp.StatusCode, data)
-	}
-	if !strings.Contains(string(data), "session_invalid") {
-		t.Errorf("body missing session_invalid: %s", data)
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("second request status = %d, want 200 (no remembered block): %s", resp2.StatusCode, data2)
 	}
 	if got := len(mock.RecordedChatHeaders); got != 2 {
-		t.Errorf("upstream chat attempts = %d, want exactly 2 (bounded retry)", got)
-	}
-	if got := mock.SessionCreates; got != 2 {
-		t.Errorf("upstream session creates = %d, want exactly 2 (session recreated once)", got)
+		t.Errorf("upstream chat calls = %d, want 2 (no cooldown memory skips upstream)", got)
 	}
 }
 
@@ -721,17 +647,17 @@ func TestMetricsModelLockedTotal(t *testing.T) {
 	}
 }
 
-// TestMetricsAllowlistSkipsTotal pins the MODEL_LOCKS metrics surface
-// (issue #325): a chat for a model slot 0 is locked away from skips slot 0
-// and serves slot 1, rendering freebuff_proxy_allowlist_skips_total.
-func TestMetricsAllowlistSkipsTotal(t *testing.T) {
+// TestMetricsPinSkipsTotal pins the PIN_MODEL metrics surface: a chat for
+// a model slot 0 is pinned away from skips slot 0 and serves slot 1,
+// rendering freebuff_proxy_pin_skips_total.
+func TestMetricsPinSkipsTotal(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
 	mock1 := testutil.NewMock()
 	defer mock1.Close()
 	const other = "mimo/mimo-v2.5"
 	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) {
-		c.ModelLocks = map[int][]string{0: {modelA}}
+		c.PinModel = map[int]string{0: modelA}
 	}, mock0, mock1)
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(other), nil)
@@ -743,7 +669,7 @@ func TestMetricsAllowlistSkipsTotal(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("metrics status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
-	if want := `freebuff_proxy_allowlist_skips_total{token="1"} 1`; !strings.Contains(string(data), want) {
+	if want := `freebuff_proxy_pin_skips_total{token="1"} 1`; !strings.Contains(string(data), want) {
 		t.Errorf("metrics missing %s", want)
 	}
 }

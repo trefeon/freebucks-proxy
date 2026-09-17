@@ -52,24 +52,13 @@ func classifyError(status int, body string, hdr http.Header) error {
 		return &UpstreamError{Status: status, Body: truncate(body, 500), RetryAfter: retryAfter, Retryable: true}
 	case containsAny(lower, string(WireCodeFreeModeRunFanout)):
 		// free_mode_run_fanout: the free tier refused the request because the
-		// account's concurrent-run counter looked like proxy fanout (upstream
-		// common/src/constants/freebuff-spend-ceilings.ts names "proxy fanout"
-		// a ban-grade sweep signal). Body-marker driven and status-agnostic —
-		// upstream attaches it to a bare {"error":...,"message":"Free mode
-		// request rejected."} whose status the default branch turned into a
-		// dead 502. It is a CONCURRENCY refusal, not a quota one: it clears
-		// as soon as the account's other runs drain, so it gets the bounded
-		// load_shedding/peak_hours treatment (distinct Status, no ResetAt,
-		// no Period => isQuotaExhaustedError is false, no Pacific-midnight
-		// lock) and the token cools for FanoutCooldown so the pool rotates to
-		// another token instead of re-feeding the fanout counter.
-		ra := clampCooldown(retryAfter)
-		if ra <= 0 {
-			ra = FanoutCooldown
-		}
+		// account's concurrent-run counter looked like proxy fanout. It is a
+		// CONCURRENCY refusal, not quota: distinct Status, no ResetAt, no
+		// Period (no Pacific-midnight lock). The Retry-After header rides to
+		// the caller verbatim — no fabricated bounded backoff.
 		return &RateLimitError{
 			Status:     string(WireCodeFreeModeRunFanout),
-			RetryAfter: ra,
+			RetryAfter: retryAfter,
 			Body:       truncate(body, 200),
 		}
 	case containsAny(lower, string(WireCodeFreeModeCapacityDeferred)):
@@ -151,17 +140,13 @@ func classifyError(status int, body string, hdr http.Header) error {
 		return &LimitedIpError{RetryAfter: retryAfter, Body: truncate(body, 200)}
 	case containsAny(lower, string(WireCodeFreeModeInvalidAgentModel)):
 		// free_mode_invalid_agent_model: the (agent, model) pair is not in
-		// upstream's FREE_MODE_AGENT_MODELS allowlist — historically what a
-		// stale registry serving a retired id produces (#121; MiMo 2.5 Pro's
-		// second-stage retirement 403s exactly this). The default branch
-		// turned it into a dead 502 and retries amplified invisibly — issue
-		// #140's escalation-guard target. It is a CONFIG/mismatch refusal,
-		// not quota: bounded cooldown (InvalidModelCooldown) so the pool
-		// rotates instead of hammering, no ResetAt/Period (no midnight lock),
-		// distinct Status so the server can surface it with an operator hint.
+		// upstream's allowlist — a CONFIG/mismatch refusal, not quota: no
+		// ResetAt/Period (no midnight lock), distinct Status so the server
+		// can surface it with an operator hint. The Retry-After header
+		// rides verbatim (usually absent).
 		return &RateLimitError{
 			Status:     string(WireCodeFreeModeInvalidAgentModel),
-			RetryAfter: InvalidModelCooldown,
+			RetryAfter: retryAfter,
 			Body:       truncate(body, 200),
 		}
 	case containsAny(lower, string(WireCodeSessionSuperseded)):
@@ -183,14 +168,12 @@ func classifyError(status int, body string, hdr http.Header) error {
 	case status == http.StatusBadRequest && containsAny(lower, string(WireCodeRunIDNotFound), string(WireCodeRunIDNotRunning)):
 		return fmt.Errorf("%w: %s", ErrRunInvalid, truncate(body, 200))
 	case status == http.StatusTooManyRequests && containsAny(lower, string(WireCodeInsufficientQuota), string(WireCodeLimitBurstRate)):
-		// #133: upstream load saturation ("The current group's upstream
-		// load is saturated, please try again later"). No Retry-After in
-		// the body — parseRateLimit would lock the token until Pacific
-		// midnight on what is a minutes-scale transient. Bounded cooldown,
-		// distinct code, no midnight lock.
+		// #133: upstream load saturation. No Retry-After in the body —
+		// the refusal surfaces with the header value verbatim, never a
+		// fabricated window.
 		return &RateLimitError{
 			Status:     string(WireCodeLoadShedding),
-			RetryAfter: LoadShedCooldown,
+			RetryAfter: retryAfter,
 			Body:       truncate(body, 200),
 		}
 	case status == http.StatusTooManyRequests && containsAny(lower, string(WireCodePeakHours), string(WireCodePeakHoursStatus)):
@@ -198,12 +181,11 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// upstream model prices double…". Both the space body form ("peak
 		// hours") and the underscore form ("peak_hours") share this arm;
 		// the RateLimitError.Status stays the underscore constant. The peak
-		// end is unknowable from the body: bounded conservative cooldown
-		// instead of locking the token until Pacific midnight (the peak is
-		// hours, not a day).
+		// end is unknowable from the body: the refusal surfaces with the
+		// header value verbatim.
 		return &RateLimitError{
 			Status:     string(WireCodePeakHoursStatus),
-			RetryAfter: PeakHoursCooldown,
+			RetryAfter: retryAfter,
 			Body:       truncate(body, 200),
 		}
 	case status == http.StatusTooManyRequests || containsAny(lower, string(WireCodeRateLimited), string(WireCodeSpendLimited)):
@@ -257,165 +239,73 @@ func errClassName(err error) string {
 	return "UpstreamError"
 }
 
-// FanoutCooldown bounds a free_mode_run_fanout refusal: the upstream
-// concurrent-run counter clears as the account's other runs drain (seconds,
-// not a day), and re-hitting it feeds a ban-grade sweep signal — so the token
-// backs off for a minute rather than being locked until Pacific midnight.
-// Used only when the refusal carries no Retry-After header. Tunable via
-// COOLDOWN_FANOUT_MS; the default preserves the 60s behavior.
-var FanoutCooldown = 60 * time.Second
-
-// InvalidModelCooldown bounds a free_mode_invalid_agent_model refusal
-// (issue #140): the pair is not in the allowlist until the registry
-// refreshes, so retrying sooner only amplifies the 403 storm that escalated
-// accounts to banned in the v0.11.3 incident. A minute per hit gives the
-// live registry refresh time to land while keeping the token available for
-// other models. Used only when the refusal carries no Retry-After header.
-// Tunable via COOLDOWN_INVALID_MODEL_MS; the default preserves the 60s
-// behavior.
-var InvalidModelCooldown = 60 * time.Second
-
-// LoadShedCooldown bounds a 429 load-saturation refusal (issue #133): the
-// upstream sheds load for minutes, not a day, so the token re-probes after
-// ~90s instead of being locked until Pacific midnight by the no-timestamp
-// parseRateLimit default. Tunable via COOLDOWN_LOADSHED_MS; the default
-// preserves the 90s behavior.
-var LoadShedCooldown = 90 * time.Second
-
-// PeakHoursCooldown bounds a 429 peak-hours refusal (issue #133): the peak
-// window lasts hours and its end is not in the body; 30 minutes is a
-// conservative floor that re-probes long before the daily-cap lock would
-// have lifted. Tunable via COOLDOWN_PEAK_HOURS_MS; the default preserves
-// the 30m behavior.
-var PeakHoursCooldown = 30 * time.Minute
-
-// opaqueRateLimitBackoff bounds a 429 with no timestamp, no daily-reset
-// signal, and no Retry-After header (issue #140): a fully opaque body
-// must never lock the token until Pacific midnight over a minutes-scale
-// transient, so it gets the same bounded cooldown the other no-timestamp
-// refusals get. Tunable via COOLDOWN_OPAQUE_MS; the default preserves the
-// 60s behavior.
-var opaqueRateLimitBackoff = 60 * time.Second
-
-// MaxCooldown is the ceiling for any cooldown derived from upstream retry
-// fields (retryAfterMs, Retry-After, resetAt): 7 days. Tunable via
-// COOLDOWN_CEILING_MS (shared with the runs package ceiling); the default
-// preserves the 7d behavior. Those fields are untrusted input; without a
-// ceiling an absurd value could overflow the int64-nanosecond duration
-// multiply — wrapping to a multi-year positive window
-// (time.Duration(ms)*time.Millisecond wraps for ms >= ~9.2e12) — or lock a
-// token for decades on a misbehaving upstream.
-var MaxCooldown = 7 * 24 * time.Hour
-
-// SetCooldownTuning overrides the bounded-cooldown durations from operator
-// config (pool.SetConfig pushes the live values on boot and every reload).
-// Non-positive values are ignored so a zero-value or partial config keeps
-// the defaults.
+// SetCooldownTuning is the retired bounded-cooldown push point
+// (pool.SetConfig pushed the live values on boot and every reload). It is
+// kept with its signature because pool/cooldown_tuning.go still calls it;
+// every argument is ignored now that the bounded windows are gone (that
+// caller is removed with them).
 func SetCooldownTuning(fanout, invalidModel, opaque, loadShed, peakHours, ceiling time.Duration) {
-	if fanout > 0 {
-		FanoutCooldown = fanout
-	}
-	if invalidModel > 0 {
-		InvalidModelCooldown = invalidModel
-	}
-	if opaque > 0 {
-		opaqueRateLimitBackoff = opaque
-	}
-	if loadShed > 0 {
-		LoadShedCooldown = loadShed
-	}
-	if peakHours > 0 {
-		PeakHoursCooldown = peakHours
-	}
-	if ceiling > 0 {
-		MaxCooldown = ceiling
-	}
 }
 
-// TuningSnapshot captures the live bounded-cooldown values. Tests that push
-// nonzero values through pool.New/SetConfig snapshot first and Restore on
-// cleanup: the tuning vars are package globals and would otherwise leak
-// across tests in the same binary. Production code never calls these.
+// TuningSnapshot is the retired bounded-cooldown snapshot. Kept so the
+// test helpers that snapshot around pool.New/SetConfig still compile;
+// removed windows read back zero.
 type TuningSnapshot struct {
 	Fanout, InvalidModel, Opaque, LoadShed, PeakHours, Ceiling time.Duration
 }
 
-// SnapshotTuning captures the current bounded-cooldown values.
+// SnapshotTuning captures the (now zero) bounded-cooldown values.
 func SnapshotTuning() TuningSnapshot {
-	return TuningSnapshot{
-		Fanout:       FanoutCooldown,
-		InvalidModel: InvalidModelCooldown,
-		Opaque:       opaqueRateLimitBackoff,
-		LoadShed:     LoadShedCooldown,
-		PeakHours:    PeakHoursCooldown,
-		Ceiling:      MaxCooldown,
-	}
+	return TuningSnapshot{}
 }
 
-// Restore re-applies a captured snapshot unconditionally (unlike
-// SetCooldownTuning, which ignores non-positive values).
+// Restore is a no-op: there are no bounded windows left to re-apply.
 func (s TuningSnapshot) Restore() {
-	FanoutCooldown = s.Fanout
-	InvalidModelCooldown = s.InvalidModel
-	opaqueRateLimitBackoff = s.Opaque
-	LoadShedCooldown = s.LoadShed
-	PeakHoursCooldown = s.PeakHours
-	MaxCooldown = s.Ceiling
 }
 
-// CooldownFromMillis converts an upstream retryAfterMs value to a cooldown
-// duration clamped to MaxCooldown. The overflow guard runs BEFORE the
-// multiply: time.Duration(ms)*time.Millisecond wraps for ms >=
-// math.MaxInt64/1e6 (~9.2e12), which would turn an absurd upstream value
-// into a (positive) multi-year window. Non-positive values return 0 so
-// callers' <=0 fallback logic is unaffected.
+// CooldownFromMillis converts an upstream retryAfterMs value to a duration
+// with no policy ceiling: the value rides to the caller verbatim. The
+// overflow guard runs BEFORE the multiply (time.Duration(ms)*time.Millisecond
+// wraps for ms >= ~9.2e12), saturating at the largest representable
+// duration instead of wrapping. Non-positive values return 0 so callers'
+// <=0 fallback logic is unaffected.
 func CooldownFromMillis(ms float64) time.Duration {
 	if ms <= 0 {
 		return 0
 	}
 	if ms > float64(math.MaxInt64)/float64(time.Millisecond) {
-		return MaxCooldown
+		return time.Duration(math.MaxInt64)
 	}
-	return clampCooldown(time.Duration(ms) * time.Millisecond)
+	return time.Duration(ms) * time.Millisecond
 }
 
 // cooldownFromSeconds converts an upstream retryAfter (seconds) value to a
-// cooldown clamped to MaxCooldown, guarding the float64→duration conversion
+// duration with no policy ceiling, guarding the float64→duration conversion
 // the same way CooldownFromMillis guards the multiply.
 func cooldownFromSeconds(sec float64) time.Duration {
 	if sec <= 0 {
 		return 0
 	}
 	if sec > float64(math.MaxInt64)/float64(time.Second) {
-		return MaxCooldown
+		return time.Duration(math.MaxInt64)
 	}
-	return clampCooldown(time.Duration(sec * float64(time.Second)))
+	return time.Duration(sec * float64(time.Second))
 }
 
-// clampCooldown bounds a positive duration to MaxCooldown; non-positive
-// durations pass through untouched so callers' <=0 fallback logic is
-// unaffected.
-func clampCooldown(d time.Duration) time.Duration {
-	if d > MaxCooldown {
-		return MaxCooldown
-	}
-	return d
-}
-
-// untilResetAt converts a future reset timestamp to a cooldown clamped to
-// MaxCooldown. time.Until (time.Time.Sub) is undefined when the difference
-// exceeds the int64-nanosecond range (~292 years), so a centuries-out
-// timestamp is detected on the unix-seconds difference instead of relying
-// on a wrapped Duration.
+// untilResetAt converts a future reset timestamp to a duration with no
+// policy ceiling. time.Until (time.Time.Sub) is undefined when the
+// difference exceeds the int64-nanosecond range (~292 years), so a
+// centuries-out timestamp is detected on the unix-seconds difference and
+// saturates instead of wrapping.
 func untilResetAt(t, now time.Time) time.Duration {
 	secs := t.Unix() - now.Unix()
 	if secs <= 0 {
 		return 0
 	}
 	if secs > math.MaxInt64/int64(time.Second) {
-		return MaxCooldown
+		return time.Duration(math.MaxInt64)
 	}
-	return clampCooldown(time.Duration(secs) * time.Second)
+	return time.Duration(secs) * time.Second
 }
 
 // reRetryAfterNs matches "retry after Ns" or "retry after N s" (N = digits).
@@ -442,17 +332,17 @@ var reResetAt = regexp.MustCompile(`resets?\s+at\s+(\d{4}-\d{2}-\d{2}[tT][\d:.]+
 func parseRetryAfterFromText(text string) time.Duration {
 	if m := reRetryAfterNs.FindStringSubmatch(text); m != nil {
 		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
-			return clampCooldown(time.Duration(n) * time.Second)
+			return time.Duration(n) * time.Second
 		}
 	}
 	if m := reMinutesLimit.FindStringSubmatch(text); m != nil {
 		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
-			return clampCooldown(time.Duration(n) * time.Minute)
+			return time.Duration(n) * time.Minute
 		}
 	}
 	if m := reHours.FindStringSubmatch(text); m != nil {
 		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
-			return clampCooldown(time.Duration(n) * time.Hour)
+			return time.Duration(n) * time.Hour
 		}
 	}
 	return 0
@@ -474,8 +364,9 @@ func parseResetAtFromText(text string) time.Time {
 
 // parseRateLimit builds a RateLimitError from a 429 body, extracting
 // retryAfterMs/resetAt/limit/recentCount/period best-effort across multiple
-// JSON schemas. Falls back to the Retry-After header; a body with no
-// timestamp and no header delay is bounded to opaqueRateLimitBackoff.
+// JSON schemas. Falls back to the Retry-After header, then to body-text
+// signals. A body with no timestamp and no header delay keeps RetryAfter 0
+// and surfaces as-is — no bounded fallback is fabricated.
 // ADR-0027: no Pacific-midnight lock is ever fabricated from the quota
 // period/counters — upstream enforces its own pools server-side, explicit
 // resetAt/Retry-After signals are honored, and unmirrored refusals surface
@@ -561,19 +452,9 @@ func parseRateLimit(body string, headerRetryAfter time.Duration) error {
 		if rle.RetryAfter <= 0 {
 			rle.RetryAfter = untilResetAt(rle.ResetAt, time.Now())
 		}
-	} else if rle.RetryAfter <= 0 {
-		// No timestamp and no header delay: bounded backoff. ADR-0027
-		// dropped the session-count mirror, so a no-timestamp 429 never
-		// fabricates a Pacific-midnight lock from the quota
-		// period/counters — a minutes-scale transient must never be
-		// treated as a full-day lock (issue #140).
-		rle.RetryAfter = opaqueRateLimitBackoff
 	}
-
-	if rle.RetryAfter <= 0 {
-		rle.RetryAfter = 60 * time.Second
-	}
-	rle.RetryAfter = clampCooldown(rle.RetryAfter)
+	// No bounded fallback, no floor, no ceiling: a refusal carrying no
+	// upstream retry signal keeps RetryAfter 0 and surfaces as-is.
 	// Ledger window, computed after ResetAt/RetryAfter are finalized
 	// (explicit-ResetAt 429s carry "reset"; timestamp-less ones carry just
 	// RetryAfter → "retry-after").
@@ -660,11 +541,10 @@ func parseCountryBlock(body string) error {
 
 // parseIpCapped builds an IpCappedError from a 429 ip_capped body,
 // extracting retryAfterMs/activeUsersForIp/limit best-effort (absent fields
-// are tolerated). The ERROR's retryAfter stays bounded to the body's
-// retryAfterMs (1m default) — ip_capped is admission-only and not a quota
-// reset upstream, so the parse never fabricates a Pacific-midnight window;
-// the proxy's bounded re-admission policy (full retryAfter + jitter, daily
-// cap — #118) is applied by runs.CooldownIpCapped at cooldown time.
+// are tolerated). The error carries the body's retryAfterMs verbatim (1m
+// default when absent) — ip_capped is admission-only and not a quota reset
+// upstream, so the parse never fabricates a Pacific-midnight window. The
+// refusal surfaces directly; no cooldown is written.
 func parseIpCapped(body string, headerRetryAfter time.Duration) error {
 	ice := &IpCappedError{Body: truncate(body, 200), RetryAfter: headerRetryAfter}
 
@@ -689,7 +569,6 @@ func parseIpCapped(body string, headerRetryAfter time.Duration) error {
 		}
 	}
 
-	ice.RetryAfter = clampCooldown(ice.RetryAfter)
 	if ice.RetryAfter <= 0 {
 		ice.RetryAfter = time.Minute
 	}

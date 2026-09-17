@@ -4,15 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/logring"
 	"freebuff-proxy/backend/internal/pool"
@@ -21,6 +12,14 @@ import (
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 // flakyFirstRT fails the very first request with a transient transport error
@@ -1201,7 +1200,7 @@ func TestMetricsFamiliesContract(t *testing.T) {
 		"freebuff_proxy_fingerprint_rotations_total":   "counter",
 		"freebuff_proxy_rate_limit_events_total":       "counter",
 		"freebuff_proxy_model_locked_total":            "counter",
-		"freebuff_proxy_allowlist_skips_total":         "counter",
+		"freebuff_proxy_pin_skips_total":               "counter",
 	}
 
 	// assertFamilies checks every expected family has a HELP and a TYPE

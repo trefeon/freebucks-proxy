@@ -143,6 +143,15 @@
           {token.email || token.account_id}
         </span>
       {/if}
+      {#if token.pinned_model}
+        <span
+          class="inline-flex items-center gap-1 text-[11px] text-[var(--fp-accent)] truncate max-w-[180px]"
+          title={token.pinned_model}
+        >
+          <Lock size={11} aria-hidden="true" class="shrink-0" />
+          <span class="truncate">{token.pinned_model}</span>
+        </span>
+      {/if}
     </div>
     <div class="flex items-center gap-1 shrink-0">
       {#if totalTokens > 1}
