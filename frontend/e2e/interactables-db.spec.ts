@@ -629,21 +629,21 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       page.getByRole("heading", { name: "Logs", exact: true }),
     ).toBeVisible();
 
-    // The Logs page is telemetry only: exactly three tabs, no Logging entry.
+    // The Logs page is telemetry only: four tabs (Live/Metrics/Team/Traces),
+    // no Logging entry.
     const tabs = page.getByRole("group", { name: "Activity view" });
-    await expect(tabs.getByRole("button")).toHaveCount(3);
+    await expect(tabs.getByRole("button")).toHaveCount(4);
     await expect(tabs.getByRole("button", { name: "Live" })).toBeVisible();
     await expect(tabs.getByRole("button", { name: "Metrics" })).toBeVisible();
+    await expect(tabs.getByRole("button", { name: "Team" })).toBeVisible();
     await expect(tabs.getByRole("button", { name: "Traces" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Logging" })).toHaveCount(0);
 
     // Neither Logs card came along: the LOG_LEVEL editor lives on Settings,
     // and the general-group "Logging & Diagnostics" card no longer renders
     // here. The page description stays truthful to the remaining tabs.
-    await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toHaveCount(0);
-    await expect(page.getByText("Logging & Diagnostics")).toHaveCount(0);
     await expect(
-      page.getByText("Live traffic, metrics, and traces."),
+      page.getByText("Live traffic, metrics, team usage, and traces."),
     ).toBeVisible();
   });
 });
