@@ -14,15 +14,37 @@ config.json
 config.*.json
 !config.example.json
 *.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
 # ── secret-adjacent locals (never in builder layers) ──
 API_Keys*
+API_KEYS*
+api-keys*
+api_keys*
+*api-key*
+*api_key*
+*vps*key*
+*vps*keys*
+*vps-sg*
+tokens.txt
+credentials.json
+creds.json
+auth.json
 .freebuff-session-state.json*
 *.session-state.json
 *.tmp
 *.bak
 *.exe~
 /.drift-report.json
-*.key
+
+# ── local docker compose overrides ──
+docker-compose.override.yml
+docker-compose.*.local.yml
+compose.override.yml
 
 # ── runtime artifacts ──
 dump/
@@ -30,6 +52,7 @@ dump/
 /data/
 *.log
 *.db
+*.db-*
 *.sqlite*
 *.shm
 *.wal
@@ -59,9 +82,35 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+# ── agent scratch / tools ──
+.agents/
+.claude/
+.antigravity/
+.gemini/
+.cursor/
+.windsurf/
+scratch/
+.scratch/
+*.scratch
+*.patch
+*.diff
+skills-lock.json
+
+# ── test results & coverage ──
+coverage/
+playwright-report/
+frontend/playwright-report/
+test-results/
+frontend/test-results/
+blob-report/
+.nyc_output/
+
 # ── local-only docs (gitignored, not repo content); public guides stay ──
 devdocs/
 docs/*
 !docs/*.md
 HANDOFF.md
 *.handoff.md
+plan.md
+PLAN.md
+*.plan.md

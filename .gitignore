@@ -19,10 +19,21 @@ config.*.json
 !frontend/e2e/fixtures-realworld/config.json
 *.pem
 *.key
+*.crt
+*.cer
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
 
 dump/
-# ── SQLite history (DB_PATH default ./data/freebuff.db; ADR-0016) ──
+# ── SQLite history & databases (DB_PATH default ./data/freebuff.db; ADR-0016) ──
 /data/
+*.db
+*.db-*
+*.sqlite*
+*.wal
+*.shm
 *.log
 dist/
 !backend/internal/dashboard/dist/
@@ -66,6 +77,10 @@ frontend/verify-ui.mjs
 frontend/test-results/
 test-results/
 frontend/playwright-report/
+playwright-report/
+blob-report/
+coverage/
+.nyc_output/
 .worktrees/
 
 # ── misc ──
@@ -105,8 +120,36 @@ docs/*
 # local agent tool state (skills.sh installs, session artifacts)
 .agents/
 .claude/
+.antigravity/
+.gemini/
+.cursor/
+.windsurf/
+scratch/
+.scratch/
+*.scratch
+*.patch
+*.diff
 skills-lock.json
 
 # Windows build backups (rename-aside of locked exe)
 *.exe~
+
+# ── credentials, API keys & VPS secrets ──
 API_Keys*
+API_KEYS*
+api-keys*
+api_keys*
+*api-key*
+*api_key*
+*vps*key*
+*vps*keys*
+*vps-sg*
+tokens.txt
+credentials.json
+creds.json
+auth.json
+
+# ── local docker compose overrides ──
+docker-compose.override.yml
+docker-compose.*.local.yml
+compose.override.yml
