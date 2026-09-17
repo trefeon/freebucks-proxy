@@ -67,14 +67,7 @@
     "key": "HTTP_READ_TIMEOUT",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "60s",
-      "90s",
-      "120s",
-      "180s",
-      "300s",
-      "0"
-    ],
+    "enum": ["60s", "90s", "120s", "180s", "300s", "0"],
     "default": "60s",
     "restart_only": true,
     "secret": false,
@@ -118,10 +111,7 @@
     "key": "LOG_FORMAT",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "text",
-      "json"
-    ],
+    "enum": ["text", "json"],
     "default": "text",
     "restart_only": true,
     "secret": false,
@@ -132,13 +122,7 @@
     "key": "LOG_LEVEL",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "debug",
-      "info",
-      "warn",
-      "error",
-      "trace"
-    ],
+    "enum": ["debug", "info", "warn", "error", "trace"],
     "default": "info",
     "restart_only": true,
     "secret": false,
@@ -218,16 +202,6 @@
     "description": "Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset)."
   },
   {
-    "key": "MODEL_LOCKS",
-    "group": "pool",
-    "kind": "text",
-    "default": "",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Pin pool slots to models (slot-indexed allowlist, e.g. \"0:z-ai/glm-5.2;1:upstage/solar-pro4,mimo/mimo-v2.5\"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config."
-  },
-  {
     "key": "MODEL_UNAVAILABLE_CACHE_TTL",
     "group": "pool",
     "kind": "text",
@@ -236,6 +210,16 @@
     "secret": false,
     "essential": false,
     "description": "How long a model_unavailable admission refusal is remembered per model (off-window models short-circuit to the fallback within the TTL)."
+  },
+  {
+    "key": "PIN_MODEL",
+    "group": "pool",
+    "kind": "text",
+    "default": "",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Pin pool slots to one model each (e.g. \"0:z-ai/glm-5.2;1:deepseek/deepseek-v4-flash\"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config."
   },
   {
     "key": "QUEUE_DEPTH",
@@ -258,6 +242,26 @@
     "description": "How long one acquire parks on a full token's FIFO live-turn queue before failing over with the existing 429 shape (Go duration, e.g. 5s, 30s). Zero-tolerant: empty or non-positive values fall back to 30s. Applies live on reload."
   },
   {
+    "key": "SLOTS_PER_ACCOUNT",
+    "group": "pool",
+    "kind": "int",
+    "default": "2",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Cap on concurrent live turns per account-model lane (default 2, the approved anti-ban pacing; 0 = unlimited, no slot gating at all). A lease is granted only while the account holds fewer live turns for that model; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload. BUNKER PRESET: 1 — fully sequential turns per account-model lane, zero parallel fingerprint."
+  },
+  {
+    "key": "MAX_SPILL_ACCOUNTS",
+    "group": "pool",
+    "kind": "int",
+    "default": "0",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain). A 429 quota requeue never consumes spill budget. Applies live on reload."
+  },
+  {
     "key": "RATE_LIMIT_BURST",
     "group": "pool",
     "kind": "int",
@@ -266,16 +270,6 @@
     "secret": false,
     "essential": false,
     "description": "Burst request capacity per client IP (0 = defaults to 2 × RATE_LIMIT_PER_IP)."
-  },
-  {
-    "key": "RATE_LIMIT_FAILOVER",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Rotate to another available token when an in-flight request hits a token-level 429 (rate limit / throttle). turn_spend_limited is TERMINAL (upstream per-turn spend breaker — a retry re-trips instantly) and is excluded from failover (default true)."
   },
   {
     "key": "RATE_LIMIT_PER_IP",
@@ -297,16 +291,6 @@
     "essential": false,
     "hidden": true,
     "description": "Agent-run rotation interval."
-  },
-  {
-    "key": "ROUTING_SMART",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Master switch for smart pool routing: per-token live-turn slots with a FIFO waiter queue plus the unified scorer over eligible tokens. Applies live on reload; false restores the legacy acquire path exactly."
   },
   {
     "key": "RUNS_DRAIN_QUEUE_CAP",
@@ -353,16 +337,6 @@
     "description": "Bounded deferred-FINISH worker queue for rotated/drained runs (full queue falls back to a synchronous FINISH)."
   },
   {
-    "key": "SESSION_IDLE_END",
-    "group": "pool",
-    "kind": "text",
-    "default": "0",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "End upstream sessions after this idle period, freeing the account while the proxy sits unused (0 = disabled, opt-in)."
-  },
-  {
     "key": "SESSION_PERSIST",
     "group": "pool",
     "kind": "bool",
@@ -405,33 +379,6 @@
     "description": "Path of the session state file (used when SESSION_PERSIST=true; token-keyed, 0600, raw tokens never written)."
   },
   {
-    "key": "TOKEN_MAX_CONCURRENT",
-    "group": "pool",
-    "kind": "int",
-    "default": "2",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "Cap on concurrent live turns per pooled token (default 2, the approved anti-ban pacing; 0 = unlimited, no slot gating at all). A lease is granted only while the token holds fewer live turns; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload. BUNKER PRESET: 1 — fully sequential turns per account, zero parallel fingerprint."
-  },
-  {
-    "key": "TOKEN_ROTATION",
-    "group": "pool",
-    "kind": "select",
-    "enum": [
-      "drain",
-      "round_robin",
-      "least_used",
-      "random"
-    ],
-    "default": "drain",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Token selection strategy: drain (exhaust a token's session before rotating), round_robin, least_used, or random. Managed interactively on the Pool page."
-  },
-  {
     "key": "WAITING_ROOM_CHAIN",
     "group": "pool",
     "kind": "bool",
@@ -460,15 +407,13 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "Apply optional prompt \u0026 context compression: middle user/assistant turns beyond the trailing budget are dropped and summarized by one marker (default off)."
+    "description": "Apply optional prompt & context compression: middle user/assistant turns beyond the trailing budget are dropped and summarized by one marker (default off)."
   },
   {
     "key": "COST_MODE",
     "group": "upstream",
     "kind": "select",
-    "enum": [
-      "free"
-    ],
+    "enum": ["free"],
     "default": "free",
     "restart_only": true,
     "secret": false,
@@ -515,7 +460,7 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "Fold reasoning_content into message content as \u003ctag\u003e...\u003c/tag\u003e for clients that do not render a reasoning channel. \"true\" uses \u003cthink\u003e; a tag word (e.g. \"thinking\") sets the label; empty/off disables."
+    "description": "Fold reasoning_content into message content as <tag>...</tag> for clients that do not render a reasoning channel. \"true\" uses <think>; a tag word (e.g. \"thinking\") sets the label; empty/off disables."
   },
   {
     "key": "REGISTRY_REFRESH",

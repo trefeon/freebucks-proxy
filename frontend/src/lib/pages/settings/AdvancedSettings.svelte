@@ -59,6 +59,8 @@
   // ModelRouting, Dashboard access, the Pool Strategy card, Pool Custom
   // advanced, and the Warming tab's Streak Maintenance card which owns every
   // MATURITY_* key); Advanced shows everything else the catalog exposes.
+  // PIN_MODEL is drawer-owned (the token drawer is its only editor), so it
+  // stays out of this generic list like MODEL_LOCKS did before it.
   const COVERED = new Set([
     "ADOPT_CLI_SESSION",
     "BRIDGE_ENABLED",
@@ -67,22 +69,20 @@
     "LOG_LEVEL",
     "MATURITY_ENABLED",
     "MATURITY_TOUCH_MODEL",
-    "MODEL_LOCKS",
+    "PIN_MODEL",
     "MODEL_UNAVAILABLE_CACHE_TTL",
     "MODELS_ALLOW",
     "QUEUE_DEPTH",
     "QUEUE_WAIT",
     "QUOTA_PROBE_ACTIVE_INTERVAL",
     "QUOTA_PROBE_IDLE_HEARTBEAT",
-    "RATE_LIMIT_FAILOVER",
     "RATE_LIMIT_PER_IP",
     "REASONING_IN_CONTENT",
-    "ROUTING_SMART",
     "SAFE_MODE",
     "SESSION_PERSIST",
     "SESSION_PROBE_CACHE_TTL",
-    "TOKEN_MAX_CONCURRENT",
-    "TOKEN_ROTATION",
+    "SLOTS_PER_ACCOUNT",
+    "MAX_SPILL_ACCOUNTS",
   ]);
 
   const GROUP_TITLES = {

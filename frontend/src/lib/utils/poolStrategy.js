@@ -1,43 +1,54 @@
 /**
  * Pool strategy presets (Pool → Controls → Pool Strategy card).
  *
- * Two named postures over exactly five owned keys; anything else reads as
- * Custom (auto-detected, never selectable). Preset switches write ONLY the
- * five owned keys through the shared instant-save overlay flow — every
- * other knob keeps its value.
+ * Two named postures over the five final Ordered Queue-Spill knobs; anything
+ * else reads as Custom (auto-detected, never selectable). Preset switches
+ * write ONLY the keys whose value actually differs from the preset through
+ * the shared instant-save overlay flow — every other knob keeps its value.
  *
- * - Drain: deep queues per token (300s / 1024 waiters). Safest for a few
- *   accounts: each account drains fully before the pool fails over.
+ * - Drain: deep queues per account-model lane (300s / 1024 waiters). Safest
+ *   for a few accounts: each account drains fully before the pool spills.
  * - Balance: shallow queues (16 waiters) with a tunable threshold wait
  *   (5–300s, default 60s, persisted as QUEUE_WAIT). Best for busy pools.
+ *
+ * PIN_MODEL is owned but never preset-written: pins are per-account routing
+ * owned by the token drawer, not queue posture, so a pinned account must not
+ * flip the badge to Custom on its own.
  *
  * Detection is a pure function over the owned set so the badge, the
  * threshold slider, and the e2e contract all read one source of truth.
  * Values the loader would not keep are resolved to the loader's own
- * zero-tolerant fallbacks BEFORE classification — QUEUE_WAIT falls back
- * to 30s and QUEUE_DEPTH to 16 (backend/internal/config/config_load.go),
- * so a stock install whose queue rows are blank, whitespace, or
- * unparseable still reads Balance instead of Custom. Balance accepts any
- * in-range threshold (not just the 60s preset), so moving the slider
- * never flips the badge to Custom.
+ * fallbacks BEFORE classification — QUEUE_WAIT falls back to 30s,
+ * QUEUE_DEPTH to 16, SLOTS_PER_ACCOUNT to 2 and MAX_SPILL_ACCOUNTS to 0
+ * (backend/internal/config/config_load.go), so a stock install whose rows
+ * are blank, whitespace, or unparseable still reads Balance instead of
+ * Custom. Balance accepts any in-range threshold (not just the 60s preset),
+ * so moving the slider never flips the badge to Custom.
  */
 
-/** Exact values the Drain preset writes. */
+/** The five final Ordered Queue-Spill knobs the badge classifies over. */
+export const STRATEGY_OWNED_KEYS = [
+  "SLOTS_PER_ACCOUNT",
+  "QUEUE_WAIT",
+  "QUEUE_DEPTH",
+  "PIN_MODEL",
+  "MAX_SPILL_ACCOUNTS",
+];
+
+/** Exact values the Drain preset writes (PIN_MODEL excluded by design). */
 export const STRATEGY_DRAIN = {
-  ROUTING_SMART: "true",
-  TOKEN_ROTATION: "drain",
-  RATE_LIMIT_FAILOVER: "true",
+  SLOTS_PER_ACCOUNT: "2",
   QUEUE_WAIT: "300s",
   QUEUE_DEPTH: "1024",
+  MAX_SPILL_ACCOUNTS: "0",
 };
 
 /** Exact values the Balance preset writes (threshold at its default). */
 export const STRATEGY_BALANCE = {
-  ROUTING_SMART: "true",
-  TOKEN_ROTATION: "drain",
-  RATE_LIMIT_FAILOVER: "true",
+  SLOTS_PER_ACCOUNT: "2",
   QUEUE_WAIT: "60s",
   QUEUE_DEPTH: "16",
+  MAX_SPILL_ACCOUNTS: "0",
 };
 
 /**
@@ -54,9 +65,15 @@ export const BALANCE_THRESHOLD_MAX_SECS = 300;
  * - QUEUE_WAIT is zero-tolerant: blank or non-positive → 30s.
  * - QUEUE_DEPTH defaults to 16 when absent or unparseable (0 is a real
  *   value: fail over at once, no queueing).
+ * - SLOTS_PER_ACCOUNT defaults to 2 when absent or unparseable, floors
+ *   negative values to 0 (0 is a real value: unlimited, no slot gating).
+ * - MAX_SPILL_ACCOUNTS defaults to 0 when absent or unparseable (0 is a
+ *   real value: unbounded, the full index chain).
  */
 export const QUEUE_WAIT_DEFAULT_SECS = 30;
 export const QUEUE_DEPTH_DEFAULT = 16;
+export const SLOTS_PER_ACCOUNT_DEFAULT = 2;
+export const MAX_SPILL_ACCOUNTS_DEFAULT = 0;
 
 /**
  * Parse a Go duration (or a bare number = seconds) to seconds.
@@ -108,12 +125,6 @@ export function parseWaitSecs(raw) {
   return Number.isFinite(n) ? (neg ? -n : n) : NaN;
 }
 
-function isOn(raw, fallback) {
-  if (raw === undefined || raw === null || String(raw).trim() === "")
-    return fallback;
-  return String(raw).trim().toLowerCase() !== "false";
-}
-
 /**
  * QUEUE_WAIT in seconds as the loader would resolve it: blank, unparseable,
  * or non-positive values fall back to the 30s default.
@@ -135,42 +146,51 @@ export function queueDepth(raw) {
   return Number.isFinite(n) ? n : QUEUE_DEPTH_DEFAULT;
 }
 
-function normRotation(raw) {
-  const v = String(raw ?? "drain")
-    .trim()
-    .toLowerCase();
-  return ["drain", "round_robin", "least_used", "random"].includes(v)
-    ? v
-    : "drain";
+/**
+ * SLOTS_PER_ACCOUNT as the loader would resolve it: blank or unparseable
+ * values fall back to 2, negatives floor to 0 (unlimited, no slot gating).
+ */
+export function slotsPerAccount(raw) {
+  const v = String(raw ?? "").trim();
+  if (v === "") return SLOTS_PER_ACCOUNT_DEFAULT;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return SLOTS_PER_ACCOUNT_DEFAULT;
+  return n < 0 ? 0 : n;
 }
 
 /**
- * Detect the strategy badge from the five owned values (raw form strings).
+ * MAX_SPILL_ACCOUNTS as the loader would resolve it: blank or unparseable
+ * values fall back to 0 (unbounded, the full index chain).
+ */
+export function maxSpillAccounts(raw) {
+  const v = String(raw ?? "").trim();
+  if (v === "") return MAX_SPILL_ACCOUNTS_DEFAULT;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return MAX_SPILL_ACCOUNTS_DEFAULT;
+  return n;
+}
+
+/**
+ * Detect the strategy badge from the owned values (raw form strings).
  * Missing keys and values the loader would not keep fall back to the same
- * defaults the gateway runs with: smart on, drain, failover on, 30s, 16.
+ * defaults the gateway runs with: 2 slots, 30s wait, depth 16, unbounded
+ * spill. PIN_MODEL never participates: pins are per-account routing owned
+ * by the token drawer, not queue posture.
  *
  * @param {Record<string, string>} values
  * @returns {"drain" | "balance" | "custom"}
  */
 export function detectStrategy(values = {}) {
-  const smart = isOn(values.ROUTING_SMART, true);
-  const rotation = normRotation(values.TOKEN_ROTATION);
-  const failover = isOn(values.RATE_LIMIT_FAILOVER, true);
+  const slots = slotsPerAccount(values.SLOTS_PER_ACCOUNT);
+  const spill = maxSpillAccounts(values.MAX_SPILL_ACCOUNTS);
   const depth = queueDepth(values.QUEUE_DEPTH);
   const waitSecs = queueWaitSecs(values.QUEUE_WAIT);
-  if (
-    smart &&
-    rotation === "drain" &&
-    failover &&
-    depth === 1024 &&
-    waitSecs === 300
-  ) {
+  if (slots === 2 && spill === 0 && depth === 1024 && waitSecs === 300) {
     return "drain";
   }
   if (
-    smart &&
-    rotation === "drain" &&
-    failover &&
+    slots === 2 &&
+    spill === 0 &&
     depth === 16 &&
     waitSecs >= BALANCE_THRESHOLD_MIN_SECS &&
     waitSecs <= BALANCE_THRESHOLD_MAX_SECS
