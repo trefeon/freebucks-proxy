@@ -10,7 +10,9 @@
   /**
    * Gateway & Protection settings card (General group).
    * Built using the SettingsCard and SettingsRow template components.
-   * Both rows instant-save to the DB overlay on edit (DbOverrideSave).
+   * Safe Mode instant-saves to the DB overlay on edit (DbOverrideSave).
+   * HTTP_READ_TIMEOUT is env-only: its row renders the effective value
+   * read-only with an env-note (no editor, no save), like the hidden keys.
    *
    * @prop {Record<string, string>} formValues
    * @prop {string} rawText
@@ -41,32 +43,6 @@
   let safeMode = $derived(formValues.SAFE_MODE !== "false");
   let httpReadTimeout = $derived(formValues.HTTP_READ_TIMEOUT || "60s");
 
-  const TIMEOUT_OPTIONS = [
-    { value: "60s", label: "60s (1m - default)" },
-    { value: "90s", label: "90s (1.5m)" },
-    { value: "120s", label: "120s (2m)" },
-    { value: "180s", label: "180s (3m)" },
-    { value: "300s", label: "300s (5m)" },
-    { value: "0", label: "0 (disabled)" },
-  ];
-
-  function normalizeTimeout(val) {
-    if (!val) return "60s";
-    const s = String(val).trim().toLowerCase();
-    if (s === "0" || s === "0s") return "0";
-    if (s === "60s" || s === "1m" || s === "1m0s" || s === "60") return "60s";
-    if (s === "90s" || s === "1m30s" || s === "1.5m" || s === "90")
-      return "90s";
-    if (s === "120s" || s === "2m" || s === "2m0s" || s === "120")
-      return "120s";
-    if (s === "180s" || s === "3m" || s === "3m0s" || s === "180")
-      return "180s";
-    if (s === "240s" || s === "4m" || s === "4m0s" || s === "240")
-      return "240s";
-    if (s === "300s" || s === "5m" || s === "5m0s" || s === "300")
-      return "300s";
-    return val;
-  }
   // Key search: row copy lives in consts so rendering + matching share one
   // source (case-insensitive key + label/description substring).
   const SAFE_MODE_LABEL = "Anti-Ban Safe Mode";
@@ -194,28 +170,21 @@
           />
         {/snippet}
 
+        <!-- Env-only: the reader never consults the overlay, so there is no
+          editor and no save — the effective value renders read-only with
+          the gateway's verbatim pointer, like the hidden keys. -->
         <div class="w-full sm:w-48">
-          <select
-            aria-label="HTTP_READ_TIMEOUT"
-            class="fp-select w-full !text-xs !h-9 !px-3 bg-[var(--fp-input-bg)] text-[var(--fp-text)] border border-[var(--fp-border-bright)] rounded-[var(--fp-radius-sm)] focus:border-[var(--fp-accent)] focus:outline-none font-medium cursor-pointer"
-            value={normalizeTimeout(httpReadTimeout)}
-            onchange={(e) =>
-              onField("HTTP_READ_TIMEOUT", e.currentTarget.value)}
+          <code
+            class="fp-mono text-xs text-[var(--fp-text)] break-all block text-right select-all"
+            title={httpReadTimeout}>{httpReadTimeout}</code
           >
-            {#each TIMEOUT_OPTIONS as opt (opt.value)}
-              <option value={opt.value} class="bg-[#141a25] text-[#e9edf3]">
-                {opt.label}
-              </option>
-            {/each}
-            {#if !TIMEOUT_OPTIONS.some((opt) => opt.value === normalizeTimeout(httpReadTimeout))}
-              <option
-                value={httpReadTimeout}
-                class="bg-[#141a25] text-[#e9edf3]"
-              >
-                {httpReadTimeout} (custom)
-              </option>
-            {/if}
-          </select>
+          <p
+            class="text-[10px] text-[var(--fp-dim)] leading-relaxed mt-1 text-right"
+          >
+            {$tr(
+              "HTTP_READ_TIMEOUT is set in the environment or .env file, not as a knob (the reader never consults the overlay).",
+            )}
+          </p>
         </div>
       </SettingsRow>
     {/if}

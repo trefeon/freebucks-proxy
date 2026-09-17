@@ -276,16 +276,17 @@ func TestSettingsPostDurationRejectedBeforeTheOverlay(t *testing.T) {
 }
 
 // TestSettingsPostAcceptsMigratedSecrets pins the env-to-DB migration's POST
-// surface: API_KEYS, WEBHOOK_URL, UPSTREAM_BASE_URL, and AUTO_DISCOVER_TOKEN
-// persist to the DB overlay and report source=db (fake values only).
+// surface: API_KEYS, WEBHOOK_URL, and UPSTREAM_BASE_URL persist to the DB
+// overlay and report source=db (fake values only). AUTO_DISCOVER_TOKEN is
+// env-only per the data-architecture decision and 400s (pinned by
+// TestSettingsPostEnvOnlyKeys).
 func TestSettingsPostAcceptsMigratedSecrets(t *testing.T) {
 	ts, cookie, csrf := settingsTestServer(t)
 
 	for key, value := range map[string]string{
-		"API_KEYS":            "fb-test-fake-client-1",
-		"WEBHOOK_URL":         "https://example.invalid/hook",
-		"UPSTREAM_BASE_URL":   "https://example.invalid",
-		"AUTO_DISCOVER_TOKEN": "false",
+		"API_KEYS":          "fb-test-fake-client-1",
+		"WEBHOOK_URL":       "https://example.invalid/hook",
+		"UPSTREAM_BASE_URL": "https://example.invalid",
 	} {
 		code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
 			map[string]any{"key": key, "value": value})
@@ -294,7 +295,7 @@ func TestSettingsPostAcceptsMigratedSecrets(t *testing.T) {
 		}
 	}
 	entries := settingsSources(t, ts, cookie)
-	for _, key := range []string{"API_KEYS", "WEBHOOK_URL", "UPSTREAM_BASE_URL", "AUTO_DISCOVER_TOKEN"} {
+	for _, key := range []string{"API_KEYS", "WEBHOOK_URL", "UPSTREAM_BASE_URL"} {
 		if entries[key]["source"] != "db" {
 			t.Errorf("%s source = %v, want db after POST", key, entries[key]["source"])
 		}
@@ -341,15 +342,16 @@ func TestSettingsWithoutStore(t *testing.T) {
 }
 
 // TestSettingsPostRestartOnlyMatrix pins the logger/listener review finding
-// end to end: every restart-only key persists through POST but reports
-// setting_restart_only (never setting_saved), and GET flags the row
-// restart_only with source=db.
+// end to end: every restart-only overlay-addressable key persists through
+// POST but reports setting_restart_only (never setting_saved), and GET
+// flags the row restart_only with source=db. LOG_FILE is env-only per the
+// data-architecture decision and 400s instead (pinned by
+// TestSettingsPostEnvOnlyKeys).
 func TestSettingsPostRestartOnlyMatrix(t *testing.T) {
 	ts, cookie, csrf := settingsTestServer(t)
 	for key, value := range map[string]string{
 		"LOG_LEVEL":   "debug",
 		"LOG_FORMAT":  "json",
-		"LOG_FILE":    "proxy.log",
 		"LISTEN_ADDR": "127.0.0.1:3458",
 	} {
 		code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
@@ -366,7 +368,7 @@ func TestSettingsPostRestartOnlyMatrix(t *testing.T) {
 		}
 	}
 	entries := settingsSources(t, ts, cookie)
-	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LOG_FILE", "LISTEN_ADDR"} {
+	for _, key := range []string{"LOG_LEVEL", "LOG_FORMAT", "LISTEN_ADDR"} {
 		if entries[key]["source"] != "db" {
 			t.Errorf("%s source = %v, want db after POST", key, entries[key]["source"])
 		}
@@ -577,6 +579,98 @@ func TestSettingsPostSecureCookiesEnvOnly(t *testing.T) {
 	entries := settingsSources(t, ts, cookie)
 	if entries["ADMIN_FORCE_SECURE_COOKIES"]["source"] == "db" {
 		t.Error("ADMIN_FORCE_SECURE_COOKIES source = db after rejected POST, want no overlay row")
+	}
+}
+
+// TestSettingsPostEnvOnlyKeys pins the data-architecture env-only gate:
+// SESSION_STATE_FILE, SESSION_PERSIST, LOG_FILE, HTTP_READ_TIMEOUT, and
+// AUTO_DISCOVER_TOKEN 400 with an environment/.env pointer (mirroring
+// ADMIN_FORCE_SECURE_COOKIES, which keeps its own 400), pre-existing rows
+// go inert instead of shadowing, and DELETE :key still clears them.
+func TestSettingsPostEnvOnlyKeys(t *testing.T) {
+	ts, cookie, csrf := settingsTestServer(t)
+	envOnly := map[string]string{
+		"SESSION_STATE_FILE":  "custom-state.json",
+		"SESSION_PERSIST":     "false",
+		"LOG_FILE":            "proxy.log",
+		"HTTP_READ_TIMEOUT":   "120s",
+		"AUTO_DISCOVER_TOKEN": "false",
+	}
+	for key, value := range envOnly {
+		code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+			map[string]any{"key": key, "value": value})
+		if code != http.StatusBadRequest {
+			t.Errorf("POST %s = %d %v, want 400 (env-only)", key, code, res)
+			continue
+		}
+		if msg, _ := res["message"].(string); !strings.Contains(msg, ".env") {
+			t.Errorf("POST %s message = %q, want a pointer to the environment/.env", key, msg)
+		}
+	}
+	// The precedent still holds.
+	if code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "ADMIN_FORCE_SECURE_COOKIES", "value": "true"}); code != http.StatusBadRequest {
+		t.Errorf("POST ADMIN_FORCE_SECURE_COOKIES = %d %v, want 400", code, res)
+	}
+	// Rejections store nothing: no db tier appears.
+	entries := settingsSources(t, ts, cookie)
+	for key := range envOnly {
+		if entries[key]["source"] == "db" {
+			t.Errorf("%s source = db after rejected POST, want no overlay row", key)
+		}
+	}
+}
+
+// TestSettingsDeleteEnvOnlyKeys pins the leftover-row contract: rows saved
+// before the env-only gate (migration-shaped raw literals seeded straight
+// to the table) stay inert — GET never reports them as the db tier and the
+// effective value keeps the default — while DELETE :key clears them like
+// any other row.
+func TestSettingsDeleteEnvOnlyKeys(t *testing.T) {
+	ts, cookie, csrf, st := settingsStoreTestServer(t)
+	seeds := map[string]string{
+		"SESSION_STATE_FILE":  "custom-state.json",
+		"SESSION_PERSIST":     "false",
+		"LOG_FILE":            "proxy.log",
+		"HTTP_READ_TIMEOUT":   "300s",
+		"AUTO_DISCOVER_TOKEN": "false",
+	}
+	for key, raw := range seeds {
+		if err := st.SetSetting(config.OverlayRowKey(key), raw); err != nil {
+			t.Fatalf("SetSetting %s: %v", key, err)
+		}
+	}
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/admin/reload", nil,
+		map[string]string{"Authorization": "Bearer secret"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reload after seeding env-only rows = %d, want 200: %s", resp.StatusCode, data)
+	}
+	// Inert: the seeded literals drive neither the tier nor the value.
+	entries := settingsSources(t, ts, cookie)
+	for key := range seeds {
+		if entries[key]["source"] == "db" {
+			t.Errorf("%s source = db for a pre-existing env-only row, want env/file/default (inert)", key)
+		}
+	}
+	if v := entries["SESSION_PERSIST"]["value"]; v == "false" {
+		t.Errorf("SESSION_PERSIST GET value = %q, want the default (seeded false row is inert)", v)
+	}
+	// DELETE still clears every leftover row.
+	for key := range seeds {
+		code, res := settingsDo(t, http.MethodDelete, ts.URL+"/admin/api/settings/"+key, cookie, csrf, nil)
+		if code != http.StatusOK || res["ok"] != true {
+			t.Errorf("DELETE %s = %d %v, want 200 ok (leftover row clears)", key, code, res)
+			continue
+		}
+		if v, ok, err := st.GetSetting(config.OverlayRowKey(key)); err != nil || ok {
+			t.Errorf("%s row = %q,%v,%v after DELETE, want no row", key, v, ok, err)
+		}
+	}
+	entries = settingsSources(t, ts, cookie)
+	for key := range seeds {
+		if entries[key]["source"] == "db" {
+			t.Errorf("%s source = db after DELETE, want env/file/default", key)
+		}
 	}
 }
 

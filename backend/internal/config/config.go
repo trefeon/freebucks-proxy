@@ -44,7 +44,8 @@ type Config struct {
 	// deferred; see the gap analysis item 24.)
 	ActingUserID string
 	// AutoDiscoverToken records the effective AUTO_DISCOVER_TOKEN knob
-	// (default true): process env wins, else the DB overlay, else enabled.
+	// (default true, env-only): the process environment alone decides; a DB
+	// overlay row is inert (SettingsBlockedKeys).
 	// When false, an empty AUTH_TOKENS pool stays empty (bridge mode) and
 	// the CLI-credential discovery hook never fires; ADOPT_CLI_SESSION can
 	// still opt into discovery on its own.

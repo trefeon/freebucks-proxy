@@ -27,12 +27,16 @@ import (
 	"time"
 )
 
-// SettingsBlockedKeys names keys that may never live in the DB overlay.
-// Empty since the env-to-DB migration: every formerly-blocked key
-// (AUTH_TOKENS, ADMIN_TOKEN, API_KEYS, WEBHOOK_URL, UPSTREAM_BASE_URL,
-// DB_PATH, AUTO_DISCOVER_TOKEN) is now overlay-addressable so a fully
-// migrated user runs from the DB alone. The map (and IsSettingsBlocked) stay
-// as the gate for any future key that must remain env-only. Two notes:
+// SettingsBlockedKeys names keys that may never live in the DB overlay
+// (data-architecture decision, env-only): the readers consult the process
+// environment (with a .env fallback where the loader wires one) and never
+// the overlay, so a saved row would sit inert while looking live. POST
+// rejects these with a 400 pointing at the environment/.env (see
+// ValidateSettingValue and the settings handler's env-only gate, mirroring
+// the ADMIN_FORCE_SECURE_COOKIES precedent); OverlayFromRows and
+// applySettingsOverlay drop their rows so pre-existing rows go inert
+// instead of shadowing, while DELETE :key still clears the raw row. Two
+// notes:
 //
 //   - DB_PATH has no catalog entry, so OverlayFromRows still drops it as an
 //     unknown key: the open path resolves the file from the process
@@ -40,7 +44,17 @@ import (
 //     repoint the live file.
 //   - Process env still wins over the overlay at runtime for every key, so
 //     a migrated row can never silently override an explicit environment.
-var SettingsBlockedKeys = map[string]bool{}
+//   - AUTO_DISCOVER_TOKEN behavior change is intended: the overlay value
+//     applied when the environment left it unset (env > overlay > true);
+//     after gating the effective value falls back to env-then-default-true
+//     and overlay rows are inert.
+var SettingsBlockedKeys = map[string]bool{
+	"SESSION_STATE_FILE":  true,
+	"SESSION_PERSIST":     true,
+	"LOG_FILE":            true,
+	"HTTP_READ_TIMEOUT":   true,
+	"AUTO_DISCOVER_TOKEN": true,
+}
 
 // OverlayRowPrefix namespaces config overlays inside the generic settings
 // table (store holds other control state under its own keys).
@@ -235,7 +249,10 @@ func SettingSources(configPath string, overlay map[string]string) map[string]str
 			out[k] = "env"
 			continue
 		}
-		if _, ok := overlay[k]; ok {
+		// Env-only keys never report db: OverlayFromRows already drops their
+		// rows, but a hand-built overlay map must not resurrect a db tier the
+		// loader would ignore (the reader never consults the overlay).
+		if _, ok := overlay[k]; ok && !IsSettingsBlocked(k) {
 			out[k] = "db"
 			continue
 		}

@@ -36,7 +36,12 @@ func TestEffectiveOverlayRoundTrip(t *testing.T) {
 	clearEnv(t)
 	t.Chdir(t.TempDir())
 	// clearEnv pins AUTO_DISCOVER_TOKEN=false in the environment; the export
-	// must capture an explicit env value here, so set it directly.
+	// below must resolve the default tier (the key is env-only and its row
+	// is inert), so unset it. AUTO_DISCOVER_TOKEN stays out of envSet for
+	// the same reason: a migrated row can never reproduce an env value.
+	if err := os.Unsetenv("AUTO_DISCOVER_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
 	envSet := map[string]string{
 		"AUTH_TOKENS":          "fb-test-fake-token-1,fb-test-fake-token-2",
 		"ADMIN_TOKEN":          "fb-test-fake-admin-1",
@@ -46,7 +51,6 @@ func TestEffectiveOverlayRoundTrip(t *testing.T) {
 		"LOG_LEVEL":            "debug",
 		"RATE_LIMIT_BURST":     "7",
 		"SAFE_MODE":            "false",
-		"AUTO_DISCOVER_TOKEN":  "false",
 		"BRIDGE_ENABLED":       "false",
 		"MODELS_ALLOW":         "deepseek/deepseek-v4-flash",
 		"PIN_MODEL":            "0:z-ai/glm-5.2",
@@ -75,8 +79,17 @@ func TestEffectiveOverlayRoundTrip(t *testing.T) {
 	if _, ok := ov["MIGRATED_ENV_V1"]; ok {
 		t.Errorf("OverlayFromRows leaked the marker row into the overlay: %v", ov)
 	}
-	if len(ov) != len(exported) {
-		t.Errorf("OverlayFromRows kept %d of %d exported rows", len(ov), len(exported))
+	// Env-only rows are inert by design: the export still snapshots every
+	// catalog key (docs/introspection), but OverlayFromRows drops the
+	// blocked five before they could shadow.
+	wantKept := 0
+	for k := range exported {
+		if !IsSettingsBlocked(k) {
+			wantKept++
+		}
+	}
+	if len(ov) != wantKept {
+		t.Errorf("OverlayFromRows kept %d of %d overlay-addressable rows (exported %d incl. inert env-only)", len(ov), wantKept, len(exported))
 	}
 
 	// DB-alone boot: the environment no longer pins anything.
@@ -139,8 +152,10 @@ func TestEffectiveOverlayEmptyPoolPinsBridge(t *testing.T) {
 	}
 }
 
-// TestMigratedKeysReportDB pins the dashboard tier tags: every migrated key
-// reports source=db once its row exists (env still wins when set).
+// TestMigratedKeysReportDB pins the dashboard tier tags: every migrated
+// overlay-addressable key reports source=db once its row exists (env still
+// wins when set). The env-only AUTO_DISCOVER_TOKEN row is inert and never
+// reports db.
 func TestMigratedKeysReportDB(t *testing.T) {
 	clearEnv(t)
 	t.Chdir(t.TempDir())
@@ -159,10 +174,13 @@ func TestMigratedKeysReportDB(t *testing.T) {
 		"LOG_LEVEL":           "debug",
 	}
 	sources := SettingSources("", overlay)
-	for _, k := range []string{"AUTH_TOKENS", "ADMIN_TOKEN", "API_KEYS", "WEBHOOK_URL", "UPSTREAM_BASE_URL", "AUTO_DISCOVER_TOKEN", "LOG_LEVEL"} {
+	for _, k := range []string{"AUTH_TOKENS", "ADMIN_TOKEN", "API_KEYS", "WEBHOOK_URL", "UPSTREAM_BASE_URL", "LOG_LEVEL"} {
 		if sources[k] != "db" {
 			t.Errorf("%s source = %q, want db", k, sources[k])
 		}
+	}
+	if sources["AUTO_DISCOVER_TOKEN"] == "db" {
+		t.Errorf("AUTO_DISCOVER_TOKEN source = db for an inert env-only row, want env/file/default")
 	}
 	t.Setenv("ADMIN_TOKEN", "fb-test-fake-env-admin-1")
 	if sources := SettingSources("", overlay); sources["ADMIN_TOKEN"] != "env" {

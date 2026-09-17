@@ -108,21 +108,21 @@ test.describe("instant-save dashboard", () => {
         .filter({ hasText: "LOG_LEVEL saved. It applies after restart." }),
     ).toBeVisible();
 
-    // HTTP_READ_TIMEOUT lives in the Settings Gateway card; 120s is a real
-    // catalog option (30s is not — the select only offers listed values).
-    const readTimeout = page.getByRole("combobox", {
-      name: "HTTP_READ_TIMEOUT",
-    });
-    await expect(readTimeout).toBeVisible();
-    const timeoutPost = waitSettingsPost(page);
-    await readTimeout.selectOption("120s");
-    await timeoutPost;
-    await expect.poll(() => postedKeys(posted)).toContain("HTTP_READ_TIMEOUT");
+    // HTTP_READ_TIMEOUT is env-only (data-architecture decision): the
+    // Gateway card renders the effective value read-only with an env-note —
+    // never a select, never a save-success/restart copy.
     await expect(
-      page.getByRole("status").filter({
-        hasText: "HTTP_READ_TIMEOUT saved. It applies after restart.",
-      }),
+      page.getByRole("combobox", { name: "HTTP_READ_TIMEOUT" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("HTTP_READ_TIMEOUT", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByText("the reader never consults the overlay").first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("status").filter({ hasText: "HTTP_READ_TIMEOUT saved" }),
+    ).toHaveCount(0);
 
     // LOG_FORMAT is not on the LOG_LEVEL "Logging" card: it renders in the
     // "Logging & Diagnostics" card (Settings, general-group keys).
@@ -137,6 +137,43 @@ test.describe("instant-save dashboard", () => {
         .getByRole("status")
         .filter({ hasText: "LOG_FORMAT saved. It applies after restart." }),
     ).toBeVisible();
+  });
+  test("env-only keys POST 400 with the gateway's verbatim pointer", async ({
+    page,
+  }) => {
+    const posted: PostedSetting[] = [];
+    await mockDashboard(page, loadFixtures());
+    await mockSettingsOverlay(page, posted);
+    await page.goto(admin("settings"));
+    // The mock models the real backend gate (admin_settings.go): a direct
+    // knob write for an env-only key 400s instead of persisting an inert
+    // row. Pinned for all five keys; the UI never offers a save control
+    // that could hit this path, so the fetch below drives it directly.
+    for (const key of [
+      "SESSION_STATE_FILE",
+      "SESSION_PERSIST",
+      "LOG_FILE",
+      "HTTP_READ_TIMEOUT",
+      "AUTO_DISCOVER_TOKEN",
+    ]) {
+      const res = await page.evaluate(async (k) => {
+        const r = await fetch("/admin/api/settings", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key: k, value: "false" }),
+        });
+        return { status: r.status, body: await r.json() };
+      }, key);
+      expect(res.status).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.code).toBe("invalid_setting");
+      expect(res.body.message).toBe(
+        `${key} is set in the environment or .env file, not as a knob (the reader never consults the overlay).`,
+      );
+      expect(res.body.message).not.toContain("saved");
+    }
+    // Rejected writes are never collected as saves.
+    expect(postedKeys(posted)).toEqual([]);
   });
   test("env-shadowed row notes the override and keeps it after save", async ({
     page,

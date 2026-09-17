@@ -25,6 +25,9 @@ import {
 //   managed on their own surfaces.
 // - Hidden infra keys (SESSION_STATE_FILE, ROTATION_INTERVAL, ...): shown
 //   read-only in the Hidden keys disclosure, no editors.
+// - Env-only keys (SESSION_PERSIST, HTTP_READ_TIMEOUT): the readers never
+//   consult the overlay, so their card rows are read-only with an env-note
+//   and POST 400s; no saveable editor, no matrix row.
 
 // Pool Strategy card (Pool page Controls tab): the four preset-written keys.
 export const STRATEGY_KEYS = [
@@ -47,7 +50,6 @@ export const CUSTOM_ADVANCED_KEYS = [
   "SESSION_PROBE_CACHE_TTL",
   "SESSION_RE_ADMIT_LEAD",
   "WAITING_ROOM_CHAIN",
-  "SESSION_PERSIST",
   "ADOPT_CLI_SESSION",
 ] as const;
 
@@ -58,9 +60,9 @@ export const POOL_TUNING_KEYS = [
   "RATE_LIMIT_BURST",
 ] as const;
 
-// Gateway card (Settings page).
-export const GATEWAY_KEYS = ["SAFE_MODE", "HTTP_READ_TIMEOUT"] as const;
-
+// Gateway card (Settings page): only the saveable knob. HTTP_READ_TIMEOUT
+// is env-only (no editor, read-only row), so it stays out of the matrix.
+export const GATEWAY_KEYS = ["SAFE_MODE"] as const;
 // Logging cards (Settings page): Server Log Level + Logging & Diagnostics.
 export const LOGGING_KEYS = [
   "LOG_LEVEL",
@@ -114,13 +116,11 @@ export const KEY_HOME: Record<string, "pool" | "settings" | "usage"> = {
   SESSION_PROBE_CACHE_TTL: "pool",
   SESSION_RE_ADMIT_LEAD: "pool",
   WAITING_ROOM_CHAIN: "pool",
-  SESSION_PERSIST: "pool",
   ADOPT_CLI_SESSION: "pool",
   BRIDGE_IDLE_EVICT: "pool",
   IDLE_ROTATION_TIMEOUT: "pool",
   RATE_LIMIT_BURST: "pool",
   SAFE_MODE: "settings",
-  HTTP_READ_TIMEOUT: "settings",
   LOG_LEVEL: "settings",
   DEBUG_DUMP: "settings",
   DEVTOOLS_ENABLED: "settings",
@@ -170,13 +170,11 @@ export function fullMatrixDbSeed(): OverlaySeed[] {
     SESSION_PROBE_CACHE_TTL: "30s",
     SESSION_RE_ADMIT_LEAD: "90s",
     WAITING_ROOM_CHAIN: "true",
-    SESSION_PERSIST: "false",
     ADOPT_CLI_SESSION: "true",
     BRIDGE_IDLE_EVICT: "48h",
     IDLE_ROTATION_TIMEOUT: "1h",
     RATE_LIMIT_BURST: "40",
     SAFE_MODE: "false",
-    HTTP_READ_TIMEOUT: "120s",
     LOG_LEVEL: "debug",
     DEBUG_DUMP: "true",
     DEVTOOLS_ENABLED: "true",

@@ -30,8 +30,9 @@ import {
 // Deliberately NOT re-pinned here (owned by siblings): the Drain/Balance
 // preset write set, the Go-normalized "1m0s" echo round-trip, blank-row
 // loader fallbacks (dashboard.spec); the generic rejected-save Retry row
-// (interactables-db.spec); LOG_LEVEL/HTTP_READ_TIMEOUT/LOG_FORMAT restart
-// copy and SAFE_MODE env-shadow (instant-save.spec).
+// (interactables-db.spec); LOG_LEVEL/LOG_FORMAT restart copy, the
+// HTTP_READ_TIMEOUT/SESSION_PERSIST env-only read-only rows + 400 pins,
+// and SAFE_MODE env-shadow (instant-save.spec).
 async function expectPosted(
   posted: PostedSetting[],
   key: string,
@@ -221,7 +222,20 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await fillKey(page, "SESSION_PROBE_CACHE_TTL", "30s");
     await fillKey(page, "SESSION_RE_ADMIT_LEAD", "90s");
     await toggleKey(page, "WAITING_ROOM_CHAIN");
-    await toggleKey(page, "SESSION_PERSIST");
+    // SESSION_PERSIST is env-only (data-architecture decision): the Custom
+    // advanced card renders it read-only with an env-note — no switch, no
+    // POST, never a save-success copy.
+    await expect(
+      page.getByRole("switch", { name: "SESSION_PERSIST" }),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .locator("#setting-SESSION_PERSIST")
+        .getByText("the reader never consults the overlay"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("status").filter({ hasText: "SESSION_PERSIST saved" }),
+    ).toHaveCount(0);
     await toggleKey(page, "ADOPT_CLI_SESSION");
     await fillKey(page, "BRIDGE_IDLE_EVICT", "48h");
     await fillKey(page, "IDLE_ROTATION_TIMEOUT", "1h");
@@ -231,7 +245,6 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await expectPosted(posted, "SESSION_PROBE_CACHE_TTL", "30s");
     await expectPosted(posted, "SESSION_RE_ADMIT_LEAD", "90s");
     await expectPosted(posted, "WAITING_ROOM_CHAIN", "true");
-    await expectPosted(posted, "SESSION_PERSIST", "false");
     await expectPosted(posted, "ADOPT_CLI_SESSION", "true");
     await expectPosted(posted, "BRIDGE_IDLE_EVICT", "48h");
     await expectPosted(posted, "IDLE_ROTATION_TIMEOUT", "1h");
@@ -252,7 +265,15 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await gotoSettings(page);
 
     await toggleKey(page, "SAFE_MODE");
-    await editor(page, "HTTP_READ_TIMEOUT").selectOption("120s");
+    // HTTP_READ_TIMEOUT is env-only (data-architecture decision): the
+    // Gateway card renders it read-only with an env-note — no select, no
+    // POST, never a save-success copy.
+    await expect(
+      page.getByRole("combobox", { name: "HTTP_READ_TIMEOUT" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("the reader never consults the overlay").first(),
+    ).toBeVisible();
     await editor(page, "LOG_LEVEL").selectOption("debug");
     await toggleKey(page, "DEBUG_DUMP");
     await toggleKey(page, "DEVTOOLS_ENABLED");
@@ -262,7 +283,6 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await toggleKey(page, "DASHBOARD_REQUIRE_LOGIN");
 
     await expectPosted(posted, "SAFE_MODE", "false");
-    await expectPosted(posted, "HTTP_READ_TIMEOUT", "120s");
     await expectPosted(posted, "LOG_LEVEL", "debug");
     await expectPosted(posted, "DEBUG_DUMP", "true");
     await expectPosted(posted, "DEVTOOLS_ENABLED", "true");

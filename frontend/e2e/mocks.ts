@@ -356,7 +356,20 @@ export type OverlayMockOptions = {
   seed?: OverlaySeed[];
 };
 
-const OVERLAY_RESTART_ONLY = ["LOG_LEVEL", "LOG_FORMAT", "HTTP_READ_TIMEOUT"];
+const OVERLAY_RESTART_ONLY = ["LOG_LEVEL", "LOG_FORMAT"];
+
+// Env-only keys (data-architecture decision, config.SettingsBlockedKeys):
+// the readers consult the process environment (with a .env fallback where
+// the loader wires one) and never the overlay, so a saved row would sit
+// inert while looking live. POST 400s with the backend-verbatim pointer,
+// like the gateway's handleSettingsPost gate.
+const OVERLAY_ENV_ONLY: Record<string, true> = {
+  SESSION_STATE_FILE: true,
+  SESSION_PERSIST: true,
+  LOG_FILE: true,
+  HTTP_READ_TIMEOUT: true,
+  AUTO_DISCOVER_TOKEN: true,
+};
 
 /**
  * Stateful /admin/api/settings mock for the instant-save dashboard: GET
@@ -364,7 +377,8 @@ const OVERLAY_RESTART_ONLY = ["LOG_LEVEL", "LOG_FORMAT", "HTTP_READ_TIMEOUT"];
  * gateway's live vs restart-only messages plus the env-shadow suffix), and
  * DELETE /admin/api/settings/:key drops the row so saved-value resets
  * round-trip. Every successful POST is collected into `posted`, every
- * DELETE key into the returned `deleted` list.
+ * DELETE key into the returned `deleted` list. POSTs for the five env-only
+ * keys 400 with the gateway's verbatim pointer instead (never collected).
  */
 export async function mockSettingsOverlay(
   page: Page,
@@ -386,6 +400,18 @@ export async function mockSettingsOverlay(
         value = String(parsed.value ?? "");
       } catch {
         /* malformed payload: fall through to a 400 below */
+      }
+      if (OVERLAY_ENV_ONLY[key] === true) {
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: false,
+            message: `${key} is set in the environment or .env file, not as a knob (the reader never consults the overlay).`,
+            code: "invalid_setting",
+          }),
+        });
+        return;
       }
       posted.push({ key, value });
       const status = opts.postStatus ?? 200;

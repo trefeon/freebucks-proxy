@@ -54,6 +54,9 @@ func (p *Pool) CooldownTokenBan(token int, be *upstream.BanError) {
 	if tok.runs.BanError() != nil {
 		p.quarantineToken(tok, "banned", be)
 	}
+	// Terminal-hint mirror (hint only, never authoritative): a live ban
+	// persists, an already-lifted one clears instead.
+	p.storeBanHint(tok)
 }
 
 // CooldownTokenCountryBlocked applies a country-block cooldown to token
@@ -67,6 +70,9 @@ func (p *Pool) CooldownTokenCountryBlocked(token int, cbe *upstream.CountryBlock
 		return
 	}
 	(*toks)[token].runs.CooldownCountryBlocked(cbe)
+	// Terminal-hint mirror (hint only): the live window persists so a
+	// restart skips one doomed probe; expiry re-probes.
+	p.storeCountryHint((*toks)[token], (*toks)[token].runs.CooldownUntil())
 }
 
 // indexOfEntry resolves entry's CURRENT 0-based roster position (-1 when
@@ -126,6 +132,8 @@ func (p *Pool) CooldownLeaseBan(lease *Lease, be *upstream.BanError) {
 	if tok.runs.BanError() != nil {
 		p.quarantineToken(tok, "banned", be)
 	}
+	// Terminal-hint mirror (hint only, never authoritative).
+	p.storeBanHint(tok)
 }
 
 // CooldownLeaseCountryBlocked applies a country-block cooldown to the
@@ -136,6 +144,8 @@ func (p *Pool) CooldownLeaseCountryBlocked(lease *Lease, cbe *upstream.CountryBl
 		return
 	}
 	lease.entry.runs.CooldownCountryBlocked(cbe)
+	// Terminal-hint mirror (hint only).
+	p.storeCountryHint(lease.entry, lease.entry.runs.CooldownUntil())
 }
 
 // CooldownBridge puts the bridge entry's token in a cooldown window of
@@ -320,6 +330,9 @@ func (p *Pool) UnlockToken(token int) error {
 	}
 	(*toks)[token].runs.ClearCooldowns()
 	(*toks)[token].quarantine.Store(nil)
+	// The operator restored the account: drop its terminal hint too, or a
+	// restart would keep skipping one healthy probe per walk.
+	p.clearCooldownHintFor((*toks)[token])
 	return nil
 }
 
@@ -386,6 +399,9 @@ func (p *Pool) clearLiftedQuarantine(tok *tokenEntry) bool {
 	if tok.quarantine.CompareAndSwap(q, nil) {
 		p.logger.Info("pool: quarantine lifted (temporary ban expired)",
 			"token_label", tokenEntryLabel(tok), "state", q.reason)
+		// The upstream unban lifted the terminal state: the ban hint is
+		// stale, drop it so the token re-admits immediately.
+		p.clearCooldownHintFor(tok)
 		return true
 	}
 	return false
