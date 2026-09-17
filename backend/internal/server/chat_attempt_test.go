@@ -3,17 +3,16 @@ package server
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/runs"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // fakeAttemptBackend adapts the chatBackend interface for tests: nil hooks
@@ -38,6 +37,7 @@ func (b *fakeAttemptBackend) Acquire(ctx context.Context, model string) (*pool.L
 	}
 	return b.acquire(ctx, model)
 }
+
 func (b *fakeAttemptBackend) Chat(ctx context.Context, l *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error) {
 	return b.chat(ctx, l, opts, body)
 }
@@ -51,9 +51,11 @@ func (b *fakeAttemptBackend) CooldownBan(l *pool.Lease, be *upstream.BanError) {
 func (b *fakeAttemptBackend) CooldownRateLimit(l *pool.Lease, rle *upstream.RateLimitError) {
 	b.cooldownRate(l, rle)
 }
+
 func (b *fakeAttemptBackend) CooldownIpCapped(l *pool.Lease, ice *upstream.IpCappedError) {
 	b.cooldownIP(l, ice)
 }
+
 func (b *fakeAttemptBackend) CooldownCountry(l *pool.Lease, cbe *upstream.CountryBlockedError) {
 	b.cooldownCountry(l, cbe)
 }
@@ -168,80 +170,6 @@ func TestChatAttemptRetryCarriesFreshRunIdentity(t *testing.T) {
 	})
 }
 
-func TestChatAttemptRateLimitFailover(t *testing.T) {
-	t.Run("rate limit fails over to next token when enabled", func(t *testing.T) {
-		runA := &runs.Run{RunID: "run-1", TraceSessionID: "trace-1", ClientID: "client-1", AgentID: "agent-1"}
-		runB := &runs.Run{RunID: "run-2", TraceSessionID: "trace-2", ClientID: "client-2", AgentID: "agent-2"}
-		firstLease := &pool.Lease{Token: 0, Model: "deepseek/deepseek-v4-flash", AgentID: "agent-1", Run: runA, SessionInstanceID: "inst-1"}
-		retryLease := &pool.Lease{Token: 1, Model: "deepseek/deepseek-v4-flash", AgentID: "agent-2", Run: runB, SessionInstanceID: "inst-2"}
-
-		rle := &upstream.RateLimitError{Model: "deepseek/deepseek-v4-flash"}
-		cooldownRateCalled := false
-
-		acquires := 0
-		s := &Server{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-		s.cfg.Store(&config.Config{RateLimitFailover: true})
-		backend := &fakeAttemptBackend{
-			acquire: func(ctx context.Context, model string) (*pool.Lease, error) {
-				acquires++
-				if acquires == 1 {
-					return firstLease, nil
-				}
-				return retryLease, nil
-			},
-			chat: func(ctx context.Context, l *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error) {
-				if l.Token == 0 {
-					return nil, rle
-				}
-				return io.NopCloser(strings.NewReader("ok from token 1")), nil
-			},
-			cooldownRate: func(l *pool.Lease, err *upstream.RateLimitError) {
-				cooldownRateCalled = true
-			},
-		}
-
-		up, finalLease, err := s.chatAttempt(context.Background(), "deepseek/deepseek-v4-flash", []byte(`{}`), &chatTraceState{reqID: "req-rl"}, backend)
-		if err != nil {
-			t.Fatalf("chatAttempt failed: %v", err)
-		}
-		if finalLease.Token != 1 {
-			t.Errorf("finalLease token = %d, want 1", finalLease.Token)
-		}
-		if !cooldownRateCalled {
-			t.Error("cooldownRate was not called on failed token")
-		}
-		_ = up.Close()
-	})
-
-	t.Run("rate limit returns immediately when failover disabled", func(t *testing.T) {
-		runA := &runs.Run{RunID: "run-1", TraceSessionID: "trace-1", ClientID: "client-1", AgentID: "agent-1"}
-		firstLease := &pool.Lease{Token: 0, Model: "deepseek/deepseek-v4-flash", AgentID: "agent-1", Run: runA, SessionInstanceID: "inst-1"}
-
-		rle := &upstream.RateLimitError{Model: "deepseek/deepseek-v4-flash"}
-		acquires := 0
-		s := &Server{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-		s.cfg.Store(&config.Config{RateLimitFailover: false})
-		backend := &fakeAttemptBackend{
-			acquire: func(ctx context.Context, model string) (*pool.Lease, error) {
-				acquires++
-				return firstLease, nil
-			},
-			chat: func(ctx context.Context, l *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error) {
-				return nil, rle
-			},
-			cooldownRate: func(l *pool.Lease, err *upstream.RateLimitError) {},
-		}
-
-		_, _, err := s.chatAttempt(context.Background(), "deepseek/deepseek-v4-flash", []byte(`{}`), &chatTraceState{reqID: "req-rl2"}, backend)
-		if !errors.Is(err, rle) {
-			t.Fatalf("expected rle error, got: %v", err)
-		}
-		if acquires != 1 {
-			t.Errorf("acquires = %d, want 1 (no retry)", acquires)
-		}
-	})
-}
-
 func TestChatAttemptTurnSpendTerminal(t *testing.T) {
 	// turn_spend_limit is terminal for the current request: a failed turn
 	// must surface immediately — no failover re-acquire onto another token
@@ -254,7 +182,7 @@ func TestChatAttemptTurnSpendTerminal(t *testing.T) {
 	tsle := &upstream.TurnSpendLimitError{Status: http.StatusTooManyRequests, Body: `{"error":"turn_spend_limit"}`}
 	acquires, chats := 0, 0
 	s := &Server{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	s.cfg.Store(&config.Config{RateLimitFailover: true}) // failover on, must still not spin
+	s.cfg.Store(&config.Config{})
 	backend := &fakeAttemptBackend{
 		acquire: func(ctx context.Context, model string) (*pool.Lease, error) {
 			acquires++

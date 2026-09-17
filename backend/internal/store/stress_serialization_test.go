@@ -182,7 +182,7 @@ func TestConcurrentSetSettingStress(t *testing.T) {
 		"config:QUEUE_WAIT",
 		"config:QUEUE_DEPTH",
 		"config:SLOTS_PER_ACCOUNT",
-		"config:ROUTING_SMART",
+		"config:MAX_SPILL_ACCOUNTS",
 		"config:MATURITY_ENABLED",
 		"config:LOG_LEVEL",
 		"ui:active-tab",
