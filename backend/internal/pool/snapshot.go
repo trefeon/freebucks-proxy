@@ -148,12 +148,23 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 		// manager stashes the last-seen countdown across invalidation by
 		// design (restart resume), so without this the row would render a
 		// stale model/countdown/expiry for a session that no longer exists.
+		// A synthesized "expired" row is terminal too: expiry and grace both
+		// passed while the cache still says "active" (polls stopped, so no
+		// poll/store invalidation observed it), and every terminal path —
+		// Invalidate (commit(nil)), poll past-grace, store load — drops the
+		// slot. Render it like IDLE instead of the stale cache values.
 		sessionModel := ss.Model
 		sessionExpiresAt := ss.ExpiresAt
-		if ss.InstanceID == "" {
+		sessionInstanceID := ss.InstanceID
+		sessionQueuePosition := ss.QueuePosition
+		sessionQueueDepth := ss.QueueDepth
+		if ss.InstanceID == "" || sessionStatus == "expired" {
+			sessionInstanceID = ""
 			sessionModel = ""
 			sessionRemaining = 0
 			sessionExpiresAt = time.Time{}
+			sessionQueuePosition = 0
+			sessionQueueDepth = 0
 		}
 		// Active-ban view for healthz/dashboard consumers (issues #198/#199).
 		banType, bannedUntil := banView(rs.BanError, rs.BannedUntil)
@@ -202,9 +213,9 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			OldestWaiterMS:          oldestWait.Milliseconds(),
 			RequestsPerDay:          p.dayRequestCount(i),
 			SessionStatus:           sessionStatus,
-			SessionInstanceID:       ss.InstanceID,
-			SessionQueuePosition:    ss.QueuePosition,
-			SessionQueueDepth:       ss.QueueDepth,
+			SessionInstanceID:       sessionInstanceID,
+			SessionQueuePosition:    sessionQueuePosition,
+			SessionQueueDepth:       sessionQueueDepth,
 			SessionModel:            sessionModel,
 			SessionRemainingSeconds: sessionRemaining,
 			SessionExpiresAt:        sessionExpiresAt,
