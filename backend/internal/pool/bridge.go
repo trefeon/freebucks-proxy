@@ -135,9 +135,6 @@ func (p *Pool) AcquireBridge(ctx context.Context, clientToken, model string) (*L
 			if rle := entry.runs.RateLimitError(); rle != nil {
 				return nil, rle
 			}
-			if ice := entry.runs.IpCappedError(); ice != nil {
-				return nil, ice
-			}
 			return nil, fmt.Errorf("bridge: token cooling down until %s", until.Format(time.RFC3339))
 		}
 	}
@@ -271,14 +268,11 @@ admitRetry:
 		err = errCopy
 		c := p.classifyAndCooldown(entry.runs, err)
 		if c.authRejected {
-			p.logger.Debug("pool: bridge entry cooling down", "duration", runs.DefaultCooldown.String())
-			// Park short 401 cooldowns (keep the entry so the
-			// CooldownUntil skip above surfaces the refusal without
-			// re-hitting upstream); evict only longer ones — the entry
-			// is dead weight past the park threshold.
-			if !shouldPark(cfg, runs.DefaultCooldown) {
-				p.bridgeEvictToken(clientToken)
-			}
+			// A 401 means this client token is dead upstream: evict the
+			// entry so the next request recreates it fresh instead of
+			// riding a dead credential. No cooldown write.
+			p.logger.Debug("pool: bridge entry evicting on auth rejection")
+			p.bridgeEvictToken(clientToken)
 		}
 		if rle := c.rateLimited; rle != nil {
 			if c.spendLimited {
@@ -288,14 +282,10 @@ admitRetry:
 			}
 		}
 		if lie := c.limitedIp; lie != nil {
-			// Issue #74: the shared egress cannot serve this model
-			// (limited_ip) — mark it unfit so pooled requests refuse fast
-			// instead of re-admitting and burning a daily session slot on
-			// every token. Bridge requests keep their own token, so the
-			// unfit gate stays skipped for them (by design), but the
-			// surfaced error is now self-describing.
+			// The shared egress cannot serve this model (limited_ip).
+			// Bridge requests keep their own token and the error is
+			// returned as-is; stamp Model so it is self-describing.
 			lie.Model = model
-			p.MarkModelUnfit(model, lie)
 		}
 		if be := c.banned; be != nil {
 			p.notifyBan(0, model) // issue #48: alert on admission-path bans
@@ -369,12 +359,10 @@ sessionReady:
 	if err != nil {
 		c := p.classifyAndCooldown(entry.runs, err)
 		if c.authRejected {
-			p.logger.Debug("pool: bridge entry cooling down", "duration", runs.DefaultCooldown.String())
-			// Park short 401 cooldowns, evict past the threshold —
-			// see the admission path above.
-			if !shouldPark(cfg, runs.DefaultCooldown) {
-				p.bridgeEvictToken(clientToken)
-			}
+			// Dead client token: evict so the next request recreates it
+			// fresh. No cooldown write.
+			p.logger.Debug("pool: bridge entry evicting on auth rejection")
+			p.bridgeEvictToken(clientToken)
 		}
 		if rle := c.rateLimited; rle != nil {
 			// Issue #122: count run-start spend_limited refusals on the
@@ -386,14 +374,9 @@ sessionReady:
 			}
 		}
 		if lie := c.limitedIp; lie != nil {
-			// Issue #74: the shared egress cannot serve this model
-			// (limited_ip) — mark it unfit so pooled requests refuse fast
-			// instead of re-admitting and burning a daily session slot on
-			// every token. Bridge requests keep their own token, so the
-			// unfit gate stays skipped for them (by design), but the
-			// surfaced error is now self-describing.
+			// The shared egress cannot serve this model (limited_ip);
+			// stamp Model so the surfaced error is self-describing.
 			lie.Model = model
-			p.MarkModelUnfit(model, lie)
 		}
 		if be := c.banned; be != nil {
 			p.notifyBan(0, model) // issue #48: alert on admission-path bans
@@ -412,8 +395,10 @@ sessionReady:
 		entry.runs.Release(run)
 		return nil, fmt.Errorf("bridge: entry evicted during admission; retry the request")
 	}
-	bridgeLeaseAttrs := []any{"model", effectiveModel, "agent", effectiveAgentID, "instance_id", ss.InstanceID,
-		"country", ss.CountryCode}
+	bridgeLeaseAttrs := []any{
+		"model", effectiveModel, "agent", effectiveAgentID, "instance_id", ss.InstanceID,
+		"country", ss.CountryCode,
+	}
 	if queueWait > 0 {
 		// Queue-wait telemetry: a granted park used to be invisible (only
 		// the timeout/exhausted path logged anything).
@@ -431,8 +416,10 @@ sessionReady:
 	p.sessionsEnded = false
 	p.lastActiveMu.Unlock()
 	slotLeased = true // the lease owns the slot now; the defer must not release it
-	return &Lease{Token: -1, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: ss.InstanceID,
-		Bridge: entry, routeSlot: routeSlot, QueueWait: queueWait, AcquiredAt: time.Now()}, nil
+	return &Lease{
+		Token: -1, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: ss.InstanceID,
+		Bridge: entry, routeSlot: routeSlot, QueueWait: queueWait, AcquiredAt: time.Now(),
+	}, nil
 }
 
 // ProbeNewToken validates a NOT-yet-added token against upstream with a
