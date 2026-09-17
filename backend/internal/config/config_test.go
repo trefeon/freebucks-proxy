@@ -116,52 +116,6 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-func TestParseMap(t *testing.T) {
-	cases := []struct {
-		name string
-		raw  string
-		want map[string]string
-	}{
-		{
-			name: "empty",
-			raw:  "",
-			want: map[string]string{},
-		},
-		{
-			name: "single pair",
-			raw:  "gpt-4o:deepseek/deepseek-v4-flash",
-			want: map[string]string{"gpt-4o": "deepseek/deepseek-v4-flash"},
-		},
-		{
-			name: "multiple pairs with spaces and newlines",
-			raw:  " gpt-4o : deepseek/deepseek-v4-flash , \n glm: z-ai/glm-5.2 \n",
-			want: map[string]string{
-				"gpt-4o": "deepseek/deepseek-v4-flash",
-				"glm":    "z-ai/glm-5.2",
-			},
-		},
-		{
-			name: "malformed pair skipped",
-			raw:  "valid:model,novalue,also:ok",
-			want: map[string]string{"valid": "model", "also": "ok"},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := parseMap(tc.raw)
-			if len(got) != len(tc.want) {
-				t.Fatalf("parseMap(%q) len = %d, want %d", tc.raw, len(got), len(tc.want))
-			}
-			for k, wantVal := range tc.want {
-				if got[k] != wantVal {
-					t.Errorf("got[%q] = %q, want %q", k, got[k], wantVal)
-				}
-			}
-		})
-	}
-}
-
 // TestDedupeAPIKeys asserts the dedupeStrings pass for API_KEYS (only
 // AUTH_TOKENS dedupe was previously asserted) when the same value appears
 // multiple times in one env value.

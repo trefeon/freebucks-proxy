@@ -484,7 +484,8 @@ select.fp-input option,
 .led-info {
   background: var(--fp-info);
 }
-.led-idle {
+.led-idle,
+.led-dim {
   background: var(--fp-dim);
 }
 .led-critical {

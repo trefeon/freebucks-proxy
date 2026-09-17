@@ -460,30 +460,6 @@ func splitList(value string) []string {
 	return compactStrings(fields)
 }
 
-func parseMap(value string) map[string]string {
-	out := make(map[string]string)
-	if strings.TrimSpace(value) == "" {
-		return out
-	}
-	pairs := splitList(value)
-	for _, p := range pairs {
-		var parts []string
-		if strings.Contains(p, "=") {
-			parts = strings.SplitN(p, "=", 2)
-		} else if strings.Contains(p, ":") {
-			parts = strings.SplitN(p, ":", 2)
-		}
-		if len(parts) == 2 {
-			k := strings.TrimSpace(parts[0])
-			v := strings.TrimSpace(parts[1])
-			if k != "" && v != "" {
-				out[k] = v
-			}
-		}
-	}
-	return out
-}
-
 // parseModelLocks parses MODEL_LOCKS (issue #325): semicolon/newline
 // separated slot entries, each "<slot-index>:<model>[,<model>...]", e.g.
 // "0:z-ai/glm-5.2;1:upstage/solar-pro4,mimo/mimo-v2.5". Slot indexes

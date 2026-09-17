@@ -29,12 +29,12 @@ export const loading = writable(true);
 export const error = writable("");
 
 export const rawText = writable("");
-export const baseContent = writable("");
+
 export const formValues = writable({});
 export const effectiveMap = writable(new Map());
 export const settingSources = writable({});
 export const settingsDegraded = writable(false);
-export const result = writable(null);
+const baseContent = writable("");
 
 // Last-known overlay values (key -> saved display value) for source=db
 // rows. Applied over the file-derived display values so a row always shows
@@ -177,7 +177,7 @@ export async function resetSetting(key) {
       message: res?.message || t("Saved value removed."),
       restart_only: [],
     };
-    result.set(resetOutcome);
+
     notifyResult(resetOutcome);
     await fetchData();
     refreshTokens();
@@ -187,7 +187,7 @@ export async function resetSetting(key) {
       message: e.message || t("Failed to reset saved value"),
       restart_only: [],
     };
-    result.set(resetFailure);
+
     notifyResult(resetFailure);
   }
 }

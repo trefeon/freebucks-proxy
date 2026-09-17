@@ -22,15 +22,6 @@
  * never flips the badge to Custom.
  */
 
-/** Keys a preset switch writes — nothing else. */
-export const STRATEGY_OWNED_KEYS = [
-  "ROUTING_SMART",
-  "TOKEN_ROTATION",
-  "RATE_LIMIT_FAILOVER",
-  "QUEUE_WAIT",
-  "QUEUE_DEPTH",
-];
-
 /** Exact values the Drain preset writes. */
 export const STRATEGY_DRAIN = {
   ROUTING_SMART: "true",

@@ -15,7 +15,7 @@
     "group": "general",
     "kind": "bool",
     "default": "true",
-    "restart_only": false,
+    "restart_only": true,
     "secret": false,
     "essential": false,
     "hidden": true,
@@ -733,7 +733,7 @@
     "group": "upstream",
     "kind": "text",
     "default": "6h",
-    "restart_only": false,
+    "restart_only": true,
     "secret": false,
     "essential": false,
     "description": "Model catalog refresh interval."

@@ -481,7 +481,7 @@
   crumb="freebuff-proxy / Admin / pool.conf"
   title={$tr("Pool")}
   description={$tr(
-    "Upstream credentials, device login, client API keys, and streak enrollment — allowances live on Usage",
+    "Upstream credentials, device login, and streak enrollment — allowances live on Usage",
   )}
   {loading}
   {error}

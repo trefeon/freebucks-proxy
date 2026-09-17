@@ -289,6 +289,8 @@ var restartOnlyConfigKeys = []string{
 	"LOG_LEVEL",
 	"LOG_FORMAT",
 	"LOG_FILE",
+	"AUTO_DISCOVER_TOKEN",
+	"REGISTRY_REFRESH",
 }
 
 // changedRestartOnlyKeys returns the subset of restartOnlyConfigKeys whose
@@ -391,6 +393,7 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"COST_MODE":                   cfg.CostMode,
 		"TLS_FINGERPRINT":             cfg.TLSFingerprint,
 		"REGISTRY_REFRESH":            cfg.RegistryRefresh.String(),
+		"AUTO_DISCOVER_TOKEN":         strconv.FormatBool(cfg.AutoDiscoverToken),
 		"DEBUG_DUMP":                  strconv.FormatBool(cfg.DebugDump),
 		"ACTING_USER_ID":              boolWord(cfg.ActingUserID != ""),
 		"LOG_FILE":                    cfg.LogFile,

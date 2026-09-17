@@ -95,12 +95,6 @@
     "SESSION_PERSIST",
     "ADOPT_CLI_SESSION",
   ];
-  const FLOOR_TITLE = "Floor cadangan (Phase 2)";
-  const FLOOR_BODY =
-    "Below the floor on every account, the gateway still serves and only warns — fail-open, never a refusal.";
-  const FLOOR_NOTE =
-    "No key yet, nothing is written: enforcement lands in a later phase.";
-
   // Probing rows dim (never disable) while the prober master switch is
   // off — the switch itself stays in Pool Tuning.
   let autoProbeOff = $derived(
@@ -123,12 +117,8 @@
   let probeShown = $derived(shownKeys(PROBE_KEYS));
   let cacheShown = $derived(shownKeys(CACHE_KEYS));
   let sessionShown = $derived(shownKeys(SESSION_KEYS));
-  let showFloor = $derived(hit(FLOOR_TITLE, FLOOR_BODY, FLOOR_NOTE));
   let visible = $derived(
-    probeShown.length +
-      cacheShown.length +
-      sessionShown.length +
-      (showFloor ? 1 : 0),
+    probeShown.length + cacheShown.length + sessionShown.length,
   );
   $effect(() => {
     onMatchCount?.(visible);
@@ -292,24 +282,6 @@
         {#each sessionShown as key (key)}
           {@render genRow(key, key === "ADOPT_CLI_SESSION" && adoptGated)}
         {/each}
-      </div>
-    {/if}
-
-    {#if showFloor}
-      <div class="pt-4">
-        <p
-          class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] pb-1"
-        >
-          {$tr(FLOOR_TITLE)}
-        </p>
-        <div
-          class="fp-inset p-3 rounded text-xs text-[var(--fp-muted)] flex items-start gap-2"
-        >
-          <p class="leading-relaxed">
-            {$tr(FLOOR_BODY)}
-            {$tr(FLOOR_NOTE)}
-          </p>
-        </div>
       </div>
     {/if}
   </SettingsCard>

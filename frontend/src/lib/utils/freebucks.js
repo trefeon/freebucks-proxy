@@ -9,13 +9,6 @@
  *   live session, or wallet Freebucks): enrich the confirm dialog.
  * - allow — everything else, including every row on an unmetered account.
  */
-/** Upstream LIMITED_FREEBUFF_MODEL_IDS: models allowed on limited-access tier accounts. */
-export const LIMITED_TIER_MODEL_IDS = new Set([
-  "z-ai/glm-5.3-flash",
-  "deepseek/deepseek-v4-flash",
-  "mimo/mimo-v2.5",
-  "upstage/solar-pro4",
-]);
 
 export function freebucksOf(token) {
   return token?.freebucks ?? null;
@@ -128,67 +121,6 @@ export function formatAllowanceUsd(usd) {
   if (safe >= 10) return `$${Math.round(safe)}`;
   if (safe >= 1) return `$${safe.toFixed(1).replace(/\.0$/, "")}`;
   return `$${safe.toFixed(2)}`;
-}
-
-// The one-line header for a metered account:
-// `7.5/10 Freebucks daily · resets in 4h 12m · 5 in wallet · $258 monthly
-// usage left` (countdown only when a clock is given, wallet only when there
-// is something in it, monthly only when the server sent it — never a `$0`
-// that reads as spent). Port of upstream freebucksHeaderLine (issue #354);
-// `t` is the translator (defaults to identity = upstream-exact English).
-export function freebucksHeaderLine(fb, nowMs, t = (s) => s) {
-  if (!fb?.daily) return "";
-  const parts = [
-    `${formatFreebucks(fb.daily.remaining)}/${formatFreebucks(fb.daily.limit)} ${t("Freebucks daily")}`,
-  ];
-  if (nowMs !== undefined && fb.daily.reset_at) {
-    parts.push(
-      `${t("resets in")} ${freebucksResetCountdown(fb.daily.reset_at, nowMs)}`,
-    );
-  }
-  const walletBalance = fb.wallet?.balance ?? 0;
-  if (walletBalance > 0) {
-    parts.push(`${formatFreebucks(walletBalance)} ${t("in wallet")}`);
-  }
-  if (fb.monthly != null && fb.monthly.remaining != null) {
-    parts.push(
-      `${formatAllowanceUsd(fb.monthly.remaining)} ${t("monthly usage left")}`,
-    );
-  }
-  return parts.join(" · ");
-}
-
-export function modelDisplayInfo(modelId, freebucks, names) {
-  const meta = MODEL_METADATA[modelId] || {
-    displayName: modelId,
-    tagline: "",
-    badges: [],
-    disclaimer: "",
-  };
-  // Modelcat names ride /admin/api/models display_name; the static table
-  // stays as fallback for rows the catalog fetch never returned.
-  const displayName = names?.[modelId] || meta.displayName;
-  const price = freebucks?.prices?.[modelId] ?? 0;
-  const customNotice = freebucks?.price_notices?.[modelId];
-  const notice = customNotice || meta.disclaimer || "";
-  const balance = freebucks?.balance ?? freebucks?.Balance ?? 0;
-  const claimable =
-    freebucks?.claimableGrantFreebucks ?? freebucks?.ClaimableGrant ?? 0;
-  const exempt = freebucks?.quota_exempt ?? freebucks?.quotaExempt ?? false;
-  // canStart counts claimable earned grants (vendor af898dc
-  // getFreebucksModelMeter).
-  const canStart = exempt || balance + claimable >= price;
-  const shortfall = Math.max(0, price - balance - claimable);
-  return {
-    id: modelId,
-    displayName,
-    tagline: meta.tagline,
-    badges: meta.badges,
-    notice,
-    price,
-    canStart,
-    shortfall: formatFreebucks(shortfall),
-  };
 }
 
 export function sortModelsByPrice(modelIds, freebucks, names) {

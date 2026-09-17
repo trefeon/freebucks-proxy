@@ -191,6 +191,16 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatInt(c.SmartProbeBackoffMaxMs().Milliseconds(), 10), false
 	case "MATURITY_BACKOFF_MS":
 		return strconv.FormatInt(c.MaturityBackoffMs().Milliseconds(), 10), false
+	case "COMPRESS_PROMPT":
+		return strconv.FormatBool(c.CompressPrompt), false
+	case "CACHE_CONTROL_INJECTION":
+		return strconv.FormatBool(c.CacheControlInjection), false
+	case "REASONING_IN_CONTENT":
+		return c.ReasoningInContent, false
+	case "ACTING_USER_ID":
+		return c.ActingUserID, false
+	case "ADMIN_FORCE_SECURE_COOKIES":
+		return strconv.FormatBool(effectiveAdminForceSecureCookies()), false
 	default:
 		// A catalog key with no Config field (new upstream knob not yet
 		// wired into Config): fall back to the catalog default so the
