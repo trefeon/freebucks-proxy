@@ -25,6 +25,17 @@ go build ./backend/...
 go run ./backend/cmd/freebuff-proxy
 ```
 
+Run from GHCR (release image, no local build):
+
+```sh
+cp .env.example .env   # then edit: AUTH_TOKENS, ADMIN_TOKEN, ...
+VERSION=v1.7.0 docker compose pull
+VERSION=v1.7.0 docker compose up -d
+```
+
+Pin `VERSION` to the release tag; verify `GET /healthz` → 200, and note
+`/admin` sits behind the login gate (redirects to `/admin/login`).
+
 Then:
 
 - `GET http://localhost:3457/healthz` → 200

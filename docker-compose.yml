@@ -13,9 +13,11 @@ services:
       # the host: the nearest tag, or the short SHA past it.
       args:
         VERSION: ${VERSION:-dev}
-    # Pin/retain a specific build: VERSION=v1.7.0 docker compose up -d --build
-    # produces freebuff-proxy:v1.7.0 and rolls back by re-running an older tag.
-    image: freebuff-proxy:${VERSION:-latest}
+    # GHCR default pull path, local build override: `docker compose pull` fetches
+    # ghcr.io/trefeon/freebuff-proxy; `docker compose build` uses the local context below.
+    # `VERSION=x docker compose up -d --build` rebuilds locally from context;
+    # `docker compose pull && VERSION=x docker compose up -d` runs GHCR without building.
+    image: ghcr.io/trefeon/freebuff-proxy:${VERSION:-latest}
     container_name: freebuff-proxy
     environment:
       # Live store path (update-proof): the db_data volume below mounts at

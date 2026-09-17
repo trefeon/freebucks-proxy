@@ -19,4 +19,5 @@ WORKDIR /app
 COPY --from=build /out/freebuff-proxy /usr/local/bin/freebuff-proxy
 USER app
 EXPOSE 3457
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s CMD wget -qO- http://127.0.0.1:3457/healthz || exit 1
 ENTRYPOINT ["/usr/local/bin/freebuff-proxy"]

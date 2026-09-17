@@ -69,7 +69,8 @@ dotenv → static → live → SSE hash → store refresh.
 4. No local docker. Preview on acerblue from a `/tmp` worktree (never the shared
    checkout — it carries uncommitted user work):
    `docker build --network=host` + compose up, then `GET /healthz` → 200.
-   Prod is VPS SG.
+   GHCR preview: `docker compose pull && VERSION=x docker compose up -d` runs the
+   release image; pin `VERSION` to the release tag. Prod is VPS SG.
 5. Frontend `dist` is rebuilt and committed LAST (dist-freshness CI diffs the
    bundle; any `src` touch after `vite build` fails it).
 6. Upstream syncs: classify wire drift BEFORE refreshing the baseline, else
