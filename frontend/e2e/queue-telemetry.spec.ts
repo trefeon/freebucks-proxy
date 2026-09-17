@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard } from "./mocks.js";
+import { adminUrl, requestLines } from "./mock-data.js";
 
 // Queue-wait telemetry in the Logs console:
 //   (a) a request whose chat trace carries the queue_wait_ms phase renders a
@@ -13,44 +14,7 @@ import { loadFixtures, mockDashboard } from "./mocks.js";
 // All fixtures are the parity-guarded pack (e2e/fixtures); the tokens payload
 // is overridden per test with the telemetry numbers.
 
-const ACTIVITY = "http://127.0.0.1:4173/admin/#activity";
-
-type LogEntry = {
-  time: string;
-  level: string;
-  message: string;
-  fields: string;
-};
-
-// entry builds one console log line.
-function entry(
-  message: string,
-  fields: string,
-  t = "2026-09-16T10:00:00Z",
-): LogEntry {
-  return { time: t, level: "INFO", message, fields };
-}
-
-// requestLines is the per-request cluster LiveConsole groups into one card:
-// chat request → access → chat trace → chat done, all sharing one req_id.
-function requestLines(reqId: string, traceFields: string): LogEntry[] {
-  return [
-    entry(
-      "chat request",
-      `req_id=${reqId}  model=deepseek/deepseek-v4-flash  msgs=1`,
-    ),
-    entry("chat routing", `req_id=${reqId}  agent=base2-free-deepseek`),
-    entry(
-      "access",
-      `req_id=${reqId}  method=POST  path=/v1/chat/completions  status=200  ms=140`,
-    ),
-    entry(
-      "chat trace",
-      `req_id=${reqId}  model=deepseek/deepseek-v4-flash  status=ok  ${traceFields}`,
-    ),
-    entry("chat done", `req_id=${reqId}  ms=140`),
-  ];
-}
+const ACTIVITY = adminUrl("activity");
 
 test.describe("queue-wait telemetry", () => {
   test("a parked request shows its queue time as a QUEUED chip", async ({

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { loadFixtures, mockDashboard } from "./mocks.js";
+import { preciousToken, tokenRow, tokensPayload } from "./mock-data.js";
 
 /**
  * Pool → Accounts (TokenTable/TokenCard) geometry contract.
@@ -26,52 +27,9 @@ import { loadFixtures, mockDashboard } from "./mocks.js";
 const WIDTHS = [1440, 1280, 1024] as const;
 const MOBILE = { width: 390, height: 844 } as const;
 
-/** Row shape shared with interactions.spec.ts (idle by default). */
-function tokenRow(idx: number, over: Record<string, unknown> = {}) {
-  return {
-    index: idx,
-    email: `acct${idx}@example.com`,
-    session_status: "idle",
-    queue_position: 0,
-    queue_depth: 0,
-    active_runs: 0,
-    requests: 0,
-    messages_24h: 0,
-    cooldown_active: false,
-    cooldown_until: "",
-    locked: false,
-    transient_retries: 1,
-    has_standing: false,
-    session_instance: "",
-    session_model: "",
-    session_remaining_seconds: 0,
-    has_quota: false,
-    ...over,
-  };
-}
-
-function tokensPayload(tokens: Array<Record<string, unknown>>) {
-  return {
-    mode: "pooled",
-    in_bridge: false,
-    bridge_tokens: 0,
-    token_count: tokens.length,
-    has_tokens: true,
-    tokens,
-    bridge_token_cards: [],
-  };
-}
-
+/** Live session holder (MASQ precious shape) shared via mock-data.ts. */
 function liveToken() {
-  return tokenRow(0, {
-    session_status: "active",
-    session_instance: "inst-ox99-abcdefghijklmnop",
-    session_model: "stealth/ox-alpha",
-    session_remaining_seconds: 4620,
-    messages_24h: 3,
-    active_runs: 3,
-    requests: 148,
-  });
+  return preciousToken(0);
 }
 
 async function gotoPool(
