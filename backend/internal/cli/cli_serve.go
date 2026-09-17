@@ -18,8 +18,6 @@ import (
 	// minimal images (alpine:3.20 has no /usr/share/zoneinfo) and Windows
 	// hosts without the timezone registry entries. Without this, Pacific
 	// resets fall back to a month-based approximation.
-	_ "time/tzdata"
-
 	"freebuff-proxy/backend/internal/cli/port"
 	"freebuff-proxy/backend/internal/clicreds"
 	"freebuff-proxy/backend/internal/config"
@@ -29,10 +27,12 @@ import (
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/server"
 	"freebuff-proxy/backend/internal/session"
-	history "freebuff-proxy/backend/internal/store"
 	"freebuff-proxy/backend/internal/telemetry"
 	"freebuff-proxy/backend/internal/updatecheck"
 	"freebuff-proxy/backend/internal/upstream"
+	_ "time/tzdata"
+
+	history "freebuff-proxy/backend/internal/store"
 )
 
 // Serve runs the default serve mode: load config, construct the logger,
@@ -381,29 +381,15 @@ func Serve(configPath string, verbose bool, version string) int {
 	// Dashboard history (ADR-0016): pool maturity events persist through a
 	// nil-safe adapter; without a store the pool stays persistence-free.
 	p.SetHistorySink(&poolHistorySink{st: histStore})
-	// Pool runtime persist (pool_state): the smart-probe scheduler timer
-	// plus the live per-token quota cache survive restarts through the
-	// dashboard store (opaque blobs, SHA-256 keys — raw tokens never
-	// reach the DB). The flush rides the maintain tick + Shutdown and
-	// Start restores; a nil store stays live-only. The concrete nil
-	// guard stays here: a nil *Store would arrive as a non-nil
-	// interface.
+	// Pool runtime persist (pool_state): the live per-token quota cache
+	// survives restarts through the dashboard store (opaque blobs,
+	// SHA-256 keys — raw tokens never reach the DB). The flush rides the
+	// maintain tick + Shutdown and Start restores; a nil store stays
+	// live-only. The concrete nil guard stays here: a nil *Store would
+	// arrive as a non-nil interface.
 	if histStore != nil {
 		p.SetPoolPersist(histStore)
 	}
-	// Quota boot seed (ADR-0024): push the latest persisted quota row per
-	// (token, model) into the live view before Start, so a restart shows
-	// last-known quotas instantly and the scheduler learns reset_at from
-	// the seed. Warn-only: a store failure keeps the boot green. The nil
-	// guard stays here: a nil *Store would arrive as a non-nil interface.
-	if histStore != nil {
-		seedQuotaFromStore(logger, histStore, p, len(cfg.AuthTokens))
-	}
-	// Maturity persistence (ADR-0026): automation state survives restarts
-	// through a nil-safe adapter; the restore is warn-only so a store
-	// failure keeps the boot green on the in-memory path.
-	p.SetMaturityStore(&poolMaturityStore{st: histStore})
-	restoreMaturityFromStore(logger, p)
 	// Issue #48: best-effort webhook alerts (WEBHOOK_URL) for pool
 	// exhaustion / token bans — fire-and-forget, throttled, never blocking.
 	if cfg.WebhookURL != "" {

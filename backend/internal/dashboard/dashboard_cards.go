@@ -3,18 +3,17 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/upstream"
 	"net"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // --- overview ---
@@ -530,11 +529,6 @@ func (d *Dashboard) tokensData() tokensData {
 		QueueDepth:         cfg.QueueDepth,
 		TokenMaxConcurrent: cfg.TokenMaxConcurrent,
 		RoutingSmart:       cfg.RoutingSmart,
-	}
-	wStart, wEnd := d.pool.MaturityWindow()
-	if !wStart.IsZero() && !wEnd.IsZero() {
-		td.MaturityWindowStart = wStart.Format(time.RFC3339)
-		td.MaturityWindowEnd = wEnd.Format(time.RFC3339)
 	}
 	// client cards. Pure bridge hides the (empty) pooled table; pure pooled
 	// has no bridge cards.

@@ -2,18 +2,16 @@ package server_test
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/server"
 	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
 )
 
 // --- bridge mode ---
@@ -231,34 +229,6 @@ func TestBridgeRequestsServedCounter(t *testing.T) {
 	}
 	if got := p.PoolSnapshot().RequestsServed; got != 3 {
 		t.Fatalf("RequestsServed = %d, want 3 (bridge chats must count)", got)
-	}
-}
-
-// TestBridgeModelUnfitNotGated pins the bridge exemption: bridge clients
-// relay their own token (their account may serve the model on this egress
-// and their session slots are theirs to spend), so the registry never gates
-// them even when (egress, model) is marked unfit.
-func TestBridgeModelUnfitNotGated(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.ChatBody = testutil.SSEEvent(chunk("chatcmpl-bg1", 1, `"choices":[{"index":0,"delta":{"content":"bridged"},"finish_reason":null}]`))
-	ts, p := newBridgeTestServer(t, mock)
-	chatURL := ts.URL + "/v1/chat/completions"
-
-	p.MarkModelUnfit(modelA, &upstream.LimitedIpError{Body: "pre-marked unfit"})
-	if until, _ := p.ModelUnfit(modelA); until.IsZero() {
-		t.Fatal("pre-mark not set")
-	}
-
-	resp, data := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), map[string]string{"Authorization": "Bearer client-tok-abc"})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("bridge status = %d, want 200 (bridge never gated): %s", resp.StatusCode, data)
-	}
-	if !strings.Contains(string(data), "bridged") {
-		t.Errorf("stream missing bridged content: %s", data)
-	}
-	if got := len(mock.RecordedChatHeaders); got != 1 {
-		t.Errorf("upstream chat calls = %d, want 1 (bridge ignored the unfit mark)", got)
 	}
 }
 

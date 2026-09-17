@@ -8,16 +8,15 @@ package runs
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestFinishRunFailureRetriesOnMaintain covers the FINISH-failure path of
@@ -336,7 +335,7 @@ func TestCooldownClearsBanAndCountryWindows(t *testing.T) {
 		t.Fatal("BannedUntil not set during the ban window")
 	}
 
-	mgr.Cooldown(DefaultCooldown)
+	mgr.Cooldown(30 * time.Minute)
 	if mgr.BanError() != nil {
 		t.Error("BanError not cleared by Cooldown")
 	}
@@ -351,19 +350,19 @@ func TestCooldownClearsBanAndCountryWindows(t *testing.T) {
 		t.Fatal("expected the country block to be live before Cooldown")
 		return
 	}
-	mgr.Cooldown(DefaultCooldown)
+	mgr.Cooldown(30 * time.Minute)
 	if mgr.CountryBlockedError() != nil {
 		t.Error("country block not cleared by Cooldown")
 	}
 }
 
 // TestCooldownRateLimitClearsBanWindow pins the stale-window half of the
-// cooldown zeroing contract once more: CooldownRateLimit (and
-// CooldownIpCapped) supersede an active ban, so they must clear the ban's
-// window deadline AND its permanent flag — otherwise Snapshot().BannedUntil
-// keeps reporting a stale future deadline (healthz risk gating) with no ban
-// attached, and the hard-ban flag survives into a token that is no longer
-// banned (mirrors the Cooldown/CooldownCountryBlocked regression).
+// cooldown zeroing contract once more: CooldownRateLimit supersedes an
+// active ban, so it must clear the ban's window deadline AND its permanent
+// flag — otherwise Snapshot().BannedUntil keeps reporting a stale future
+// deadline (healthz risk gating) with no ban attached, and the hard-ban
+// flag survives into a token that is no longer banned (mirrors the
+// Cooldown/CooldownCountryBlocked regression).
 func TestCooldownRateLimitClearsBanWindow(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -412,17 +411,6 @@ func TestCooldownRateLimitClearsBanWindow(t *testing.T) {
 	}
 	if snap := mgr.Snapshot(); !snap.BannedUntil.IsZero() {
 		t.Errorf("BannedUntil = %v, want zero after rate-limit supersedes hard ban", snap.BannedUntil)
-	}
-
-	// The ip_capped cooldown clears the same stale window.
-	mgr.ClearCooldowns()
-	mgr.CooldownBan(&upstream.BanError{Body: "banned", ResumesAt: time.Now().Add(time.Hour)})
-	mgr.CooldownIpCapped(&upstream.IpCappedError{ActiveUsersForIP: 5, Limit: 4, RetryAfter: time.Minute})
-	if mgr.BanError() != nil {
-		t.Error("BanError() != nil after ip-capped cooldown, want nil")
-	}
-	if snap := mgr.Snapshot(); !snap.BannedUntil.IsZero() {
-		t.Errorf("BannedUntil = %v after ip-capped cooldown, want zero", snap.BannedUntil)
 	}
 }
 

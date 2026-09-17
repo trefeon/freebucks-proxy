@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/stealth"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net"
 	"net/http"
@@ -20,10 +23,6 @@ import (
 	_ "time/tzdata"
 
 	utls "github.com/refraction-networking/utls"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/stealth"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // flakyRT is a RoundTripper that fails the first failN calls with a fixed
@@ -118,8 +117,8 @@ func TestClassifyRateLimit(t *testing.T) {
 	}
 
 	// Generic 429 with no timestamp, no period, and no Retry-After header is
-	// an opaque refusal: bounded backoff (#140), never a Pacific-midnight
-	// lock.
+	// an opaque refusal: no fallback is fabricated (RetryAfter stays 0 and
+	// surfaces as-is), never a Pacific-midnight lock.
 	errGeneric := classifyError(429, `{"status":"rate_limited"}`, http.Header{})
 	var rleGeneric *RateLimitError
 	if !errors.As(errGeneric, &rleGeneric) {
@@ -128,11 +127,8 @@ func TestClassifyRateLimit(t *testing.T) {
 	if !rleGeneric.ResetAt.IsZero() {
 		t.Errorf("opaque 429 ResetAt = %v, want zero (no Pacific-midnight lock)", rleGeneric.ResetAt)
 	}
-	if rleGeneric.RetryAfter <= 0 || rleGeneric.RetryAfter > 5*time.Minute {
-		t.Errorf("opaque 429 RetryAfter = %s, want bounded >0 and <= 5m", rleGeneric.RetryAfter)
-	}
-	if rleGeneric.RetryAfter != opaqueRateLimitBackoff {
-		t.Errorf("opaque 429 RetryAfter = %s, want %s", rleGeneric.RetryAfter, opaqueRateLimitBackoff)
+	if rleGeneric.RetryAfter != 0 {
+		t.Errorf("opaque 429 RetryAfter = %s, want 0 (never fabricated)", rleGeneric.RetryAfter)
 	}
 
 	// Header fallback when body has no JSON quota fields.
@@ -683,8 +679,10 @@ func TestRetryRotatesPinnedFingerprint(t *testing.T) {
 			t.Errorf("%s User-Agent = %q, want the CLI UA %q", wantAttempt, got, cliUserAgent)
 		}
 	}
-	for _, hdr := range []string{"Sec-CH-UA", "Sec-CH-UA-Mobile", "Sec-CH-UA-Platform",
-		"Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest"} {
+	for _, hdr := range []string{
+		"Sec-CH-UA", "Sec-CH-UA-Mobile", "Sec-CH-UA-Platform",
+		"Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest",
+	} {
 		for i := 0; i < 2; i++ {
 			if got := rt.seenHeaders[i].Get(hdr); got != "" {
 				t.Errorf("attempt %d %s = %q, want absent (no browser headers on API calls, #109)", i+1, hdr, got)
@@ -1427,9 +1425,10 @@ func TestClassifyIpCappedNoPacificMidnight(t *testing.T) {
 }
 
 // TestClassifyLoadSheddingAndPeakHours pins issue #133: 429 bodies with the
-// load-saturation and peak-hours markers classify as bounded cooldowns with
-// distinct statuses — never the Pacific-midnight lock parseRateLimit would
-// apply to a no-timestamp 429.
+// load-saturation and peak-hours markers classify with distinct statuses
+// and header-verbatim RetryAfter (zero here — never a fabricated window),
+// never the Pacific-midnight lock parseRateLimit would apply to a
+// no-timestamp 429.
 func TestClassifyLoadSheddingAndPeakHours(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -1437,9 +1436,9 @@ func TestClassifyLoadSheddingAndPeakHours(t *testing.T) {
 		wantStatus  string
 		wantCooldwn time.Duration
 	}{
-		{"load saturation", `{"status":"insufficient_quota","message":"The current group's upstream load is saturated, please try again later (request id: 42)"}`, "load_shedding", LoadShedCooldown},
-		{"limit burst rate", `{"status":"limit_burst_rate","message":"upstream load saturated, try again later"}`, "load_shedding", LoadShedCooldown},
-		{"peak hours", `{"status":"rate_limited","message":"Usage is temporarily limited during peak hours, when upstream model prices double"}`, "peak_hours", PeakHoursCooldown},
+		{"load saturation", `{"status":"insufficient_quota","message":"The current group's upstream load is saturated, please try again later (request id: 42)"}`, "load_shedding", 0},
+		{"limit burst rate", `{"status":"limit_burst_rate","message":"upstream load saturated, try again later"}`, "load_shedding", 0},
+		{"peak hours", `{"status":"rate_limited","message":"Usage is temporarily limited during peak hours, when upstream model prices double"}`, "peak_hours", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1452,7 +1451,7 @@ func TestClassifyLoadSheddingAndPeakHours(t *testing.T) {
 				t.Errorf("Status = %q, want %q", rle.Status, tt.wantStatus)
 			}
 			if rle.RetryAfter != tt.wantCooldwn {
-				t.Errorf("RetryAfter = %v, want %v (bounded, not midnight)", rle.RetryAfter, tt.wantCooldwn)
+				t.Errorf("RetryAfter = %v, want %v (header-verbatim, not midnight)", rle.RetryAfter, tt.wantCooldwn)
 			}
 			if !rle.ResetAt.IsZero() {
 				t.Errorf("ResetAt = %v, want zero (no Pacific-midnight lock)", rle.ResetAt)
@@ -1461,8 +1460,8 @@ func TestClassifyLoadSheddingAndPeakHours(t *testing.T) {
 	}
 
 	// A truly opaque no-timestamp 429 (no resetAt, no period, no Retry-After
-	// header) gets the bounded backoff — never the Pacific-midnight lock
-	// (#140) and never the load-shedding mislabel.
+	// header) surfaces as-is with zero RetryAfter — never the
+	// Pacific-midnight lock (#140) and never the load-shedding mislabel.
 	err := classifyError(http.StatusTooManyRequests, `{"status":"rate_limited","message":"daily quota"}`, http.Header{})
 	var rle *RateLimitError
 	if !errors.As(err, &rle) {
@@ -1472,17 +1471,17 @@ func TestClassifyLoadSheddingAndPeakHours(t *testing.T) {
 		t.Error("plain 429 misclassified as load_shedding")
 	}
 	if !rle.ResetAt.IsZero() {
-		t.Errorf("plain 429 ResetAt = %v, want zero (bounded backoff, not midnight)", rle.ResetAt)
+		t.Errorf("plain 429 ResetAt = %v, want zero (never fabricated)", rle.ResetAt)
 	}
-	if rle.RetryAfter != opaqueRateLimitBackoff {
-		t.Errorf("plain 429 RetryAfter = %s, want %s (bounded, not midnight)", rle.RetryAfter, opaqueRateLimitBackoff)
+	if rle.RetryAfter != 0 {
+		t.Errorf("plain 429 RetryAfter = %s, want 0 (never fabricated)", rle.RetryAfter)
 	}
 
 	// ADR-0027: a no-timestamp at-cap pacific_day body no longer fabricates
-	// a Pacific-midnight lock from the quota period/counters — it gets the
-	// same bounded backoff as any other timestamp-less 429. The quota
-	// fields stay parsed (pool-side routing still reads them); only the
-	// fabricated reset is gone.
+	// a Pacific-midnight lock from the quota period/counters — it surfaces
+	// as-is with zero RetryAfter like any other timestamp-less 429. The
+	// quota fields stay parsed (pool-side routing still reads them); only
+	// the fabricated reset is gone.
 	errDaily := classifyError(http.StatusTooManyRequests, `{"status":"rate_limited","period":"pacific_day","limit":6,"recentCount":6}`, http.Header{})
 	var rleDaily *RateLimitError
 	if !errors.As(errDaily, &rleDaily) {
@@ -1491,8 +1490,8 @@ func TestClassifyLoadSheddingAndPeakHours(t *testing.T) {
 	if !rleDaily.ResetAt.IsZero() {
 		t.Errorf("daily-cap 429 ResetAt = %v, want zero (no fabricated midnight lock)", rleDaily.ResetAt)
 	}
-	if rleDaily.RetryAfter != opaqueRateLimitBackoff {
-		t.Errorf("daily-cap 429 RetryAfter = %s, want %s (bounded, not midnight)", rleDaily.RetryAfter, opaqueRateLimitBackoff)
+	if rleDaily.RetryAfter != 0 {
+		t.Errorf("daily-cap 429 RetryAfter = %s, want 0 (never fabricated)", rleDaily.RetryAfter)
 	}
 	if rleDaily.Period != "pacific_day" || rleDaily.Limit != 6 || rleDaily.RecentCount != 6 {
 		t.Errorf("daily-cap 429 lost quota fields = %+v, want period/limit/counters parsed", rleDaily)
@@ -1502,7 +1501,7 @@ func TestClassifyLoadSheddingAndPeakHours(t *testing.T) {
 // TestClassifyMonthlyCapQuotaShaped pins wire drift 2026-09-04 (#330) as
 // updated by ADR-0027: a pacific_month at-cap body still classifies as a
 // *RateLimitError (never an opaque transient mislabel), but — like
-// daily/weekly — with the bounded backoff, never a fabricated
+// daily/weekly — with zero RetryAfter, never a fabricated
 // Pacific-midnight lock.
 func TestClassifyMonthlyCapQuotaShaped(t *testing.T) {
 	errMonthly := classifyError(http.StatusTooManyRequests, `{"status":"rate_limited","period":"pacific_month","limit":100,"recentCount":100}`, http.Header{})
@@ -1510,8 +1509,8 @@ func TestClassifyMonthlyCapQuotaShaped(t *testing.T) {
 	if !errors.As(errMonthly, &rleMonthly) {
 		t.Fatalf("monthly-cap 429 = %T %v, want *RateLimitError", errMonthly, errMonthly)
 	}
-	if rleMonthly.RetryAfter != opaqueRateLimitBackoff {
-		t.Errorf("monthly-cap 429 RetryAfter = %s, want %s (bounded, not midnight)", rleMonthly.RetryAfter, opaqueRateLimitBackoff)
+	if rleMonthly.RetryAfter != 0 {
+		t.Errorf("monthly-cap 429 RetryAfter = %s, want 0 (never fabricated)", rleMonthly.RetryAfter)
 	}
 	if !rleMonthly.ResetAt.IsZero() {
 		t.Errorf("monthly-cap 429 ResetAt = %v, want zero (no fabricated midnight lock)", rleMonthly.ResetAt)
@@ -1549,19 +1548,16 @@ func TestClassifyTurnSpendLimited(t *testing.T) {
 
 // TestClassifyOpaqueRateLimitedBoundedBackoff pins #140: a fully opaque
 // rate_limited 429 body with empty headers (no timestamp, no period, no
-// Retry-After) must yield a bounded RetryAfter — a minutes-scale transient
-// is never locked to Pacific midnight.
+// Retry-After) surfaces as-is with zero RetryAfter — no fabricated
+// fallback, never locked to Pacific midnight.
 func TestClassifyOpaqueRateLimitedBoundedBackoff(t *testing.T) {
 	err := classifyError(http.StatusTooManyRequests, `{"error":{"code":"rate_limited"}}`, http.Header{})
 	var rle *RateLimitError
 	if !errors.As(err, &rle) {
 		t.Fatalf("classifyError = %T %v, want *RateLimitError", err, err)
 	}
-	if rle.RetryAfter <= 0 || rle.RetryAfter > 5*time.Minute {
-		t.Errorf("RetryAfter = %s, want bounded >0 and <= 5m", rle.RetryAfter)
-	}
-	if rle.RetryAfter != opaqueRateLimitBackoff {
-		t.Errorf("RetryAfter = %s, want %s", rle.RetryAfter, opaqueRateLimitBackoff)
+	if rle.RetryAfter != 0 {
+		t.Errorf("RetryAfter = %s, want 0 (never fabricated)", rle.RetryAfter)
 	}
 	if !rle.ResetAt.IsZero() {
 		t.Errorf("ResetAt = %v, want zero (opaque body: no midnight lock)", rle.ResetAt)
@@ -1572,10 +1568,10 @@ func TestClassifyOpaqueRateLimitedBoundedBackoff(t *testing.T) {
 // body ({"error":"free_mode_run_fanout","message":"Free mode request
 // rejected."}) used to fall through to the default branch, which the server
 // wrote as a dead 502 upstream_unavailable and killed the client's turn. It
-// must classify as a bounded-cooldown RateLimitError on ANY status the marker
-// rides (the upstream body carries no status of its own), with no ResetAt and
-// no Period so the pool treats it as a transient rate limit rather than a
-// per-model quota exhaustion.
+// must classify as a RateLimitError on ANY status the marker rides (the
+// upstream body carries no status of its own), with the Retry-After header
+// verbatim (zero here), no ResetAt and no Period so the pool treats it as
+// a transient rate limit rather than a per-model quota exhaustion.
 func TestClassifyRunFanout(t *testing.T) {
 	const body = `{"error":"free_mode_run_fanout","message":"Free mode request rejected."}`
 	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests, http.StatusBadGateway} {
@@ -1587,8 +1583,8 @@ func TestClassifyRunFanout(t *testing.T) {
 		if rle.Status != "free_mode_run_fanout" {
 			t.Errorf("status %d: Status = %q, want free_mode_run_fanout", status, rle.Status)
 		}
-		if rle.RetryAfter != FanoutCooldown {
-			t.Errorf("status %d: RetryAfter = %v, want %v", status, rle.RetryAfter, FanoutCooldown)
+		if rle.RetryAfter != 0 {
+			t.Errorf("status %d: RetryAfter = %v, want 0 (no header; never fabricated)", status, rle.RetryAfter)
 		}
 		if !rle.ResetAt.IsZero() || rle.Period != "" || rle.Limit != 0 {
 			t.Errorf("status %d: quota-shaped fields set (%v/%q/%v), want a transient refusal",
@@ -1596,8 +1592,7 @@ func TestClassifyRunFanout(t *testing.T) {
 		}
 	}
 
-	// A Retry-After header wins over the default, clamped like every other
-	// cooldown.
+	// A Retry-After header rides verbatim.
 	hdr := http.Header{}
 	hdr.Set("Retry-After", "5")
 	err := classifyError(http.StatusTooManyRequests, body, hdr)
@@ -1613,8 +1608,8 @@ func TestClassifyRunFanout(t *testing.T) {
 // TestClassifyInvalidAgentModel pins the free_mode_invalid_agent_model
 // classification (issue #140): the allowlist-refusal 403 used to fall to
 // the default branch → dead 502 upstream_unavailable, and retries amplified
-// invisibly (the v0.11.3 escalation path). It must classify as a bounded-
-// cooldown RateLimitError with a DISTINCT Status on any status the marker
+// invisibly (the v0.11.3 escalation path). It must classify as a
+// RateLimitError with a DISTINCT Status on any status the marker
 // rides, quota-shaped fields unset (no midnight lock), and it must win over
 // the session_model_mismatch family branch that would wrap ErrSessionInvalid.
 func TestClassifyInvalidAgentModel(t *testing.T) {
@@ -1628,8 +1623,8 @@ func TestClassifyInvalidAgentModel(t *testing.T) {
 		if rle.Status != "free_mode_invalid_agent_model" {
 			t.Errorf("status %d: Status = %q, want free_mode_invalid_agent_model", status, rle.Status)
 		}
-		if rle.RetryAfter != InvalidModelCooldown {
-			t.Errorf("status %d: RetryAfter = %v, want %v", status, rle.RetryAfter, InvalidModelCooldown)
+		if rle.RetryAfter != 0 {
+			t.Errorf("status %d: RetryAfter = %v, want 0 (no header; never fabricated)", status, rle.RetryAfter)
 		}
 		if !rle.ResetAt.IsZero() || rle.Period != "" || rle.Limit != 0 {
 			t.Errorf("status %d: quota-shaped fields set (%v/%q/%v)", status, rle.ResetAt, rle.Period, rle.Limit)

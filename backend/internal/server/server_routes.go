@@ -3,13 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"freebuff-proxy/backend/internal/dashboard"
 	"io/fs"
 	"math"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/dashboard"
 )
 
 // registerAdminRoutes mounts every dashboard.AdminRoutes row on the mux.
@@ -136,10 +135,6 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return http.HandlerFunc(s.admin.handleTokenLock)
 	case "POST /admin/tokens/{id}/unlock-lock":
 		return http.HandlerFunc(s.admin.handleTokenUnlockLock)
-	case "POST /admin/tokens/{id}/maturity":
-		return http.HandlerFunc(s.admin.handleTokenMaturity)
-	case "POST /admin/tokens/{id}/maturity/touch":
-		return http.HandlerFunc(s.admin.handleTokenMaturityTouch)
 	case "POST /admin/bridge-tokens/{key}/lock":
 		return http.HandlerFunc(s.admin.handleBridgeTokenLock)
 	case "POST /admin/bridge-tokens/{key}/unlock":
@@ -154,8 +149,6 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return http.HandlerFunc(s.admin.handleTokenTest)
 	case "POST /admin/tokens/{id}/session":
 		return http.HandlerFunc(s.admin.handleTokenSpawnSession)
-	case "POST /admin/tokens/test-all":
-		return http.HandlerFunc(s.admin.handleTokenTestAll)
 	case "POST /admin/tokens/add":
 		return http.HandlerFunc(s.admin.handleTokenAdd)
 	case "POST /admin/tokens/remove":

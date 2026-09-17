@@ -3,7 +3,6 @@ package pool
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/notify"
@@ -173,38 +172,5 @@ func TestBridgeAdmissionBanNotifies(t *testing.T) {
 	}
 	if ev.TokenIndex != 0 {
 		t.Errorf("token_index = %d, want 0 (bridge)", ev.TokenIndex)
-	}
-}
-
-// TestBridgeAdmissionLimitedIpMarksModel verifies #74 on the bridge
-// path: a session POST refused with the limited_ip shape surfaces
-// *upstream.LimitedIpError from AcquireBridge AND marks the (egress, model)
-// pair unfit so pooled requests refuse fast (the bridge gate itself stays
-// skipped by design — bridge clients keep their own token).
-func TestBridgeAdmissionLimitedIpMarksModel(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.SessionHandler = probeActiveHandler(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		_, _ = io.WriteString(w, limitedBody)
-	})
-
-	p := newTestPoolCfg(t, func(c *config.Config) { c.UpstreamBaseURL = mock.URL() }, mock)
-
-	_, err := p.AcquireBridge(context.Background(), "client-tok", modelA)
-	var lie *upstream.LimitedIpError
-	if !errors.As(err, &lie) {
-		t.Fatalf("AcquireBridge err = %v, want *upstream.LimitedIpError", err)
-	}
-	if !errors.Is(err, upstream.ErrModelIPLimited) {
-		t.Error("AcquireBridge err not unwrap-able to ErrModelIPLimited")
-	}
-	until, got := p.ModelUnfit(modelA)
-	if until.IsZero() {
-		t.Fatal("ModelUnfit after bridge limited_ip admission = zero time, want marked")
-	}
-	if got == nil || got.Model != modelA {
-		t.Errorf("ModelUnfit lie = %v, want marked lie for %s", got, modelA)
 	}
 }

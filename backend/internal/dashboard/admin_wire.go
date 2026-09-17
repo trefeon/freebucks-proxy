@@ -18,7 +18,6 @@ package dashboard
 
 import (
 	"encoding/json"
-
 	"freebuff-proxy/backend/internal/config"
 )
 
@@ -251,15 +250,6 @@ type SpawnSessionRequest struct {
 	Model string `json:"model,omitempty"`
 }
 
-// MaturityUpdateRequest is the POST /admin/tokens/{id}/maturity body
-// (absent fields leave that dimension untouched).
-type MaturityUpdateRequest struct {
-	Enabled    *bool  `json:"enabled,omitempty"`
-	Mode       string `json:"mode,omitempty"`
-	Target     *int   `json:"target,omitempty"`
-	TouchModel string `json:"touch_model,omitempty"`
-}
-
 // --- system ---
 
 // ModeSwitchRequest is the POST /admin/mode body.
@@ -374,8 +364,6 @@ func AdminAPIPaths() []AdminAPIPath {
 		{Method: "POST", Path: "/admin/tokens/{id}/unlock", OperationID: "tokenUnlock", Summary: "Return one token to rotation", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/lock", OperationID: "tokenLock", Summary: "Take one token out of rotation", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/unlock-lock", OperationID: "tokenUnlockLock", Summary: "Unlock then immediately re-lock (cooldown reset)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
-		{Method: "POST", Path: "/admin/tokens/{id}/maturity", OperationID: "tokenMaturity", Summary: "Set per-token streak-maturity automation", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: MaturityUpdateRequest{}, Response: ResultEnvelope{}},
-		{Method: "POST", Path: "/admin/tokens/{id}/maturity/touch", OperationID: "tokenMaturityTouch", Summary: "Fire one manual maturity touch outside the daily slot", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/bridge-tokens/{key}/lock", OperationID: "bridgeTokenLock", Summary: "Lock one bridge-mode entry", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/bridge-tokens/{key}/unlock", OperationID: "bridgeTokenUnlock", Summary: "Unlock one bridge-mode entry", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/finish", OperationID: "tokenFinish", Summary: "FINISH one token's upstream runs", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
@@ -383,7 +371,6 @@ func AdminAPIPaths() []AdminAPIPath {
 		{Method: "POST", Path: "/admin/tokens/{id}/refund-refresh", OperationID: "tokenRefundRefresh", Summary: "Replay one token's parked pending-refund DELETE (same instance; drops the result if the account changed)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/test", OperationID: "tokenTest", Summary: "Zero-cost upstream probe of one token", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/session", OperationID: "tokenSpawnSession", Summary: "Ensure one token's upstream session for a model", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: SpawnSessionRequest{}, Response: ResultEnvelope{}},
-		{Method: "POST", Path: "/admin/tokens/test-all", OperationID: "tokenTestAll", Summary: "Probe every pooled token (?auto=1 returns the throttled snapshot)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: []TokenTestOutcome{}, Query: []AdminAPIQuery{{Name: "auto", Description: "auto=1 serves the throttled quota snapshot without probing"}}},
 		{Method: "POST", Path: "/admin/tokens/add", OperationID: "tokenAdd", Summary: "Add one upstream token to the pool and persist to .env", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenAddRequest{}, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/remove", OperationID: "tokenRemove", Summary: "Remove one pool token (absent index removes the last)", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenRemoveRequest{}, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/swap", OperationID: "tokenSwap", Summary: "Swap two pool positions", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenSwapRequest{}, Response: ResultEnvelope{}},

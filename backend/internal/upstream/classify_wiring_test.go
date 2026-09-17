@@ -43,7 +43,8 @@ func TestClassifyFreeModeInvalidAgentHierarchy(t *testing.T) {
 
 // TestClassifyPeakHoursUnderscore pins the underscore body form: a 429
 // carrying peak_hours classifies exactly like the space form ("peak hours") —
-// bounded PeakHoursCooldown, distinct peak_hours status, no midnight lock.
+// distinct peak_hours status, header-verbatim RetryAfter (zero here — the
+// peak end is unknowable from the body), no midnight lock.
 func TestClassifyPeakHoursUnderscore(t *testing.T) {
 	for _, body := range []string{
 		`{"status":"rate_limited","message":"Usage is temporarily limited during peak_hours, prices double"}`,
@@ -57,8 +58,8 @@ func TestClassifyPeakHoursUnderscore(t *testing.T) {
 		if rle.Status != string(WireCodePeakHoursStatus) {
 			t.Errorf("Status = %q, want %q", rle.Status, string(WireCodePeakHoursStatus))
 		}
-		if rle.RetryAfter != PeakHoursCooldown {
-			t.Errorf("RetryAfter = %v, want %v (bounded, not midnight)", rle.RetryAfter, PeakHoursCooldown)
+		if rle.RetryAfter != 0 {
+			t.Errorf("RetryAfter = %v, want 0 (no header; never fabricated)", rle.RetryAfter)
 		}
 		if !rle.ResetAt.IsZero() {
 			t.Errorf("ResetAt = %v, want zero (no Pacific-midnight lock)", rle.ResetAt)

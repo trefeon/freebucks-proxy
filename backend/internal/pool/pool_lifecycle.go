@@ -39,13 +39,12 @@ const (
 	// sessionPollBackoffBase is the first failure backoff (20s); each
 	// consecutive failure doubles it up to sessionPollBackoffMax.
 	sessionPollBackoffBase = 20 * time.Second
+	// sessionPollBackoffMax caps the failed-poll backoff (5m):
+	// consecutive-failure doubling and the server Retry-After floor both
+	// clamp here (polling-backoff.ts semantics). Hardcoded vendor shape
+	// (no knobs); SESSION_POLL_MAX_MS is excised.
+	sessionPollBackoffMax = 5 * time.Minute
 )
-
-// sessionPollBackoffMax caps the failed-poll backoff (300s default):
-// consecutive-failure doubling and the server Retry-After floor both clamp
-// here (polling-backoff.ts semantics). Tunable via SESSION_POLL_MAX_MS
-// (live-applied from pool.SetConfig); the default preserves the 300s cap.
-var sessionPollBackoffMax = 300 * time.Second
 
 // retiredDrainGrace is how long a retired token may sit without a lease
 // before maintainTick drops it from the retired map. RemoveLastToken drains
@@ -126,15 +125,10 @@ func pollSession(ctx context.Context, sess *session.Manager, cfg *config.Config,
 func (p *Pool) Start(ctx context.Context) {
 	p.once.Do(func() {
 		// Restore the persisted runtime state first (pool_state): the
-		// smart-probe timer plus the live per-token quota cache, so a
-		// restart resumes warm — the boot round below still fires as an
-		// event but probes nothing while the restored cache is fresh.
+		// live per-token quota cache, so a restart resumes warm.
 		// Missing rows are a fresh boot (current behavior); a nil store
 		// is a no-op; restore never fails the boot (warn-only).
 		p.RestorePoolPersist()
-		// Anchor the smart-probe boot round before the maintain loop
-		// launches (spawn happens-before the first tick).
-		p.quotaBootAt = time.Now()
 		runCtx, cancel := context.WithCancel(ctx)
 		p.cancel = cancel
 		p.wg.Add(1)

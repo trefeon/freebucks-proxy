@@ -151,8 +151,8 @@ func defaultRawConfig() rawConfig {
 		RunsDrainTTL:           "10m",      // #55: draining-runs TTL eviction
 		QueueWait:              "30s",      // FIFO slot-queue wait bound per parked Acquire
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
-		RoutingSmart:             true,      // smart pool routing on by default; false restores the legacy acquire path
-		TokenMaxConcurrent:       ptrInt(2), // per-token live turns (floor 1; bunker strictness is 1)
+		RoutingSmart:           true,       // smart pool routing on by default; false restores the legacy acquire path
+		TokenMaxConcurrent:     ptrInt(2),  // per-token live turns (floor 1; bunker strictness is 1)
 	}
 }
 

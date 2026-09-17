@@ -9,6 +9,10 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,11 +20,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 const traceAttrModel = "deepseek/deepseek-v4-flash"
@@ -104,31 +103,7 @@ func TestChatTraceAcquireRateLimitNamesBindingToken(t *testing.T) {
 	}
 }
 
-// Egress refusal: no token was ever involved, so the trace carries neither
-// token nor rate_tokens (the dashboard falls back to TOKEN —).
-func TestChatTraceEgressRefusalOmitsToken(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	_, p, ring, ts := newTraceAttrStack(t, mock)
-
-	p.MarkModelUnfit(traceAttrModel, &upstream.LimitedIpError{Model: traceAttrModel, Body: "limited", RetryAfter: time.Minute})
-
-	if status, body := postTraceAttrChat(t, ts); status != http.StatusConflict {
-		t.Fatalf("chat status = %d, want 409: %s", status, body)
-	}
-	fields := lastChatTrace(t, ring)
-	if got, _ := traceField(fields, "error"); got != "model_ip_limited" {
-		t.Errorf("trace error = %q, want \"model_ip_limited\": %v", got, fields)
-	}
-	for _, key := range []string{"token", "rate_tokens"} {
-		if got, ok := traceField(fields, key); ok {
-			t.Errorf("egress refusal trace carries %s=%q, want absent: %v", key, got, fields)
-		}
-	}
-}
-
 // Post-acquire upstream 429: the lease was released before the return, but
-// the trace still shows the serving token (lease token, no rate_tokens —
 // / the limited set was never enumerated on this path).
 func TestChatTracePostAcquire429KeepsLeaseToken(t *testing.T) {
 	mock := testutil.NewMock()

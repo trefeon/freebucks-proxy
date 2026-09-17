@@ -7,14 +7,15 @@ package session
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // SetAdmissionProbeTTL configures the admission probe cache TTL (issue #60):
@@ -271,19 +272,19 @@ func (m *Manager) Poll(ctx context.Context) error {
 				slog.Warn("session dropped during poll", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", instanceID)
 			}
 		}
-		// Park: any other poll GET error holds the slot — the row stays
+		// Hold: any other poll GET error keeps the slot — the row stays
 		// cached (never commit(nil)/Invalidate/ClearQueued/DELETE) and the
 		// consecutive-failure count paces the re-GET with the vendor
-		// failedPollDelayMs shape (ParkDelay: 20s doubling, 300s cap,
-		// Retry-After floor). The pool's own failure backoff schedules the
-		// actual wait; the count here keeps the session layer's view in
-		// step and visible in logs.
+		// failedPollDelayMs shape (20s doubling, 5m cap, Retry-After
+		// floor). The pool's own failure backoff schedules the actual
+		// wait; the count here keeps the session layer's view in step
+		// and visible in logs.
 		m.mu.Lock()
 		m.pollFailures++
 		failures := m.pollFailures
 		m.mu.Unlock()
 		slog.Debug("session parked during poll", "instance_id", instanceID, "failures", failures,
-			"backoff_ms", ParkDelay(failures, ParkRetryAfter(err)).Milliseconds(), "err", err)
+			"backoff_ms", pollBackoff(failures, pollRetryAfter(err)).Milliseconds(), "err", err)
 		return err
 	}
 	m.mu.Lock()
@@ -368,4 +369,81 @@ func (m *Manager) Poll(ctx context.Context) error {
 	// line so ops can see each liveness beat and its latency.
 	slog.Debug("session: heartbeat poll", "instance_id", shortInstance(instanceID), "ms", ms, "status", st.Status)
 	return nil
+}
+
+// pollBackoffBase / pollBackoffMax mirror the vendor poll pacing
+// (failedPollDelayMs 20s doubling, 5m cap): the wait before the next re-GET
+// after failures consecutive transient failures, with equal jitter over the
+// lower half of the window and never before the server's Retry-After floor.
+// Hardcoded vendor shape (no knobs); the pool carries the twin for its own
+// failure backoff (see pool_lifecycle.go).
+const (
+	pollBackoffBase = 20 * time.Second
+	pollBackoffMax  = 5 * time.Minute
+)
+
+// pollBackoff returns the vendor-shaped wait before the next re-GET after
+// failures consecutive transient failures.
+func pollBackoff(failures int, retryAfter time.Duration) time.Duration {
+	if failures < 1 {
+		failures = 1
+	}
+	d := pollBackoffBase << min(failures-1, 5)
+	if d > pollBackoffMax {
+		d = pollBackoffMax
+	}
+	d = d/2 + time.Duration(pollRand()%uint64(d/2))
+	if retryAfter > 0 {
+		if retryAfter < 5*time.Nanosecond {
+			retryAfter = 5 * time.Nanosecond
+		}
+		ra := retryAfter - retryAfter/5 + time.Duration(pollRand()%uint64(2*retryAfter/5))
+		if ra > d {
+			d = ra
+		}
+		if d > pollBackoffMax {
+			d = pollBackoffMax
+		}
+	}
+	return d
+}
+
+// pollRetryAfter extracts the server's Retry-After floor from a failed poll
+// error (0 when the error carries none).
+func pollRetryAfter(err error) time.Duration {
+	var ue *upstream.UpstreamError
+	if errors.As(err, &ue) {
+		return ue.RetryAfter
+	}
+	var rle *upstream.RateLimitError
+	if errors.As(err, &rle) {
+		return rle.RetryAfter
+	}
+	var ice *upstream.IpCappedError
+	if errors.As(err, &ice) {
+		return ice.RetryAfter
+	}
+	var lie *upstream.LimitedIpError
+	if errors.As(err, &lie) {
+		return lie.RetryAfter
+	}
+	var wrr *upstream.WaitingRoomRequiredError
+	if errors.As(err, &wrr) {
+		return wrr.RetryAfter
+	}
+	var uwr *upstream.WaitingRoomError
+	if errors.As(err, &uwr) {
+		return uwr.RetryAfter
+	}
+	return 0
+}
+
+// pollRand draws one uint64 from crypto/rand (the jitter source). A read
+// failure falls back to the clock rather than panicking in a serving path.
+func pollRand() uint64 {
+	var b [8]byte
+	if _, err := cryptoRand.Read(b[:]); err != nil {
+		return uint64(time.Now().UnixNano())
+	}
+	return binary.BigEndian.Uint64(b[:])
 }

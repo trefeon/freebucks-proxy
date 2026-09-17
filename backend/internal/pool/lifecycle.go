@@ -242,9 +242,6 @@ func (p *Pool) RemoveLastToken() error {
 	if !slip {
 		p.drainRemovedToken(last)
 	}
-	// Membership changed: the next tick probes the remaining roster without
-	// waiting out the tier timer.
-	p.smartProbeKick()
 	return nil
 }
 
@@ -279,9 +276,6 @@ func (p *Pool) RemoveTokenAt(idx int) error {
 	p.retired[target] = time.Now()
 	p.retiredMu.Unlock()
 	p.drainRemovedToken(target)
-	// Membership changed: the next tick probes the remaining roster without
-	// waiting out the tier timer.
-	p.smartProbeKick()
 	return nil
 }
 
@@ -362,9 +356,6 @@ func (p *Pool) RemoveAllTokens(ctx context.Context) {
 	// Clear the roster (entries, per-entry ledgers, and the mismatch map)
 	// through the single mutation entry point.
 	p.roster.clear()
-	// Membership changed (possibly to zero): the next tick re-evaluates the
-	// roster without waiting out the tier timer.
-	p.smartProbeKick()
 }
 
 // FinishTokenRuns finishes all active runs of token (dashboard action).
@@ -409,12 +400,6 @@ func (p *Pool) Shutdown(ctx context.Context) {
 	p.draining.Store(true)
 	if p.cancel != nil {
 		p.cancel()
-	}
-	// Cancel detached smart-probe rounds (issue #484) before waiting: a
-	// wedged round holds the single-flight slot and a wg count, so the
-	// Wait below would hang until the round deadline without this.
-	if p.probeCancel != nil {
-		p.probeCancel()
 	}
 	p.wg.Wait()
 	// Best-effort runtime persist flush: the maintain loop is stopped, so

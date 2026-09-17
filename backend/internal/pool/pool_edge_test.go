@@ -398,13 +398,10 @@ func TestBridgeDeadTokenEvictDefersWhenBusy(t *testing.T) {
 	}
 }
 
-// TestBridgeSweepParksShortCooldown pins the threshold-aware sweep gate: an
-// idle bridge entry riding out a short (within-threshold) cooldown stays
-// cached so the next request reuses its session once the window lapses. The
-// terminal side (30m auth-rejection past the 15m threshold evicts on idle)
-// is pinned by TestBridgeDeadTokenEvictDefersWhenBusy.
+// TestBridgeSweepParksShortCooldown pins the cooling-entry hold: an idle
+// bridge entry riding out a live cooldown stays cached so the next request
+// reuses its session once the window lapses.
 func TestBridgeSweepParksShortCooldown(t *testing.T) {
-	saveCooldownTuning(t)
 	mock := testutil.NewMock()
 	defer mock.Close()
 	cfg := &config.Config{
@@ -413,10 +410,8 @@ func TestBridgeSweepParksShortCooldown(t *testing.T) {
 		SessionCallTimeout: 5 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    mock.URL(),
-		// Park-ON is the point of this test: without the flag the pool runs
-		// the park-OFF path and the entry below evicts (see
-		// TestHandBuiltConfigDisablesPark).
-		SessionParkEnabledFlag: true,
+		// Live cooldown is the point of this test: the sweep holds the
+		// entry while its cooldown window is live.
 	}
 	reg := registry.New(cfg, nil)
 	reg.LoadFallback()
@@ -428,8 +423,8 @@ func TestBridgeSweepParksShortCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Short transient: a 5m cooldown window sits inside the default 15m
-	// park threshold, so the sweep must keep the entry.
+	// Short transient: a live 5m cooldown window holds the entry through
+	// the sweep.
 	p.CooldownBridge(lease, 5*time.Minute)
 	p.LeaseRelease(lease)
 	entry := p.bridgeToken("park-tok")

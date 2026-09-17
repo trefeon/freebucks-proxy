@@ -2,10 +2,9 @@
 package pool
 
 import (
-	"time"
-
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
 
 // BridgeTokenSnapshot is a dashboard-ready view of one bridge entry (#187).
@@ -45,6 +44,41 @@ func banView(ban *upstream.BanError, until time.Time) (string, time.Time) {
 		return "hard", time.Time{}
 	}
 	return "temporary", ban.ResumesAt
+}
+
+// MaturitySnapshot is the streak-maturity automation view carried on
+// TokenSnapshot. The automation itself is excised (Fase E): the pool never
+// populates it (always nil from Snapshot) and the dashboard renders no
+// card. The type is kept so historical payloads, the dashboard mapper, and
+// its tests still compile.
+type MaturitySnapshot struct {
+	Enabled bool   `json:"enabled"`
+	Target  int    `json:"target"`
+	Mode    string `json:"mode"`
+	// TouchModel is the per-token touch-model override ("" = automatic).
+	// Omitted on the wire when unset so never-enrolled tokens keep
+	// their existing payload shape.
+	TouchModel string    `json:"touch_model,omitempty"`
+	Badge      string    `json:"badge"`
+	Slot       time.Time `json:"slot,omitempty"`
+	// SlotDay is the account-timezone calendar day the Slot belongs to
+	// ("2006-01-02").
+	SlotDay   string    `json:"slot_day,omitempty"`
+	LastTouch time.Time `json:"last_touch,omitempty"`
+	// TouchDay is the account-timezone calendar day of the last touch
+	// ("2006-01-02"): TouchDay == SlotDay means touched today.
+	TouchDay     string `json:"touch_day,omitempty"`
+	LastAction   string `json:"last_action,omitempty"`
+	LastResult   string `json:"last_result,omitempty"`
+	LastAdvanced string `json:"last_advanced,omitempty"`
+	// ResultDay is the Pacific calendar day ("2006-01-02") the last
+	// ledger write belongs to.
+	ResultDay string `json:"result_day,omitempty"`
+	// EffectiveTouchModel is the model the next touch would actually admit.
+	EffectiveTouchModel string `json:"effective_touch_model,omitempty"`
+	// AutoTouchModel is the automatic pick with AutoTouchReason naming why.
+	AutoTouchModel  string `json:"auto_touch_model,omitempty"`
+	AutoTouchReason string `json:"auto_touch_reason,omitempty"`
 }
 
 // Snapshot returns the per-token healthz view.
@@ -192,7 +226,6 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			TodayUsed:               todayUsed,
 			LastUsageDate:           lastUsage,
 			StreakUpdatedAt:         streakUpdated,
-			Maturity:                p.maturitySnapshot(tok, streak),
 			UpgradeHint:             ss.UpgradeHint,
 			ServerMessage:           ss.ServerMessage,
 			Locked:                  tok.locked.Load(),

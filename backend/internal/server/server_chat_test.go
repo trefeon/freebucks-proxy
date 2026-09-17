@@ -3,6 +3,8 @@ package server_test
 import (
 	"bytes"
 	"encoding/json"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
@@ -10,9 +12,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 func TestWaitingRoom503ThenRetry(t *testing.T) {
@@ -453,14 +452,14 @@ func TestChatReasoningEffort(t *testing.T) {
 
 // TestChatModelIPLimitedMarked pins the chat-level limited_ip flow: a 409
 // session_model_mismatch+limited chat error surfaces as 409 model_ip_limited
-// (never session-invalid, never a session invalidation) and marks the
-// (egress, model) pairing unfit.
+// (never session-invalid, never a session invalidation), directly with no
+// failover walk and no unfit mark (Fase E).
 func TestChatModelIPLimitedMarked(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatStatus = http.StatusConflict
 	mock.ChatErrorBody = limitedChatBody()
-	ts, p := newTestServer(t, nil, mock)
+	ts, _ := newTestServer(t, nil, mock)
 	chatURL := ts.URL + "/v1/chat/completions"
 
 	resp, data := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), nil)
@@ -470,18 +469,13 @@ func TestChatModelIPLimitedMarked(t *testing.T) {
 	if got := errorCode(t, data); got != "model_ip_limited" {
 		t.Errorf("code = %q, want model_ip_limited", got)
 	}
-	until, _ := p.ModelUnfit(modelA)
-	if until.IsZero() {
-		t.Error("pool unfit not set after limited chat")
-	}
 }
 
-// TestChatModelIPLimitedFastRefusal pins the fast-refusal guard: while
-// (egress, model) is marked unfit, a new request is refused at the entry
-// guard with 409 model_ip_limited and NO new upstream chat call. The first
-// (marking) request retries once inside chatAttempt, so it hits upstream
-// twice.
-func TestChatModelIPLimitedFastRefusal(t *testing.T) {
+// TestChatModelIPLimitedNoFastRefusal pins the excised fast-refusal guard:
+// with no unfit registry every request runs the full path — each limited
+// chat surfaces its own 409 model_ip_limited with exactly one upstream
+// chat call (no retry, no entry-guard skip).
+func TestChatModelIPLimitedNoFastRefusal(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	var chatCalls atomic.Int32
@@ -489,24 +483,20 @@ func TestChatModelIPLimitedFastRefusal(t *testing.T) {
 		chatCalls.Add(1)
 		writeRawJSON(w, http.StatusConflict, limitedChatBody())
 	}
-	ts, p := newTestServer(t, nil, mock)
+	ts, _ := newTestServer(t, nil, mock)
 	chatURL := ts.URL + "/v1/chat/completions"
 
-	// First request: the limited error marks unfit and chatAttempt retries
-	// once through a fresh acquire (a different token may still serve the
-	// model) before surfacing the 409 — exactly two upstream chat calls.
+	// First request: limited error surfaces directly after one chat call.
 	resp, data := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("first request status = %d, want 409: %s", resp.StatusCode, data)
 	}
-	if got := chatCalls.Load(); got != 2 {
-		t.Errorf("first request upstream chat calls = %d, want 2 (retry-once)", got)
-	}
-	if until, _ := p.ModelUnfit(modelA); until.IsZero() {
-		t.Fatal("unfit not marked after first request")
+	if got := chatCalls.Load(); got != 1 {
+		t.Errorf("first request upstream chat calls = %d, want 1 (no retry)", got)
 	}
 
-	// Second request: refused at the entry guard — no upstream chat hit.
+	// Second request: no fast-refusal — a second upstream chat hit with
+	// the same 409 surface.
 	resp2, data2 := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), nil)
 	if resp2.StatusCode != http.StatusConflict {
 		t.Fatalf("second request status = %d, want 409: %s", resp2.StatusCode, data2)
@@ -515,25 +505,21 @@ func TestChatModelIPLimitedFastRefusal(t *testing.T) {
 		t.Errorf("second request code = %q, want model_ip_limited", got)
 	}
 	if got := chatCalls.Load(); got != 2 {
-		t.Errorf("second request upstream chat calls = %d, want 2 (fast-refused, no new chat)", got)
+		t.Errorf("second request upstream chat calls = %d, want 2 (no entry-guard skip)", got)
 	}
 }
 
-// TestChatModelIPLimitedSuccessClears pins the success-side clear: a
-// successful chat is egress-level proof the model is servable again, so the
-// unfit mark is dropped. The mark is cleared between requests (simulating
-// the window lapsing) so the second request passes the entry guard and
-// reaches chatAttempt, where its retry lands on the 200.
-func TestChatModelIPLimitedSuccessClears(t *testing.T) {
+// TestChatModelIPLimitedRecovery pins the recovery path with no unfit
+// registry: a limited 409 surfaces directly, and once upstream serves the
+// model again the next request succeeds — no marks to set or clear.
+func TestChatModelIPLimitedRecovery(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	var chatCalls atomic.Int32
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
-		// Calls 1-2: request 1's two chatAttempt attempts both see the
-		// limited 409 (marking the pair unfit). Call 3: request 2's first
-		// attempt (re-marks). Call 4+: the upstream serves the model again,
-		// so request 2's retry lands on the 200 and clears the mark.
-		if chatCalls.Add(1) <= 3 {
+		// Call 1: the first request sees the limited 409. Call 2+: the
+		// upstream serves the model again.
+		if chatCalls.Add(1) <= 1 {
 			writeRawJSON(w, http.StatusConflict, limitedChatBody())
 			return
 		}
@@ -541,22 +527,14 @@ func TestChatModelIPLimitedSuccessClears(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("chatcmpl-u1", 1, `"choices":[{"index":0,"delta":{"content":"recovered"},"finish_reason":null}]`)))
 	}
-	ts, p := newTestServer(t, nil, mock)
+	ts, _ := newTestServer(t, nil, mock)
 	chatURL := ts.URL + "/v1/chat/completions"
 
-	// First request: limited 409 (both retry attempts limited).
+	// First request: limited 409 surfaces directly.
 	resp, data := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("first request status = %d, want 409: %s", resp.StatusCode, data)
 	}
-	if until, _ := p.ModelUnfit(modelA); until.IsZero() {
-		t.Fatal("unfit not marked after limited response")
-	}
-
-	// Simulate the unfit window lapsing so the second request is not
-	// fast-refused at the entry guard — it must reach chatAttempt, where
-	// the retry lands on the 200 and the success path clears the mark.
-	p.ClearModelUnfit(modelA)
 
 	resp2, data2 := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), nil)
 	if resp2.StatusCode != http.StatusOK {
@@ -565,15 +543,12 @@ func TestChatModelIPLimitedSuccessClears(t *testing.T) {
 	if !strings.Contains(string(data2), "recovered") {
 		t.Errorf("stream missing recovered content: %s", data2)
 	}
-	if until, _ := p.ModelUnfit(modelA); !until.IsZero() {
-		t.Errorf("unfit not cleared after successful chat (until = %v)", until)
-	}
 }
 
 // TestChatModelIPLimitedAdmissionPath covers the admission-path end-to-end:
-// the session create itself returns 409 limited, the pool marks (egress,
-// model) unfit and surfaces the LimitedIpError, and the chat surfaces 409
-// model_ip_limited. The session is never admitted, so no chat call fires.
+// the session create itself returns 409 limited, which surfaces as 409
+// model_ip_limited with no unfit mark (Fase E). The session is never
+// admitted, so no chat call fires.
 func TestChatModelIPLimitedAdmissionPath(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -584,7 +559,7 @@ func TestChatModelIPLimitedAdmissionPath(t *testing.T) {
 		}
 		writeRawJSON(w, http.StatusNotFound, `{"error":"not found"}`)
 	}
-	ts, p := newTestServer(t, nil, mock)
+	ts, _ := newTestServer(t, nil, mock)
 	chatURL := ts.URL + "/v1/chat/completions"
 
 	resp, data := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), nil)
@@ -594,46 +569,26 @@ func TestChatModelIPLimitedAdmissionPath(t *testing.T) {
 	if got := errorCode(t, data); got != "model_ip_limited" {
 		t.Errorf("code = %q, want model_ip_limited", got)
 	}
-	until, _ := p.ModelUnfit(modelA)
-	if until.IsZero() {
-		t.Error("pool unfit not set after admission-path limited refusal")
-	}
 }
 
-// TestChatModelIPLimitedConcurrentRefusals pins the unfit-guard race fix
-// (SEC-1): concurrent requests to an unfit model are all fast-refused at the
-// entry guard with 409 and never reach the upstream. CI runs the suite with
-// -race, which the pre-fix in-place RetryAfter mutation of the shared
-// registry error would flag.
+// TestChatModelIPLimitedConcurrentRefusals pins the direct surface under
+// concurrency: with no unfit gate every limited request runs the full path
+// and surfaces its own 409 — concurrent refusals never collapse, gate,
+// or race each other.
 func TestChatModelIPLimitedConcurrentRefusals(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
 		writeRawJSON(w, http.StatusConflict, limitedChatBody())
 	}
-	ts, p := newTestServer(t, nil, mock)
+	ts, _ := newTestServer(t, nil, mock)
 	chatURL := ts.URL + "/v1/chat/completions"
 	body := chatBody(modelA)
 
-	// Prime the unfit mark with one limited response.
-	resp, _ := doJSON(t, http.MethodPost, chatURL, body, nil)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("prime status = %d, want 409", resp.StatusCode)
-	}
-	if until, _ := p.ModelUnfit(modelA); until.IsZero() {
-		t.Fatal("unfit not marked after prime")
-	}
-	// Let any tail-end upstream activity from the prime's retry flow settle,
-	// then baseline: the entry-guard refusals must add ZERO upstream calls.
-	time.Sleep(300 * time.Millisecond)
-	before := mock.RequestsSnapshot()
-
-	// Now the entry guard fast-refuses; hammer it concurrently. Every
-	// refusal must be 409 and the upstream must see no new calls.
 	const n = 16
 	var wg sync.WaitGroup
 	codes := make([]int, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -652,9 +607,6 @@ func TestChatModelIPLimitedConcurrentRefusals(t *testing.T) {
 		if c != http.StatusConflict {
 			t.Errorf("request %d status = %d, want 409", i, c)
 		}
-	}
-	if got := mock.RequestsSnapshot(); got != before {
-		t.Errorf("upstream requests = %d, want %d (prime baseline; guard refusals never reach upstream)", got, before)
 	}
 }
 

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,10 +19,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // Internal (package server) auth tests: these exercise adminAuth with the
@@ -189,7 +188,8 @@ func errorResponse(t *testing.T, err error) (status int, hdr http.Header, body s
 		Code    string `json:"code"`
 		Hint    string `json:"hint"`
 	} `json:"error"`
-}) {
+},
+) {
 	t.Helper()
 	s := &Server{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	w := httptest.NewRecorder()
@@ -569,8 +569,8 @@ func TestWriteErrorLoadSheddingAndPeakHours(t *testing.T) {
 		wantRetryMin time.Duration
 		wantRetryMax time.Duration
 	}{
-		{"load_shedding", &upstream.RateLimitError{Status: "load_shedding", RetryAfter: upstream.LoadShedCooldown, Body: "load saturated"}, "load_shedding", 60 * time.Second, 120 * time.Second},
-		{"peak_hours", &upstream.RateLimitError{Status: "peak_hours", RetryAfter: upstream.PeakHoursCooldown, Body: "peak hours"}, "peak_hours", 25 * time.Minute, 35 * time.Minute},
+		{"load_shedding", &upstream.RateLimitError{Status: "load_shedding", RetryAfter: 90 * time.Second, Body: "load saturated"}, "load_shedding", 60 * time.Second, 120 * time.Second},
+		{"peak_hours", &upstream.RateLimitError{Status: "peak_hours", RetryAfter: 30 * time.Minute, Body: "peak hours"}, "peak_hours", 25 * time.Minute, 35 * time.Minute},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

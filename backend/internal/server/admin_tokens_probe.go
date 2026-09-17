@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/dashboard"
-	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"strconv"
@@ -37,47 +35,6 @@ func (a *adminHandlers) handleTokenTest(w http.ResponseWriter, r *http.Request) 
 	msg += "."
 	a.logfunc().Info("dashboard token probe ok", "token", id)
 	a.dash.RenderConfigResult(w, r, true, msg)
-}
-
-func (a *adminHandlers) handleTokenTestAll(w http.ResponseWriter, r *http.Request) {
-	// Visit auto-probe (ADR-0025): the Quota Tracker page fires ?auto=1 on
-	// mount so a cold page shows numbers without a button press. Stale
-	// only (pool-scoped 1h throttle shared by all clients/tabs); fresh
-	// returns the current view untouched with an ok note in the same
-	// envelope shape the client already drains. The manual button (no
-	// param) always forces and refreshes the throttle timestamp.
-	if r.URL.Query().Get("auto") == "1" {
-		if a.pool.ProbeAllIfStale(r.Context(), pool.QuotaVisitProbeMaxAge) {
-			a.dash.RenderConfigResult(w, r, true, "Quotas refreshed from upstream.")
-		} else {
-			a.dash.RenderConfigResult(w, r, true, "Quota snapshot is fresh; skipping upstream probe.")
-		}
-		return
-	}
-	results := a.pool.ProbeAll(r.Context())
-	outcomes := make([]dashboard.TokenTestOutcome, 0, len(results))
-	for _, res := range results {
-		i := res.Index
-		state, err := res.State, res.Err
-		ok := err == nil || errors.Is(err, upstream.ErrNoActiveSession)
-		msg := "ok"
-		switch {
-		case errors.Is(err, upstream.ErrNoActiveSession):
-			msg = "ok (no active session)"
-		case err != nil:
-			msg = err.Error()
-		default:
-			if q := quotaSummary(state); q != "" {
-				msg = "ok (" + q + ")"
-			}
-		}
-		outcomes = append(outcomes, dashboard.TokenTestOutcome{Token: i, OK: ok, Message: msg})
-	}
-	if len(outcomes) == 0 {
-		a.dash.RenderConfigResult(w, r, false, "No tokens to test (bridge mode has no fixed AUTH_TOKENS).")
-		return
-	}
-	a.dash.RenderTestResults(w, r, outcomes)
 }
 
 func (a *adminHandlers) probeTokenGate(ctx context.Context, token string) (*upstream.SessionState, error) {

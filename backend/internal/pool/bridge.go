@@ -413,7 +413,6 @@ sessionReady:
 	p.lastActiveMu.Lock()
 	p.lastActive = time.Now()
 	p.idleFinished = false
-	p.sessionsEnded = false
 	p.lastActiveMu.Unlock()
 	slotLeased = true // the lease owns the slot now; the defer must not release it
 	return &Lease{

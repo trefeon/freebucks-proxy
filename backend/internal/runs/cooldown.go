@@ -64,15 +64,11 @@ func (m *RunManager) Cooldown(d time.Duration) {
 	m.ban = nil
 	m.banPermanent = false
 	m.countryBlock = nil
-	m.ipCapped = nil
 	// The ban/country windows die with their remembered errors: leaving the
 	// deadlines set would surface a stale future BannedUntil (healthz risk
 	// gating via Snapshot) with no ban attached. Mirror ClearCooldowns.
 	m.banUntil = time.Time{}
 	m.countryUntil = time.Time{}
-	m.ipCappedUntil = time.Time{}
-	m.ipCappedReAdmits = 0
-	m.ipCappedDayReset = time.Time{}
 	m.mu.Unlock()
 }
 
@@ -87,10 +83,6 @@ func (m *RunManager) ClearCooldowns() {
 	m.banUntil = time.Time{}
 	m.countryBlock = nil
 	m.countryUntil = time.Time{}
-	m.ipCapped = nil
-	m.ipCappedUntil = time.Time{}
-	m.ipCappedReAdmits = 0
-	m.ipCappedDayReset = time.Time{}
 	m.mu.Unlock()
 }
 
@@ -138,8 +130,6 @@ func (m *RunManager) CooldownRateLimit(rle *upstream.RateLimitError) {
 	m.banPermanent = false
 	m.countryBlock = nil
 	m.countryUntil = time.Time{}
-	m.ipCapped = nil
-	m.ipCappedUntil = time.Time{}
 }
 
 // RateLimitError returns the remembered rate-limit error while its
@@ -189,7 +179,6 @@ func (m *RunManager) CooldownBan(be *upstream.BanError) {
 	m.cooldownUntil = m.banUntil
 	m.rateLimit = nil // a ban supersedes any rate-limit cooldown
 	m.countryBlock = nil
-	m.ipCapped = nil
 	m.mu.Unlock()
 }
 
@@ -229,7 +218,6 @@ func (m *RunManager) CooldownCountryBlocked(cbe *upstream.CountryBlockedError) {
 	m.ban = nil
 	m.banPermanent = false
 	m.banUntil = time.Time{}
-	m.ipCapped = nil
 }
 
 // CountryBlockedError returns the remembered country-block error while its

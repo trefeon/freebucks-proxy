@@ -1,6 +1,6 @@
 package server_test
 
-// Dashboard HTTP edge tests for token test-all / add / remove / action-id
+// Dashboard HTTP edge tests for token add / remove / action-id
 // edges, the mode-switch branch matrix, config-save guards (incl. the
 // empty-content regression), reload failure, smoke/diag edges, CSRF combos,
 // cookie edges, assets, and login-without-token.
@@ -8,6 +8,11 @@ package server_test
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/server"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,14 +22,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/server"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // bridgeDashboardServer wires a bridge-mode server (no AUTH_TOKENS) with the
@@ -53,100 +50,6 @@ func bridgeDashboardServer(t *testing.T, adminToken string) *httptest.Server {
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts
-}
-
-// --- token test-all ---
-
-// TestDashboardTokenTestAllBridgeNoTokens: in bridge mode there are no fixed
-// tokens to probe — the handler reports it instead of looping.
-func TestDashboardTokenTestAllBridgeNoTokens(t *testing.T) {
-	ts := bridgeDashboardServer(t, "secret")
-	cookie := authedCookie(t, ts)
-	resp := doTokenAction(t, ts.URL, cookie, "/admin/tokens/test-all")
-	body := bodyOf(t, resp)
-	if !strings.Contains(body, "No tokens to test") {
-		t.Errorf("test-all response = %q, want no-tokens message", body)
-	}
-}
-
-// TestDashboardTokenTestAllTwoTokens: every pooled token gets a zero-cost
-// validity probe and one appended result fragment.
-func TestDashboardTokenTestAllTwoTokens(t *testing.T) {
-	mock0 := testutil.NewMock()
-	defer mock0.Close()
-	mock1 := testutil.NewMock()
-	defer mock1.Close()
-	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, mock0, mock1)
-	cookie := authedCookie(t, ts)
-
-	resp := doTokenAction(t, ts.URL, cookie, "/admin/tokens/test-all")
-	body := bodyOf(t, resp)
-	// JSON responses: each token gets {"token":0,...} {"token":1,...}
-	if !strings.Contains(body, `"token":0`) || !strings.Contains(body, `"token":1`) {
-		t.Errorf("test-all missing per-token results: %s", body)
-	}
-	if !strings.Contains(body, `"ok":true`) {
-		t.Errorf("test-all missing ok:true: %s", body)
-	}
-	// Wire contract for the DevTools probe-all button (postAPI → res.json()):
-	// the body must be ONE JSON array with one outcome per token, not one
-	// concatenated JSON object per token (unparseable past one token).
-	var outcomes []map[string]any
-	if err := json.Unmarshal([]byte(body), &outcomes); err != nil {
-		t.Fatalf("test-all body is not a single JSON array: %v\n%s", err, body)
-	}
-	if len(outcomes) != 2 {
-		t.Fatalf("test-all outcomes = %d, want 2", len(outcomes))
-	}
-	// Probe-only, no admission: each token saw exactly one zero-cost GET
-	// probe and zero session creates.
-	for i, mock := range []*testutil.MockUpstream{mock0, mock1} {
-		if got := mock.SessionCreatesSnapshot(); got != 0 {
-			t.Errorf("token %d session creates = %d, want 0 (probe claims no session)", i, got)
-		}
-		if got := mock.SessionProbesSnapshot(); got != 1 {
-			t.Errorf("token %d session probes = %d, want 1", i, got)
-		}
-	}
-}
-
-// TestDashboardTokenTestAllEmptyRegistry: the zero-cost probe needs no
-// registry models (the upstream GET carries no model), so test-all succeeds
-// even with an empty catalog — the old registry-dependent guard is gone.
-func TestDashboardTokenTestAllEmptyRegistry(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	cfg := &config.Config{
-		AuthTokens:         []string{"tok-0"},
-		RotationInterval:   time.Hour,
-		RequestTimeout:     15 * time.Minute,
-		SessionCallTimeout: 5 * time.Second,
-		RegistryRefresh:    6 * time.Hour,
-		UpstreamBaseURL:    mock.URL(),
-		AdminToken:         "secret",
-		DashboardEnabled:   true,
-	}
-	reg := registry.New(cfg, nil) // no LoadFallback → empty catalog
-	clientCfg := *cfg
-	clientCfg.UpstreamBaseURL = mock.URL()
-	client, err := upstream.New(cfg.AuthTokens[0], &clientCfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sessions := []*session.Manager{session.NewManager(client)}
-	p, err := pool.New(cfg, []*upstream.Client{client}, sessions, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := server.New(cfg, p, reg, nil, nil, "")
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	cookie := authedCookie(t, ts)
-
-	resp := doTokenAction(t, ts.URL, cookie, "/admin/tokens/test-all")
-	if body := bodyOf(t, resp); !strings.Contains(body, `"token":0`) && !strings.Contains(body, `"ok":true`) {
-		t.Errorf("empty-registry test-all response = %q, want probe success row", body)
-	}
 }
 
 // --- token add ---
