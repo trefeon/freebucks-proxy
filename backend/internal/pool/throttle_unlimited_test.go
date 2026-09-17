@@ -8,13 +8,12 @@ package pool
 import (
 	"context"
 	"errors"
-	"strings"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"strings"
+	"testing"
+	"time"
 )
 
 // TestPooledBurstHasNoLocalRefusal proves a pooled burst far past every
@@ -27,7 +26,7 @@ func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
 	defer mock.Close()
 	p := newTestPoolCfg(t, func(c *config.Config) {
 		c.UpstreamBaseURL = mock.URL()
-		c.TokenMaxConcurrent = 0
+		c.SlotsPerAccount = 0
 	}, mock)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -63,7 +62,7 @@ func TestBridgeBurstHasNoLocalRefusal(t *testing.T) {
 	defer mock.Close()
 	p := newTestPoolCfg(t, func(c *config.Config) {
 		c.UpstreamBaseURL = mock.URL()
-		c.TokenMaxConcurrent = 0
+		c.SlotsPerAccount = 0
 	}, mock)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -105,13 +104,13 @@ func TestUnlimitedDefaultPerDayGate(t *testing.T) {
 	}
 }
 
-// TestSlotCapUnlimitedSkipsGating proves TOKEN_MAX_CONCURRENT=0 skips slot
+// TestSlotCapUnlimitedSkipsGating proves SLOTS_PER_ACCOUNT=0 skips slot
 // gating entirely: concurrent live turns pile up with no counter, no queue,
 // and no slot permit on the leases.
 func TestSlotCapUnlimitedSkipsGating(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	p := newSmartTestPool(t, func(c *config.Config) { c.TokenMaxConcurrent = 0 }, mock)
+	p := newSmartTestPool(t, func(c *config.Config) { c.SlotsPerAccount = 0 }, mock)
 	entry := smartEntry(p, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -127,10 +126,10 @@ func TestSlotCapUnlimitedSkipsGating(t *testing.T) {
 		}
 		leases = append(leases, lease)
 	}
-	if got := p.routeSlotLive(entry); got != 0 {
+	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 0 {
 		t.Errorf("live slots = %d, want 0 (nothing tracked)", got)
 	}
-	if got := p.routeSlotQueued(entry); got != 0 {
+	if got := p.slotQueued(slotKey{entry: entry, model: modelA}); got != 0 {
 		t.Errorf("queued = %d, want 0", got)
 	}
 	for _, lease := range leases {

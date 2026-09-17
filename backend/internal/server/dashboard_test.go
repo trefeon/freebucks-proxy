@@ -954,7 +954,7 @@ func TestDashboardConfigSaveSyncsPerDayToLiveTokens(t *testing.T) {
 	}
 	_ = respPre.Body.Close()
 
-	content := "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secret\nTOKEN_MAX_CONCURRENT=1\n"
+	content := "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secret\nSLOTS_PER_ACCOUNT=1\n"
 	saveResp := postForm(t, ts.URL, cookie, "/admin/config", url.Values{"content": {content}})
 	if saveResp.StatusCode != http.StatusOK {
 		t.Fatalf("save status = %d", saveResp.StatusCode)

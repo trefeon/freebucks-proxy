@@ -220,15 +220,16 @@ type Config struct {
 	// tokens. False restores the legacy acquire path byte-identically.
 	// Live-apply (atomic pointer swap, no pool rebuild).
 	RoutingSmart bool
-	// TokenMaxConcurrent caps concurrent live turns per pooled token
-	// (TOKEN_MAX_CONCURRENT; default 2, the approved anti-ban pacing): a
-	// token leases a new turn only while fewer than this many are live on
-	// that account, so one account never fans out past the cap no matter
-	// how many models share it. 0 = unlimited (no slot gating at all, for
-	// full operator control); negative values floor to 0. The strictest
-	// anti-ban posture is 1 (bunker: fully sequential turns per account).
+	// SlotsPerAccount caps concurrent live turns per pooled account-model
+	// lane (SLOTS_PER_ACCOUNT; default 2, the approved anti-ban pacing): a
+	// token leases a new turn for a model only while fewer than this many
+	// are live on that account for that model, so one account may hold 2
+	// turns of model A and 2 of model B at the same time. 0 = unlimited
+	// (no slot gating at all, for full operator control); negative values
+	// floor to 0. The strictest anti-ban posture is 1 (bunker: fully
+	// sequential turns per account-model lane).
 	// Live-apply (read per Acquire).
-	TokenMaxConcurrent int
+	SlotsPerAccount int
 	// QueueWait bounds how long one Acquire parks on a full token's FIFO
 	// slot queue before failing over (QUEUE_WAIT; default 30s).
 	// Zero-tolerant like BURST_WINDOW: empty or non-positive values fall

@@ -14,7 +14,7 @@ package pool
 // exercised — a live-confirmation rung needs an owner device-login (blocked,
 // not skipped).
 //
-// Matrix (5-account pool unless noted; TOKEN_MAX_CONCURRENT=2,
+// Matrix (5-account pool unless noted; SLOTS_PER_ACCOUNT=2,
 // ROUTING_SMART=true, QUEUE_WAIT/QUEUE_DEPTH at the documented Load defaults
 // 30s/16, RATE_LIMIT_FAILOVER=true; rotation set per round, live-apply via
 // SetConfig — no pool rebuild):
@@ -36,7 +36,7 @@ package pool
 // artifact instead of a routing measurement. Overlap is still real: granted
 // leases are HELD until the round's peak is measured (all-granted barrier,
 // channel-gated — never slept), so C turns are live simultaneously by the
-// pool's own live-turn definition (routeSlotLive), plus a barrier-gated
+// pool's own live-turn definition (slotLive), plus a barrier-gated
 // concurrent-chat rendezvous at the mocks in the headline round.
 //
 // Measured-truth notes (probes, not assumptions):
@@ -77,14 +77,14 @@ const (
 
 	// ladParkDetect is the park-detection heuristic bound: an instant-mock
 	// acquire returns in milliseconds, so silence past this bound with a
-	// grown FIFO queue means genuinely parked (verified via routeSlotQueued,
+	// grown FIFO queue means genuinely parked (verified via slotQueued,
 	// never assumed). It is detection only — holds stay channel-gated.
 	ladParkDetect = 100 * time.Millisecond
 	ladStepTO     = 5 * time.Second
 )
 
 // newLadderPool builds a fresh n-account mock pool with the control knobs set
-// explicitly and asserted: TOKEN_MAX_CONCURRENT=2, ROUTING_SMART=true,
+// explicitly and asserted: SLOTS_PER_ACCOUNT=2, ROUTING_SMART=true,
 // QUEUE_WAIT/QUEUE_DEPTH at the documented defaults (overridable for the
 // generous-wait queue rounds), RATE_LIMIT_FAILOVER=true.
 // setLadderRotation switches rotation live (no pool rebuild) and proves the
@@ -124,7 +124,7 @@ func newLadderPool(t *testing.T, n int, rotation string, wait time.Duration) (*P
 	}
 	p := newTestPoolCfg(t, func(c *config.Config) {
 		c.RoutingSmart = true
-		c.TokenMaxConcurrent = ladCap
+		c.SlotsPerAccount = ladCap
 		c.QueueWait = wait
 		c.QueueDepth = ladDepth
 		c.RateLimitFailover = true
@@ -134,8 +134,8 @@ func newLadderPool(t *testing.T, n int, rotation string, wait time.Duration) (*P
 	if !cfg.RoutingSmart {
 		t.Fatal("ROUTING_SMART = false, want true (control)")
 	}
-	if cfg.TokenMaxConcurrent != ladCap {
-		t.Fatalf("TOKEN_MAX_CONCURRENT = %d, want %d (control)", cfg.TokenMaxConcurrent, ladCap)
+	if cfg.SlotsPerAccount != ladCap {
+		t.Fatalf("SLOTS_PER_ACCOUNT = %d, want %d (control)", cfg.SlotsPerAccount, ladCap)
 	}
 	if cfg.QueueDepth != ladDepth {
 		t.Fatalf("QUEUE_DEPTH = %d, want %d (control)", cfg.QueueDepth, ladDepth)
@@ -143,8 +143,8 @@ func newLadderPool(t *testing.T, n int, rotation string, wait time.Duration) (*P
 	if !cfg.RateLimitFailover {
 		t.Fatal("RATE_LIMIT_FAILOVER = false, want true (control)")
 	}
-	if cap, depth, wt := routeSlotParams(cfg); cap != ladCap || depth != ladDepth || wt != wait {
-		t.Fatalf("routeSlotParams = %d/%d/%v, want %d/%d/%v (control)", cap, depth, wt, ladCap, ladDepth, wait)
+	if cap, depth, wt := slotParams(cfg); cap != ladCap || depth != ladDepth || wt != wait {
+		t.Fatalf("slotParams = %d/%d/%v, want %d/%d/%v (control)", cap, depth, wt, ladCap, ladDepth, wait)
 	}
 	if rotation == "random" {
 		p.randMu.Lock()
@@ -160,8 +160,7 @@ func ladSlots(p *Pool) (live, queued []int) {
 	live = make([]int, len(*toks))
 	queued = make([]int, len(*toks))
 	for i := range *toks {
-		live[i] = p.routeSlotLive((*toks)[i])
-		queued[i] = p.routeSlotQueued((*toks)[i])
+		live[i], queued[i], _ = p.slotEntryStats((*toks)[i])
 	}
 	return live, queued
 }

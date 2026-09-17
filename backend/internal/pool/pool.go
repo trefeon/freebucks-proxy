@@ -62,13 +62,13 @@ type Lease struct {
 	// reused by a later AddToken), and a bounds-checked release would leak
 	// the run's inflight or hit an unrelated manager.
 	entry *tokenEntry
-	// routeSlot is the smart-routing live-turn slot held for this lease
-	// (route_smart.go, TOKEN_MAX_CONCURRENT). Set at grant time on the
-	// smart path only, for pooled AND bridge leases; released through the
-	// lease by LeaseRelease/LeaseAbandon. Nil on the legacy path
-	// (ROUTING_SMART off), when the cap is unlimited, or for synthetic
-	// leases.
-	routeSlot *routeSlotPermit
+	// routeSlot is the MASQ slot-ledger live-turn slot held for this lease
+	// (slot_ledger.go, SLOTS_PER_ACCOUNT per account-model lane). Set at
+	// grant time on the smart path only, for pooled AND bridge leases;
+	// released through the lease by LeaseRelease/LeaseAbandon. Nil on the
+	// legacy path (ROUTING_SMART off), when the cap is unlimited, or for
+	// synthetic leases.
+	routeSlot *slotPermit
 	// QueueWait is how long this lease's request sat parked in the
 	// account's FIFO live-turn queue before the slot was granted (zero
 	// when it never parked, or when the slot was free immediately). It is
@@ -114,7 +114,7 @@ type TokenSnapshot struct {
 	Requests         int
 	Messages24h      int // successful chats in the last 24h (dashboard display; upstream quota/429 is the enforcement)
 	// LiveTurns is how many chat turns currently hold this account's
-	// smart-routing live-turn slot (TOKEN_MAX_CONCURRENT, route_smart.go);
+	// MASQ slot-ledger lanes (SLOTS_PER_ACCOUNT, slot_ledger.go);
 	// QueuedWaiters is how many requests are parked on its FIFO live-turn
 	// queue, and OldestWaiterMS is how long the longest-parked waiter has
 	// been waiting (0 when none). Together they are the "this account is
@@ -369,16 +369,16 @@ type Pool struct {
 	randMu  sync.Mutex
 	randGen *rand.Rand
 
-	// Smart routing state (route_smart.go): per-lane live-turn slot
-	// semaphores with FIFO waiter queues (routeSlots, keyed by the lane's
-	// entry pointer — *tokenEntry pooled, *bridgeEntry bridge — so
-	// dashboard reorders and concurrent clients never merge lanes) plus
-	// the consecutive-turn anti-clump cursor (routePrev). Guarded by
-	// routeMu. In-memory only: a restart resets every counter to zero
-	// (same discipline as the probe scheduler's transient flags) — no
-	// pool_state rows, no SQL.
+	// MASQ slot ledger (slot_ledger.go): per-lane live-turn slot
+	// semaphores with FIFO waiter queues (routeSlots, keyed by
+	// slotKey{entry, model} — *tokenEntry pooled, *bridgeEntry bridge —
+	// so dashboard reorders and concurrent clients never merge lanes)
+	// plus the consecutive-turn anti-clump cursor (routePrev). Guarded
+	// by routeMu. In-memory only: a restart resets every counter to
+	// zero (same discipline as the probe scheduler's transient flags)
+	// — no pool_state rows, no SQL.
 	routeMu    sync.Mutex
-	routeSlots map[any]*routeSlotState
+	routeSlots map[slotKey]*slotState
 	routePrev  *tokenEntry
 }
 

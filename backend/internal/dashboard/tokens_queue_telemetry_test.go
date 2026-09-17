@@ -40,7 +40,7 @@ func queueTelemetryServer(t *testing.T) (*httptest.Server, *pool.Pool) {
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    mock.URL(),
 		RoutingSmart:       true,
-		TokenMaxConcurrent: 1,
+		SlotsPerAccount:    1,
 		QueueWait:          30 * time.Second,
 		QueueDepth:         16,
 		TokenRotation:      "drain",

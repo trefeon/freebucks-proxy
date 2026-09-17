@@ -75,10 +75,10 @@ type tokenCard struct {
 	ActiveRuns    int    `json:"active_runs"`
 	Requests      int    `json:"requests"`
 	Messages24h   int    `json:"messages_24h"`
-	// LiveTurns / QueuedWaiters / OldestWaiterMS are the smart-routing
-	// live-turn lane view (TOKEN_MAX_CONCURRENT, route_smart.go): how many
-	// turns hold this account's slot, how many requests are parked on its
-	// FIFO queue, and how long the oldest one has waited. They are the
+	// LiveTurns / QueuedWaiters / OldestWaiterMS are the MASQ slot-ledger
+	// lane view (SLOTS_PER_ACCOUNT, slot_ledger.go): how many turns hold
+	// this account's slots, how many requests are parked on its FIFO
+	// queues, and how long the oldest one has waited. They are the
 	// "saturated vs free" signal the Logs console reads off the payload.
 	LiveTurns      int    `json:"live_turns"`
 	QueuedWaiters  int    `json:"queued_waiters"`
@@ -523,11 +523,11 @@ func (d *Dashboard) tokensData() tokensData {
 		TokenRotation:     cfg.TokenRotation,
 		RateLimitFailover: cfg.RateLimitFailover,
 		MaturityEnabled:   cfg.MaturityEnabled,
-		// Queue posture: same knobs routeSlotParams resolves for the slot
+		// Queue posture: same knobs slotParams resolves for the slot
 		// wall, so the console never has to infer the cap.
 		QueueWait:          cfg.QueueWait.String(),
 		QueueDepth:         cfg.QueueDepth,
-		TokenMaxConcurrent: cfg.TokenMaxConcurrent,
+		TokenMaxConcurrent: cfg.SlotsPerAccount,
 		RoutingSmart:       cfg.RoutingSmart,
 	}
 	// client cards. Pure bridge hides the (empty) pooled table; pure pooled
@@ -701,7 +701,7 @@ func (d *Dashboard) tokensLiveData() tokensLiveData {
 		MaturityEnabled:    cfg.MaturityEnabled,
 		QueueWait:          cfg.QueueWait.String(),
 		QueueDepth:         cfg.QueueDepth,
-		TokenMaxConcurrent: cfg.TokenMaxConcurrent,
+		TokenMaxConcurrent: cfg.SlotsPerAccount,
 		RoutingSmart:       cfg.RoutingSmart,
 	}
 	showBridge := mode == "bridge" || mode == "hybrid"

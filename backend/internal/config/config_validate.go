@@ -45,8 +45,8 @@ func (c Config) Validate() error {
 		return errors.New("RATE_LIMIT_BURST cannot be negative")
 	case c.QueueDepth < 0:
 		return errors.New("QUEUE_DEPTH cannot be negative (0 disables slot queueing)")
-	case c.TokenMaxConcurrent < 0:
-		return errors.New("TOKEN_MAX_CONCURRENT cannot be negative (0 = unlimited)")
+	case c.SlotsPerAccount < 0:
+		return errors.New("SLOTS_PER_ACCOUNT cannot be negative (0 = unlimited)")
 	}
 	// Model fallback is excised: saved QUOTA_FALLBACK_MODELS values are
 	// tolerated as unknown keys and ignored, so there is nothing to validate.

@@ -42,7 +42,7 @@ func TestChatTraceCarriesQueueWaitWhenParked(t *testing.T) {
 	srv, p := server.NewTestServerStack(t, nil, []*testutil.MockUpstream{mock}, func(c *config.Config) {
 		c.AdminToken = config.DefaultAdminToken
 		c.RoutingSmart = true
-		c.TokenMaxConcurrent = 1
+		c.SlotsPerAccount = 1
 		c.QueueWait = 10 * time.Second
 		c.QueueDepth = 16
 	}, slog.New(ring), ring)

@@ -115,7 +115,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.WebhookURL, "WEBHOOK_URL")
 	overrideBool(&raw.AdoptCLISession, "ADOPT_CLI_SESSION")
 	overrideBool(&raw.RoutingSmart, "ROUTING_SMART")
-	overrideInt(&raw.TokenMaxConcurrent, "TOKEN_MAX_CONCURRENT")
+	overrideInt(&raw.SlotsPerAccount, "SLOTS_PER_ACCOUNT")
 	overrideString(&raw.QueueWait, "QUEUE_WAIT")
 	overrideInt(&raw.QueueDepth, "QUEUE_DEPTH")
 	overrideBool(&raw.WaitingRoomChain, "WAITING_ROOM_CHAIN")
@@ -338,15 +338,15 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// TOKEN_MAX_CONCURRENT defaults to 2 (the approved anti-ban pacing).
+	// SLOTS_PER_ACCOUNT defaults to 2 (the approved anti-ban pacing).
 	// 0 = unlimited: no live-turn slot gating applies at all. Negative
 	// values floor to 0 instead of failing the load.
-	tokenMaxConcurrent := 2
-	if raw.TokenMaxConcurrent != nil {
-		tokenMaxConcurrent = *raw.TokenMaxConcurrent
+	slotsPerAccount := 2
+	if raw.SlotsPerAccount != nil {
+		slotsPerAccount = *raw.SlotsPerAccount
 	}
-	if tokenMaxConcurrent < 0 {
-		tokenMaxConcurrent = 0
+	if slotsPerAccount < 0 {
+		slotsPerAccount = 0
 	}
 	// QUEUE_WAIT is zero-tolerant: "" falls back to the
 	// 30s default, and an explicit non-positive value falls back the same
@@ -412,9 +412,8 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		SessionProbeCacheTTL:     sessionProbeCacheTTL,
 		ModelUnavailableCacheTTL: modelUnavailableCacheTTL,
 		WebhookURL:               strings.TrimSpace(raw.WebhookURL),
-		AdoptCLISession:          raw.AdoptCLISession,
 		RoutingSmart:             raw.RoutingSmart,
-		TokenMaxConcurrent:       tokenMaxConcurrent,
+		SlotsPerAccount:          slotsPerAccount,
 		QueueWait:                queueWait,
 		QueueDepth:               queueDepth,
 		WaitingRoomChain:         raw.WaitingRoomChain,
@@ -599,7 +598,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.WebhookURL, get, "WEBHOOK_URL")
 	overrideBoolFrom(&raw.AdoptCLISession, get, "ADOPT_CLI_SESSION")
 	overrideBoolFrom(&raw.RoutingSmart, get, "ROUTING_SMART")
-	overrideIntFrom(&raw.TokenMaxConcurrent, get, "TOKEN_MAX_CONCURRENT")
+	overrideIntFrom(&raw.SlotsPerAccount, get, "SLOTS_PER_ACCOUNT")
 	overrideStringFrom(&raw.QueueWait, get, "QUEUE_WAIT")
 	overrideIntFrom(&raw.QueueDepth, get, "QUEUE_DEPTH")
 	overrideBoolFrom(&raw.WaitingRoomChain, get, "WAITING_ROOM_CHAIN")

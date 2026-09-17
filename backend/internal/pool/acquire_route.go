@@ -151,30 +151,31 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				continue
 			}
 		}
-		// Live-turn slot (TOKEN_MAX_CONCURRENT, route_smart.go): a lease is
-		// granted only while the token holds fewer live turns than the cap;
-		// otherwise the caller parks FIFO until QUEUE_WAIT elapses. The slot
-		// is taken BEFORE any upstream admission so a queued request never
-		// burns a session slot or run START while it waits. Queue-full and
+		// Live-turn slot (SLOTS_PER_ACCOUNT per account-model lane,
+		// slot_ledger.go): a lease is granted only while the token holds
+		// fewer live turns for this model than the cap; otherwise the
+		// caller parks FIFO until QUEUE_WAIT elapses. The slot is taken
+		// BEFORE any upstream admission so a queued request never burns a
+		// session slot or run START while it waits. Queue-full and
 		// wait-timeout map to the existing 429 rate-limit shape and fail
 		// over to the next token; the caller's own ctx expiry returns as-is.
 		// Skipped entirely when ROUTING_SMART is off (legacy path untouched).
-		var routeSlot *routeSlotPermit
+		var routeSlot *slotPermit
 		// queueWait is this attempt's park duration: set only when the
 		// request actually parked AND the slot was granted. A waiter that
 		// timed out or was cancelled held no slot and reports nothing.
 		var queueWait time.Duration
 		if cfg.RoutingSmart {
-			slotCap, slotDepth, slotWait := routeSlotParams(cfg)
-			// TOKEN_MAX_CONCURRENT=0 skips slot gating entirely: no
+			slotCap, slotDepth, slotWait := slotParams(cfg)
+			// SLOTS_PER_ACCOUNT=0 skips slot gating entirely: no
 			// counter, no queue — the upstream quota/429 is the brake.
 			if slotCap > 0 {
 				parkStart := time.Now()
-				permit, parked, slotErr := p.routeSlotAcquire(ctx, tok, idx+1, slotCap, slotDepth, slotWait)
+				permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: tok, model: model}, idx+1, slotCap, slotDepth, slotWait)
 				if slotErr != nil {
-					if routeIsQueueExhausted(slotErr) {
-						live := p.routeSlotLive(tok)
-						rateLimited = appendRateLimitEntry(rateLimited, routeQueueRateLimit(slotErr.(*routeQueueExhaustedError), model, slotCap, live), idx)
+					if slotIsQueueExhausted(slotErr) {
+						live := p.slotLive(slotKey{entry: tok, model: model})
+						rateLimited = appendRateLimitEntry(rateLimited, slotQueueRateLimit(slotErr.(*slotQueueExhaustedError), model, slotCap, live), idx)
 						errs = append(errs, fmt.Sprintf("%s: %v", name, slotErr))
 						p.logger.Debug("pool: token skipped (live-turn queue exhausted)", "token", idx+1, "err", slotErr)
 						continue

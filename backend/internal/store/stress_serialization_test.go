@@ -181,7 +181,7 @@ func TestConcurrentSetSettingStress(t *testing.T) {
 	keys := []string{
 		"config:QUEUE_WAIT",
 		"config:QUEUE_DEPTH",
-		"config:TOKEN_MAX_CONCURRENT",
+		"config:SLOTS_PER_ACCOUNT",
 		"config:ROUTING_SMART",
 		"config:MATURITY_ENABLED",
 		"config:LOG_LEVEL",

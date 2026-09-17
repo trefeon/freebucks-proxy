@@ -143,8 +143,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.WaitingRoomChain), false
 	case "ROUTING_SMART":
 		return strconv.FormatBool(c.RoutingSmart), false
-	case "TOKEN_MAX_CONCURRENT":
-		return strconv.Itoa(c.TokenMaxConcurrent), false
+	case "SLOTS_PER_ACCOUNT":
+		return strconv.Itoa(c.SlotsPerAccount), false
 	case "QUEUE_WAIT":
 		return c.QueueWait.String(), false
 	case "QUEUE_DEPTH":

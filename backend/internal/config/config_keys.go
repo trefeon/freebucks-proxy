@@ -83,9 +83,9 @@ type rawConfig struct {
 	// RoutingSmart records ROUTING_SMART (default true via
 	// defaultRawConfig): the smart-routing master switch.
 	RoutingSmart bool `json:"ROUTING_SMART"`
-	// TokenMaxConcurrent records TOKEN_MAX_CONCURRENT (default 2, floor
-	// 1): the per-token live-turn cap.
-	TokenMaxConcurrent *int `json:"TOKEN_MAX_CONCURRENT"`
+	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 2, floor
+	// 1): the per account-model live-turn cap.
+	SlotsPerAccount *int `json:"SLOTS_PER_ACCOUNT"`
 	// QueueWait records QUEUE_WAIT (default "30s"): the FIFO slot-queue
 	// wait bound.
 	QueueWait string `json:"QUEUE_WAIT"`
@@ -152,7 +152,7 @@ func defaultRawConfig() rawConfig {
 		QueueWait:              "30s",      // FIFO slot-queue wait bound per parked Acquire
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
 		RoutingSmart:           true,       // smart pool routing on by default; false restores the legacy acquire path
-		TokenMaxConcurrent:     ptrInt(2),  // per-token live turns (floor 1; bunker strictness is 1)
+		SlotsPerAccount:        ptrInt(2),  // per account-model live turns (floor 1; bunker strictness is 1)
 	}
 }
 
