@@ -10,6 +10,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,9 +19,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestChatOversizedBody413 pins the 32MiB body cap: a larger payload is
@@ -721,17 +720,17 @@ func TestMetricsModelLockedTotal(t *testing.T) {
 	}
 }
 
-// TestMetricsAllowlistSkipsTotal pins the MODEL_LOCKS metrics surface
-// (issue #325): a chat for a model slot 0 is locked away from skips slot 0
-// and serves slot 1, rendering freebuff_proxy_allowlist_skips_total.
-func TestMetricsAllowlistSkipsTotal(t *testing.T) {
+// TestMetricsPinSkipsTotal pins the PIN_MODEL metrics surface: a chat for
+// a model slot 0 is pinned away from skips slot 0 and serves slot 1,
+// rendering freebuff_proxy_pin_skips_total.
+func TestMetricsPinSkipsTotal(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
 	mock1 := testutil.NewMock()
 	defer mock1.Close()
 	const other = "mimo/mimo-v2.5"
 	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) {
-		c.ModelLocks = map[int][]string{0: {modelA}}
+		c.PinModel = map[int]string{0: modelA}
 	}, mock0, mock1)
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(other), nil)
@@ -743,7 +742,7 @@ func TestMetricsAllowlistSkipsTotal(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("metrics status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
-	if want := `freebuff_proxy_allowlist_skips_total{token="1"} 1`; !strings.Contains(string(data), want) {
+	if want := `freebuff_proxy_pin_skips_total{token="1"} 1`; !strings.Contains(string(data), want) {
 		t.Errorf("metrics missing %s", want)
 	}
 }

@@ -964,10 +964,10 @@ func ladTripWindow(t *testing.T, ctx context.Context, p *Pool, mocks []*testutil
 	}
 	cfg := p.cfg.Load()
 	next := *cfg
-	next.ModelLocks = map[int][]string{}
+	next.PinModel = map[int]string{}
 	for i := range mocks {
 		if i != target {
-			next.ModelLocks[i] = []string{other}
+			next.PinModel[i] = other
 		}
 	}
 	p.SetConfig(&next)
@@ -990,7 +990,7 @@ func ladTripWindow(t *testing.T, ctx context.Context, p *Pool, mocks []*testutil
 	mocks[target].RateLimit = false
 	cfg2 := p.cfg.Load()
 	next2 := *cfg2
-	next2.ModelLocks = nil
+	next2.PinModel = nil
 	p.SetConfig(&next2)
 
 	entry := (*p.roster.Load())[target]
@@ -1099,10 +1099,10 @@ func ladQuarantineViaBan(t *testing.T, ctx context.Context, p *Pool, mocks []*te
 	}
 	cfg := p.cfg.Load()
 	next := *cfg
-	next.ModelLocks = map[int][]string{}
+	next.PinModel = map[int]string{}
 	for i := range mocks {
 		if i != target {
-			next.ModelLocks[i] = []string{other}
+			next.PinModel[i] = other
 		}
 	}
 	p.SetConfig(&next)
@@ -1119,7 +1119,7 @@ func ladQuarantineViaBan(t *testing.T, ctx context.Context, p *Pool, mocks []*te
 	t.Logf("LADDER ban trip: token %d quarantined (%s)", target, snap.QuarantineReason)
 	cfg2 := p.cfg.Load()
 	next2 := *cfg2
-	next2.ModelLocks = nil
+	next2.PinModel = nil
 	p.SetConfig(&next2)
 }
 

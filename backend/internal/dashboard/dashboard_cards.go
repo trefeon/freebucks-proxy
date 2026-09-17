@@ -99,7 +99,7 @@ type tokenCard struct {
 	BanType             string  `json:"ban_type,omitempty"`
 	BannedUntil         string  `json:"banned_until,omitempty"`
 	TransientRetries    int64   `json:"transient_retries"`
-	AllowlistSkips      int64   `json:"allowlist_skips,omitempty"`
+	PinSkips            int64   `json:"pin_skips,omitempty"`
 	HasStanding         bool    `json:"has_standing"`
 	StandingLevel       string  `json:"standing_level"`
 	StandingLabel       string  `json:"standing_label"`
@@ -131,13 +131,13 @@ type tokenCard struct {
 	// Freebucks (issue #232): balance + daily/weekly/monthly windows +
 	// bindingWindow + prices. Nil when the session has not reported it.
 	Freebucks *freebucksCard `json:"freebucks,omitempty"`
-	// AllowedModels is the slot's MODEL_LOCKS allowlist (issue #325); nil
-	// when unlocked. Config-static: rides the full fetch, cached by the SPA.
-	AllowedModels   []string `json:"allowed_models,omitempty"`
-	Streak          int      `json:"streak,omitempty"`
-	TodayUsed       bool     `json:"today_used,omitempty"`
-	LastUsage       string   `json:"last_usage,omitempty"`
-	StreakUpdatedAt string   `json:"streak_updated_at,omitempty"`
+	// PinnedModel is the slot's PIN_MODEL pin; "" when unpinned.
+	// Config-static: rides the full fetch, cached by the SPA.
+	PinnedModel     string `json:"pinned_model,omitempty"`
+	Streak          int    `json:"streak,omitempty"`
+	TodayUsed       bool   `json:"today_used,omitempty"`
+	LastUsage       string `json:"last_usage,omitempty"`
+	StreakUpdatedAt string `json:"streak_updated_at,omitempty"`
 	// Maturity is the streak-maturity automation view (nil until maturity
 	// is first enabled for the token).
 	Maturity *maturityCard `json:"maturity,omitempty"`

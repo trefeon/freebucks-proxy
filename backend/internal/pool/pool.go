@@ -219,11 +219,10 @@ type TokenSnapshot struct {
 	// dead and why.
 	Quarantined      bool   `json:"quarantined,omitempty"`
 	QuarantineReason string `json:"quarantine_reason,omitempty"`
-	// AllowedModels is the slot's MODEL_LOCKS allowlist (issue #325); nil
-	// when unlocked. AllowlistSkips counts Acquire-time skips for models
-	// outside it.
-	AllowedModels  []string `json:"allowed_models,omitempty"`
-	AllowlistSkips int64    `json:"allowlist_skips,omitempty"`
+	// PinnedModel is the slot's PIN_MODEL pin; "" when unpinned.
+	// PinSkips counts Acquire-time skips for models outside the pin.
+	PinnedModel string `json:"pinned_model,omitempty"`
+	PinSkips    int64  `json:"pin_skips,omitempty"`
 	// BanType / BannedUntil surface the token's active upstream ban
 	// (issues #198/#199): BanType is "temporary" when the ban carries a
 	// resumes_at deadline (auto-lifts at BannedUntil) and "hard" when it
@@ -434,10 +433,10 @@ type tokenEntry struct {
 	// locked is set by LockToken/UnlockLockToken to administratively
 	// exclude a token from Acquire without clearing its cooldown state.
 	locked atomic.Bool
-	// allowlistSkips counts Acquire-time model-allowlist skips for this slot
-	// (MODEL_LOCKS, issue #325): requests for models the slot is not locked
-	// to. Surfaced per-token in snapshots, cards, and metrics.
-	allowlistSkips atomic.Int64
+	// pinSkips counts Acquire-time single-pin skips for this slot
+	// (PIN_MODEL): requests for models the slot is not pinned to.
+	// Surfaced per-token in snapshots, cards, and metrics.
+	pinSkips atomic.Int64
 
 	// quarantine, when non-nil, marks this fixed pooled token permanently
 	// ineligible for leasing: its account reached a terminal state (a live

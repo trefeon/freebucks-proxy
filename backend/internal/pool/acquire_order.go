@@ -24,11 +24,11 @@ func (p *Pool) acquireOrder(toks *[]*tokenEntry, start int, model string) ([]int
 		if tok.locked.Load() {
 			return false
 		}
-		// Model-allowlist routing (MODEL_LOCKS, issue #325): slots locked
-		// to other models are skipped for this request (as if unavailable),
-		// never demoted or punished. Unlocked slots serve anything.
-		if lockedOutByModel(p.cfg.Load(), p.reg, idx, model) {
-			tok.allowlistSkips.Add(1)
+		// Single-pin routing (PIN_MODEL): slots pinned to other models
+		// are skipped for this request (as if unavailable), never
+		// demoted or punished. Unpinned slots serve anything.
+		if pinnedOut(p.cfg.Load(), p.reg, idx, model) {
+			tok.pinSkips.Add(1)
 			return false
 		}
 		if capped, _ := freebucksCapped(tok, model); capped {

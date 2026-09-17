@@ -37,17 +37,17 @@ func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 		return nil, err
 	}
 
-	// Model-allowlist fail-fast (MODEL_LOCKS, issue #325): when every slot
-	// is locked away from the requested model, no admission can succeed —
-	// surface the routing error without touching upstream at all.
-	if allLockedOut(toks, cfg, p.reg, model) {
+	// Single-pin fail-fast (PIN_MODEL): when every slot is pinned away
+	// from the requested model, no admission can succeed — surface the
+	// routing error without touching upstream at all.
+	if allPinnedOut(toks, cfg, p.reg, model) {
 		// The ordering/filter stages are bypassed entirely here, so count
 		// the skip decision per slot (the counter tracks decisions, not
 		// requests — a slot can count twice across filter + failover).
 		for _, tok := range *toks {
-			tok.allowlistSkips.Add(1)
+			tok.pinSkips.Add(1)
 		}
-		return nil, lockFailFastError(model, len(*toks))
+		return nil, pinFailFastError(model, len(*toks))
 	}
 
 	// Plain index order: concurrent requests share the per-entry
@@ -121,16 +121,16 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			}
 			continue
 		}
-		// Model-allowlist routing (MODEL_LOCKS, issue #325): a slot locked
-		// to other models is skipped before any session/run contact, so a
-		// request never burns the wrong account's quota or churns its
-		// session (upstream model_locked 409). Sits after the quarantine
-		// gate so terminal states keep their error-bucket precedence, and
-		// mirrors the eligible() filter for custom-order callers.
-		if lockedOutByModel(cfg, p.reg, idx, model) {
-			tok.allowlistSkips.Add(1)
-			errs = append(errs, fmt.Sprintf("%s: model %q not in token allowlist", name, model))
-			p.logger.Debug("pool: token skipped (model allowlist)", "token", idx+1, "model", model)
+		// Single-pin routing (PIN_MODEL): a slot pinned to another model
+		// is skipped before any session/run contact, so a request never
+		// burns the wrong account's quota or churns its session. Sits
+		// after the quarantine gate so terminal states keep their
+		// error-bucket precedence, and mirrors the eligible() filter for
+		// custom-order callers.
+		if pinnedOut(cfg, p.reg, idx, model) {
+			tok.pinSkips.Add(1)
+			errs = append(errs, fmt.Sprintf("%s: model %q not pinned to this slot", name, model))
+			p.logger.Debug("pool: token skipped (model pin)", "token", idx+1, "model", model)
 			continue
 		}
 
@@ -433,11 +433,11 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 	// surfaces a real 429 with the earliest window reset instead of a
 	// generic combined error.
 	rateLimited = append(rateLimited, quotaLimited...)
-	// Every slot locked away from the model (direct-order callers reach
+	// Every slot pinned away from the model (direct-order callers reach
 	// here via the loop gates): the dedicated routing error beats the
 	// generic combined one.
-	if allLockedOut(toks, cfg, p.reg, model) {
-		return nil, lockFailFastError(model, len(*toks))
+	if allPinnedOut(toks, cfg, p.reg, model) {
+		return nil, pinFailFastError(model, len(*toks))
 	}
 	if len(banned) > 0 {
 		return nil, banned[0]

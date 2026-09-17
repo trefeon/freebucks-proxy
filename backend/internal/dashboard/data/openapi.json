@@ -1566,15 +1566,6 @@
                 "active_runs": {
                   "type": "integer"
                 },
-                "allowed_models": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "allowlist_skips": {
-                  "type": "integer"
-                },
                 "ban_type": {
                   "type": "string"
                 },
@@ -1830,6 +1821,12 @@
                   "type": "integer"
                 },
                 "pending_refund": {
+                  "type": "string"
+                },
+                "pin_skips": {
+                  "type": "integer"
+                },
+                "pinned_model": {
                   "type": "string"
                 },
                 "queue_depth": {
@@ -2408,15 +2405,6 @@
                 "active_runs": {
                   "type": "integer"
                 },
-                "allowed_models": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "allowlist_skips": {
-                  "type": "integer"
-                },
                 "ban_type": {
                   "type": "string"
                 },
@@ -2675,6 +2663,12 @@
                   "type": "integer"
                 },
                 "pending_refund": {
+                  "type": "string"
+                },
+                "pin_skips": {
+                  "type": "integer"
+                },
+                "pinned_model": {
                   "type": "string"
                 },
                 "queue_depth": {

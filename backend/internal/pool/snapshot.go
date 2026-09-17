@@ -85,11 +85,11 @@ type MaturitySnapshot struct {
 func (p *Pool) Snapshot() []TokenSnapshot {
 	toks := p.roster.Load()
 	out := make([]TokenSnapshot, 0, len(*toks))
-	// Model-allowlist view (MODEL_LOCKS, issue #325): per-slot lists for
-	// the dashboard + metrics. Read once per snapshot; hot-reload safe.
-	var modelLocks map[int][]string
+	// Single-pin view (PIN_MODEL): per-slot pins for the dashboard +
+	// metrics. Read once per snapshot; hot-reload safe.
+	var pinModel map[int]string
 	if c := p.cfg.Load(); c != nil {
-		modelLocks = c.ModelLocks
+		pinModel = c.PinModel
 	}
 	for i, tok := range *toks {
 		rs := tok.runs.Snapshot()
@@ -231,8 +231,8 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			Locked:                  tok.locked.Load(),
 			Quarantined:             q != nil,
 			QuarantineReason:        quarantineReason,
-			AllowedModels:           append([]string(nil), modelLocks[i]...),
-			AllowlistSkips:          tok.allowlistSkips.Load(),
+			PinnedModel:             pinModel[i],
+			PinSkips:                tok.pinSkips.Load(),
 			TransientRetries:        tok.client.TransientRetries(),
 			FingerprintRotations:    tok.client.FingerprintRotations(),
 			RateLimitEvents:         tok.client.RateLimitEvents(),

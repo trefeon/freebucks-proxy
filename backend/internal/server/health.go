@@ -3,11 +3,10 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/telemetry"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/telemetry"
 )
 
 // handleHealthz reports uptime, model count, the per-token snapshot, the
@@ -297,12 +296,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sb.WriteString("\n")
-	sb.WriteString("# HELP freebuff_proxy_allowlist_skips_total Acquire-time model-allowlist skips per token (MODEL_LOCKS)\n")
-	sb.WriteString("# TYPE freebuff_proxy_allowlist_skips_total counter\n")
+	sb.WriteString("# HELP freebuff_proxy_pin_skips_total Acquire-time single-pin skips per token (PIN_MODEL)\n")
+	sb.WriteString("# TYPE freebuff_proxy_pin_skips_total counter\n")
 	for _, snap := range snaps {
-		if snap.AllowlistSkips > 0 {
-			fmt.Fprintf(&sb, "freebuff_proxy_allowlist_skips_total{token=\"%d\"} %d\n",
-				snap.Token+1, snap.AllowlistSkips)
+		if snap.PinSkips > 0 {
+			fmt.Fprintf(&sb, "freebuff_proxy_pin_skips_total{token=\"%d\"} %d\n",
+				snap.Token+1, snap.PinSkips)
 		}
 	}
 	sb.WriteString("\n")

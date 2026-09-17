@@ -124,7 +124,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideInt(&raw.RateLimitBurst, "RATE_LIMIT_BURST")
 	overrideString(&raw.TokenRotation, "TOKEN_ROTATION")
 	overrideBoolPtr(&raw.RateLimitFailover, "RATE_LIMIT_FAILOVER")
-	overrideString(&raw.ModelLocks, "MODEL_LOCKS")
+	overrideString(&raw.PinModel, "PIN_MODEL")
 	overrideBool(&raw.DashboardEnabled, "DASHBOARD_ENABLED")
 	overrideBool(&raw.DashboardRequireLogin, "DASHBOARD_REQUIRE_LOGIN")
 	// Convert feature-translation modes (issue #277): COMPRESS_PROMPT,
@@ -335,7 +335,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		return Config{}, fmt.Errorf("invalid TOKEN_ROTATION: %q (must be drain, round_robin, least_used, or random)", raw.TokenRotation)
 	}
 
-	modelLocks, err := parseModelLocks(raw.ModelLocks)
+	pinModel, err := parsePinModel(raw.PinModel)
 	if err != nil {
 		return Config{}, err
 	}
@@ -383,7 +383,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		HTTPReadTimeout:          httpReadTimeout,
 		SessionCallTimeout:       sessionCallTimeout,
 		TokenRotation:            tokenRotation,
-		ModelLocks:               modelLocks,
+		PinModel:                 pinModel,
 		APIKeys:                  dedupeStrings(raw.APIKeys),
 		AdminToken:               adminToken,
 		DashboardRequireLogin:    dashboardRequireLogin,
@@ -564,7 +564,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.SessionCallTimeout, get, "SESSION_CALL_TIMEOUT")
 	overrideStringFrom(&raw.TokenRotation, get, "TOKEN_ROTATION")
 	overrideBoolPtrFrom(&raw.RateLimitFailover, get, "RATE_LIMIT_FAILOVER")
-	overrideStringFrom(&raw.ModelLocks, get, "MODEL_LOCKS")
+	overrideStringFrom(&raw.PinModel, get, "PIN_MODEL")
 	overrideCSVFrom(&raw.APIKeys, get, "API_KEYS")
 	overrideStringFrom(&raw.AdminToken, get, "ADMIN_TOKEN")
 	overrideStringFrom(&raw.CostMode, get, "COST_MODE")

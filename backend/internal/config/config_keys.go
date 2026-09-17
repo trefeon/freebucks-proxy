@@ -74,7 +74,7 @@ type rawConfig struct {
 	RateLimitBurst           *int            `json:"RATE_LIMIT_BURST"`
 	TokenRotation            string          `json:"TOKEN_ROTATION"`
 	RateLimitFailover        *bool           `json:"RATE_LIMIT_FAILOVER"`
-	ModelLocks               string          `json:"MODEL_LOCKS"`
+	PinModel                 string          `json:"PIN_MODEL"`
 	DashboardEnabled         bool            `json:"DASHBOARD_ENABLED"`
 	DashboardRequireLogin    bool            `json:"DASHBOARD_REQUIRE_LOGIN"`
 	CompressPrompt           string          `json:"COMPRESS_PROMPT"`

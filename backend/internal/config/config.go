@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -89,12 +88,11 @@ type Config struct {
 	CLIVersion        string        // upstream CLI version string (default: 0.10.7)
 	TokenRotation     string        // "drain" (default) | "round_robin" | "least_used" | "random"
 	RateLimitFailover bool          // true = automatically lease another token when an in-flight request encounters 429 rate limit (RATE_LIMIT_FAILOVER; default true)
-	// ModelLocks pins pool slots to models (MODEL_LOCKS, issue #325):
-	// map from AUTH_TOKENS slot index to the model ids that slot may
-	// serve, e.g. {0: ["z-ai/glm-5.2"]}. Slots without an entry are
-	// unlocked (today's behavior). Parsed at Load; malformed values
-	// reject the config.
-	ModelLocks       map[int][]string
+	// PinModel pins pool slots to one model each (PIN_MODEL): map from
+	// AUTH_TOKENS slot index to the model id that slot serves, e.g.
+	// {0: "z-ai/glm-5.2"}. Slots without an entry are unpinned (serve any
+	// model). Parsed at Load; malformed values reject the config.
+	PinModel         map[int]string
 	TransientRetries int    // max additional attempts after a transient transport failure (0 = disabled; default 1)
 	SessionPersist   bool   // true = persist session state to disk so restart resumes unexpired sessions (SESSION_PERSIST)
 	SessionStateFile string // path to the session state file (SESSION_STATE_FILE; default .freebuff-session-state.json)
@@ -465,42 +463,6 @@ func splitList(value string) []string {
 		return r == ',' || r == '\n' || r == '\r'
 	})
 	return compactStrings(fields)
-}
-
-// parseModelLocks parses MODEL_LOCKS (issue #325): semicolon/newline
-// separated slot entries, each "<slot-index>:<model>[,<model>...]", e.g.
-// "0:z-ai/glm-5.2;1:upstage/solar-pro4,mimo/mimo-v2.5". Slot indexes
-// address AUTH_TOKENS positions. Empty input yields nil (feature off).
-// Malformed entries (missing colon, bad index, empty model list) are an
-// error: a silently-ignored lock would route quota to the wrong account.
-func parseModelLocks(value string) (map[int][]string, error) {
-	locks := make(map[int][]string)
-	entries := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ';' || r == '\n' || r == '\r'
-	})
-	for _, e := range entries {
-		e = strings.TrimSpace(e)
-		if e == "" {
-			continue
-		}
-		parts := strings.SplitN(e, ":", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid MODEL_LOCKS entry %q (want <slot>:<model>[,<model>...])", e)
-		}
-		idx, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-		if err != nil || idx < 0 {
-			return nil, fmt.Errorf("invalid MODEL_LOCKS slot %q (want non-negative index)", strings.TrimSpace(parts[0]))
-		}
-		models := dedupeStrings(strings.Split(parts[1], ","))
-		if len(models) == 0 {
-			return nil, fmt.Errorf("invalid MODEL_LOCKS entry %q (no models listed)", e)
-		}
-		locks[idx] = models
-	}
-	if len(locks) == 0 {
-		return nil, nil
-	}
-	return locks, nil
 }
 
 func compactStrings(values []string) []string {

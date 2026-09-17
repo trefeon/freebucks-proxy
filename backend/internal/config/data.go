@@ -101,8 +101,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return c.TokenRotation, false
 	case "RATE_LIMIT_FAILOVER":
 		return strconv.FormatBool(c.RateLimitFailover), false
-	case "MODEL_LOCKS":
-		return formatModelLocks(c.ModelLocks), false
+	case "PIN_MODEL":
+		return formatPinModel(c.PinModel), false
 	case "BRIDGE_ENABLED":
 		return strconv.FormatBool(c.BridgeEnabled), false
 	case "BRIDGE_IDLE_EVICT":
@@ -178,20 +178,20 @@ func defaultFor(key string) string {
 	return ""
 }
 
-// formatModelLocks renders the parsed MODEL_LOCKS map back to canonical
-// "idx:model,model;..." form (slots ascending) for dashboard display.
-func formatModelLocks(locks map[int][]string) string {
-	if len(locks) == 0 {
+// formatPinModel renders the parsed PIN_MODEL map back to canonical
+// "idx:model;..." form (slots ascending) for dashboard display.
+func formatPinModel(pins map[int]string) string {
+	if len(pins) == 0 {
 		return ""
 	}
-	idxs := make([]int, 0, len(locks))
-	for idx := range locks {
+	idxs := make([]int, 0, len(pins))
+	for idx := range pins {
 		idxs = append(idxs, idx)
 	}
 	sort.Ints(idxs)
 	parts := make([]string, 0, len(idxs))
 	for _, idx := range idxs {
-		parts = append(parts, strconv.Itoa(idx)+":"+strings.Join(locks[idx], ","))
+		parts = append(parts, strconv.Itoa(idx)+":"+pins[idx])
 	}
 	return strings.Join(parts, ";")
 }
