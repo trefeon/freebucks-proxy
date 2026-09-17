@@ -869,3 +869,39 @@ func maskedSecretShape(v string) bool {
 	}
 	return false
 }
+
+func TestSettingsPostMaturityKeys(t *testing.T) {
+	ts, cookie, csrf := settingsTestServer(t)
+
+	// MATURITY_ENABLED
+	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "MATURITY_ENABLED", "value": "false"})
+	if code != http.StatusOK || res["ok"] != true {
+		t.Fatalf("POST MATURITY_ENABLED = %d %v, want 200 ok", code, res)
+	}
+
+	// MATURITY_TARGET_DAYS
+	code, res = settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "MATURITY_TARGET_DAYS", "value": "14"})
+	if code != http.StatusOK || res["ok"] != true {
+		t.Fatalf("POST MATURITY_TARGET_DAYS = %d %v, want 200 ok", code, res)
+	}
+
+	// MATURITY_TOUCH_MODEL
+	code, res = settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
+		map[string]any{"key": "MATURITY_TOUCH_MODEL", "value": "deepseek/deepseek-v4-flash"})
+	if code != http.StatusOK || res["ok"] != true {
+		t.Fatalf("POST MATURITY_TOUCH_MODEL = %d %v, want 200 ok", code, res)
+	}
+
+	entries := settingsSources(t, ts, cookie)
+	if entries["MATURITY_ENABLED"]["value"] != "false" {
+		t.Errorf("MATURITY_ENABLED value = %v, want false", entries["MATURITY_ENABLED"]["value"])
+	}
+	if entries["MATURITY_TARGET_DAYS"]["value"] != "14" {
+		t.Errorf("MATURITY_TARGET_DAYS value = %v, want 14", entries["MATURITY_TARGET_DAYS"]["value"])
+	}
+	if entries["MATURITY_TOUCH_MODEL"]["value"] != "deepseek/deepseek-v4-flash" {
+		t.Errorf("MATURITY_TOUCH_MODEL value = %v, want deepseek/deepseek-v4-flash", entries["MATURITY_TOUCH_MODEL"]["value"])
+	}
+}

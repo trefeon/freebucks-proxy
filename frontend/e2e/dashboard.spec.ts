@@ -188,11 +188,13 @@ test.describe("dashboard hermetic mocks", () => {
     await table
       .getByLabel("Pin a model to this token")
       .selectOption("mimo/mimo-v2.5");
-    await table.getByRole("button", { name: "Pin" }).click();
-    await page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
-      { timeout: 10000 },
-    );
+    await Promise.all([
+      page.waitForRequest(
+        (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+        { timeout: 10000 },
+      ),
+      table.getByRole("button", { name: "Pin" }).click(),
+    ]);
     await expect
       .poll(() => posted.find((p) => p.key === "PIN_MODEL")?.value ?? "")
       .toContain("0:mimo/mimo-v2.5");
@@ -211,11 +213,13 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
     await table.locator('button[aria-label*="Expand details"]').first().click();
     await expect(page.getByText("mimo/mimo-v2.5").first()).toBeVisible();
-    await table.getByRole("button", { name: "Clear pin" }).click();
-    await page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
-      { timeout: 10000 },
-    );
+    await Promise.all([
+      page.waitForRequest(
+        (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+        { timeout: 10000 },
+      ),
+      table.getByRole("button", { name: "Clear pin" }).click(),
+    ]);
     await expect
       .poll(() => posted.filter((p) => p.key === "PIN_MODEL").length)
       .toBeGreaterThan(0);
@@ -706,13 +710,6 @@ test.describe("dashboard hermetic mocks", () => {
         .getByRole("status")
         .filter({ hasText: "REASONING_IN_CONTENT saved" }),
     ).toBeVisible();
-    // Settings keeps a link-out stub pointing at the Usage page.
-    await page.goto("http://127.0.0.1:4173/admin/#settings");
-    await expect(
-      page.getByRole("link", {
-        name: "Manage Usage controls (Usage → Controls tab)",
-      }),
-    ).toBeVisible();
   });
   test("Pool Controls tab renders pool tuning keys and saves", async ({
     page,
@@ -913,7 +910,7 @@ test.describe("dashboard hermetic mocks", () => {
       .toBeGreaterThan(0);
     await expect
       .poll(() =>
-        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "60s"),
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "15s"),
       )
       .toBe(true);
     // The card's own rows display the restored preset values.
@@ -921,7 +918,7 @@ test.describe("dashboard hermetic mocks", () => {
       "16",
     );
     await expect(page.locator('input[aria-label="QUEUE_WAIT"]')).toHaveValue(
-      "60s",
+      "15s",
     );
   });
 
@@ -974,7 +971,7 @@ test.describe("dashboard hermetic mocks", () => {
       .toBe(true);
     await expect
       .poll(() =>
-        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "60s"),
+        posted.some((p) => p.key === "QUEUE_WAIT" && p.value === "15s"),
       )
       .toBe(true);
     await page.route("**/admin/api/settings", async (route) => {
@@ -1423,13 +1420,11 @@ test.describe("dashboard hermetic mocks", () => {
       .locator("#settings-search")
       .getAttribute("placeholder");
     const named = Number(/Search (\d+) settings…/.exec(placeholder ?? "")?.[1]);
-    // 13 catalog rows the page renders or names (1 access + 2 general +
-    // 3 named by the Pool link-out stub + 1 by the routing stub + 1 log
-    // level + 4 diagnostics + 1 security), plus the non-catalog admin
+    // 9 catalog rows the page renders (1 access + 2 general +
+    // 1 log level + 4 diagnostics + 1 security), plus the non-catalog admin
     // password row, plus the 21 hidden catalog keys the "Hidden keys"
-    // disclosure lists (24 hidden non-secret keys minus the 3 that keep a
-    // card of their own) — not the catalog.
-    expect(named).toBe(34);
+    // disclosure lists — not the catalog.
+    expect(named).toBe(31);
     const rendered = await page.evaluate(
       () =>
         Array.from(document.querySelectorAll("code")).filter((c) =>

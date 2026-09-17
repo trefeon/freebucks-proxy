@@ -77,8 +77,17 @@ type rawConfig struct {
 	CompressPrompt           string          `json:"COMPRESS_PROMPT"`
 	CacheControlInjection    string          `json:"CACHE_CONTROL_INJECTION"`
 	ReasoningInContent       string          `json:"REASONING_IN_CONTENT"`
+	// MaturityEnabled is the global kill-switch for streak-maturity automation
+	// (MATURITY_ENABLED; default true).
+	MaturityEnabled bool `json:"MATURITY_ENABLED"`
+	// MaturityTouchModel is the touch-model override for streak-maturity touches
+	// (MATURITY_TOUCH_MODEL; default "" = auto).
+	MaturityTouchModel string `json:"MATURITY_TOUCH_MODEL"`
+	// MaturityTargetDays is the default streak target for newly-enabled tokens
+	// (MATURITY_TARGET_DAYS; default 7, valid 1..28).
+	MaturityTargetDays *int `json:"MATURITY_TARGET_DAYS"`
 	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 2, floor
-	// 1): the per account-model live-turn cap.
+	// 0; 0 = unlimited live turns, no slot gating applies).
 	SlotsPerAccount *int `json:"SLOTS_PER_ACCOUNT"`
 	// QueueWait records QUEUE_WAIT (default "30s"): the FIFO slot-queue
 	// wait bound.
@@ -147,6 +156,9 @@ func defaultRawConfig() rawConfig {
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
 		SlotsPerAccount:        ptrInt(2),  // per account-model live turns (floor 1; bunker strictness is 1)
 		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
+		MaturityEnabled:        true,       // streak maintenance on by default; set MATURITY_ENABLED=false to disable
+		MaturityTouchModel:     "",         // "" = auto: cheapest unmetered catalog row
+		MaturityTargetDays:     ptrInt(7),  // default 7-day streak target
 	}
 }
 

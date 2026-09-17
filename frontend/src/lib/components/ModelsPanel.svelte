@@ -162,7 +162,7 @@
   <Card title={$tr("Models")} pad="none">
     <!-- Desktop: table (md+) -->
     <div class="hidden md:block overflow-x-auto">
-      <table class="fp-table">
+      <table class="fp-table w-full">
         <thead>
           <tr>
             <th scope="col">{$tr("Model ID")}</th>

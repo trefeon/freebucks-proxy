@@ -35,6 +35,14 @@ export const STRATEGY_OWNED_KEYS = [
   "MAX_SPILL_ACCOUNTS",
 ];
 
+/** Exact values the MASQ preset writes (1500ms deferred scale-out). */
+export const STRATEGY_MASQ = {
+  SLOTS_PER_ACCOUNT: "2",
+  QUEUE_WAIT: "1500ms",
+  QUEUE_DEPTH: "32",
+  MAX_SPILL_ACCOUNTS: "0",
+};
+
 /** Exact values the Drain preset writes (PIN_MODEL excluded by design). */
 export const STRATEGY_DRAIN = {
   SLOTS_PER_ACCOUNT: "2",
@@ -43,10 +51,10 @@ export const STRATEGY_DRAIN = {
   MAX_SPILL_ACCOUNTS: "0",
 };
 
-/** Exact values the Balance preset writes (threshold at its default). */
+/** Exact values the Balance preset writes (fast 15s spill). */
 export const STRATEGY_BALANCE = {
   SLOTS_PER_ACCOUNT: "2",
-  QUEUE_WAIT: "60s",
+  QUEUE_WAIT: "15s",
   QUEUE_DEPTH: "16",
   MAX_SPILL_ACCOUNTS: "0",
 };
@@ -178,13 +186,22 @@ export function maxSpillAccounts(raw) {
  * by the token drawer, not queue posture.
  *
  * @param {Record<string, string>} values
- * @returns {"drain" | "balance" | "custom"}
+ * @returns {"masq" | "drain" | "balance" | "custom"}
  */
 export function detectStrategy(values = {}) {
   const slots = slotsPerAccount(values.SLOTS_PER_ACCOUNT);
   const spill = maxSpillAccounts(values.MAX_SPILL_ACCOUNTS);
   const depth = queueDepth(values.QUEUE_DEPTH);
   const waitSecs = queueWaitSecs(values.QUEUE_WAIT);
+  const waitRaw = String(values.QUEUE_WAIT ?? "").trim();
+  if (
+    slots === 2 &&
+    spill === 0 &&
+    (depth === 32 || depth === 16) &&
+    (waitRaw === "1500ms" || Math.abs(waitSecs - 1.5) < 0.01)
+  ) {
+    return "masq";
+  }
   if (slots === 2 && spill === 0 && depth === 1024 && waitSecs === 300) {
     return "drain";
   }

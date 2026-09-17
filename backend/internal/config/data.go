@@ -149,6 +149,12 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.CacheControlInjection), false
 	case "REASONING_IN_CONTENT":
 		return c.ReasoningInContent, false
+	case "MATURITY_ENABLED":
+		return strconv.FormatBool(c.MaturityEnabled), false
+	case "MATURITY_TARGET_DAYS":
+		return strconv.Itoa(c.MaturityTargetDays), false
+	case "MATURITY_TOUCH_MODEL":
+		return c.MaturityTouchModel, false
 	case "ACTING_USER_ID":
 		return c.ActingUserID, false
 	case "ADMIN_FORCE_SECURE_COOKIES":

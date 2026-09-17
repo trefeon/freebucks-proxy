@@ -515,13 +515,15 @@
           {$tr("Queue")}
         </dt>
         <dd class="text-sm font-semibold text-[var(--fp-text)]">
-          {posture === "drain"
-            ? $tr("Drain")
-            : posture === "balance"
-              ? $tr("Balance")
-              : posture === "custom"
-                ? $tr("Custom")
-                : "—"}
+          {posture === "masq"
+            ? $tr("MASQ")
+            : posture === "drain"
+              ? $tr("Drain")
+              : posture === "balance"
+                ? $tr("Balance")
+                : posture === "custom"
+                  ? $tr("Custom")
+                  : "—"}
         </dd>
       </div>
     </dl>

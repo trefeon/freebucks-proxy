@@ -10,8 +10,6 @@
   import CommandCenterCard from "../components/CommandCenterCard.svelte";
   import HiddenKeysCard from "./settings/HiddenKeysCard.svelte";
   import GatewaySettings from "./settings/GatewaySettings.svelte";
-  import TrafficSettings from "./settings/TrafficSettings.svelte";
-  import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import LogLevelSettings from "./settings/LogLevelSettings.svelte";
   import {
@@ -50,11 +48,8 @@
   let filterQuery = $state("");
   let searching = $derived(filterQuery.trim().length > 0);
   // Per-section visible-row counts (bound from the section components, -1
-  // until mounted) for the global search empty state. trafficMatches is
-  // reported by the Pool stub card that links out to #tokens.
+  // until mounted) for the global search empty state.
   let gatewayMatches = $state(-1);
-  let trafficMatches = $state(-1);
-  let routingMatches = $state(-1);
   let logLevelMatches = $state(-1);
   let accessMatches = $state(-1);
   let advancedMatches = $state(-1);
@@ -64,8 +59,6 @@
   let allEmpty = $derived(
     searching &&
       gatewayMatches === 0 &&
-      trafficMatches === 0 &&
-      routingMatches === 0 &&
       logLevelMatches === 0 &&
       accessMatches === 0 &&
       advancedMatches === 0 &&
@@ -80,8 +73,6 @@
     const sum = [
       accessMatches,
       gatewayMatches,
-      trafficMatches,
-      routingMatches,
       logLevelMatches,
       advancedMatches,
       loggingMatches,
@@ -167,33 +158,7 @@
     degraded={$settingsDegraded}
   />
 
-  <!-- 3. Pool (moved to the Pool page - stub links out to #tokens) -->
-  <TrafficSettings
-    formValues={$formValues}
-    rawText={$rawText}
-    onField={setField}
-    sources={$settingSources}
-    onReset={resetSetting}
-    onSaved={overlaySaved}
-    query={filterQuery}
-    onMatchCount={(n) => (trafficMatches = n)}
-    stub
-  />
-
-  <!-- 4. Model Routing & Aliases (moved to the Usage page - stub links out to #plans) -->
-  <ModelRoutingSettings
-    formValues={$formValues}
-    rawText={$rawText}
-    onField={setField}
-    sources={$settingSources}
-    onReset={resetSetting}
-    onSaved={overlaySaved}
-    query={filterQuery}
-    onMatchCount={(n) => (routingMatches = n)}
-    stub
-  />
-
-  <!-- 5. Logging (the working home of the log keys; the Logs page no
+  <!-- 3. Logging (the working home of the log keys; the Logs page no
        longer hosts a Logging tab) -->
   <LogLevelSettings
     formValues={$formValues}

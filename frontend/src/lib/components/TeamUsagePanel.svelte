@@ -127,7 +127,7 @@
     >
       {#if keys.length}
         <div class="overflow-x-auto">
-          <table class="fp-table">
+          <table class="fp-table w-full">
             <caption class="sr-only"
               >{$tr(
                 "Per-client API key usage — requests, tokens, window and Freebucks",

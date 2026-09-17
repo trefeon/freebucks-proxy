@@ -9,6 +9,7 @@
   import { tr } from "../../i18n.js";
   import { parseEnv } from "../../utils/env.js";
   import {
+    STRATEGY_MASQ,
     STRATEGY_DRAIN,
     STRATEGY_BALANCE,
     BALANCE_THRESHOLD_MIN_SECS,
@@ -60,6 +61,9 @@
     onMatchCount = null,
   } = $props();
 
+  const MASQ_LABEL = "MASQ";
+  const MASQ_DESC =
+    "Ordered Sticky Slot-Packing: 2 slots per account with 1500ms deferred scale-out and sticky session retention. Maximizes account session reuse.";
   const DRAIN_LABEL = "Drain";
   const DRAIN_DESC =
     "Deep queues: each account serves up to 5 minutes / 1024 parked waiters before the request spills to the next account. Safest for a few accounts.";
@@ -149,6 +153,8 @@
       "QUEUE_DEPTH",
       "MAX_SPILL_ACCOUNTS",
       "Pool Strategy",
+      MASQ_LABEL,
+      MASQ_DESC,
       DRAIN_LABEL,
       DRAIN_DESC,
       BALANCE_LABEL,
@@ -191,8 +197,10 @@
     {#snippet actions()}
       {#if strategy === "custom"}
         <StatusBadge tone="warn" status={$tr("Custom")} />
+      {:else if strategy === "masq"}
+        <StatusBadge tone="good" status={$tr("MASQ")} />
       {:else if strategy === "drain"}
-        <StatusBadge tone="good" status={$tr("Drain")} />
+        <StatusBadge tone="info" status={$tr("Drain")} />
       {:else}
         <StatusBadge tone="info" status={$tr("Balance")} />
       {/if}
@@ -210,6 +218,17 @@
       role="radiogroup"
       aria-label={$tr("Pool strategy")}
     >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={strategy === "masq"}
+        onclick={() => applyPreset(STRATEGY_MASQ)}
+        class="fp-btn {strategy === 'masq'
+          ? 'fp-btn-primary'
+          : 'fp-btn-ghost'} fp-btn-sm text-xs"
+      >
+        {$tr(MASQ_LABEL)}
+      </button>
       <button
         type="button"
         role="radio"
@@ -241,7 +260,12 @@
     <div
       class="fp-inset p-3 rounded text-xs text-[var(--fp-muted)] flex items-start gap-2"
     >
-      {#if strategy === "drain"}
+      {#if strategy === "masq"}
+        <p class="leading-relaxed">
+          <strong class="text-[var(--fp-text)]">{$tr("MASQ:")}</strong>
+          {$tr(MASQ_DESC)}
+        </p>
+      {:else if strategy === "drain"}
         <p class="leading-relaxed">
           <strong class="text-[var(--fp-text)]">{$tr("Drain:")}</strong>
           {$tr(DRAIN_DESC)}
@@ -306,6 +330,13 @@
 
     {#if strategy === "custom"}
       <div class="flex flex-wrap items-center gap-2 pt-3">
+        <button
+          type="button"
+          onclick={() => applyPreset(STRATEGY_MASQ)}
+          class="fp-btn fp-btn-secondary fp-btn-sm text-xs"
+        >
+          {$tr("Reset to MASQ")}
+        </button>
         <button
           type="button"
           onclick={() => applyPreset(STRATEGY_DRAIN)}

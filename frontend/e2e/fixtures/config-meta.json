@@ -218,6 +218,36 @@
     "description": "Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset)."
   },
   {
+    "key": "MATURITY_ENABLED",
+    "group": "pool",
+    "kind": "bool",
+    "default": "true",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Global kill-switch for streak-maturity automation (default true). When false, no maturity touch ever fires."
+  },
+  {
+    "key": "MATURITY_TARGET_DAYS",
+    "group": "pool",
+    "kind": "int",
+    "default": "7",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Streak target in days for newly-enabled tokens (valid 1..28; default 7). A token reaching its target stops receiving automated touches."
+  },
+  {
+    "key": "MATURITY_TOUCH_MODEL",
+    "group": "pool",
+    "kind": "text",
+    "default": "",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Touch-model override for streak-maturity touches (\"\" = auto: cheapest unmetered catalog row)."
+  },
+  {
     "key": "MAX_SPILL_ACCOUNTS",
     "group": "pool",
     "kind": "int",

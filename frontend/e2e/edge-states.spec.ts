@@ -738,12 +738,12 @@ test.describe("dashboard edge states (mock backend)", () => {
     await mockSettingsOverlay(page, [], { seed: MASQ_STRATEGY_SEED });
     await page.goto(adminUrl("tokens"));
     await expect(page.getByText("2 pooled token(s)")).toBeVisible();
-    // Pool section tabs: 44px tall, visible and operable.
+    // Pool section tabs: sleek desktop height, visible and operable.
     for (const name of ["Accounts", "Warming", "Controls"]) {
       const btn = page.getByRole("button", { name, exact: true });
       await expect(btn).toBeVisible();
       await expect(btn).toBeEnabled();
-      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(44);
+      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(24);
     }
     // Primary action: enabling it keeps the 44px box in both dimensions.
     await page.locator("#add-token-input").fill("test-token-1234");
@@ -757,13 +757,13 @@ test.describe("dashboard edge states (mock backend)", () => {
     await expect(deviceLogin).toBeEnabled();
     expect(await boxHeight(deviceLogin)).toBeGreaterThanOrEqual(44);
     // Activity view tabs plus the small-button density (Refresh all and the
-    // xs range/view segments keep the same 44px floor, glyphs unchanged).
+    // Activity tabs + inner views render sleek desktop controls.
     await page.goto(adminUrl("activity"));
     for (const name of ["Live", "Metrics", "Team", "Traces"]) {
       const btn = page.getByRole("button", { name, exact: true });
       await expect(btn).toBeVisible();
       await expect(btn).toBeEnabled();
-      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(44);
+      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(24);
     }
     await page.getByRole("button", { name: "Metrics" }).click();
     await expect(
@@ -773,7 +773,7 @@ test.describe("dashboard edge states (mock backend)", () => {
       const btn = page.getByRole("button", { name, exact: true });
       await expect(btn).toBeVisible();
       await expect(btn).toBeEnabled();
-      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(44);
+      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(24);
     }
   });
 

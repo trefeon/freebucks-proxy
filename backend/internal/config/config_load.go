@@ -123,6 +123,9 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.PinModel, "PIN_MODEL")
 	overrideBool(&raw.DashboardEnabled, "DASHBOARD_ENABLED")
 	overrideBool(&raw.DashboardRequireLogin, "DASHBOARD_REQUIRE_LOGIN")
+	overrideBool(&raw.MaturityEnabled, "MATURITY_ENABLED")
+	overrideString(&raw.MaturityTouchModel, "MATURITY_TOUCH_MODEL")
+	overrideInt(&raw.MaturityTargetDays, "MATURITY_TARGET_DAYS")
 	// Convert feature-translation modes (issue #277): COMPRESS_PROMPT,
 	// CACHE_CONTROL_INJECTION and REASONING_IN_CONTENT are resolved once
 	// here (so the dashboard config form and /admin/reload swaps apply) and
@@ -346,6 +349,10 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	if raw.MaxSpillAccounts != nil {
 		maxSpillAccounts = *raw.MaxSpillAccounts
 	}
+	maturityTargetDays := 7
+	if raw.MaturityTargetDays != nil {
+		maturityTargetDays = *raw.MaturityTargetDays
+	}
 	cfg := Config{
 		ListenAddr:               strings.TrimSpace(raw.ListenAddr),
 		UpstreamBaseURL:          upstreamBaseURL,
@@ -398,6 +405,9 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		RateLimitPerIP:           rateLimitPerIP,
 		RateLimitBurst:           rateLimitBurst,
 		DashboardEnabled:         raw.DashboardEnabled,
+		MaturityEnabled:          raw.MaturityEnabled,
+		MaturityTouchModel:       strings.TrimSpace(raw.MaturityTouchModel),
+		MaturityTargetDays:       maturityTargetDays,
 		EnvFile:                  envFileUsed,
 		CompressPrompt:           parseCompressPrompt(raw.CompressPrompt),
 		CacheControlInjection:    parseCacheControlInjection(raw.CacheControlInjection),
@@ -580,6 +590,9 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideIntFrom(&raw.RateLimitBurst, get, "RATE_LIMIT_BURST")
 	overrideBoolFrom(&raw.DashboardEnabled, get, "DASHBOARD_ENABLED")
 	overrideBoolFrom(&raw.DashboardRequireLogin, get, "DASHBOARD_REQUIRE_LOGIN")
+	overrideBoolFrom(&raw.MaturityEnabled, get, "MATURITY_ENABLED")
+	overrideStringFrom(&raw.MaturityTouchModel, get, "MATURITY_TOUCH_MODEL")
+	overrideIntFrom(&raw.MaturityTargetDays, get, "MATURITY_TARGET_DAYS")
 	// Convert feature-translation modes (issue #277), mirroring Load.
 	overrideStringFrom(&raw.CompressPrompt, get, "COMPRESS_PROMPT")
 	overrideStringFrom(&raw.CacheControlInjection, get, "CACHE_CONTROL_INJECTION")

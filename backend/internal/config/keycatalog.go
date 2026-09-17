@@ -170,6 +170,21 @@ var keyCatalog = []KeyDef{
 		Description: `Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset).`,
 	},
 	{
+		Key: "MATURITY_ENABLED", Group: GroupPool, Kind: "bool",
+		Default:     "true",
+		Description: `Global kill-switch for streak-maturity automation (default true). When false, no maturity touch ever fires.`,
+	},
+	{
+		Key: "MATURITY_TARGET_DAYS", Group: GroupPool, Kind: "int",
+		Default:     "7",
+		Description: `Streak target in days for newly-enabled tokens (valid 1..28; default 7). A token reaching its target stops receiving automated touches.`,
+	},
+	{
+		Key: "MATURITY_TOUCH_MODEL", Group: GroupPool, Kind: "text",
+		Default:     "",
+		Description: `Touch-model override for streak-maturity touches ("" = auto: cheapest unmetered catalog row).`,
+	},
+	{
 		Key: "MAX_SPILL_ACCOUNTS", Group: GroupPool, Kind: "int",
 		Default:     "0",
 		Description: `How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain). A 429 quota requeue never consumes spill budget. Applies live on reload.`,
