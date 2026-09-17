@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
 import type { PostedSetting } from "./mocks.js";
+import { tokenRow, tokensPayload } from "./mock-data.js";
 
 // ---------------------------------------------------------------------------
 // Full interactable inventory, DB-first (mocked gateway API + stateful
@@ -59,26 +60,6 @@ const admin = (hash: string) => `http://127.0.0.1:4173/admin/#${hash}`;
 // global Notifications host; lockstep matters if the host label moves).
 const toasts = (page: Parameters<typeof mockDashboard>[0]) =>
   page.getByLabel("Notifications");
-
-const TOK0 = {
-  index: 0,
-  email: "acct0@example.com",
-  session_status: "idle",
-  queue_position: 0,
-  queue_depth: 0,
-  active_runs: 0,
-  requests: 0,
-  messages_24h: 0,
-  cooldown_active: false,
-  cooldown_until: "",
-  locked: false,
-  transient_retries: 1,
-  has_standing: false,
-  session_instance: "",
-  session_model: "",
-  session_remaining_seconds: 0,
-  has_quota: false,
-};
 test.describe("interactables DB-first (mocked gateway + overlay)", () => {
   test.use({ expect: { timeout: 10_000 } });
 
@@ -235,15 +216,7 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          mode: "pooled",
-          in_bridge: false,
-          bridge_tokens: 0,
-          token_count: 1,
-          has_tokens: true,
-          tokens: [TOK0],
-          bridge_token_cards: [],
-        }),
+        body: JSON.stringify(tokensPayload([tokenRow(0)])),
       });
     });
     await page.unroute("**/admin/api/config");
