@@ -75,7 +75,11 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 	// request actually parked somewhere; a waiter that timed out or was
 	// cancelled held no slot and reports nothing on that lane.
 	var queueWait time.Duration
-	for _, idx := range order {
+	// Indexed (not range): a same-lane quota requeue (I5) rewinds oi to
+	// retry the lane after its RetryAfter elapses — no spill hop consumed,
+	// no failover. Every other path advances normally.
+	for oi := 0; oi < len(order); oi++ {
+		idx := order[oi]
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -248,6 +252,52 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			if errors.As(err, &wr) {
 				waiting = append(waiting, wr)
 			}
+			if rle := c.rateLimited; rle != nil && !c.authRejected && c.banned == nil && c.ipCapped == nil && c.countryBlocked == nil && c.limitedIp == nil {
+				// MASQ same-lane quota requeue (I5, spill_queue.go): a
+				// short-window quota jail is waited out on this lane —
+				// no cooldown write, no failover, no spill hop. Longer
+				// (or windowless) windows fall through to the legacy
+				// per-lane record below.
+				if cfg.RoutingSmart {
+					if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
+						if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
+							// Issue #178: tag the refusal with the requested
+							// model when the upstream body omits it.
+							if rle.Model == "" {
+								rle.Model = model
+							}
+							// Issue #122: count spend_limited on the ledger.
+							if c.spendLimited {
+								tok.ledger.recordSpendLimited()
+							}
+							routeSlot.Release()
+							p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter)
+							rqStart := time.Now()
+							permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+							if rerr != nil {
+								if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
+									if qerr.Reason == "timeout" {
+										queueWait += qerr.Wait
+									}
+									if spill.note(qerr, sCap) {
+										p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+										continue
+									}
+									break
+								}
+								return nil, rerr
+							}
+							if parked {
+								queueWait += time.Since(rqStart)
+								phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+							}
+							routeSlot = permit
+							oi--
+							continue
+						}
+					}
+				}
+			}
 			if rle := c.rateLimited; rle != nil {
 				// Issue #178: tag the refusal with the requested model when
 				// the upstream body omits it, so the remembered cooldown can
@@ -343,6 +393,53 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				// 401 invalid is a per-account credential refusal, never a
 				// terminal quarantine — see the admission path.
 				p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1)
+			}
+			// MASQ same-lane quota requeue (I5, spill_queue.go): a
+			// short-window run-start quota jail is waited out on this
+			// lane — no cooldown write, no failover, no spill hop.
+			// Longer (or windowless) windows fall through to the legacy
+			// per-lane record below. Terminal mixes (ban, correlative
+			// refusals, auth rejection) never requeue.
+			if rle := c.rateLimited; rle != nil && !c.authRejected && c.banned == nil && c.ipCapped == nil && c.countryBlocked == nil && c.limitedIp == nil {
+				if cfg.RoutingSmart {
+					if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
+						if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
+							// Issue #178: tag the refusal with the requested
+							// model when the upstream body omits it.
+							if rle.Model == "" {
+								rle.Model = model
+							}
+							// Issue #122: count spend_limited on the ledger.
+							if c.spendLimited {
+								tok.ledger.recordSpendLimited()
+							}
+							routeSlot.Release()
+							p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "phase", "run-start")
+							rqStart := time.Now()
+							permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+							if rerr != nil {
+								if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
+									if qerr.Reason == "timeout" {
+										queueWait += qerr.Wait
+									}
+									if spill.note(qerr, sCap) {
+										p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+										continue
+									}
+									break
+								}
+								return nil, rerr
+							}
+							if parked {
+								queueWait += time.Since(rqStart)
+								phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+							}
+							routeSlot = permit
+							oi--
+							continue
+						}
+					}
+				}
 			}
 			if rle := c.rateLimited; rle != nil {
 				// Issue #178: tag the refusal with the requested model when
