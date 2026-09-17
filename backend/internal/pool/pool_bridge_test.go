@@ -758,35 +758,6 @@ func TestHybridPooledCredentialRefusedOnBridge(t *testing.T) {
 	}
 }
 
-// TestCooldownBridgeIpCappedSurfacesRemembered pins the bridge entry's
-// ip_capped cooldown: after CooldownBridgeIpCapped the next AcquireBridge
-// surfaces the remembered error instead of re-hitting upstream.
-func TestCooldownBridgeIpCappedSurfacesRemembered(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgePool(t, mock)
-
-	lease, err := p.AcquireBridge(context.Background(), "client-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.CooldownBridgeIpCapped(lease, &upstream.IpCappedError{RetryAfter: 5 * time.Minute, Body: "ip_capped"})
-	p.LeaseRelease(lease)
-
-	before := mock.RequestCount()
-	_, err = p.AcquireBridge(context.Background(), "client-tok", modelA)
-	var ice *upstream.IpCappedError
-	if !errors.As(err, &ice) {
-		t.Fatalf("second acquire = %v, want *upstream.IpCappedError", err)
-	}
-	if !errors.Is(err, upstream.ErrIpCapped) {
-		t.Error("errors.Is(ErrIpCapped) = false")
-	}
-	if after := mock.RequestCount(); after != before {
-		t.Errorf("upstream requests while ip-capped = %d, want %d (skip)", after, before)
-	}
-}
-
 // TestCooldownBridgeCountryBlockedSurfacesRemembered pins the bridge
 // entry's country-block cooldown: after CooldownBridgeCountryBlocked the
 // next AcquireBridge surfaces the remembered block instead of re-hitting

@@ -1,14 +1,16 @@
 package pool
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // memPoolPersist is a map-backed PoolPersist double: proves the pool
@@ -193,20 +195,25 @@ func TestPoolPersistExpiredWindowsIgnored(t *testing.T) {
 	}
 }
 
-// TestPoolPersistUnfitExpiryIgnored proves an expired unfit mark reads as
-// servable (the unfit registry itself is intentionally NOT persisted —
-// narrowed scope — so this pins the in-memory TTL-on-read behavior the
-// restore path relies on).
-func TestPoolPersistUnfitExpiryIgnored(t *testing.T) {
+// TestPoolPersistLimitedIPSurfacesDirect proves a limited_ip refusal
+// surfaces directly with no registry state to persist or expire: the
+// admission error returns as-is and the token takes no cooldown.
+func TestPoolPersistLimitedIPSurfacesDirect(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"error":"session_model_mismatch","message":"model limited on this egress ip"}`))
+	}
 	p := newTestPool(t, mock)
-	old := modelUnfitTTL
-	modelUnfitTTL = -time.Second
-	defer func() { modelUnfitTTL = old }()
-	p.MarkModelUnfit(modelB, nil)
-	if until, _ := p.ModelUnfit(modelB); !until.IsZero() {
-		t.Fatalf("expired unfit mark still reported until %v", until)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := p.Acquire(ctx, modelB)
+	if err == nil || !errors.Is(err, upstream.ErrModelIPLimited) {
+		t.Fatalf("want ErrModelIPLimited, got %v", err)
+	}
+	if until := (*p.roster.Load())[0].runs.CooldownUntil(); time.Now().Before(until) {
+		t.Fatalf("limited_ip wrote cooldown until %s, want none", until.Format(time.RFC3339))
 	}
 }
 

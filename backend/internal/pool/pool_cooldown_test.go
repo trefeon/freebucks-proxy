@@ -509,31 +509,6 @@ func TestAcquireIpCappedCooldownBounded(t *testing.T) {
 	}
 }
 
-// TestPoolCooldownTokenIpCappedBounded verifies the pool-level cooldown
-// entry point (used by the server's chat-path recovery) bounds the window
-// to the error's RetryAfter only.
-func TestPoolCooldownTokenIpCappedBounded(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPool(t, mock)
-
-	p.CooldownTokenIpCapped(0, &upstream.IpCappedError{RetryAfter: 30 * time.Second, ActiveUsersForIP: 5, Limit: 4})
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.IsZero() {
-		t.Fatal("CooldownUntil zero, want bounded window")
-	}
-	want := time.Now().Add(30 * time.Second)
-	diff := snap.CooldownUntil.Sub(want)
-	if diff < -8*time.Second || diff > 8*time.Second {
-		t.Errorf("CooldownUntil = %v, want ≈ now+30s ±20%% jitter (bounded), not Pacific midnight", snap.CooldownUntil)
-	}
-
-	// Out-of-range tokens are ignored without panicking.
-	p.CooldownTokenIpCapped(99, &upstream.IpCappedError{RetryAfter: time.Second})
-	p.CooldownTokenIpCapped(-1, &upstream.IpCappedError{RetryAfter: time.Second})
-	p.CooldownTokenIpCapped(0, nil)
-}
-
 // TestSessionPollSkipsWhileChatInFlight verifies #77: the session-liveness
 // poll is skipped while any run holds an in-flight lease (a poll landing
 // mid-chat can kick the active session with 428), and resumes once the lease

@@ -428,9 +428,9 @@ func TestBridgeSweepParksShortCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Short transient: a 5m ip_capped window sits inside the default 15m
+	// Short transient: a 5m cooldown window sits inside the default 15m
 	// park threshold, so the sweep must keep the entry.
-	p.CooldownBridgeIpCapped(lease, &upstream.IpCappedError{RetryAfter: 5 * time.Minute, Body: "ip_capped"})
+	p.CooldownBridge(lease, 5*time.Minute)
 	p.LeaseRelease(lease)
 	entry := p.bridgeToken("park-tok")
 	if entry == nil {
