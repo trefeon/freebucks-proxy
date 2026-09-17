@@ -158,9 +158,18 @@
 </script>
 
 {#if loading}
-  <p class="text-xs text-[var(--fp-dim)] font-mono">{$tr("Loading…")}</p>
+  <p
+    role="status"
+    aria-label={$tr("Loading…")}
+    class="text-xs text-[var(--fp-dim)] font-mono"
+  >
+    {$tr("Loading…")}
+  </p>
 {:else if error}
   <div class="flex flex-col gap-3">
+    <p class="text-sm text-[var(--fp-error)]" data-testid="inline-error">
+      {error}
+    </p>
     <div>
       <Button variant="secondary" onclick={refreshTokens}>{$tr("Retry")}</Button
       >

@@ -12,6 +12,12 @@ import {
 // One factory builds the fake backend (mock-data.ts), one route layer serves
 // it (mocks.ts mockDashboard/mockSettingsOverlay). Web-first assertions only:
 // role/label locators, no sleeps, no brittle selectors.
+// Interactive targets are measured in whole CSS px: boundingBox reports
+// sub-pixel float dust (observed 43.99999237 for a 44px floor), so round.
+async function boxHeight(locator) {
+  return Math.round((await locator.boundingBox())?.height ?? 0);
+}
+
 test.describe("dashboard edge states (mock backend)", () => {
   test.use({ expect: { timeout: 10_000 } });
 
@@ -152,6 +158,7 @@ test.describe("dashboard edge states (mock backend)", () => {
       });
     });
     await page.goto(adminUrl("plans"));
+    await expect(page.getByRole("status", { name: "Loading" })).toBeVisible();
     await expect(page.getByText("Loading…").first()).toBeVisible();
     await expect(page.getByText("Account #1").first()).toBeVisible();
   });
@@ -178,11 +185,75 @@ test.describe("dashboard edge states (mock backend)", () => {
     });
     await page.goto(adminUrl("plans"));
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    // The backend message renders inline in the panel, not toast-only.
+    await expect(page.getByTestId("inline-error")).toContainText("boom");
     await expect(
       page.getByRole("alert").filter({ hasText: "Could not load this page" }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Retry" }).click();
     await expect(page.getByText("Account #1").first()).toBeVisible();
+  });
+
+  // -- Models (#plans models tab: ModelsPanel) ------------------------------
+
+  test("models loading announces itself instead of staying silent", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await mockSettingsOverlay(page, []);
+    await page.unroute("**/admin/api/models*");
+    await page.route("**/admin/api/models*", async (route) => {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, 2000);
+      await promise;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(f.models),
+      });
+    });
+    await page.goto(adminUrl("plans"));
+    await expect(page.getByText("Account #1").first()).toBeVisible();
+    await page.getByRole("button", { name: "Models" }).click();
+    await expect(page.getByRole("status", { name: "Loading" })).toBeVisible();
+    await expect(
+      page.getByText("deepseek/deepseek-v4-flash").first(),
+    ).toBeVisible();
+  });
+
+  test("models failure names the cause inline and recovers", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+    await mockSettingsOverlay(page, []);
+    let calls = 0;
+    await page.unroute("**/admin/api/models*");
+    await page.route("**/admin/api/models*", async (route) => {
+      calls += 1;
+      if (calls === 1) {
+        await route.fulfill({ status: 500, body: "boom" });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(f.models),
+        });
+      }
+    });
+    await page.goto(adminUrl("plans"));
+    await page.getByRole("button", { name: "Models" }).click();
+    // The backend message renders inline in the panel, not toast-only.
+    await expect(page.getByTestId("inline-error")).toContainText("boom");
+    const retry = page.getByRole("button", { name: "Retry" });
+    await expect(retry).toBeVisible();
+    await expect(retry).toBeEnabled();
+    expect(await boxHeight(retry)).toBeGreaterThanOrEqual(44);
+    await retry.click();
+    await expect(
+      page.getByText("deepseek/deepseek-v4-flash").first(),
+    ).toBeVisible();
   });
 
   // -- Usage (#activity metrics tab: MetricsPanel) --------------------------
@@ -201,6 +272,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Details" }).click();
     await expect(page.getByText("No usage in this range yet.")).toBeVisible();
+    await expect(page.getByText("widen the range")).toBeVisible();
   });
 
   test("usage loading is announced for assistive tech", async ({ page }) => {
@@ -248,6 +320,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     await page.goto(adminUrl("activity"));
     await page.getByRole("button", { name: "Metrics" }).click();
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    await expect(page.getByTestId("inline-error")).toContainText("boom");
     await expect(
       page.getByRole("alert").filter({ hasText: "boom" }),
     ).toBeVisible();
@@ -652,6 +725,56 @@ test.describe("dashboard edge states (mock backend)", () => {
     await row.getByRole("button", { name: "Retry" }).click();
     await secondPost;
     await expect.poll(() => posted.length).toBeGreaterThan(1);
+  });
+
+  // -- Touch targets (44px hit area, visual density unchanged) ---------------
+
+  test("key controls keep a 44px touch target and stay enabled", async ({
+    page,
+  }) => {
+    await mockDashboard(page, loadFixtures(), {
+      tokens: tokensPayload([tokenRow(0), tokenRow(1)]),
+    });
+    await mockSettingsOverlay(page, [], { seed: MASQ_STRATEGY_SEED });
+    await page.goto(adminUrl("tokens"));
+    await expect(page.getByText("2 pooled token(s)")).toBeVisible();
+    // Pool section tabs: 44px tall, visible and operable.
+    for (const name of ["Accounts", "Warming", "Controls"]) {
+      const btn = page.getByRole("button", { name, exact: true });
+      await expect(btn).toBeVisible();
+      await expect(btn).toBeEnabled();
+      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(44);
+    }
+    // Primary action: enabling it keeps the 44px box in both dimensions.
+    await page.locator("#add-token-input").fill("test-token-1234");
+    const addToken = page.getByRole("button", { name: "Add Token" });
+    await expect(addToken).toBeEnabled();
+    const addBox = await addToken.boundingBox();
+    expect(Math.round(addBox?.height ?? 0)).toBeGreaterThanOrEqual(44);
+    expect(Math.round(addBox?.width ?? 0)).toBeGreaterThanOrEqual(44);
+    const deviceLogin = page.getByRole("button", { name: "Device Login" });
+    await expect(deviceLogin).toBeVisible();
+    await expect(deviceLogin).toBeEnabled();
+    expect(await boxHeight(deviceLogin)).toBeGreaterThanOrEqual(44);
+    // Activity view tabs plus the small-button density (Refresh all and the
+    // xs range/view segments keep the same 44px floor, glyphs unchanged).
+    await page.goto(adminUrl("activity"));
+    for (const name of ["Live", "Metrics", "Team", "Traces"]) {
+      const btn = page.getByRole("button", { name, exact: true });
+      await expect(btn).toBeVisible();
+      await expect(btn).toBeEnabled();
+      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(44);
+    }
+    await page.getByRole("button", { name: "Metrics" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Token usage" }),
+    ).toBeVisible();
+    for (const name of ["7D", "Details", "Refresh all"]) {
+      const btn = page.getByRole("button", { name, exact: true });
+      await expect(btn).toBeVisible();
+      await expect(btn).toBeEnabled();
+      expect(await boxHeight(btn)).toBeGreaterThanOrEqual(44);
+    }
   });
 
   // -- Narrow-viewport behavior (360px phone) ----------------------------------

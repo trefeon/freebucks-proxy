@@ -112,7 +112,12 @@
 
 <div class="space-y-6">
   {#if loading}
-    <div class="space-y-6" aria-busy="true">
+    <div
+      class="space-y-6"
+      role="status"
+      aria-label={$tr("Loading metrics")}
+      aria-busy="true"
+    >
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {#each Array(4) as _, i (i)}
           <div class="skeleton skeleton-card h-24"></div>
@@ -123,6 +128,9 @@
     </div>
   {:else if error}
     <div class="space-y-4">
+      <p class="text-sm text-[var(--fp-error)]" data-testid="inline-error">
+        {error}
+      </p>
       <Button variant="secondary" onclick={fetchData}>
         <RefreshCw size={15} />
         {$tr("Retry")}
@@ -167,6 +175,8 @@
         {#if usageLoading && !usage}
           <div
             class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4"
+            role="status"
+            aria-label={$tr("Loading usage")}
             aria-busy="true"
           >
             {#each Array(5) as _, i (i)}
@@ -176,6 +186,12 @@
           <span class="sr-only">{$tr("Loading usage")}</span>
         {:else if usageError && !usage}
           <div class="space-y-3">
+            <p
+              class="text-sm text-[var(--fp-error)]"
+              data-testid="inline-error"
+            >
+              {usageError}
+            </p>
             <Button variant="secondary" onclick={() => fetchUsage(usageRange)}>
               <RefreshCw size={15} />
               {$tr("Retry")}
@@ -263,6 +279,9 @@
             {:else}
               <p class="mt-4 text-sm text-[var(--fp-muted)]">
                 {$tr("No usage in this range yet.")}
+                {$tr(
+                  "Entries appear after the next served request — widen the range or check Live for the realtime stream.",
+                )}
               </p>
             {/if}
           {/if}

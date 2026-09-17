@@ -24,10 +24,12 @@
     ),
   );
 
+  // Every size keeps a 44px minimum hit area; the text and icon glyphs
+  // stay small so row density does not change.
   const sizeClasses = {
-    xs: "px-2 py-0.5 text-[11px]",
-    sm: "px-2.5 py-1 text-xs",
-    md: "px-3 py-1.5 text-sm",
+    xs: "px-2 py-0.5 text-[11px] min-h-[44px]",
+    sm: "px-2.5 py-1 text-xs min-h-[44px]",
+    md: "px-3 py-1.5 text-sm min-h-[44px]",
   };
 
   function select(id) {
