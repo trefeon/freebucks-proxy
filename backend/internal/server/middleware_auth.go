@@ -2,11 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
+	"freebuff-proxy/backend/internal/config"
 	"net/http"
 	"strings"
-
-	"freebuff-proxy/backend/internal/config"
 )
 
 // cfgSnapshotKey carries the per-request *config.Config snapshot through
@@ -17,6 +18,13 @@ import (
 // pass-through and the handler's routing cannot split one request's
 // decision across two different config views.
 type cfgSnapshotKey struct{}
+
+// clientKeyHashKey carries the per-request client API-key identity through
+// the request context, alongside the config snapshot. The value is
+// hex(sha256(rawKey))[:16] — never the raw key — or "" for bridge/no-key
+// requests. chatCore finalizes it after the pooled-vs-bridge decision;
+// newUsageRecord and recordRequestOutcome read it back for usage tracking.
+type clientKeyHashKey struct{}
 
 func withCfgSnapshot(ctx context.Context, cfg *config.Config) context.Context {
 	return context.WithValue(ctx, cfgSnapshotKey{}, cfg)
@@ -30,6 +38,30 @@ func cfgSnapshotFrom(ctx context.Context) *config.Config {
 	return cfg
 }
 
+func withClientKeyHash(ctx context.Context, hash string) context.Context {
+	return context.WithValue(ctx, clientKeyHashKey{}, hash)
+}
+
+// clientKeyHashFrom returns the key identity stamped on the context, or
+// ("", false) when no stamp is present (direct handler calls in tests) —
+// callers fall back to deriving it from the request headers in that case.
+// A stamped "" (bridge/no-key) reports ("", true).
+func clientKeyHashFrom(ctx context.Context) (string, bool) {
+	hash, ok := ctx.Value(clientKeyHashKey{}).(string)
+	return hash, ok
+}
+
+// hashClientKey maps a raw client API key to its usage-tracking identity:
+// hex(sha256(raw))[:16]. Empty input maps to "" (bridge/no-key requests
+// carry no pooled identity). The raw key never leaves this function.
+func hashClientKey(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
 // requireAuth wraps a handler with client-auth enforcement. When no API keys
 // are configured the handler passes through untouched; /healthz is always
 // exempt (the caller wires it without requireAuth). Bridge mode (no
@@ -40,7 +72,17 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		cfg := s.cfg.Load()
 		// Pin the snapshot this decision used: chatCore and authorized
 		// below must route this same request from the same config view.
-		r = r.WithContext(withCfgSnapshot(r.Context(), cfg))
+		ctx := withCfgSnapshot(r.Context(), cfg)
+		// Stamp the caller's key identity best-effort: a credential
+		// matching API_KEYS hashes to its tracking id; bridge tokens and
+		// missing credentials stamp "". chatCore re-stamps authoritatively
+		// after the pooled-vs-bridge decision.
+		if ok, hash := s.authorizedWithIdentity(cfg, r); ok {
+			ctx = withClientKeyHash(ctx, hash)
+		} else {
+			ctx = withClientKeyHash(ctx, "")
+		}
+		r = r.WithContext(ctx)
 		// Hybrid mode (AUTH_TOKENS + BRIDGE_ENABLED) passes through too:
 		// the per-request decision — pooled vs bridge — happens in
 		// chatCore, where a credential matching API_KEYS uses the pool and
@@ -76,6 +118,16 @@ func extractBearerToken(authHeader string) (string, bool) {
 // the check must use the same view that made the surrounding routing
 // decision, never a fresh load.
 func (s *Server) authorized(cfg *config.Config, r *http.Request) bool {
+	ok, _ := s.authorizedWithIdentity(cfg, r)
+	return ok
+}
+
+// authorizedWithIdentity is authorized plus the caller's key identity: on a
+// match it returns (true, hashClientKey(provided)) — the hex(sha256)[:16]
+// tracking id, never the raw key. No match (or no credential) returns
+// (false, ""). Behavior matches authorized exactly; authorized delegates
+// here so the two cannot diverge.
+func (s *Server) authorizedWithIdentity(cfg *config.Config, r *http.Request) (bool, string) {
 	provided := ""
 	if tok, ok := extractBearerToken(r.Header.Get("Authorization")); ok {
 		provided = tok
@@ -85,14 +137,14 @@ func (s *Server) authorized(cfg *config.Config, r *http.Request) bool {
 		provided = h
 	}
 	if provided == "" {
-		return false
+		return false, ""
 	}
 	for _, key := range cfg.APIKeys {
 		if subtle.ConstantTimeCompare([]byte(provided), []byte(key)) == 1 {
-			return true
+			return true, hashClientKey(provided)
 		}
 	}
-	return false
+	return false, ""
 }
 
 // requireAdminToken guards POST /admin/reload when ADMIN_TOKEN is set: the
