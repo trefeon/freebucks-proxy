@@ -20,13 +20,12 @@ package dashboard
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/store"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/store"
 )
 
 // logsExportVersion is the only export document version import accepts.
@@ -86,14 +85,15 @@ type logsRollupData struct {
 // --- export/import wire ---
 
 type exportRequestRecord struct {
-	Endpoint string `json:"endpoint"`
-	Err      string `json:"error"`
-	Model    string `json:"model"`
-	ReqID    string `json:"req_id"`
-	Status   string `json:"status"`
-	TokenIdx int    `json:"token_idx"`
-	TS       int64  `json:"ts"`
-	TTFBms   int64  `json:"ttfb_ms"`
+	ClientKeyHash string `json:"client_key_hash,omitempty"`
+	Endpoint      string `json:"endpoint"`
+	Err           string `json:"error"`
+	Model         string `json:"model"`
+	ReqID         string `json:"req_id"`
+	Status        string `json:"status"`
+	TokenIdx      int    `json:"token_idx"`
+	TS            int64  `json:"ts"`
+	TTFBms        int64  `json:"ttfb_ms"`
 }
 
 type exportLogEntry struct {
@@ -274,7 +274,7 @@ func (d *Dashboard) APILogsExport(w http.ResponseWriter, r *http.Request) {
 		}
 		first = false
 		return enc.Encode(exportRequestRecord{
-			Endpoint: rec.Endpoint, Err: rec.Err, Model: rec.Model, ReqID: rec.ReqID,
+			ClientKeyHash: rec.ClientKeyHash, Endpoint: rec.Endpoint, Err: rec.Err, Model: rec.Model, ReqID: rec.ReqID,
 			Status: rec.Status, TokenIdx: rec.TokenIdx, TS: rec.TS, TTFBms: rec.TTFBms,
 		})
 	}); err != nil {
@@ -321,6 +321,7 @@ func (d *Dashboard) APILogsImport(w http.ResponseWriter, r *http.Request) {
 		reqs = append(reqs, store.RequestRecord{
 			ReqID: rec.ReqID, TS: rec.TS, Endpoint: rec.Endpoint, Model: rec.Model,
 			TokenIdx: rec.TokenIdx, Status: rec.Status, TTFBms: rec.TTFBms, Err: rec.Err,
+			ClientKeyHash: rec.ClientKeyHash,
 		})
 	}
 	logs := make([]store.LogEntry, 0, len(doc.LogEntries))

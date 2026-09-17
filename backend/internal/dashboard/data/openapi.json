@@ -838,6 +838,9 @@
           "request_records": {
             "items": {
               "properties": {
+                "client_key_hash": {
+                  "type": "string"
+                },
                 "endpoint": {
                   "type": "string"
                 },
@@ -3016,6 +3019,9 @@
                 "cached": {
                   "type": "integer"
                 },
+                "client_key_hash": {
+                  "type": "string"
+                },
                 "input": {
                   "type": "integer"
                 },
@@ -3051,6 +3057,75 @@
                 "req_id",
                 "total",
                 "ts_ms"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "keys": {
+            "items": {
+              "properties": {
+                "by_model": {
+                  "additionalProperties": {
+                    "properties": {
+                      "completion": {
+                        "type": "integer"
+                      },
+                      "prompt": {
+                        "type": "integer"
+                      },
+                      "reasoning": {
+                        "type": "integer"
+                      },
+                      "requests": {
+                        "type": "integer"
+                      },
+                      "tokens": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "completion",
+                      "prompt",
+                      "reasoning",
+                      "requests",
+                      "tokens"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "object"
+                },
+                "first_seen": {
+                  "type": "integer"
+                },
+                "freebucks": {
+                  "type": "number"
+                },
+                "key_id": {
+                  "type": "string"
+                },
+                "last_seen": {
+                  "type": "integer"
+                },
+                "requests": {
+                  "type": "integer"
+                },
+                "success_rate": {
+                  "type": "number"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "by_model",
+                "first_seen",
+                "freebucks",
+                "key_id",
+                "last_seen",
+                "requests",
+                "success_rate",
+                "total_tokens"
               ],
               "type": "object"
             },
@@ -4113,6 +4188,15 @@
             "description": "today (default) | 24h | 7d | 30d | 60d",
             "in": "query",
             "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "key returns the per-client-key aggregation (keys[] with key_id hex(sha256)[:16]) alongside the range view",
+            "in": "query",
+            "name": "group_by",
             "required": false,
             "schema": {
               "type": "string"

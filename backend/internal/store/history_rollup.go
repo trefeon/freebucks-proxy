@@ -272,7 +272,7 @@ func (s *Store) ExportRequests(since, until int64, fn func(RequestRecord) error)
 		return err
 	}
 	rows, err := s.db.Query(
-		`SELECT req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error
+		`SELECT req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error, client_key_hash
 		 FROM request_records WHERE ts >= ? AND ts < ? ORDER BY ts, req_id`,
 		since, until,
 	)
@@ -282,7 +282,7 @@ func (s *Store) ExportRequests(since, until int64, fn func(RequestRecord) error)
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var rec RequestRecord
-		if err := rows.Scan(&rec.ReqID, &rec.TS, &rec.Endpoint, &rec.Model, &rec.TokenIdx, &rec.Status, &rec.TTFBms, &rec.Err); err != nil {
+		if err := rows.Scan(&rec.ReqID, &rec.TS, &rec.Endpoint, &rec.Model, &rec.TokenIdx, &rec.Status, &rec.TTFBms, &rec.Err, &rec.ClientKeyHash); err != nil {
 			return fmt.Errorf("store: scan export request: %w", err)
 		}
 		if err := fn(rec); err != nil {
@@ -349,8 +349,8 @@ func (s *Store) ImportRequests(recs []RequestRecord) (ImportCounts, error) {
 		return c, fmt.Errorf("store: import requests begin: %w", err)
 	}
 	stmt, err := tx.Prepare(
-		`INSERT OR IGNORE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error, client_key_hash)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		_ = tx.Rollback()
@@ -362,7 +362,7 @@ func (s *Store) ImportRequests(recs []RequestRecord) (ImportCounts, error) {
 			c.Rejected++
 			continue
 		}
-		res, err := stmt.Exec(rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err)
+		res, err := stmt.Exec(rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err, rec.ClientKeyHash)
 		if err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()

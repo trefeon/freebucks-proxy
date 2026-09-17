@@ -74,16 +74,17 @@ func (s *Store) RecordMaturity(e MaturityEvent) error {
 // INSERT OR REPLACE keeps it idempotent per req_id (a retry re-records the
 // same request). An empty req_id skips the write: the PRIMARY KEY cannot
 // distinguish pre-attempt refusals, and the ring log still carries them.
-// Raw client tokens never reach this table — callers pass the token index.
+// Raw client tokens never reach this table — callers pass the token index
+// plus the hashed key identity (ClientKeyHash, "" for bridge/no-key).
 func (s *Store) RecordRequest(rec RequestRecord) error {
 	if rec.ReqID == "" {
 		return nil
 	}
 	return s.withWrite(func() error {
 		if _, err := s.db.Exec(
-			`INSERT OR REPLACE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error)
-			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-			rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err,
+			`INSERT OR REPLACE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error, client_key_hash)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err, rec.ClientKeyHash,
 		); err != nil {
 			return fmt.Errorf("store: request insert: %w", err)
 		}
@@ -98,7 +99,7 @@ func (s *Store) QueryRequests(since int64, limit int) ([]RequestRecord, error) {
 		limit = 500
 	}
 	rows, err := s.db.Query(
-		`SELECT req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error
+		`SELECT req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error, client_key_hash
 		 FROM request_records WHERE ts >= ? ORDER BY ts DESC, req_id DESC LIMIT ?`,
 		since, limit,
 	)
@@ -109,7 +110,7 @@ func (s *Store) QueryRequests(since int64, limit int) ([]RequestRecord, error) {
 	out := []RequestRecord{}
 	for rows.Next() {
 		var rec RequestRecord
-		if err := rows.Scan(&rec.ReqID, &rec.TS, &rec.Endpoint, &rec.Model, &rec.TokenIdx, &rec.Status, &rec.TTFBms, &rec.Err); err != nil {
+		if err := rows.Scan(&rec.ReqID, &rec.TS, &rec.Endpoint, &rec.Model, &rec.TokenIdx, &rec.Status, &rec.TTFBms, &rec.Err, &rec.ClientKeyHash); err != nil {
 			return nil, fmt.Errorf("store: scan request: %w", err)
 		}
 		out = append(out, rec)
@@ -402,7 +403,19 @@ func attachLegacy(ctx context.Context, conn *sql.Conn, path string) (func(), err
 func carryLegacyRows(ctx context.Context, conn *sql.Conn) (int64, error) {
 	var total int64
 	for _, t := range historyCarryTables {
-		res, err := conn.ExecContext(ctx, "INSERT INTO main."+t+" SELECT * FROM legacy."+t)
+		stmt := "INSERT INTO main." + t + " SELECT * FROM legacy." + t
+		if t == "request_records" {
+			// Column-aware copy: legacy files predating 00005 carry 8
+			// columns (client_key_hash defaults to '' on those rows),
+			// while v5 files carry the hash through intact. SELECT *
+			// would fail either direction on the width mismatch.
+			cols := "req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error"
+			if legacyHasColumn(ctx, conn, "request_records", "client_key_hash") {
+				cols += ", client_key_hash"
+			}
+			stmt = "INSERT INTO main.request_records(" + cols + ") SELECT " + cols + " FROM legacy.request_records"
+		}
+		res, err := conn.ExecContext(ctx, stmt)
 		if err != nil {
 			return total, fmt.Errorf("store: carry %s: %w", t, err)
 		}
@@ -410,6 +423,29 @@ func carryLegacyRows(ctx context.Context, conn *sql.Conn) (int64, error) {
 		total += n
 	}
 	return total, nil
+}
+
+// legacyHasColumn reports whether the attached "legacy" database's table
+// carries a column (false on any read failure — the caller then takes the
+// pre-migration copy shape and the subsequent INSERT surfaces the real
+// error, naming the table as before).
+func legacyHasColumn(ctx context.Context, conn *sql.Conn, table, column string) bool {
+	rows, err := conn.QueryContext(ctx, `SELECT name FROM pragma_table_info(?, 'legacy')`, table)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return false
+		}
+		if name == column {
+			_ = rows.Close()
+			return true
+		}
+	}
+	return false
 }
 
 // CountLegacyHistoryRows inspects a legacy history file WITHOUT importing

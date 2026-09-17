@@ -138,6 +138,20 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 			tok = provided
 		}
 	}
+	// Key identity for usage tracking: pooled requests attribute the
+	// caller's API-key hash; bridge requests (the credential IS the
+	// upstream token, never a pooled identity) attribute "". Re-stamp the
+	// derived context so recordUsage below reads the routing decision,
+	// not requireAuth's pre-routing best effort; the trace state carries
+	// the same value to the request-record persist path.
+	clientKeyHash := ""
+	if !bridge {
+		if ok, hash := s.authorizedWithIdentity(cfg, r); ok {
+			clientKeyHash = hash
+		}
+	}
+	ctx = withClientKeyHash(ctx, clientKeyHash)
+	st.clientKeyHash = clientKeyHash
 	// The chatBackend abstracts the pooled-vs-bridge acquire/chat/invalidate/
 	// cooldown/lease hooks (issue #255); the timing wrapper records the
 	// acquire phase.

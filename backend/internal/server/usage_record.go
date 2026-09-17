@@ -2,9 +2,8 @@ package server
 
 import (
 	"context"
-	"time"
-
 	"freebuff-proxy/backend/internal/dashboard"
+	"time"
 )
 
 // UsageRecord is one completed chat's token split for the usage overview
@@ -24,6 +23,10 @@ type UsageRecord struct {
 	Reason int64  `json:"reasoning"`
 	Total  int64  `json:"total"`
 	OK     bool   `json:"ok"`
+	// ClientKeyHash is the caller's pooled API-key identity
+	// (hex(sha256(rawKey))[:16]), "" for bridge/no-key requests. The raw
+	// key is never stored — see hashClientKey.
+	ClientKeyHash string `json:"client_key_hash,omitempty"`
 }
 
 // adaptUsageRecord maps the capture-side record onto the dashboard store
@@ -31,15 +34,16 @@ type UsageRecord struct {
 // names — notably TsMs/Reasoning — under the identical JSON-key contract).
 func adaptUsageRecord(r UsageRecord) dashboard.UsageRecord {
 	return dashboard.UsageRecord{
-		TsMs:      r.TsMS,
-		ReqID:     r.ReqID,
-		Model:     r.Model,
-		Input:     r.Input,
-		Output:    r.Output,
-		Cached:    r.Cached,
-		Reasoning: r.Reason,
-		Total:     r.Total,
-		OK:        r.OK,
+		TsMs:          r.TsMS,
+		ReqID:         r.ReqID,
+		Model:         r.Model,
+		Input:         r.Input,
+		Output:        r.Output,
+		Cached:        r.Cached,
+		Reasoning:     r.Reason,
+		Total:         r.Total,
+		OK:            r.OK,
+		ClientKeyHash: r.ClientKeyHash,
 	}
 }
 
@@ -140,15 +144,20 @@ func newUsageRecord(ctx context.Context, stats *relayStats, model string) UsageR
 		m = model
 	}
 	total := stats.usageTokens
+	// Key identity rides the request context (stamped by requireAuth,
+	// finalized by chatCore after the pooled-vs-bridge decision). Absent
+	// stamp (direct calls) and stamped "" (bridge/no-key) both read "".
+	clientKeyHash, _ := clientKeyHashFrom(ctx)
 	return UsageRecord{
-		TsMS:   time.Now().UnixMilli(),
-		ReqID:  reqIDFrom(ctx),
-		Model:  m,
-		Input:  stats.usageInput,
-		Output: stats.usageOutput,
-		Cached: stats.usageCached,
-		Reason: stats.usageReasoning,
-		Total:  total,
-		OK:     total > 0,
+		TsMS:          time.Now().UnixMilli(),
+		ReqID:         reqIDFrom(ctx),
+		Model:         m,
+		Input:         stats.usageInput,
+		Output:        stats.usageOutput,
+		Cached:        stats.usageCached,
+		Reason:        stats.usageReasoning,
+		Total:         total,
+		OK:            total > 0,
+		ClientKeyHash: clientKeyHash,
 	}
 }
