@@ -858,23 +858,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/admin/tokens/test-all": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Probe every pooled token (?auto=1 returns the throttled snapshot) */
-    post: operations["tokenTestAll"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/admin/tokens/{id}/drop-session": {
     parameters: {
       query?: never;
@@ -1473,8 +1456,8 @@ export interface components {
         access_tier?: string;
         account_id?: string;
         active_runs: number;
-        allowed_models?: string[];
-        allowlist_skips?: number;
+        pinned_model?: string;
+        pin_skips?: number;
         ban_type?: string;
         banned_until?: string;
         cooldown_active: boolean;
@@ -1627,12 +1610,6 @@ export interface components {
       models: string[];
       token_count: number;
     };
-    tokenTestAllResponse: {
-      instance_id: string;
-      message: string;
-      ok: boolean;
-      token: number;
-    }[];
     tokensData: {
       bridge_token_cards?: {
         active_runs: number;
@@ -1707,8 +1684,8 @@ export interface components {
         access_tier?: string;
         account_id?: string;
         active_runs: number;
-        allowed_models?: string[];
-        allowlist_skips?: number;
+        pinned_model?: string;
+        pin_skips?: number;
         ban_type?: string;
         banned_until?: string;
         cooldown_active: boolean;
@@ -3095,29 +3072,6 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ResultEnvelope"];
-        };
-      };
-    };
-  };
-  tokenTestAll: {
-    parameters: {
-      query?: {
-        /** @description auto=1 serves the throttled quota snapshot without probing */
-        auto?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Probe every pooled token (?auto=1 returns the throttled snapshot) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["tokenTestAllResponse"];
         };
       };
     };
