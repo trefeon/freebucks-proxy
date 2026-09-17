@@ -97,18 +97,12 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.SessionPersist), false
 	case "SESSION_STATE_FILE":
 		return c.SessionStateFile, false
-	case "TOKEN_ROTATION":
-		return c.TokenRotation, false
-	case "RATE_LIMIT_FAILOVER":
-		return strconv.FormatBool(c.RateLimitFailover), false
 	case "PIN_MODEL":
 		return formatPinModel(c.PinModel), false
 	case "BRIDGE_ENABLED":
 		return strconv.FormatBool(c.BridgeEnabled), false
 	case "BRIDGE_IDLE_EVICT":
 		return c.BridgeIdleEvict.String(), false
-	case "SESSION_IDLE_END":
-		return c.SessionIdleEnd.String(), false
 	case "SESSION_PROBE_CACHE_TTL":
 		return c.SessionProbeCacheTTL.String(), false
 	case "SESSION_RE_ADMIT_LEAD":
@@ -141,8 +135,6 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.AdoptCLISession), false
 	case "WAITING_ROOM_CHAIN":
 		return strconv.FormatBool(c.WaitingRoomChain), false
-	case "ROUTING_SMART":
-		return strconv.FormatBool(c.RoutingSmart), false
 	case "SLOTS_PER_ACCOUNT":
 		return strconv.Itoa(c.SlotsPerAccount), false
 	case "QUEUE_WAIT":

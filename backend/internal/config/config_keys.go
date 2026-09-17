@@ -50,7 +50,6 @@ type rawConfig struct {
 	BridgeIdleEvict          string          `json:"BRIDGE_IDLE_EVICT"`
 	IdleRotationTimeout      string          `json:"IDLE_ROTATION_TIMEOUT"`
 	SafeMode                 bool            `json:"SAFE_MODE"`
-	SessionIdleEnd           string          `json:"SESSION_IDLE_END"`
 	ModelsHideUnavailable    bool            `json:"MODELS_HIDE_UNAVAILABLE"`
 	ModelsAllow              modelsAllowList `json:"MODELS_ALLOW"`
 	CORSAllowedOrigin        string          `json:"CORS_ALLOWED_ORIGIN"`
@@ -72,17 +71,12 @@ type rawConfig struct {
 	WaitingRoomChain         bool            `json:"WAITING_ROOM_CHAIN"`
 	RateLimitPerIP           *float64        `json:"RATE_LIMIT_PER_IP"`
 	RateLimitBurst           *int            `json:"RATE_LIMIT_BURST"`
-	TokenRotation            string          `json:"TOKEN_ROTATION"`
-	RateLimitFailover        *bool           `json:"RATE_LIMIT_FAILOVER"`
 	PinModel                 string          `json:"PIN_MODEL"`
 	DashboardEnabled         bool            `json:"DASHBOARD_ENABLED"`
 	DashboardRequireLogin    bool            `json:"DASHBOARD_REQUIRE_LOGIN"`
 	CompressPrompt           string          `json:"COMPRESS_PROMPT"`
 	CacheControlInjection    string          `json:"CACHE_CONTROL_INJECTION"`
 	ReasoningInContent       string          `json:"REASONING_IN_CONTENT"`
-	// RoutingSmart records ROUTING_SMART (default true via
-	// defaultRawConfig): the smart-routing master switch.
-	RoutingSmart bool `json:"ROUTING_SMART"`
 	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 2, floor
 	// 1): the per account-model live-turn cap.
 	SlotsPerAccount *int `json:"SLOTS_PER_ACCOUNT"`
@@ -128,15 +122,12 @@ func defaultRawConfig() rawConfig {
 		RequestTimeout:         "15m",
 		HTTPReadTimeout:        "60s",
 		SessionCallTimeout:     "30s",
-		TokenRotation:          "drain",
-		RateLimitFailover:      new(true),
 		CostMode:               "free",
 		RegistryRefresh:        "6h",
 		IdleRotationTimeout:    "",    // "" = disabled (unset → SAFE_MODE preset may fill)
 		BridgeEnabled:          true,  // hybrid by default: AUTH_TOKENS + bridge relay share one instance
 		BridgeIdleEvict:        "72h", // sliding-TTL for idle bridge-entry eviction
 		SafeMode:               true,  // anti-ban presets on by default; set SAFE_MODE=false to disable
-		SessionIdleEnd:         "",    // "" = disabled (opt-in: ending a session forces a fresh admission when the user returns)
 		DashboardEnabled:       true,  // dashboard on by default; set DASHBOARD_ENABLED=false to disable
 		DashboardRequireLogin:  true,  // require login on by default; set DASHBOARD_REQUIRE_LOGIN=false to disable
 		LogAccess:              true,
@@ -154,7 +145,6 @@ func defaultRawConfig() rawConfig {
 		RunsDrainTTL:           "10m",      // #55: draining-runs TTL eviction
 		QueueWait:              "30s",      // FIFO slot-queue wait bound per parked Acquire
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
-		RoutingSmart:           true,       // smart pool routing on by default; false restores the legacy acquire path
 		SlotsPerAccount:        ptrInt(2),  // per account-model live turns (floor 1; bunker strictness is 1)
 		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
 	}

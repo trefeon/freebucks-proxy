@@ -170,9 +170,9 @@ var keyCatalog = []KeyDef{
 		Description: `Finish runs after this idle period (0 = disabled; SAFE_MODE sets 30m when unset).`,
 	},
 	{
-		Key: "PIN_MODEL", Group: GroupPool, Kind: "text",
-		Default:     "",
-		Description: `Pin pool slots to one model each (e.g. "0:z-ai/glm-5.2;1:deepseek/deepseek-v4-flash"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config.`,
+		Key: "MAX_SPILL_ACCOUNTS", Group: GroupPool, Kind: "int",
+		Default:     "0",
+		Description: `How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain). A 429 quota requeue never consumes spill budget. Applies live on reload.`,
 	},
 	{
 		Key: "MODEL_UNAVAILABLE_CACHE_TTL", Group: GroupPool, Kind: "text",
@@ -180,24 +180,24 @@ var keyCatalog = []KeyDef{
 		Description: `How long a model_unavailable admission refusal is remembered per model (off-window models short-circuit to the fallback within the TTL).`,
 	},
 	{
+		Key: "PIN_MODEL", Group: GroupPool, Kind: "text",
+		Default:     "",
+		Description: `Pin pool slots to one model each (e.g. "0:z-ai/glm-5.2;1:deepseek/deepseek-v4-flash"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config.`,
+	},
+	{
 		Key: "QUEUE_DEPTH", Group: GroupPool, Kind: "int",
 		Default:     "16",
-		Description: `Cap on parked FIFO waiters per token for smart-routing live-turn slots (0 = no queueing: fail over at once when no slot is free; negative rejects the config). A full queue fails over with the existing 429 shape. Applies live on reload.`,
+		Description: `Cap on parked FIFO waiters per account-model lane (0 = no queueing: spill at once when no slot is free; negative rejects the config). A full queue spills with the existing 429 shape. Applies live on reload.`,
 	},
 	{
 		Key: "QUEUE_WAIT", Group: GroupPool, Kind: "text",
 		Default:     "30s",
-		Description: `How long one acquire parks on a full token's FIFO live-turn queue before failing over with the existing 429 shape (Go duration, e.g. 5s, 30s). Zero-tolerant: empty or non-positive values fall back to 30s. Applies live on reload.`,
+		Description: `How long one acquire parks on a full lane's FIFO live-turn queue before spilling with the existing 429 shape (Go duration, e.g. 5s, 30s). Zero-tolerant: empty or non-positive values fall back to 30s. Applies live on reload.`,
 	},
 	{
 		Key: "RATE_LIMIT_BURST", Group: GroupPool, Kind: "int",
 		Default:     "0",
 		Description: `Burst request capacity per client IP (0 = defaults to 2 × RATE_LIMIT_PER_IP).`,
-	},
-	{
-		Key: "RATE_LIMIT_FAILOVER", Group: GroupPool, Kind: "bool",
-		Default:     "true",
-		Description: `Rotate to another available token when an in-flight request hits a token-level 429 (rate limit / throttle). turn_spend_limited is TERMINAL (upstream per-turn spend breaker — a retry re-trips instantly) and is excluded from failover (default true).`,
 	},
 	{
 		Key: "RATE_LIMIT_PER_IP", Group: GroupPool, Kind: "text", Essential: true,
@@ -208,11 +208,6 @@ var keyCatalog = []KeyDef{
 		Key: "ROTATION_INTERVAL", Group: GroupPool, Kind: "text", RestartOnly: true, Hidden: true,
 		Default:     "6h",
 		Description: `Agent-run rotation interval.`,
-	},
-	{
-		Key: "ROUTING_SMART", Group: GroupPool, Kind: "bool",
-		Default:     "true",
-		Description: `Master switch for smart pool routing: per-token live-turn slots with a FIFO waiter queue plus the unified scorer over eligible tokens. Applies live on reload; false restores the legacy acquire path exactly.`,
 	},
 	{
 		Key: "RUNS_DRAIN_QUEUE_CAP", Group: GroupPool, Kind: "int", RestartOnly: true, Hidden: true,
@@ -233,11 +228,6 @@ var keyCatalog = []KeyDef{
 		Key: "RUN_FINISH_QUEUE_SIZE", Group: GroupPool, Kind: "int", RestartOnly: true, Hidden: true,
 		Default:     "64",
 		Description: `Bounded deferred-FINISH worker queue for rotated/drained runs (full queue falls back to a synchronous FINISH).`,
-	},
-	{
-		Key: "SESSION_IDLE_END", Group: GroupPool, Kind: "text",
-		Default:     "0",
-		Description: `End upstream sessions after this idle period, freeing the account while the proxy sits unused (0 = disabled, opt-in).`,
 	},
 	{
 		Key: "SESSION_PERSIST", Group: GroupPool, Kind: "bool", RestartOnly: true,
@@ -263,16 +253,6 @@ var keyCatalog = []KeyDef{
 		Key: "SLOTS_PER_ACCOUNT", Group: GroupPool, Kind: "int",
 		Default:     "2",
 		Description: `Cap on concurrent live turns per account-model lane (default 2, the approved anti-ban pacing; 0 = unlimited, no slot gating at all). A lease is granted only while the account holds fewer live turns for that model; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload. BUNKER PRESET: 1 — fully sequential turns per account-model lane, zero parallel fingerprint.`,
-	},
-	{
-		Key: "TOKEN_ROTATION", Group: GroupPool, Kind: "select", Enum: []string{"drain", "round_robin", "least_used", "random"}, Hidden: true,
-		Default:     "drain",
-		Description: `Token selection strategy: drain (exhaust a token's session before rotating), round_robin, least_used, or random. Managed interactively on the Pool page.`,
-	},
-	{
-		Key: "MAX_SPILL_ACCOUNTS", Group: GroupPool, Kind: "int",
-		Default:     "0",
-		Description: `How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain). A 429 quota requeue never consumes spill budget. Applies live on reload.`,
 	},
 	{
 		Key: "WAITING_ROOM_CHAIN", Group: GroupPool, Kind: "bool", Hidden: true,
@@ -403,7 +383,6 @@ var durationSettingKeys = map[string]bool{
 	"RUNS_DRAIN_TTL":              true,
 	"RUN_FINISH_INLINE_TIMEOUT":   true,
 	"SESSION_CALL_TIMEOUT":        true,
-	"SESSION_IDLE_END":            true,
 	"SESSION_PROBE_CACHE_TTL":     true,
 	"SESSION_RE_ADMIT_LEAD":       true,
 }

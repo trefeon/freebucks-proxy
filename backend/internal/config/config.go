@@ -61,8 +61,7 @@ type Config struct {
 	// records, the console's default VIEW window is 1h, and the history
 	// purge keeps log_entries/request_records for 168h (7d). Quota and
 	// maturity history keep their own 90d retention.
-	IdleRotationTimeout time.Duration // 0 = disabled: pause rotation/refresh after this idle period
-	SessionIdleEnd      time.Duration // 0 = disabled: end upstream sessions after this idle period (SESSION_IDLE_END)
+	IdleRotationTimeout time.Duration // 0 = disabled: pause run rotation/refresh after this idle period
 	// BridgeEnabled gates bridge-mode traffic when AUTH_TOKENS are configured
 	// (BRIDGE_ENABLED; default true). When enabled alongside a token pool the
 	// proxy runs in hybrid mode: a request whose credential matches an
@@ -86,8 +85,6 @@ type Config struct {
 	CORSAllowedOrigin string        // Access-Control-Allow-Origin for /v1/* responses (CORS_ALLOWED_ORIGIN; default "*")
 	RequestJitter     time.Duration // random delay range [0, RequestJitter) before upstream chat calls
 	CLIVersion        string        // upstream CLI version string (default: 0.10.7)
-	TokenRotation     string        // "drain" (default) | "round_robin" | "least_used" | "random"
-	RateLimitFailover bool          // true = automatically lease another token when an in-flight request encounters 429 rate limit (RATE_LIMIT_FAILOVER; default true)
 	// PinModel pins pool slots to one model each (PIN_MODEL): map from
 	// AUTH_TOKENS slot index to the model id that slot serves, e.g.
 	// {0: "z-ai/glm-5.2"}. Slots without an entry are unpinned (serve any
@@ -212,12 +209,6 @@ type Config struct {
 	// message content for clients that do not render a reasoning channel
 	// (REASONING_IN_CONTENT; default "" = off). See CompressPrompt.
 	ReasoningInContent string
-	// RoutingSmart is the master switch for smart pool routing
-	// (ROUTING_SMART; default true): per-token live-turn slot semaphore
-	// with a FIFO waiter queue plus the unified scorer over eligible
-	// tokens. False restores the legacy acquire path byte-identically.
-	// Live-apply (atomic pointer swap, no pool rebuild).
-	RoutingSmart bool
 	// SlotsPerAccount caps concurrent live turns per pooled account-model
 	// lane (SLOTS_PER_ACCOUNT; default 2, the approved anti-ban pacing): a
 	// token leases a new turn for a model only while fewer than this many

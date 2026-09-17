@@ -50,7 +50,16 @@ func (c Config) Validate() error {
 	case c.MaxSpillAccounts < 0:
 		return errors.New("MAX_SPILL_ACCOUNTS cannot be negative (0 = unbounded)")
 	}
-	// Model fallback is excised: saved QUOTA_FALLBACK_MODELS values are
+	// PIN_MODEL cross-check: every pinned slot must address a configured
+	// AUTH_TOKENS position, so a typo surfaces at load instead of silently
+	// pinning nothing (an out-of-range pin would never match an Acquire).
+	// Skipped when no pool is configured: pin syntax is still parsed at
+	// Load, and the range only means something against real slots.
+	for idx := range c.PinModel {
+		if len(c.AuthTokens) > 0 && (idx < 0 || idx >= len(c.AuthTokens)) {
+			return fmt.Errorf("PIN_MODEL slot %d out of range (only %d AUTH_TOKENS slot(s) configured)", idx, len(c.AuthTokens))
+		}
+	}
 	// tolerated as unknown keys and ignored, so there is nothing to validate.
 
 	if c.WebhookURL != "" {
