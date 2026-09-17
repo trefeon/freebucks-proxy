@@ -3,19 +3,16 @@ package server
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-	"time"
-
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"net/http"
 )
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the
-// retry-once recovery loop needs, so the pooled (fixed-token) and bridge
+// single-attempt chat path needs, so the pooled (fixed-token) and bridge
 // paths share one chatAttempt implementation (issue #255). Each adapter
 // maps the pool's token-indexed (pooled) or lease-based (bridge) methods onto
 // this uniform surface.
@@ -25,11 +22,7 @@ type chatBackend interface {
 	InvalidateSession(lease *pool.Lease)
 	InvalidateSessionSuperseded(lease *pool.Lease)
 	InvalidateRun(lease *pool.Lease, agentID string)
-	CooldownAuth(lease *pool.Lease)
 	CooldownBan(lease *pool.Lease, be *upstream.BanError)
-	CooldownRateLimit(lease *pool.Lease, rle *upstream.RateLimitError)
-	CooldownIpCapped(lease *pool.Lease, ice *upstream.IpCappedError)
-	CooldownCountry(lease *pool.Lease, cbe *upstream.CountryBlockedError)
 	LeaseRelease(lease *pool.Lease)
 	LeaseAbandon(lease *pool.Lease)
 	MarkRunFailed(lease *pool.Lease)
@@ -44,32 +37,25 @@ type pooledBackend struct{ p *pool.Pool }
 func (b pooledBackend) Acquire(ctx context.Context, model string) (*pool.Lease, error) {
 	return b.p.Acquire(ctx, model)
 }
+
 func (b pooledBackend) Chat(ctx context.Context, lease *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error) {
 	return b.p.Chat(ctx, lease, opts, body)
 }
+
 func (b pooledBackend) InvalidateSession(lease *pool.Lease) {
 	b.p.InvalidateLeaseSession(lease)
 }
+
 func (b pooledBackend) InvalidateSessionSuperseded(lease *pool.Lease) {
 	b.p.InvalidateLeaseSessionWithReason(lease, session.ReasonSuperseded, http.StatusConflict)
 }
+
 func (b pooledBackend) InvalidateRun(lease *pool.Lease, agentID string) {
 	b.p.InvalidateLeaseRun(lease, agentID)
 }
-func (b pooledBackend) CooldownAuth(lease *pool.Lease) {
-	b.p.CooldownLease(lease, runs.DefaultCooldown)
-}
+
 func (b pooledBackend) CooldownBan(lease *pool.Lease, be *upstream.BanError) {
 	b.p.CooldownLeaseBan(lease, be)
-}
-func (b pooledBackend) CooldownRateLimit(lease *pool.Lease, rle *upstream.RateLimitError) {
-	b.p.CooldownLeaseRateLimit(lease, rle)
-}
-func (b pooledBackend) CooldownIpCapped(lease *pool.Lease, ice *upstream.IpCappedError) {
-	b.p.CooldownLeaseIpCapped(lease, ice)
-}
-func (b pooledBackend) CooldownCountry(lease *pool.Lease, cbe *upstream.CountryBlockedError) {
-	b.p.CooldownLeaseCountryBlocked(lease, cbe)
 }
 func (b pooledBackend) LeaseRelease(lease *pool.Lease)  { b.p.LeaseRelease(lease) }
 func (b pooledBackend) LeaseAbandon(lease *pool.Lease)  { b.p.LeaseAbandon(lease) }
@@ -89,32 +75,25 @@ type bridgeBackend struct {
 func (b bridgeBackend) Acquire(ctx context.Context, model string) (*pool.Lease, error) {
 	return b.p.AcquireBridge(ctx, b.token, model)
 }
+
 func (b bridgeBackend) Chat(ctx context.Context, lease *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error) {
 	return b.p.Chat(ctx, lease, opts, body)
 }
+
 func (b bridgeBackend) InvalidateSession(lease *pool.Lease) {
 	b.p.InvalidateBridgeSession(lease)
 }
+
 func (b bridgeBackend) InvalidateSessionSuperseded(lease *pool.Lease) {
 	b.p.InvalidateBridgeSessionWithReason(lease, session.ReasonSuperseded, http.StatusConflict)
 }
+
 func (b bridgeBackend) InvalidateRun(lease *pool.Lease, agentID string) {
 	b.p.InvalidateBridgeRun(lease, agentID)
 }
-func (b bridgeBackend) CooldownAuth(lease *pool.Lease) {
-	b.p.CooldownBridge(lease, runs.DefaultCooldown)
-}
+
 func (b bridgeBackend) CooldownBan(lease *pool.Lease, be *upstream.BanError) {
 	b.p.CooldownBridgeBan(lease, be)
-}
-func (b bridgeBackend) CooldownRateLimit(lease *pool.Lease, rle *upstream.RateLimitError) {
-	b.p.CooldownBridgeRateLimit(lease, rle)
-}
-func (b bridgeBackend) CooldownIpCapped(lease *pool.Lease, ice *upstream.IpCappedError) {
-	b.p.CooldownBridgeIpCapped(lease, ice)
-}
-func (b bridgeBackend) CooldownCountry(lease *pool.Lease, cbe *upstream.CountryBlockedError) {
-	b.p.CooldownBridgeCountryBlocked(lease, cbe)
 }
 func (b bridgeBackend) LeaseRelease(lease *pool.Lease)  { b.p.LeaseRelease(lease) }
 func (b bridgeBackend) LeaseAbandon(lease *pool.Lease)  { b.p.LeaseAbandon(lease) }
@@ -124,18 +103,17 @@ func (b bridgeBackend) RecordRunStep(lease *pool.Lease, mid string) {
 }
 func (b bridgeBackend) RecordSpend(lease *pool.Lease, tokens int64) { b.p.RecordSpend(lease, tokens) }
 
-// chatAttempt runs the retry-once recovery loop for one chat request: chat
-// through the leased token; on session-invalid / run-invalid the lease is
-// released, the cached session/run invalidated, and a fresh lease acquired
-// once; on session_superseded the lease is released and the cached session
-// invalidated (reason "superseded") but NEVER retried — it is terminal for
-// this request (#159); on auth-reject / ban / rate-limit / ip-capped the
-// token is cooled down (ip_capped bounded to its retryAfterMs — never the
-// Pacific-midnight lock) and the error returned for writeError. The
-// acquire/chat/invalidate/cooldown hooks are behind the chatBackend
-// interface so the pooled (fixed-token) and bridge paths share one recovery
-// implementation. On success the returned body reader and final lease belong
-// to the caller: close the body and release the lease via LeaseRelease.
+// chatAttempt runs one chat through the leased token and surfaces the
+// result: on success the returned body reader and final lease belong to the
+// caller (close the body and release the lease via LeaseRelease). Refusals
+// never retry in-request — the error returns for writeError after releasing
+// the lease, with cache invalidation for dead sessions/runs (invalid,
+// expired, superseded, 428-required) and a ban cooldown+quarantine for
+// terminal bans so the account stops serving. The acquire/chat/invalidate/
+// cooldown hooks are behind the chatBackend interface so the pooled
+// (fixed-token) and bridge paths share one implementation. 429 quota,
+// ip_capped and country blocks surface with no cooldown write: admission
+// owns those refusals, not the chat path.
 func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byte, st *chatTraceState, backend chatBackend) (io.ReadCloser, *pool.Lease, error) {
 	lease, err := backend.Acquire(ctx, model)
 	if err != nil {
@@ -202,278 +180,100 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 	}
 	defer release()
 
-	var up io.ReadCloser
-	attempts := 0
-	// failTime pins when the failed chat attempt returned; the measured
-	// re-acquire wait below becomes the trace's backoff_ms.
-	var failTime time.Time
-	// transientErr remembers the default-branch chat error so the retry
-	// announcement can log it AFTER the re-acquire (with a real backoff_ms).
-	var transientErr error
-	for {
-		chatStart := time.Now()
-		up, err = backend.Chat(ctx, lease, opts, normalized)
-		attempts++
-		st.attempts = attempts
-		if err == nil {
-			st.statuses = append(st.statuses, http.StatusOK)
-			// Issue #74 P2: a successful chat is egress-level proof the
-			// model is servable again — drop any (egress, model) unfit mark.
-			// Only marks created before THIS lease's acquisition (a retry
-			// re-acquires after the mark, so its success clears it; an
-			// older in-flight chat succeeding must not erase a mark that
-			// landed after its admission — that would reopen the
-			// limited_ip re-admission burn).
-			if !lease.AcquiredAt.IsZero() {
-				s.pool.ClearModelUnfitBefore(effectiveModel, lease.AcquiredAt)
-			}
-			if attempts > 1 {
-				// T13: the retry-once recovery landed — one Debug line that
-				// greps the whole retry chain by req_id (ms = the retry
-				// chat call's duration).
-				s.logger.Debug("chat retry succeeded",
-					"attempts", attempts, "req_id", st.reqID,
-					"ms", time.Since(chatStart).Milliseconds())
-			}
-			released = true // Disarm deferred release: ownership transferred to caller
-			return up, lease, nil
+	up, err := backend.Chat(ctx, lease, opts, normalized)
+	st.attempts = 1
+	if err == nil {
+		st.statuses = append(st.statuses, http.StatusOK)
+		released = true // Disarm deferred release: ownership transferred to caller
+		return up, lease, nil
+	}
+	if sc := attemptStatus(err); sc != 0 {
+		st.statuses = append(st.statuses, sc)
+	}
+	// The lease is released before every error return below, so remember
+	// its attribution for the trace line now.
+	if lease != nil {
+		st.failedToken = tokenLabel(lease)
+		st.failedAgent = lease.AgentID
+	}
+	switch {
+	case errors.Is(err, upstream.ErrModelIPLimited):
+		// The egress IP is limited for the requested model. The session
+		// stays bound to its admitted model — NOT invalidated. Surface
+		// with no unfit mark and no retry.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrSessionInvalid):
+		release()
+		backend.InvalidateSession(lease)
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrWaitingRoomRequired):
+		// #116: 428 waiting_room_required is session-ENDING (the seat is
+		// gone mid-chat). Drop the cached session so the NEXT request
+		// re-admits fresh, and surface.
+		release()
+		backend.InvalidateSession(lease)
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrWaitingRoom):
+		// waiting_room_queued is a transient admit race
+		// (endsTheSession:false): the cached session is fine. Release
+		// with no invalidation and surface.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrSessionLimitReached):
+		// 409 session_limit_reached (endsTheSession:false): the account is
+		// over budget but this session's row is fine. Release with no
+		// invalidation and surface.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrSessionSuperseded):
+		// #159: 409 session_superseded is TERMINAL for this request —
+		// another instance took over the account. Drop the cached session
+		// (reason "superseded") so the NEXT request re-admits fresh, and
+		// surface. NEVER retry on the dead instance.
+		release()
+		backend.InvalidateSessionSuperseded(lease)
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrTurnSpendLimited):
+		// turn_spend_limit killed THIS turn (per-turn spend ceiling).
+		// TERMINAL for the current request: surface immediately with no
+		// cooldown and no re-acquire.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrRunInvalid):
+		release()
+		backend.InvalidateRun(lease, lease.AgentID)
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrAuthRejected):
+		// No cooldown write: the account simply failed to serve.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrBanned):
+		// Terminal ban: remember it (quarantines the account) and surface.
+		var be *upstream.BanError
+		if errors.As(err, &be) {
+			backend.CooldownBan(lease, be)
 		}
-		if s := attemptStatus(err); s != 0 {
-			st.statuses = append(st.statuses, s)
-		}
-		failTime = time.Now()
-		// The lease is released before every error return below, so
-		// remember its attribution for the trace line now: post-acquire
-		// errors keep the serving token even though chatCore sees a nil
-		// lease. A retry re-acquire overwrites it with the fresh lease.
-		if lease != nil {
-			st.failedToken = tokenLabel(lease)
-			st.failedAgent = lease.AgentID
-		}
-		switch {
-		case errors.Is(err, upstream.ErrModelIPLimited):
-			// Issue #74 P2: the egress IP is limited for the requested
-			// model. Mark (egress, model) unfit for ~5 min so new requests
-			// refuse fast instead of re-admitting against a known-limited
-			// gate (each admission burns a daily session slot). Retry once
-			// through a fresh acquire — a different token may still
-			// serve the model. The session is bound to
-			// its admitted model and is NOT invalidated.
-			var lie *upstream.LimitedIpError
-			if errors.As(err, &lie) {
-				s.pool.MarkModelUnfit(effectiveModel, lie)
-			} else {
-				s.pool.MarkModelUnfit(effectiveModel, nil)
-			}
-			release()
-			if attempts > 1 {
-				return nil, nil, err
-			}
-		case errors.Is(err, upstream.ErrSessionInvalid):
-			release()
-			backend.InvalidateSession(lease)
-			if attempts > 1 {
-				return nil, nil, err
-			}
-		case errors.Is(err, upstream.ErrWaitingRoomRequired):
-			// #116: 428 waiting_room_required is session-ENDING
-			// (endsTheSession:true — the seat is gone mid-chat;
-			// upstream/freebuff freebuff-session.ts FREEBUFF_GATE_CODES).
-			// Drop the cached session and re-admit ONCE for this request
-			// (mirror the ErrSessionInvalid budget: attempts > 1 surfaces
-			// the error; the WAITING_ROOM_CHAIN fires before the next
-			// create). Never loops — a single reacquire, then surface.
-			release()
-			backend.InvalidateSession(lease)
-			if attempts > 1 {
-				return nil, nil, err
-			}
-		case errors.Is(err, upstream.ErrWaitingRoom):
-			// waiting_room_queued (endsTheSession:false — transient admit race,
-			// the row was caught mid-admit; upstream/freebuff freebuff-session.ts
-			// FREEBUFF_GATE_CODES). PARK: the cached session is fine, so release
-			// the lease with NO invalidation and NO cooldown; the single
-			// re-acquire (fresh lease, same slot) rides out the race instead of
-			// dropping it. attempts > 1 surfaces for writeError's 503.
-			release()
-			if attempts > 1 {
-				return nil, nil, err
-			}
-		case errors.Is(err, upstream.ErrSessionLimitReached):
-			// 409 session_limit_reached (endsTheSession:false — the ACCOUNT is
-			// over its concurrent-tab budget but this session's row is fine).
-			// PARK: never refresh/recreate the session, no cooldown; the single
-			// re-acquire may land a token whose account still has budget.
-			// attempts > 1 surfaces for writeError's 409.
-			release()
-			if attempts > 1 {
-				return nil, nil, err
-			}
-		case errors.Is(err, upstream.ErrSessionSuperseded):
-			// #159: 409 session_superseded — another instance took over
-			// the account; this session's row is GONE (endsTheSession:true
-			// per FREEBUFF_GATE_CODES). TERMINAL for this request: drop the
-			// cached session (reason "superseded" feeds the re-admit storm
-			// detector) so the NEXT request re-admits fresh, and surface
-			// the error immediately. NEVER retry on the dead instance — an
-			// in-request re-admit burns a fresh daily session slot against
-			// the superseding instance and risks ping-pong (the #119 retry
-			// was observed as attempts=2 with the slot still wasted until
-			// the client cancelled ~59s). Auto-takeover is the other
-			// instance's to resolve; the next client request re-joins.
-			release()
-			backend.InvalidateSessionSuperseded(lease)
-			return nil, nil, err
-		case errors.Is(err, upstream.ErrTurnSpendLimited):
-			// turn_spend_limit: upstream killed THIS turn (per-turn spend
-			// ceiling, usually a stuck agent loop). TERMINAL for the
-			// current request — retrying the same turn re-trips instantly
-			// (live 2026-09-05: 20+ min of 60s re-trips), and
-			// failover-spinning across the pool would burn one account
-			// after another into the same loop. Surface immediately: no
-			// cooldown (a genuinely new turn must flow), no re-acquire.
-			// The client-visible error carries the loop warning so the
-			// agent abandons this turn and starts fresh.
-			release()
-			return nil, nil, err
-		case errors.Is(err, upstream.ErrRunInvalid):
-			release()
-			backend.InvalidateRun(lease, lease.AgentID)
-			if attempts > 1 {
-				return nil, nil, err
-			}
-		case errors.Is(err, upstream.ErrAuthRejected):
-			backend.CooldownAuth(lease)
-			release()
-			return nil, nil, err
-		case errors.Is(err, upstream.ErrBanned):
-			var be *upstream.BanError
-			if errors.As(err, &be) {
-				backend.CooldownBan(lease, be)
-			}
-			release()
-			return nil, nil, err
-		case errors.Is(err, upstream.ErrRateLimited):
-			// Turn-time 429 split (never collapse all 429s): free_mode_rate_limited
-			// carries a countdown → park with cooldown plus the failover retry
-			// below. turn_spend_limit is classified separately (ErrTurnSpendLimited,
-			// handled above: breaker, keep session, no retry) and must never land
-			// here — classifyError matches the literal status-agnostically.
-			var rle *upstream.RateLimitError
-			if errors.As(err, &rle) {
-				backend.CooldownRateLimit(lease, rle)
-			}
-			release()
-			failover := true
-			if cfg := s.cfg.Load(); cfg != nil {
-				failover = cfg.RateLimitFailover
-			}
-			// Bridge mode uses a single client-provided token — no alternative pool token exists.
-			if _, isBridge := backend.(bridgeBackend); isBridge {
-				failover = false
-			}
-			if !failover || attempts > 1 || ctx.Err() != nil {
-				return nil, nil, err
-			}
-			transientErr = err
-		case errors.Is(err, upstream.ErrIpCapped):
-			// ip_capped is admission-only (too many distinct users on the
-			// egress IP), NOT a quota reset: cool the token via
-			// cooldownIpCapped's bounded re-admission (#118) — full
-			// retryAfterMs + jitter, capped per token per day (the 3rd hit
-			// in a rolling window locks until Pacific midnight) — and never
-			// invalidate the session (existing sessions keep running).
-			var ice *upstream.IpCappedError
-			if errors.As(err, &ice) {
-				backend.CooldownIpCapped(lease, ice)
-			}
-			release()
-			return nil, nil, err
-		case errors.Is(err, upstream.ErrCountryBlocked):
-			// A chat-path country block cools the token like the admission
-			// path does: without it the cached session stays "active" and
-			// every request re-hits upstream run-start inside the window.
-			var cbe *upstream.CountryBlockedError
-			if errors.As(err, &cbe) {
-				backend.CooldownCountry(lease, cbe)
-			}
-			release()
-			return nil, nil, err
-		case errors.Is(err, upstream.ErrCredits):
-			// #117: 402 is NEVER retried — the CLI throws immediately and
-			// 402 is NOT in RETRYABLE_STATUS_CODES (upstream/freebuff sdk
-			// error-utils.ts line 16; run-agent-step.ts throws on 402). A
-			// blind retry would burn a fresh lease against the same quota
-			// wall (2 upstream chat POSTs). Surface for writeError, which
-			// maps it to 402 out_of_credits.
-			release()
-			return nil, nil, err
-		default:
-			release()
-			// Retryable UpstreamErrors (e.g. deployment_outside_hours) are
-			// temporarily unavailable, not transient: a blind retry burns a
-			// fresh lease against the same wall. Surface them for writeError
-			// (503 upstream_retryable) instead.
-			var ue *upstream.UpstreamError
-			if errors.As(err, &ue) && ue.Retryable {
-				return nil, nil, err
-			}
-			// T8: a retry cannot succeed on a canceled context (the log
-			// watch showed `transient chat error, retrying once
-			// err="context canceled"`) — surface the original error instead
-			// of re-acquiring into a dead ctx.
-			if attempts > 1 || ctx.Err() != nil {
-				return nil, nil, err
-			}
-			transientErr = err
-		}
-		lease, err = backend.Acquire(ctx, effectiveModel)
-		if err != nil {
-			return nil, nil, err
-		}
-		released = false
-		st.retried = true
-		// The effective backoff before the retry: the re-acquire wait after
-		// the failed attempt (a waiting-room/session gate can stall it).
-		st.backoffMs = time.Since(failTime).Milliseconds()
-		if transientErr != nil {
-			// T13: logged here (not at the failure) so backoff_ms reflects
-			// the real re-acquire wait before the retry attempt.
-			s.logger.Debug("transient chat error, retrying once",
-				"err", transientErr,
-				"reason", chatErrClass(transientErr),
-				"backoff_ms", st.backoffMs,
-				"attempt", attempts,
-				"req_id", st.reqID)
-			transientErr = nil
-		}
-		// A fresh lease may bind a different model (fallback path): refresh
-		// the effective model + body so opts.Model, the body and the
-		// lease's session/run stay consistent.
-		effectiveModel = lease.Model
-		if effectiveModel == "" {
-			effectiveModel = model
-		}
-		if effectiveModel != model {
-			if renormalized, nerr := convert.NormalizeRequest(normalized, effectiveModel); nerr == nil {
-				normalized = renormalized
-			}
-		}
-		opts.Model = effectiveModel
-		if lease.Run.RunID != opts.RunID {
-			// The retry landed on a FRESH run (run-invalid path): the new
-			// run's step counter starts at 1 — stamp its number so
-			// llm_step_number stays per-run like the CLI.
-			opts.StepNumber = int(lease.Run.NextStepNumber())
-			// The trace identity is minted once per run: a retry onto a
-			// fresh run must carry the fresh run's ids upstream, or the
-			// dead run's trace session/client pair labels the new run's
-			// steps (review 2026-08-31 P3 — traces conflated two runs).
-			opts.TraceSessionID = lease.Run.TraceSessionID
-			opts.ClientID = lease.Run.ClientID
-			opts.AgentID = lease.Run.AgentID
-		}
-		opts.RunID = lease.Run.RunID
-		opts.SessionInstanceID = lease.SessionInstanceID
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrRateLimited):
+		// Turn-time 429: surface with no cooldown write and no failover.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrIpCapped):
+		// Admission-only signal surfacing mid-chat: no cooldown write.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrCountryBlocked):
+		// No cooldown write: surface.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrCredits):
+		// #117: 402 is NEVER retried.
+		release()
+		return nil, nil, err
+	default:
+		release()
+		return nil, nil, err
 	}
 }
