@@ -19,9 +19,8 @@ import {
 // of the three settings surfaces (Pool Controls tab, Settings page, Usage
 // Controls tab). Deliberately OUT of the matrix, with reasons:
 // - PIN_MODEL: drawer-owned (TokenDetailsDrawer is its only editor).
-// - MODELS_ALLOW: Essential but editorless (COVERED yet rendered nowhere).
-// - QUOTA_PROBE_*/MATURITY_*: excised from the catalog; PoolCustomAdvanced
-//   still names the probe keys, so that card section never renders.
+// - QUOTA_PROBE_*/MATURITY_*/QUOTA_AUTO_PROBE: excised from the catalog
+//   with the prober removal; no card names them, so no section renders.
 // - Secrets (API_KEYS/AUTH_TOKENS/ADMIN_TOKEN/WEBHOOK_URL): never listed,
 //   managed on their own surfaces.
 // - Hidden infra keys (SESSION_STATE_FILE, ROTATION_INTERVAL, ...): shown
@@ -41,8 +40,8 @@ export const POOL_CONTROLS_KEYS = [
   "BRIDGE_ENABLED",
 ] as const;
 
-// Custom advanced card (Pool page Controls tab): hand-tuned probing,
-// admission-cache, and session knobs that still exist in the catalog.
+// Custom advanced card (Pool page Controls tab): hand-tuned
+// admission-cache and session knobs that still exist in the catalog.
 export const CUSTOM_ADVANCED_KEYS = [
   "MODEL_UNAVAILABLE_CACHE_TTL",
   "SESSION_PROBE_CACHE_TTL",
@@ -78,17 +77,20 @@ export const SECURITY_KEYS = [
 ] as const;
 
 // Usage Controls + Upstream & Quota cards (Usage page Controls tab).
+// MODELS_ALLOW lives in Upstream & Quota (AdvancedSettings onlyGroups
+// upstream): the catalog's only list-kind upstream row with a real editor.
 export const UPSTREAM_QUOTA_KEYS = [
   "REASONING_IN_CONTENT",
   "CACHE_CONTROL_INJECTION",
   "COMPRESS_PROMPT",
   "MODELS_HIDE_UNAVAILABLE",
   "REGISTRY_REFRESH",
+  "MODELS_ALLOW",
 ] as const;
 
 // Every matrix key in surface order: pool, gateway, logging, security,
-// upstream. PIN_MODEL/MODELS_ALLOW/excised/secret/hidden keys excluded
-// (see the header note for why each has no matrix row).
+// upstream. PIN_MODEL/excised/secret/hidden keys excluded (see the header
+// note for why each has no matrix row).
 export const ALL_MATRIX_KEYS: readonly string[] = [
   ...STRATEGY_KEYS,
   ...POOL_CONTROLS_KEYS,
@@ -131,6 +133,7 @@ export const KEY_HOME: Record<string, "pool" | "settings" | "usage"> = {
   COMPRESS_PROMPT: "usage",
   MODELS_HIDE_UNAVAILABLE: "usage",
   REGISTRY_REFRESH: "usage",
+  MODELS_ALLOW: "usage",
 };
 
 // Balance posture seed (overlay wins the display, so rows show these).
@@ -183,9 +186,9 @@ export function fullMatrixDbSeed(): OverlaySeed[] {
     CORS_ALLOWED_ORIGIN: "https://example.com",
     REASONING_IN_CONTENT: "true",
     CACHE_CONTROL_INJECTION: "false",
-    COMPRESS_PROMPT: "true",
     MODELS_HIDE_UNAVAILABLE: "true",
     REGISTRY_REFRESH: "12h",
+    MODELS_ALLOW: "deepseek/deepseek-v4-flash",
   };
   return ALL_MATRIX_KEYS.map((key) => ({
     key,

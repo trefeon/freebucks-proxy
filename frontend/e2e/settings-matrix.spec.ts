@@ -161,6 +161,20 @@ test.describe("settings matrix: single-home render", () => {
       ).toHaveCount(0);
     }
   });
+  test("MODELS_ALLOW lives in the Upstream & Quota card", async ({ page }) => {
+    await mockSettingsMatrix(page, { seed: fullMatrixDbSeed() });
+    await gotoControls(page, "plans");
+    // Card-scoped: the allowlist must render inside Upstream & Quota, not
+    // just somewhere on the Usage page (it was COVERED yet rendered
+    // nowhere before it gained this home).
+    const card = page.locator("div.bg-surface", {
+      has: page.getByRole("heading", { name: "Upstream & Quota" }),
+    });
+    await expect(card.locator('[aria-label="MODELS_ALLOW"]')).toHaveCount(1);
+    await expect(card.locator('[aria-label="MODELS_ALLOW"]')).toHaveValue(
+      "deepseek/deepseek-v4-flash",
+    );
+  });
 });
 
 test.describe("settings matrix: edits persist via the overlay", () => {
@@ -275,12 +289,14 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await toggleKey(page, "COMPRESS_PROMPT");
     await toggleKey(page, "MODELS_HIDE_UNAVAILABLE");
     await fillKey(page, "REGISTRY_REFRESH", "12h");
+    await fillKey(page, "MODELS_ALLOW", "deepseek/deepseek-v4-flash");
     await toggleKey(page, "REASONING_IN_CONTENT");
 
     await expectPosted(posted, "CACHE_CONTROL_INJECTION", "false");
     await expectPosted(posted, "COMPRESS_PROMPT", "true");
     await expectPosted(posted, "MODELS_HIDE_UNAVAILABLE", "true");
     await expectPosted(posted, "REGISTRY_REFRESH", "12h");
+    await expectPosted(posted, "MODELS_ALLOW", "deepseek/deepseek-v4-flash");
     await expectPosted(posted, "REASONING_IN_CONTENT", "true");
     await expect(
       page.getByRole("status").filter({ hasText: "REGISTRY_REFRESH saved" }),
