@@ -1,5 +1,5 @@
 <script>
-  import { Send, Activity } from "@lucide/svelte";
+  import { Send } from "@lucide/svelte";
   import PageHeader from "../components/PageHeader.svelte";
   import Card from "../components/Card.svelte";
   import Button from "../components/Button.svelte";
@@ -8,7 +8,7 @@
   import SessionSpawnPanel from "../components/SessionSpawnPanel.svelte";
   import BatchTestPanel from "../components/BatchTestPanel.svelte";
   import { fetchAPI, postAPI } from "../api/client.js";
-  import { adminApi, adminActions, tokenActions } from "../api/paths.js";
+  import { adminApi, tokenActions } from "../api/paths.js";
   import {
     fallbackModelOptions,
     fetchModelOptions,
@@ -343,29 +343,12 @@
     actionPending = true;
     try {
       const res = await postAPI(url, body);
-      if (Array.isArray(res)) {
-        // Probe-all answers one JSON array with a per-token outcome each
-        // (backend/internal/server/admin_tokens.go): summarize it into the
-        // single toast line instead of showing raw JSON.
-        const okCount = res.filter((r) => r && r.ok).length;
-        const probeOK = res.length > 0 && okCount === res.length;
-        const firstBad = res.find((r) => r && !r.ok);
-        pushToast({
-          tone: probeOK ? "success" : "error",
-          title:
-            $tr("Probe complete: {ok}/{n} tokens OK", {
-              ok: okCount,
-              n: res.length,
-            }) + (firstBad?.message ? ` — ${firstBad.message}` : ""),
-        });
-      } else {
-        pushToast({
-          tone: res.ok ? "success" : "error",
-          title:
-            res.message ||
-            (res.ok ? $tr("Action completed") : $tr("Action failed")),
-        });
-      }
+      pushToast({
+        tone: res.ok ? "success" : "error",
+        title:
+          res.message ||
+          (res.ok ? $tr("Action completed") : $tr("Action failed")),
+      });
       await refreshTokens();
     } catch (e) {
       pushToast({ tone: "error", title: e.message || $tr("Action failed") });
@@ -387,31 +370,14 @@
       description={$tr(
         "Interactive model playground, session spawner, and gateway load simulation.",
       )}
-    >
-      {#snippet actions()}
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={actionPending || !tokensData?.token_count}
-          onclick={() =>
-            triggerTokenAction(
-              adminActions.tokenTestAll,
-              {},
-              $tr("Probe all pool tokens against upstream?"),
-            )}
-        >
-          <Activity size={14} />
-          <span>{$tr("Probe All Tokens")}</span>
-        </Button>
-      {/snippet}
-    </PageHeader>
+    />
 
     <!-- Section 1: Live Chat Playground -->
     <section aria-label="Model Playground">
       <Card
         title={$tr("Model Chat & Stream Playground")}
         description={$tr(
-          "Send live requests directly to the proxy to test streaming, reasoning, and latency. Account Auto follows pool rotation; picking an account admits the session there first.",
+          "Send live requests directly to the proxy to test streaming, reasoning, and latency. Account Auto follows ordered spill; picking an account admits the session there first.",
         )}
       >
         {#snippet actions()}

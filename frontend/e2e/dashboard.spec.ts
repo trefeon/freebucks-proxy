@@ -156,21 +156,22 @@ test.describe("dashboard hermetic mocks", () => {
   }) => {
     const f = loadFixtures();
     const lockedTokens = JSON.parse(JSON.stringify(f.tokens));
-    lockedTokens.tokens[0].allowed_models = ["z-ai/glm-5.2"];
-    lockedTokens.tokens[0].allowlist_skips = 3;
+    lockedTokens.tokens[0].pinned_model = "z-ai/glm-5.2";
+    lockedTokens.tokens[0].pin_skips = 3;
     await mockDashboard(page, f, { tokens: lockedTokens });
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const table = page.locator("table.fp-table");
     await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
     await table.locator('button[aria-label*="Expand details"]').first().click();
-    await expect(page.getByText("Pinned models").first()).toBeVisible();
+    await expect(page.getByText("Pinned model").first()).toBeVisible();
     await expect(page.getByText("z-ai/glm-5.2").first()).toBeVisible();
+    await expect(
+      page.getByText("3 request(s) routed elsewhere by this pin").first(),
+    ).toBeVisible();
   });
 
-  test("Token drawer pins a model through MODEL_LOCKS save", async ({
-    page,
-  }) => {
+  test("Token drawer pins a model through PIN_MODEL save", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
     const posted: PostedSetting[] = [];
@@ -193,8 +194,32 @@ test.describe("dashboard hermetic mocks", () => {
       { timeout: 10000 },
     );
     await expect
-      .poll(() => posted.find((p) => p.key === "MODEL_LOCKS")?.value ?? "")
+      .poll(() => posted.find((p) => p.key === "PIN_MODEL")?.value ?? "")
       .toContain("0:mimo/mimo-v2.5");
+  });
+
+  test("Token drawer clears a pin through PIN_MODEL save", async ({ page }) => {
+    const f = loadFixtures();
+    const pinnedTokens = JSON.parse(JSON.stringify(f.tokens));
+    pinnedTokens.tokens[0].pinned_model = "mimo/mimo-v2.5";
+    await mockDashboard(page, f, { tokens: pinnedTokens });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    const table = page.locator("table.fp-table");
+    await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
+    await table.locator('button[aria-label*="Expand details"]').first().click();
+    await expect(page.getByText("mimo/mimo-v2.5").first()).toBeVisible();
+    await table.getByRole("button", { name: "Clear pin" }).click();
+    await page.waitForRequest(
+      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+      { timeout: 10000 },
+    );
+    await expect
+      .poll(() => posted.filter((p) => p.key === "PIN_MODEL").length)
+      .toBeGreaterThan(0);
+    expect(posted.find((p) => p.key === "PIN_MODEL")?.value).toBe("");
   });
 
   test("Quota Tracker shows Freebucks empty state, no session quota bars", async ({
@@ -614,32 +639,33 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
-    // Rotation policy moved from Settings Traffic to the Pool page's
-    // Controls tab: the failover switch lives there, keyed by label;
-    // secrets never reach the advanced list.
+    // Queue posture moved from Settings Traffic to the Pool page's Controls
+    // tab: the slots-per-account stepper lives there; secrets never reach
+    // the advanced list.
     await page.getByRole("button", { name: "Controls" }).click();
-    const failover = page.getByRole("switch", {
-      name: "Auto Failover on Rate Limit (429)",
-    });
+    const slots = page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]');
     await expect(page.getByText("ADMIN_TOKEN", { exact: true })).toHaveCount(0);
-    // Toggling instant-saves the key to the overlay (debounced ~400ms).
-    await failover.click();
+    await expect(slots).toBeVisible();
+    // Editing instant-saves the key to the overlay (debounced ~400ms).
+    await slots.fill("3");
     await page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10000 },
     );
     await expect
-      .poll(() => posted.some((p) => p.key === "RATE_LIMIT_FAILOVER"))
+      .poll(() =>
+        posted.some((p) => p.key === "SLOTS_PER_ACCOUNT" && p.value === "3"),
+      )
       .toBe(true);
     await expect(
-      page.getByRole("status").filter({ hasText: "RATE_LIMIT_FAILOVER saved" }),
+      page.getByRole("status").filter({ hasText: "SLOTS_PER_ACCOUNT saved" }),
     ).toBeVisible();
 
-    // Reload keeps the toggled value: GET reflects the POSTed overlay row.
+    // Reload keeps the row visible: GET reflects the POSTed overlay row.
     await page.reload();
     await page.getByRole("button", { name: "Controls" }).click();
     await expect(
-      page.getByRole("switch", { name: "Auto Failover on Rate Limit (429)" }),
+      page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]'),
     ).toBeVisible();
   });
   test("Usage controls render routing keys and save", async ({ page }) => {
@@ -701,15 +727,17 @@ test.describe("dashboard hermetic mocks", () => {
     await metaResp;
     await page.getByRole("button", { name: "Controls" }).click();
     // Pool-group keys moved from Settings Advanced to the Pool Controls
-    // tab: probing rows render in the Pool Tuning card, while every
+    // tab: pool-tuning rows render in the Pool Tuning card, while every
     // MATURITY_* key lives only on the Warming tab's Streak Maintenance
-    // card (single address, no Pool Tuning dupe).
+    // card (single address, no Pool Tuning dupe). QUOTA_AUTO_PROBE is gone
+    // with the excised prober, so RATE_LIMIT_BURST stands in as the
+    // catalog-rendered pool row.
     await expect(page.getByText("Pool Tuning")).toBeVisible();
     await expect(
       page.getByText("MATURITY_ENABLED", { exact: true }),
     ).toHaveCount(0);
     await expect(
-      page.getByText("QUOTA_AUTO_PROBE", { exact: true }).first(),
+      page.getByText("RATE_LIMIT_BURST", { exact: true }).first(),
     ).toBeVisible();
     // Settings no longer renders pool rows: only the Security leftover.
     await page.goto("http://127.0.0.1:4173/admin/#settings");
@@ -720,7 +748,7 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByText("CORS_ALLOWED_ORIGIN", { exact: true }).first(),
     ).toBeVisible();
   });
-  test("Pool strategy preset switch writes the five owned keys", async ({
+  test("Pool strategy preset switch writes the four owned keys", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -737,9 +765,12 @@ test.describe("dashboard hermetic mocks", () => {
     // Catalog defaults (30s / 16) already read as Balance.
     const drain = page.getByRole("radio", { name: "Drain", exact: true });
     const balance = page.getByRole("radio", { name: "Balance", exact: true });
-    await expect(page.getByText("Pool Strategy")).toBeVisible();
+    await expect(
+      page.getByText("Pool Strategy", { exact: true }),
+    ).toBeVisible();
     await expect(balance).toHaveAttribute("aria-checked", "true");
-    // A Drain tap calls onField for all five owned keys, but the card's own
+    // A Drain tap calls onField for the four preset-written owned keys
+    // (PIN_MODEL is owned but never preset-written), but the card's own
     // rows only POST changed values (no write without change): exactly
     // QUEUE_WAIT and QUEUE_DEPTH leave Balance behind.
     await drain.click();
@@ -759,6 +790,8 @@ test.describe("dashboard hermetic mocks", () => {
     expect(keys).not.toContain("TOKEN_ROTATION");
     expect(keys).not.toContain("RATE_LIMIT_FAILOVER");
     expect(keys).not.toContain("TOKEN_MAX_CONCURRENT");
+    expect(keys).not.toContain("MODEL_LOCKS");
+    expect(keys).not.toContain("SESSION_IDLE_END");
 
     // Reload keeps Drain: the rows pin their display through the post-save
     // refetches, so no stale file default is re-posted after the tap.
@@ -866,7 +899,7 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("button", { name: "Reset to Drain" }),
     ).toBeVisible();
-    // Reset restores the Balance five (threshold back to its 60s default).
+    // Reset restores the Balance four (threshold back to its 60s default).
     await page.getByRole("button", { name: "Reset to Balance" }).click();
     await expect(
       page.getByRole("radio", { name: "Balance", exact: true }),
@@ -954,11 +987,10 @@ test.describe("dashboard hermetic mocks", () => {
         contentType: "application/json",
         body: JSON.stringify({
           settings: [
-            { key: "ROUTING_SMART", value: "true", source: "db" },
-            { key: "TOKEN_ROTATION", value: "drain", source: "db" },
-            { key: "RATE_LIMIT_FAILOVER", value: "true", source: "db" },
+            { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
             { key: "QUEUE_WAIT", value: "1m0s", source: "db" },
             { key: "QUEUE_DEPTH", value: "16", source: "db" },
+            { key: "MAX_SPILL_ACCOUNTS", value: "0", source: "db" },
           ],
           degraded: false,
         }),
@@ -1036,7 +1068,7 @@ test.describe("dashboard hermetic mocks", () => {
     ).toHaveAttribute("aria-checked", "true");
   });
 
-  test("the five strategy keys have exactly one editor each, in the strategy card", async ({
+  test("the four strategy keys have exactly one editor each, in the strategy card", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -1058,13 +1090,10 @@ test.describe("dashboard hermetic mocks", () => {
       1,
     );
     await expect(
-      page.getByRole("switch", { name: "ROUTING_SMART" }),
+      page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]'),
     ).toHaveCount(1);
     await expect(
-      page.getByRole("switch", { name: "Auto Failover on Rate Limit (429)" }),
-    ).toHaveCount(1);
-    await expect(
-      page.getByRole("radio", { name: "Round Robin (1:1)" }),
+      page.locator('input[aria-label="MAX_SPILL_ACCOUNTS"]'),
     ).toHaveCount(1);
     // ...and that editor is the strategy card's own row.
     await expect(rows.locator('input[aria-label="QUEUE_WAIT"]')).toHaveCount(1);
@@ -1072,24 +1101,11 @@ test.describe("dashboard hermetic mocks", () => {
       1,
     );
     await expect(
-      rows.getByRole("switch", { name: "ROUTING_SMART" }),
+      rows.locator('input[aria-label="SLOTS_PER_ACCOUNT"]'),
     ).toHaveCount(1);
     await expect(
-      rows.getByRole("switch", { name: "Auto Failover on Rate Limit (429)" }),
+      rows.locator('input[aria-label="MAX_SPILL_ACCOUNTS"]'),
     ).toHaveCount(1);
-    await expect(
-      rows.getByRole("radio", { name: "Round Robin (1:1)" }),
-    ).toHaveCount(1);
-    // The rotation radios are the sole editor for the modes the presets
-    // never write (they only ever set drain); picking one lands as a save
-    // of that key and reads out of preset, with the one-click resets.
-    await rows.getByRole("radio", { name: "Round Robin (1:1)" }).click();
-    await expect
-      .poll(() => posted.find((p) => p.key === "TOKEN_ROTATION")?.value)
-      .toBe("round_robin");
-    await expect(
-      page.getByRole("button", { name: "Reset to Balance" }),
-    ).toBeVisible();
     // No catalog key has a second editor anywhere on the tab either: every
     // row renders its key as one <code> chip, so a duplicate chip is a
     // duplicate owner.
@@ -1113,15 +1129,15 @@ test.describe("dashboard hermetic mocks", () => {
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
-    // Prod shape: rotation drains while the queue posture is Balance
-    // (QUEUE_WAIT=60s / QUEUE_DEPTH=16). The header must not stand a
-    // rotation-only label where a queue posture is expected.
+    // Prod shape: the queue posture is Balance (QUEUE_WAIT=60s /
+    // QUEUE_DEPTH=16, SLOTS_PER_ACCOUNT=2, MAX_SPILL_ACCOUNTS=0).
     const posted: PostedSetting[] = [];
     await mockSettingsOverlay(page, posted, {
       seed: [
-        { key: "TOKEN_ROTATION", value: "drain", source: "db" },
         { key: "QUEUE_WAIT", value: "60s", source: "db" },
         { key: "QUEUE_DEPTH", value: "16", source: "db" },
+        { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
+        { key: "MAX_SPILL_ACCOUNTS", value: "0", source: "db" },
       ],
     });
     const metaResp = page.waitForResponse(
@@ -1130,12 +1146,9 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    const rotationChip = page.getByTestId("rotation-chip").locator("dd");
     const queueChip = page.getByTestId("queue-chip").locator("dd");
-    // The rotation chip reports the snapshot rotation honestly; the queue
-    // chip reports the posture from the same five-key source as the card
-    // badge (the tokens snapshot carries no posture field yet).
-    await expect(rotationChip).toHaveText("Drain");
+    // The queue chip reports the posture from the same source as the card
+    // badge (the tokens snapshot carries no posture field).
     await expect(queueChip).toHaveText("Balance");
     await page.getByRole("button", { name: "Controls" }).click();
     const balance = page.getByRole("radio", { name: "Balance", exact: true });
@@ -1156,7 +1169,7 @@ test.describe("dashboard hermetic mocks", () => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
     // With the overlay unreachable we cannot know whether saved rows move
-    // the five strategy keys, so the chip must stay unclassified instead
+    // the strategy keys, so the chip must stay unclassified instead
     // of guessing a posture from file/default values.
     const posted: PostedSetting[] = [];
     await mockSettingsOverlay(page, posted, { degraded: true });
@@ -1166,9 +1179,6 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await expect(page.getByTestId("rotation-chip").locator("dd")).toHaveText(
-      "Drain",
-    );
     await expect(page.getByTestId("queue-chip").locator("dd")).toHaveText("—");
   });
 
@@ -1184,7 +1194,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
     await page.getByRole("button", { name: "Controls" }).click();
-    // TOKEN_MAX_CONCURRENT ships at 2 (the approved anti-ban pacing) and
+    // SLOTS_PER_ACCOUNT ships at 2 (the approved anti-ban pacing) and
     // the tokens snapshot reports the pooled account count.
     const snapshot = f.tokens;
     const accounts = Number(
@@ -1205,7 +1215,7 @@ test.describe("dashboard hermetic mocks", () => {
     await mockDashboard(page, f, {}, { loginPage: true });
     const posted: PostedSetting[] = [];
     await mockSettingsOverlay(page, posted, {
-      seed: [{ key: "TOKEN_MAX_CONCURRENT", value: "0", source: "db" }],
+      seed: [{ key: "SLOTS_PER_ACCOUNT", value: "0", source: "db" }],
     });
     const metaResp = page.waitForResponse(
       (r) => r.url().includes("/admin/api/config/meta") && r.status() === 200,
@@ -1416,10 +1426,10 @@ test.describe("dashboard hermetic mocks", () => {
     // 13 catalog rows the page renders or names (1 access + 2 general +
     // 3 named by the Pool link-out stub + 1 by the routing stub + 1 log
     // level + 4 diagnostics + 1 security), plus the non-catalog admin
-    // password row, plus the 22 hidden catalog keys the "Hidden keys"
-    // disclosure lists (26 hidden non-secret keys minus the 4 that keep a
-    // card of their own) — not the 65-key catalog.
-    expect(named).toBe(36);
+    // password row, plus the 21 hidden catalog keys the "Hidden keys"
+    // disclosure lists (24 hidden non-secret keys minus the 3 that keep a
+    // card of their own) — not the catalog.
+    expect(named).toBe(34);
     const rendered = await page.evaluate(
       () =>
         Array.from(document.querySelectorAll("code")).filter((c) =>

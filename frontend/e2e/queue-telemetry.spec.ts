@@ -72,7 +72,7 @@ test.describe("queue-wait telemetry", () => {
     const chip = page.getByText("QUEUED 850ms");
     await expect(chip).toBeVisible();
     // The chip states queue time and must not claim tokens or latency.
-    await expect(chip).toHaveAttribute("title", /live-turn queue/);
+    await expect(chip).toHaveAttribute("title", /spill-lane queue/);
     await expect(chip).toHaveAttribute(
       "title",
       /not tokens, not request latency/,

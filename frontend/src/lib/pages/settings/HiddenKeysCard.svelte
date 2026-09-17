@@ -47,12 +47,11 @@
   } = $props();
 
   // Keys that DO have a dedicated editor elsewhere in the dashboard: the
-  // Gateway card owns HTTP_READ_TIMEOUT, the Pool Controls card owns
-  // TOKEN_ROTATION, and its Custom advanced card owns the two session keys.
-  // Listing them here would duplicate a control that already works.
+  // Gateway card owns HTTP_READ_TIMEOUT and the Pool Custom advanced card
+  // owns the two session keys. Listing them here would duplicate a control
+  // that already works.
   const OWNED_ELSEWHERE = new Set([
     "HTTP_READ_TIMEOUT",
-    "TOKEN_ROTATION",
     "SESSION_RE_ADMIT_LEAD",
     "WAITING_ROOM_CHAIN",
   ]);

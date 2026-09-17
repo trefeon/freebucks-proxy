@@ -20,7 +20,7 @@ import type { PostedSetting } from "./mocks.js";
 //   reorder/clear/finish/drop .... interactions.spec
 //   lock/add/remove/login/drag ... ux.spec
 //   pins/strategy/threshold ...... dashboard.spec
-//   rotation/failover ............ interactions.spec (+ inline here)
+//   strategy/slots ............. interactions.spec (+ inline here)
 // Usage (#plans: Quota/Models/Controls)
 //   saved notes + persist ........ page-state.spec
 //   reset strip / exempt chip .... flows.spec
@@ -95,26 +95,24 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Controls" }).click();
-    const failover = page.getByRole("switch", {
-      name: "Auto Failover on Rate Limit (429)",
-    });
-    await expect(failover).toHaveAttribute("aria-checked", "true");
+    const slots = page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]');
+    await expect(slots).toBeVisible();
 
     const saveReq = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10_000 },
     );
-    await failover.click();
+    await slots.fill("3");
     await saveReq;
 
     // DB-first proof: the exact overlay payload the gateway would persist.
     await expect
-      .poll(() => posted.find((p) => p.key === "RATE_LIMIT_FAILOVER")?.value)
-      .toBe("false");
+      .poll(() => posted.find((p) => p.key === "SLOTS_PER_ACCOUNT")?.value)
+      .toBe("3");
     // Per-row saves stay inline by design (HEAD #563 only moved reset
     // outcomes to the global toaster): the row reports
     // saved-and-live and no toast appears.
-    const row = page.locator("div.py-4", { has: failover }).first();
+    const row = page.locator("div.py-4", { has: slots }).first();
     await expect(
       row.locator('span[role="status"]', {
         hasText: "saved and applied live",
@@ -136,18 +134,16 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       page.getByRole("heading", { name: "Pool", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Controls" }).click();
-    const failover = page.getByRole("switch", {
-      name: "Auto Failover on Rate Limit (429)",
-    });
-    await failover.click();
+    const slots = page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]');
+    await slots.fill("3");
 
     await expect
-      .poll(() => posted.filter((p) => p.key === "RATE_LIMIT_FAILOVER").length)
+      .poll(() => posted.filter((p) => p.key === "SLOTS_PER_ACCOUNT").length)
       .toBeGreaterThan(0);
     // Row-level error contract: the row keeps the edited value with an
     // inline Retry affordance; a per-row failure never raises a toast
     // (HEAD #563 only toasts reset outcomes).
-    const row = page.locator("div.py-4", { has: failover }).first();
+    const row = page.locator("div.py-4", { has: slots }).first();
     await expect(row.getByRole("button", { name: "Retry" })).toBeVisible();
     await expect(toasts(page).getByRole("alert")).toHaveCount(0);
     await expect(toasts(page).getByRole("status")).toHaveCount(0);
@@ -344,10 +340,10 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     );
     await page.getByRole("button", { name: "Controls" }).click();
     await expect(
-      page.getByRole("radio", { name: "Drain (Safest)" }),
+      page.getByRole("radio", { name: "Drain", exact: true }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.getByRole("button", { name: "Accounts", exact: true }).click();
     await expect(page.getByText("Account #1").first()).toBeVisible();
   });
 
@@ -367,13 +363,13 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       'button[aria-label="Expand details for account 1"]',
     );
     await expand.click();
-    // Drawer opens: the pinned-models block renders for the expanded token.
-    await expect(table.getByText("Pinned models")).toBeVisible();
+    // Drawer opens: the pinned-model block renders for the expanded token.
+    await expect(table.getByText("Pinned model")).toBeVisible();
     // Collapse hides it again (button label flips with aria-expanded).
     await table
       .locator('button[aria-label="Collapse details for account 1"]')
       .click();
-    await expect(table.getByText("Pinned models")).toHaveCount(0);
+    await expect(table.getByText("Pinned model")).toHaveCount(0);
   });
 
   test("generate key posts the .env save, shows the modal, Done toasts", async ({

@@ -65,7 +65,7 @@
     "referral_qualified_count",
     "referral_github_linked",
     "referral_reset_at",
-    "allowed_models",
+    "pinned_model",
   ];
   let staticPart = null;
   let staticTokensByIndex = {};

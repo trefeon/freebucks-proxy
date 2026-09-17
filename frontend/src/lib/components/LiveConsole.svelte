@@ -177,10 +177,10 @@
     }
     if (c === "ACCT —") return "Serving pool account unknown";
     // Queue wait: time this request sat parked in the account's FIFO
-    // live-turn queue (TOKEN_MAX_CONCURRENT slot wall) before a slot was
+    // spill-lane queue (SLOTS_PER_ACCOUNT lane wall) before a slot was
     // granted — queue time, not token usage and not total request latency.
     if (c.startsWith("QUEUED "))
-      return `${c} parked in this account's live-turn queue before a slot was granted (queue time — not tokens, not request latency)`;
+      return `${c} parked in this account's spill-lane queue before a slot was granted (queue time — not tokens, not request latency)`;
     if (c.endsWith(" Msgs"))
       return `${c} in this request (message count, not tokens)`;
     if (c.endsWith(" Tools"))
@@ -426,8 +426,9 @@
           if (!g.ttft && fields.upstream_ttfb_ms)
             g.ttft = fields.upstream_ttfb_ms;
           // Queue-wait phase: present only when the request actually parked
-          // in the account's FIFO live-turn queue (the pool records it at
-          // grant time). Never inferred from latency or acquire time.
+          // in the account's FIFO spill-lane queue (the pool records it at
+          // grant time as queue_wait_ms). Never inferred from latency or
+          // acquire time.
           if (!g.queueWait && fields.queue_wait_ms)
             g.queueWait = fields.queue_wait_ms;
           if (!g.attempts && Number(fields.attempts))
@@ -540,7 +541,7 @@
         ...(g.effort ? [`THINK ${g.effort}`] : []),
         ...(g.token ? [`ACCT ${g.token}`] : []),
         // Queue wait (queue_wait_ms phase): the request parked in this
-        // account's FIFO live-turn queue before a slot was granted. Only
+        // account's FIFO spill-lane queue before a slot was granted. Only
         // rendered when the phase is actually numeric — a request that
         // never parked carries no phase and therefore no chip.
         ...(g.queueWait !== "" && Number.isFinite(Number(g.queueWait))
