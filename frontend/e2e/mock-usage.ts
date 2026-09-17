@@ -219,4 +219,48 @@ export async function mockUsage(
   return { fixtures, posted };
 }
 
+// --- Team usage (Activity Team tab, #609) ---
+// Per-client API key row mirroring aggregateUsageByKey: short key hash
+// label (never a raw key), 0..1 success rate, token totals, per-model
+// splits, first/last seen bounds, wire-price freebucks.
+export function teamKeyRow(
+  over: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    key_id: "aaaabbbbccccdddd",
+    requests: 2,
+    success_rate: 0.5,
+    total_tokens: 165,
+    by_model: {
+      "test/priced": {
+        requests: 2,
+        tokens: 165,
+        prompt: 110,
+        completion: 55,
+        reasoning: 4,
+      },
+    },
+    first_seen: 1785890000000,
+    last_seen: 1785893600000,
+    freebucks: 40,
+    ...over,
+  };
+}
+
+// Serves GET /admin/api/usage?group_by=key for the Team tab. mocks.ts
+// predates #609 and has no usage route, so the slice serves it here
+// (later route wins; no shared file touched).
+export async function mockTeamUsage(
+  page: Page,
+  keys: Record<string, unknown>[],
+): Promise<void> {
+  await page.route("**/admin/api/usage*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ range: "7d", keys }),
+    });
+  });
+}
+
 export { adminUrl, tokenRow, tokensPayload };

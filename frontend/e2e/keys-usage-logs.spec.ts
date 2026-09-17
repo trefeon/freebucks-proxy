@@ -9,10 +9,12 @@ import {
   killTokensApi,
   meteredToken,
   mockRefundReplay,
+  mockTeamUsage,
   mockUsage,
   refundPendingToken,
   SEED_KEYS,
   settledRefundToken,
+  teamKeyRow,
   tokenRow,
   tokensPayload,
 } from "./mock-usage.js";
@@ -400,27 +402,65 @@ test.describe("keys, usage and logs (mock backend)", () => {
     );
   });
 
-  test("activity: exactly three tabs on main (Team fourth is pending #609)", async ({
+  test("activity: four tabs on main (Live/Metrics/Team/Traces, no Logging)", async ({
     page,
   }) => {
-    // Scope is origin/main only: the team-usage 4th tab lives on open
-    // PR #609 and must NOT appear here. If it lands, this count goes to 4
-    // and the slice owner folds it in.
+    // #609 merged the per-client team-usage tab into Activity: the tab set
+    // is Live/Metrics/Team/Traces. A count change here means the IA moved
+    // again, not that this test is stale.
     await mockUsage(page, { loginPage: true });
 
     await page.goto(adminUrl("activity"));
     const tabs = page.getByRole("group", { name: "Activity view" });
-    await expect(tabs.getByRole("button")).toHaveCount(3);
+    await expect(tabs.getByRole("button")).toHaveCount(4);
     await expect(tabs.getByRole("button", { name: "Live" })).toBeVisible();
     await expect(tabs.getByRole("button", { name: "Metrics" })).toBeVisible();
+    await expect(tabs.getByRole("button", { name: "Team" })).toBeVisible();
     await expect(tabs.getByRole("button", { name: "Traces" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Logging" })).toHaveCount(0);
     await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toHaveCount(0);
     await expect(
-      page.getByText("Live traffic, metrics, and traces."),
+      page.getByText("Live traffic, metrics, team usage, and traces."),
     ).toBeVisible();
   });
 
+  test("activity: Team tab renders per-key rows, then the empty state", async ({
+    page,
+  }) => {
+    await mockUsage(page, { loginPage: true });
+    await mockTeamUsage(page, [
+      teamKeyRow(),
+      teamKeyRow({
+        key_id: "zzzz000011112222",
+        requests: 1,
+        success_rate: 1,
+        total_tokens: 10,
+        by_model: {},
+        freebucks: 0,
+      }),
+    ]);
+
+    await page.goto(adminUrl("activity"));
+    await page.getByRole("button", { name: "Team" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Team usage" }),
+    ).toBeVisible();
+    const teamTable = page.locator("table", {
+      has: page.getByRole("columnheader", { name: "Person / key" }),
+    });
+    // Short-hash labels only: raw API keys never reach the DOM.
+    await expect(teamTable.getByText("aaaabbbbccccdddd")).toBeVisible();
+    await expect(teamTable.getByText("zzzz000011112222")).toBeVisible();
+    await expect(teamTable.getByText("40 Freebucks")).toBeVisible();
+    await expect(teamTable.getByText("50.0%")).toBeVisible();
+    await expect(teamTable.getByText("test/priced · 165")).toBeVisible();
+    // Raw client keys stay out of the panel even as substrings.
+    await expect(teamTable.getByText(/sk-fb-/)).toHaveCount(0);
+
+    await mockTeamUsage(page, []);
+    await page.getByRole("button", { name: "Refresh all" }).click();
+    await expect(page.getByText("No per-client usage yet.")).toBeVisible();
+  });
   test("activity: Live console, Metrics KPIs and Traces rows render from mocks", async ({
     page,
   }) => {
