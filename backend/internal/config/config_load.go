@@ -24,11 +24,13 @@ type LoadOptions struct {
 	// environment, so UI-persisted knobs beat the file without rewriting
 	// it while explicit process env keeps winning. Since the env-to-DB
 	// migration every catalog key is overlay-addressable, secrets included
-	// (the DB file holds them at mode 0600); AUTH_TOKENS applies with
+	// (the DB file holds them at mode 0600), except the env-only keys
+	// (SettingsBlockedKeys: SESSION_STATE_FILE, SESSION_PERSIST, LOG_FILE,
+	// HTTP_READ_TIMEOUT, AUTO_DISCOVER_TOKEN), whose rows are inert and
+	// filtered before they apply; AUTH_TOKENS applies with
 	// presence semantics (an empty row pins bridge mode and suppresses CLI
-	// auto-discovery, mirroring the .env tier), and AUTO_DISCOVER_TOKEN is
-	// honored from the overlay only when the process environment leaves it
-	// unset. Nil or empty behaves like Load.
+	// auto-discovery, mirroring the .env tier). Nil or empty behaves like
+	// Load.
 	Overlay map[string]string
 }
 
@@ -413,22 +415,20 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		CacheControlInjection:    parseCacheControlInjection(raw.CacheControlInjection),
 		ReasoningInContent:       parseReasoningInContent(raw.ReasoningInContent),
 	}
-
 	// Auto-discover CLI token if a discovery hook was wired (LoadOpts,
 	// issue #283) AND no AUTH_TOKENS were explicitly configured AND
 	// AUTO_DISCOVER_TOKEN is not disabled. ADOPT_CLI_SESSION (issue #97)
 	// also opts into discovery: the operator explicitly asked to run like
 	// the CLI, so AUTO_DISCOVER_TOKEN=false must not silently leave the
 	// pool empty.
-	// AUTO_DISCOVER_TOKEN resolves process env > DB overlay > default true,
-	// like every other knob (the overlay only counts when the environment
-	// leaves it unset). It records on the config so the dashboard and the
-	// env-to-DB migration export the effective value instead of hardcoding
-	// it.
+	// AUTO_DISCOVER_TOKEN is env-only (data-architecture decision): the
+	// process environment alone decides, defaulting to true when unset. A
+	// DB overlay row is inert (SettingsBlockedKeys) — behavior change from
+	// the migrated era, when the overlay applied beneath the environment.
+	// It records on the config so the dashboard and the env-to-DB migration
+	// export the effective value instead of hardcoding it.
 	autoDiscover := true
 	if v, ok := os.LookupEnv("AUTO_DISCOVER_TOKEN"); ok {
-		autoDiscover = !isFalseWord(v)
-	} else if v, ok := opts.Overlay["AUTO_DISCOVER_TOKEN"]; ok {
 		autoDiscover = !isFalseWord(v)
 	}
 	cfg.AutoDiscoverToken = autoDiscover

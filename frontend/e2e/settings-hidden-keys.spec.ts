@@ -138,7 +138,7 @@ test.describe("settings hidden keys", () => {
       ).toHaveCount(1);
     }
     // The section is exactly the un-edited remainder: one row per key, and
-    // the three exceptions stay with their own editors.
+    // the three exceptions stay with their own dedicated displays.
     await expect(page.locator("[data-setting-key]")).toHaveCount(
       inSection.length,
     );
@@ -147,8 +147,13 @@ test.describe("settings hidden keys", () => {
         0,
       );
     }
+    // HTTP_READ_TIMEOUT is env-only: read-only row with an env-note here,
+    // no combobox anywhere on the page.
     await expect(
       page.getByRole("combobox", { name: "HTTP_READ_TIMEOUT" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("the reader never consults the overlay").first(),
     ).toBeVisible();
 
     await page.goto(TOKENS);

@@ -3,14 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/dashboard"
 	"math"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/dashboard"
 )
 
 // DB settings overlay endpoints (ADR-0019): per-key UI-persisted knobs that
@@ -84,6 +83,7 @@ func (a *adminHandlers) migrateStatusInfo(rows map[string]string) *dashboard.Mig
 func (a *adminHandlers) loadConfig() (config.Config, error) {
 	return config.LoadOpts(a.configPath, config.LoadOptions{Overlay: a.settingsOverlay()})
 }
+
 func (a *adminHandlers) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	// A nil store keeps the gateway live on file/env/default only (mutations
 	// 503): say so with degraded:true so the UI can banner the read-only
@@ -179,6 +179,18 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 	// dedicated-surface keys above.
 	if key == "ADMIN_FORCE_SECURE_COOKIES" {
 		a.dash.RenderResult(w, http.StatusBadRequest, false, "ADMIN_FORCE_SECURE_COOKIES is set in the environment or .env file, not as a knob (the cookie reader never consults the overlay).", "invalid_setting")
+		return
+	}
+	// SESSION_STATE_FILE, SESSION_PERSIST, LOG_FILE, HTTP_READ_TIMEOUT, and
+	// AUTO_DISCOVER_TOKEN are env-only by the data-architecture decision:
+	// the readers consult the process environment (with a .env fallback
+	// where the loader wires one) and never the overlay, so a saved row
+	// would sit inert while looking live. Like ADMIN_FORCE_SECURE_COOKIES
+	// above, a direct knob write 400s with a pointer instead of persisting
+	// an inert row; pre-existing rows go inert via the settings-block gate
+	// (config.IsSettingsBlocked) and are clearable with DELETE :key.
+	if config.IsSettingsBlocked(key) {
+		a.dash.RenderResult(w, http.StatusBadRequest, false, key+" is set in the environment or .env file, not as a knob (the reader never consults the overlay).", "invalid_setting")
 		return
 	}
 	val, ok := settingsValueString(req.Value)

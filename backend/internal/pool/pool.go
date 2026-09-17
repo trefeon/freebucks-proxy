@@ -335,14 +335,28 @@ type Pool struct {
 
 	// Runtime persistence (pool_persist.go, DB-unified-storage):
 	// write-through cache of the allowlisted counters (usage and Pacific-day
-	// request ledgers, session spend buckets, admissions counts) through
-	// the PoolPersist interface. nil disables (in-memory only).
+	// request ledgers, session spend buckets, admissions counts,
+	// terminal-cooldown hints, bridge survivors) through the PoolPersist
+	// interface. nil disables (in-memory only).
 	// persistDirty is set lock-free on every mutation; the maintain tick
 	// plus a best-effort Shutdown pass flush it in the background, so the
 	// request hot path never blocks on the store.
 	persistMu    sync.Mutex
 	persist      PoolPersist
 	persistDirty atomic.Bool
+
+	// Terminal-cooldown hints (cooldown_hint.go): in-memory mirror of the
+	// pool/cooldown/* rows. Guarded by cooldownHintMu; the request hot path
+	// reads memory only, never the store.
+	cooldownHintMu sync.Mutex
+	cooldownHints  map[string]poolCooldownBlob
+
+	// Bridge idle-eviction survivors (cooldown_hint.go): bounded,
+	// timestamped usage contributions of idle-evicted bridge entries.
+	// Guarded by bridgeSurvivorMu, never nested under bridgeMu (eviction
+	// captures after unlinking; snapshot/restore take it alone).
+	bridgeSurvivorMu sync.Mutex
+	bridgeSurvivors  []bridgeSurvivor
 
 	// MASQ slot ledger (slot_ledger.go): per-lane live-turn slot
 	// semaphores with FIFO waiter queues (routeSlots, keyed by
@@ -560,7 +574,7 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 		return nil, fmt.Errorf("pool: %d sessions for %d tokens", len(sessions), len(cfg.AuthTokens))
 	}
 
-	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), admissions: make(map[string]int)}
+	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), admissions: make(map[string]int), cooldownHints: make(map[string]poolCooldownBlob)}
 	p.cfg.Store(cfg)
 	toks := make([]*tokenEntry, 0, len(cfg.AuthTokens))
 	for i := range cfg.AuthTokens {

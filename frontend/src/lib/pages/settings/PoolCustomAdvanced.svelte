@@ -18,7 +18,9 @@
    * of them is rendered twice. Values carried over unchanged; only the
    * address moved. The quota-prober rows are gone with the prober
    * removal (no catalog rows, no section), not relocated.
-   * Every row instant-saves to the DB overlay on edit (DbOverrideSave).
+   * Every row instant-saves to the DB overlay on edit (DbOverrideSave),
+   * except env-only SESSION_PERSIST: its row renders the effective value
+   * read-only with an env-note (no editor, no save), like the hidden keys.
    *
    * @prop {Array} meta - config catalog entries (for relocated-row copy)
    * @prop {Record<string, string>} formValues
@@ -153,7 +155,25 @@
             {degraded}
           />
         {/snippet}
-        {#if e.kind === "bool"}
+        {#if key === "SESSION_PERSIST"}
+          <!-- Env-only (data-architecture decision): the reader never
+            consults the overlay, so there is no editor and no save — the
+            effective value renders read-only with the gateway's verbatim
+            pointer, like the hidden keys. -->
+          <div class="w-full sm:w-56">
+            <code
+              class="fp-mono text-xs text-[var(--fp-text)] break-all block text-right select-all"
+              title={val(key)}>{val(key)}</code
+            >
+            <p
+              class="text-[10px] text-[var(--fp-dim)] leading-relaxed mt-1 text-right"
+            >
+              {$tr(
+                "SESSION_PERSIST is set in the environment or .env file, not as a knob (the reader never consults the overlay).",
+              )}
+            </p>
+          </div>
+        {:else if e.kind === "bool"}
           <ToggleSwitch
             checked={boolVal(key)}
             ariaLabel={key}

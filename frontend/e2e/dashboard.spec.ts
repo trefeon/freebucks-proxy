@@ -596,13 +596,14 @@ test.describe("dashboard hermetic mocks", () => {
     const safeMode = page.getByRole("switch", { name: "SAFE_MODE" });
     await expect(safeMode).toBeVisible();
     await expect(safeMode).toHaveAttribute("aria-checked", "true");
-    // The restart-only HTTP read timeout renders as a select dropdown
-    // with the compiled-in default and a restart badge.
-    const httpTimeout = page.getByRole("combobox", {
-      name: "HTTP_READ_TIMEOUT",
-    });
-    await expect(httpTimeout).toBeVisible();
-    await expect(httpTimeout).toHaveValue("60s");
+    // HTTP_READ_TIMEOUT is env-only (data-architecture decision): the
+    // Gateway card renders it read-only with an env-note — no combobox.
+    await expect(
+      page.getByRole("combobox", { name: "HTTP_READ_TIMEOUT" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("the reader never consults the overlay").first(),
+    ).toBeVisible();
 
     // Toggling instant-saves the key to the overlay (debounced ~400ms).
     await safeMode.click();
@@ -624,7 +625,7 @@ test.describe("dashboard hermetic mocks", () => {
     ).toHaveAttribute("aria-checked", "false");
     await expect(
       page.getByRole("combobox", { name: "HTTP_READ_TIMEOUT" }),
-    ).toHaveValue("60s");
+    ).toHaveCount(0);
   });
 
   test("Pool controls render relocated policy keys and save", async ({

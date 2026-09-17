@@ -15,11 +15,13 @@ import (
 // the pool package owns. This file is the SOLE schema owner for pool_state;
 // no other pool-runtime table may be added elsewhere (pool slices propose
 // new keys via hub instead). Keys are namespaced pool/<area>/<id>, e.g.
-// pool/ledger/<sha256hex>, pool/admissions, pool/burst,
-// pool/bridge/usage, pool/bridge/survivors. Token keys are SHA-256 hex —
-// raw tokens never reach the store. Values are opaque to the store: the
-// pool marshals/unmarshals its own shapes (leaf package: stdlib + the
-// sqlite driver only, zero internal imports).
+// pool/ledger/<sha256hex>, pool/admissions, pool/cooldown/<sha256hex>,
+// pool/bridge/survivors. Token keys are SHA-256 hex — raw tokens never
+// reach the store. Values are opaque to the store: the pool marshals/
+// unmarshals its own shapes (leaf package: stdlib + the sqlite driver
+// only, zero internal imports). The retired pool/probe/quota/* namespace is
+// drained by the pool flush (sessions_persist owns quota); pool/burst and
+// pool/bridge/usage were never staged by any build and have no reader.
 //
 // Every method degrades to live-only on DB error: callers (the pool flush)
 // warn and keep serving from memory, so persistence never blocks the

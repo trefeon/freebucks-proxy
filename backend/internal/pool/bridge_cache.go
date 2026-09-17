@@ -381,7 +381,14 @@ func (p *Pool) bridgeSessionPollTick(ctx context.Context, cfg *config.Config) {
 // bridgeSessionPollTick schedule.
 func (p *Pool) bridgeMaintain(ctx context.Context, idle bool) {
 	cfg := p.cfg.Load()
-	var toEvict []*bridgeEntry
+	// bridgeEviction carries an idle-evict victim with its SHA map key so
+	// the drain loop below can capture a usage survivor (the key never
+	// holds the raw client token).
+	type bridgeEviction struct {
+		key   string
+		entry *bridgeEntry
+	}
+	var toEvict []bridgeEviction
 	var toMaintain []*bridgeEntry
 	idleEvict := defaultBridgeIdleEvict
 	if cfg.BridgeIdleEvict > 0 {
@@ -409,7 +416,7 @@ func (p *Pool) bridgeMaintain(ctx context.Context, idle bool) {
 			continue
 		}
 		if now.Sub(entry.lastUsed) > idleEvict {
-			toEvict = append(toEvict, entry)
+			toEvict = append(toEvict, bridgeEviction{key: token, entry: entry})
 			delete(p.bridge, token)
 			p.bridgeOrder = removeBridgeOrder(p.bridgeOrder, token)
 			p.logger.Debug("pool: bridge entry evicted (idle)", "bridge_entries", len(p.bridge))
@@ -419,7 +426,13 @@ func (p *Pool) bridgeMaintain(ctx context.Context, idle bool) {
 	}
 	p.bridgeMu.Unlock()
 	p.markPersistDirty()
-	for _, entry := range toEvict {
+	for _, ev := range toEvict {
+		entry := ev.entry
+		// Survivor accounting first: the unlinked entry carries no
+		// in-flight lease and is unreachable from the cache, so its
+		// ledger is stable without bridgeMu. Entries with no in-window
+		// usage record nothing (the eviction still proceeds).
+		p.captureBridgeSurvivor(ev.key, entry, time.Now())
 		// Mirror the shutdown drain: FINISH the runs AND end the entry's
 		// upstream session, so a dropped idle entry does not leak its
 		// session upstream. Bounded by the same RequestTimeout ctx as the

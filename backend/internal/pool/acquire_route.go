@@ -107,6 +107,11 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 	// request actually parked somewhere; a waiter that timed out or was
 	// cancelled held no slot and reports nothing on that lane.
 	var queueWait time.Duration
+	// Terminal-cooldown hints (pool_state pool/cooldown/*, hint only): a
+	// fresh hint skips one doomed probe when another ordered token can
+	// serve. When every ordered token is hinted the walk ignores hints and
+	// attempts upstream live — a hint alone never fails Acquire.
+	skipHinted := p.cooldownHintSkippable(toks, order, time.Now())
 	// Indexed (not range): a same-lane quota requeue (I5) rewinds oi to
 	// retry the lane after its RetryAfter elapses — no spill hop consumed,
 	// no failover. Every other path advances normally.
@@ -128,6 +133,14 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			continue
 		}
 		name := fmt.Sprintf("token-%d", idx+1)
+		// Terminal-cooldown hint: skip one doomed probe (see above). Live
+		// cooldown/ban memory below stays authoritative; the hint only
+		// covers what a restart forgot.
+		if skipHinted && tok != nil && tok.token != "" && p.cooldownHintFresh(poolTokenHash(tok.token), time.Now()) {
+			errs = append(errs, fmt.Sprintf("%s: terminal cooldown hint fresh, skipping one probe", name))
+			p.logger.Debug("pool: token skipped (cooldown hint)", "token", idx+1)
+			continue
+		}
 
 		// Quarantined tokens (terminal account state: a live ban) are
 		// permanently skipped — the pool never revives a dead account, so
@@ -356,10 +369,16 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				if tok.runs.BanError() != nil {
 					p.quarantineToken(tok, "banned", err)
 				}
+				// Terminal-hint mirror (hint only): a live ban persists so a
+				// restart skips one doomed probe; an already-lifted one
+				// clears instead. 429/ip_capped/limited_ip write nothing.
+				p.storeBanHint(tok)
 				banned = appendBan(banned, be)
 			}
 			if cbe := c.countryBlocked; cbe != nil {
-				// Correlative refusal like ip_capped: surface directly.
+				// Correlative refusal like ip_capped: surface directly. The
+				// hint only skips one future probe; the walk never fails over.
+				p.storeCountryHint(tok, time.Now().Add(p.countryBlockWindow()))
 				routeSlot.Release()
 				return nil, cbe
 			}
@@ -377,6 +396,9 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			continue
 		}
 		tok.runs.ClearCooldowns()
+		// Live admission proves the account healthy: drop any terminal hint
+		// a previous window left behind.
+		p.clearCooldownHintFor(tok)
 
 		// Re-validate the token is still current: a concurrent
 		// RemoveLastToken may have swapped the snapshot while the session
@@ -489,10 +511,13 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				if tok.runs.BanError() != nil {
 					p.quarantineToken(tok, "banned", err)
 				}
+				// Terminal-hint mirror (hint only — see the admission path).
+				p.storeBanHint(tok)
 				banned = appendBan(banned, be)
 			}
 			if cbe := c.countryBlocked; cbe != nil {
 				// Correlative refusal like ip_capped: surface directly.
+				p.storeCountryHint(tok, time.Now().Add(p.countryBlockWindow()))
 				routeSlot.Release()
 				return nil, cbe
 			}
