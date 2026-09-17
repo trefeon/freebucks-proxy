@@ -10,11 +10,8 @@
 // (default 30s) deadline and the QUEUE_DEPTH (default 16) cap. Overflow
 // and timeout return the typed queue-exhausted signal below, which the
 // spill loop consumes — never a new client error code.
-// ROUTING_SMART off == the legacy path: the loop's slot hooks are skipped.
 // Bridge mode gets the SAME hard wall: one slot state per (bridge entry,
-// model) exactly as a pooled lane is keyed per (token entry, model). With
-// ROUTING_SMART off the bridge path keeps its per-entry single-flight
-// alone (no slots, no queueing), exactly as before.
+// model) exactly as a pooled lane is keyed per (token entry, model).
 //
 // Slot/queue state is in-memory only and resets to zero on restart: it
 // rides no pool_state rows and invents no SQL.

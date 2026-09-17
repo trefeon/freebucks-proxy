@@ -7,6 +7,7 @@ package pool
 import (
 	"context"
 	"fmt"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
@@ -14,8 +15,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestLeaderElection_BasicLeaderFollower verifies the fundamental flow:
@@ -61,13 +60,14 @@ func TestLeaderElection_BasicLeaderFollower(t *testing.T) {
 
 // TestLeaderElection_ConcurrentFollowersAllLandOnLeader verifies that when N
 // concurrent requests arrive for the same cold model, ALL of them end up on
-// the leader's token (Token 0) and exactly ONE session is created.
+// the same token (Token 0, strict spill order) and exactly ONE session is
+// created.
 //
-// Determinism (issue #211): the leader's session create is parked on a
-// hold channel while followers pile up as waiters on the gate (proven via
-// testGatePark, called while modelAdmissionGateMu is held before <-ch).
-// The exactly-one-session assertion is schedule-independent; a caller
-// arriving after a completed round would be a new leader, not a follower.
+// Determinism: cold-path dedup rides the session manager's per-entry
+// single-flight (acquire_route.go), not the old per-model election gate, so
+// the exactly-one-session assertion is schedule-independent — a caller
+// arriving after the leader completes just rides the hot session on the
+// same token.
 func TestLeaderElection_ConcurrentFollowersAllLandOnLeader(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -75,19 +75,21 @@ func TestLeaderElection_ConcurrentFollowersAllLandOnLeader(t *testing.T) {
 	defer mock1.Close()
 
 	hold := make(chan struct{})
+	leaderParked := make(chan struct{}, 1)
 	p := newTestPool(t, mock0, mock1)
 	const model = "deepseek/deepseek-v4-pro"
 
 	const goroutines = 8
-	const followers = goroutines - 1
-	arrived := make(chan struct{}, followers)
-	p.testGatePark = func() { arrived <- struct{}{} }
 
-	// Park the leader's session create on hold until every follower has
-	// registered as a waiter. Mimics TestSingleFlightFailureBounded's
-	// HoldRateLimit + testWaiterPark pattern for the pool gate.
+	// Park the leader's session create on hold; leaderParked proves the
+	// leader is in flight upstream. Followers pile onto the per-entry
+	// single-flight behind it (no gate registration to observe).
 	mock0.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/freebuff/session") {
+			select {
+			case leaderParked <- struct{}{}:
+			default:
+			}
 			select {
 			case <-hold:
 			case <-r.Context().Done():
@@ -129,16 +131,17 @@ func TestLeaderElection_ConcurrentFollowersAllLandOnLeader(t *testing.T) {
 			p.LeaseRelease(lease)
 		}()
 	}
-	// Every follower must have observed gate exists and elected to wait
-	// before the leader's response is released.
-	for range followers {
-		select {
-		case <-arrived:
-		case <-time.After(10 * time.Second):
-			close(hold)
-			t.Fatalf("only %d/%d followers registered as waiters (testGatePark)", len(arrived), followers)
-		}
+	// The leader must be parked upstream before its response is released;
+	// the settle lets followers arrive and park on the single-flight so the
+	// exactly-one-create assertion exercises the dedup. The outcome holds
+	// regardless — a late follower rides the hot session on token 0.
+	select {
+	case <-leaderParked:
+	case <-time.After(10 * time.Second):
+		close(hold)
+		t.Fatal("leader session create never reached upstream")
 	}
+	time.Sleep(200 * time.Millisecond)
 	close(hold)
 	wg.Wait()
 

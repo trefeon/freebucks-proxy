@@ -63,7 +63,6 @@ import (
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
-	"math/rand/v2"
 	"strings"
 	"sync"
 	"testing"
@@ -84,11 +83,14 @@ const (
 )
 
 // newLadderPool builds a fresh n-account mock pool with the control knobs set
-// explicitly and asserted: SLOTS_PER_ACCOUNT=2, ROUTING_SMART=true,
-// QUEUE_WAIT/QUEUE_DEPTH at the documented defaults (overridable for the
-// generous-wait queue rounds), RATE_LIMIT_FAILOVER=true.
-// setLadderRotation switches rotation live (no pool rebuild) and proves the
-// roster survived: same entries, sessions intact (no admission churn).
+// explicitly and asserted: SLOTS_PER_ACCOUNT=2 with QUEUE_WAIT/QUEUE_DEPTH
+// at the documented defaults (overridable for the generous-wait queue
+// rounds). The rotation parameter is retained for call-site compatibility
+// but ignored: MASQ cutover (C1) removed TOKEN_ROTATION, so every round
+// runs the strict index spill order. Full matrix migration to spill
+// expectations is C4 work.
+// setLadderRotation round-trips a live SetConfig (no pool rebuild) and
+// proves the roster survived: same entries, sessions intact.
 func setLadderRotation(t *testing.T, p *Pool, mocks []*testutil.MockUpstream, rotation string) {
 	t.Helper()
 	before := len(*p.roster.Load())
@@ -98,7 +100,6 @@ func setLadderRotation(t *testing.T, p *Pool, mocks []*testutil.MockUpstream, ro
 	}
 	cfg := p.cfg.Load()
 	next := *cfg
-	next.TokenRotation = rotation
 	p.SetConfig(&next)
 	if got := len(*p.roster.Load()); got != before {
 		t.Fatalf("SetConfig(%s) rebuilt the roster: %d -> %d tokens", rotation, before, got)
@@ -112,7 +113,7 @@ func setLadderRotation(t *testing.T, p *Pool, mocks []*testutil.MockUpstream, ro
 	}
 }
 
-func newLadderPool(t *testing.T, n int, rotation string, wait time.Duration) (*Pool, []*testutil.MockUpstream) {
+func newLadderPool(t *testing.T, n int, _ string, wait time.Duration) (*Pool, []*testutil.MockUpstream) {
 	t.Helper()
 	if wait <= 0 {
 		wait = ladWait
@@ -123,33 +124,19 @@ func newLadderPool(t *testing.T, n int, rotation string, wait time.Duration) (*P
 		t.Cleanup(mocks[i].Close)
 	}
 	p := newTestPoolCfg(t, func(c *config.Config) {
-		c.RoutingSmart = true
 		c.SlotsPerAccount = ladCap
 		c.QueueWait = wait
 		c.QueueDepth = ladDepth
-		c.RateLimitFailover = true
-		c.TokenRotation = rotation
 	}, mocks...)
 	cfg := p.cfg.Load()
-	if !cfg.RoutingSmart {
-		t.Fatal("ROUTING_SMART = false, want true (control)")
-	}
 	if cfg.SlotsPerAccount != ladCap {
 		t.Fatalf("SLOTS_PER_ACCOUNT = %d, want %d (control)", cfg.SlotsPerAccount, ladCap)
 	}
 	if cfg.QueueDepth != ladDepth {
 		t.Fatalf("QUEUE_DEPTH = %d, want %d (control)", cfg.QueueDepth, ladDepth)
 	}
-	if !cfg.RateLimitFailover {
-		t.Fatal("RATE_LIMIT_FAILOVER = false, want true (control)")
-	}
 	if cap, depth, wt := slotParams(cfg); cap != ladCap || depth != ladDepth || wt != wait {
 		t.Fatalf("slotParams = %d/%d/%v, want %d/%d/%v (control)", cap, depth, wt, ladCap, ladDepth, wait)
-	}
-	if rotation == "random" {
-		p.randMu.Lock()
-		p.randGen = rand.New(rand.NewPCG(1, 1))
-		p.randMu.Unlock()
 	}
 	return p, mocks
 }

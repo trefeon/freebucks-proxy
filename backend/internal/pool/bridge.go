@@ -140,48 +140,45 @@ func (p *Pool) AcquireBridge(ctx context.Context, clientToken, model string) (*L
 	}
 
 	// MASQ slot-ledger lane (slot_ledger.go, SLOTS_PER_ACCOUNT): the
-	// bridge entry gets the same hard wall as a pooled token — one
+	// bridge entry gets the same hard wall as a pooled token - one
 	// live-turn lane per (entry, model) with a FIFO queue. It is taken
 	// BEFORE any upstream session or run work so a queued request never
 	// burns a session slot or a run START while it waits. Overflow and
 	// QUEUE_WAIT expiry return the same 429 rate-limit shape the pooled
-	// path uses (bridge has no failover, so it goes straight back to the
+	// path uses (bridge has no spill walk, so it goes straight back to the
 	// client); the caller's own ctx expiry passes through. The permit
 	// rides the lease and is released by LeaseRelease/LeaseAbandon; the
 	// deferred release below is the error-path net, disarmed once a lease
-	// owns it. Skipped entirely when ROUTING_SMART is off: bridge then
-	// keeps its per-entry single-flight as the only pacing.
+	// owns it.
 	var routeSlot *slotPermit
 	// queueWait is this attempt's park duration: set only when the request
 	// actually parked AND the slot was granted (a timed-out or cancelled
 	// waiter held no slot and reports nothing).
 	var queueWait time.Duration
-	if cfg.RoutingSmart {
-		// SLOTS_PER_ACCOUNT=0 skips slot gating entirely: no counter,
-		// no queue — the upstream quota/429 is the brake.
-		if slotCap, slotDepth, slotWait := slotParams(cfg); slotCap > 0 {
-			parkStart := time.Now()
-			permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: entry, model: model}, 0, slotCap, slotDepth, slotWait)
-			if slotErr != nil {
-				if slotIsQueueExhausted(slotErr) {
-					p.logger.Debug("pool: bridge live-turn queue exhausted", "token", bridgeTokenLabel(entry), "err", slotErr)
-					return nil, slotQueueRateLimit(slotErr.(*slotQueueExhaustedError), model, slotCap, p.slotLive(slotKey{entry: entry, model: model}))
-				}
-				return nil, slotErr
+	// SLOTS_PER_ACCOUNT=0 skips slot gating entirely: no counter,
+	// no queue - the upstream quota/429 is the brake.
+	if slotCap, slotDepth, slotWait := slotParams(cfg); slotCap > 0 {
+		parkStart := time.Now()
+		permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: entry, model: model}, 0, slotCap, slotDepth, slotWait)
+		if slotErr != nil {
+			if slotIsQueueExhausted(slotErr) {
+				p.logger.Debug("pool: bridge live-turn queue exhausted", "token", bridgeTokenLabel(entry), "err", slotErr)
+				return nil, slotQueueRateLimit(slotErr.(*slotQueueExhaustedError), model, slotCap, p.slotLive(slotKey{entry: entry, model: model}))
 			}
-			// Queue-wait telemetry: the park rides the request's phase
-			// accumulator and the lease (see acquire_route.go).
-			if parked {
-				queueWait = time.Since(parkStart)
-				phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, parkStart)
-			}
-			routeSlot = permit
+			return nil, slotErr
 		}
+		// Queue-wait telemetry: the park rides the request's phase
+		// accumulator and the lease (see acquire_route.go).
+		if parked {
+			queueWait = time.Since(parkStart)
+			phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, parkStart)
+		}
+		routeSlot = permit
 	}
 	// slotLeased disarms the error-path release below: set once the lease
 	// (or an explicit release) owns the permit. The defer is registered
-	// only when a permit was actually taken, so the off-path and
-	// unlimited-cap calls carry no deferred work at all.
+	// only when a permit was actually taken, so the unlimited-cap calls
+	// carry no deferred work at all.
 	slotLeased := false
 	if routeSlot != nil {
 		defer func() {

@@ -1,9 +1,8 @@
 package pool
 
 // MASQ slot-ledger tests: per (account, model) live-turn slots with FIFO
-// queues behind the ROUTING_SMART master switch. Existing acquire tests
-// are untouched (they pin the legacy path with hand-built configs where
-// RoutingSmart is false); these tests prove the ledger path.
+// queues. Slot gating is unconditional (SLOTS_PER_ACCOUNT=0 disables it);
+// these tests prove the ledger path.
 
 import (
 	"context"
@@ -17,17 +16,15 @@ import (
 	"time"
 )
 
-// newSmartTestPool wires mocks through newTestPoolCfg with the smart path
-// on and explicit routing knobs (hand-built configs bypass Load, so every
-// knob under test is set here, never inferred).
+// newSmartTestPool wires mocks through newTestPoolCfg with explicit MASQ
+// routing knobs (hand-built configs bypass Load, so every knob under test
+// is set here, never inferred).
 func newSmartTestPool(t *testing.T, mut func(*config.Config), mocks ...*testutil.MockUpstream) *Pool {
 	t.Helper()
 	return newTestPoolCfg(t, func(c *config.Config) {
-		c.RoutingSmart = true
 		c.SlotsPerAccount = 2
 		c.QueueWait = 30 * time.Second
 		c.QueueDepth = 16
-		c.TokenRotation = "drain"
 		if mut != nil {
 			mut(c)
 		}
@@ -327,49 +324,6 @@ func TestSlotSignals(t *testing.T) {
 	eventually(t, "slots drain", func() bool { return p.slotLive(slotKey{entry: entry, model: modelA}) == 0 })
 }
 
-// TestRoutingSmartOffByteIdentical proves the master-off path behaves
-// exactly like today: cold round-robin order, same admission counts, no
-// slot state, and leases carry no slot permit.
-func TestRoutingSmartOffByteIdentical(t *testing.T) {
-	mock0 := testutil.NewMock()
-	defer mock0.Close()
-	mock1 := testutil.NewMock()
-	defer mock1.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) { c.RoutingSmart = false }, mock0, mock1)
-
-	const n = 6
-	got := make([]int, n)
-	for i := range n {
-		toks := p.roster.Load()
-		(*toks)[0].session.Invalidate()
-		(*toks)[1].session.Invalidate()
-		lease, err := p.Acquire(context.Background(), modelA)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got[i] = lease.Token
-		if lease.routeSlot != nil {
-			t.Errorf("off-path lease carries a slot permit")
-		}
-		p.LeaseRelease(lease)
-	}
-	for i, want := range []int{0, 1, 0, 1, 0, 1} {
-		if got[i] != want {
-			t.Errorf("acquire %d token = %d, want %d", i, got[i], want)
-		}
-	}
-	if mock0.SessionCreates != 3 || mock1.SessionCreates != 3 {
-		t.Errorf("session creates = %d/%d, want 3/3", mock0.SessionCreates, mock1.SessionCreates)
-	}
-	p.routeMu.Lock()
-	slots := len(p.routeSlots)
-	prev := p.routePrev
-	p.routeMu.Unlock()
-	if slots != 0 || prev != nil {
-		t.Errorf("off-path route state: slots=%d prev=%v, want zero", slots, prev)
-	}
-}
-
 // TestSlotDrainParityNoPressure proves drain == today under no
 // pressure: the smart path reproduces the legacy cold round-robin order
 // and admission counts exactly.
@@ -454,8 +408,8 @@ func TestSlotAllCappedDegrades(t *testing.T) {
 }
 
 // TestSlotTransientHookFires proves a transport-transient admission
-// failure is remembered for the decaying penalty while failover still
-// serves the request on the next token.
+// failure on account #1 still serves the request on the next account
+// in strict index order.
 func TestSlotTransientHookFires(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -473,10 +427,7 @@ func TestSlotTransientHookFires(t *testing.T) {
 	}
 	defer p.LeaseRelease(lease)
 	if lease.Token != 1 {
-		t.Fatalf("lease token = %d, want 1 (failover past the failing token)", lease.Token)
-	}
-	if got := smartEntry(p, 0).routeTransientCount.Load(); got < 1 {
-		t.Errorf("transient count = %d, want >= 1", got)
+		t.Fatalf("lease token = %d, want 1 (spill past the failing account)", lease.Token)
 	}
 }
 

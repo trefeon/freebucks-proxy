@@ -208,7 +208,7 @@ func TestQuotaStateWindowSemantics(t *testing.T) {
 			if tc.quota != nil {
 				(*toks)[0].session.UpdateQuotaFromProbe(&upstream.SessionState{RateLimitsByModel: tc.quota})
 			}
-			order, limited := p.acquireOrder(toks, 0, tc.model)
+			order, limited := p.spillOrder(toks, tc.model)
 			if len(limited) != 0 {
 				t.Errorf("%s: quotaLimited = %v, want empty (counts never gate)", tc.name, limited)
 			}

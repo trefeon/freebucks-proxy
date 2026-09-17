@@ -1,5 +1,5 @@
-// acquire_route.go - pooled acquire route: Acquire (plain index order via
-// acquireOrder) plus the leaseFromOrder failover loop (per-token skip
+// acquire_route.go - pooled acquire route: Acquire (strict index order via
+// spillOrder) plus the leaseFromOrder spill walk (per-token skip
 // gates, session and run admission, lease grant, bucket precedence).
 package pool
 
@@ -16,8 +16,8 @@ import (
 	"time"
 )
 
-// Acquire resolves the model's agent and fails over linearly in plain index
-// order until a token yields both a run and a session. Returns a lease on
+// Acquire resolves the model's agent and walks the strict index order
+// until a token yields both a run and a session. Returns a lease on
 // success. Registry misses (unknown model) are returned as-is.
 func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 	// Post-drain re-admission gate: once Shutdown starts draining, no new
@@ -50,16 +50,16 @@ func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 		return nil, pinFailFastError(model, len(*toks))
 	}
 
-	// Plain index order: concurrent requests share the per-entry
-	// single-flight in the session manager, so no leader gate is needed
-	// to prevent duplicate session creates.
-	order, quotaLimited := p.acquireOrder(toks, 0, model)
+	// Strict index order (spill_order.go): concurrent requests share the
+	// per-entry single-flight in the session manager, so no leader gate
+	// is needed to prevent duplicate session creates.
+	order, quotaLimited := p.spillOrder(toks, model)
 	return p.leaseFromOrder(ctx, model, agentID, cfg, toks, order, quotaLimited)
 }
 
-// leaseFromOrder runs the token failover loop against the given order.
-// Extracted from Acquire so the leader-election follower path can call it
-// with a reordered token list without duplicating the loop.
+// leaseFromOrder runs the token spill walk against the given order.
+// Extracted from Acquire so tests can drive the walk with an explicit
+// order without duplicating the loop.
 func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string, cfg *config.Config, toks *[]*tokenEntry, order []int, quotaLimited []rateLimitEntry) (*Lease, error) {
 	var errs []string
 	var waiting []*session.WaitingRoomError
@@ -83,7 +83,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		// Defensive bounds check: acquireOrder builds its order against the
+		// Defensive bounds check: spillOrder builds its order against the
 		// SAME snapshot loaded above, but a removal racing this call must
 		// never index past the slice it computed the order from. Skip
 		// indices that are no longer present instead of panicking.
@@ -171,47 +171,44 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		// caller parks FIFO until QUEUE_WAIT elapses. The slot is taken
 		// BEFORE any upstream admission so a queued request never burns a
 		// session slot or run START while it waits. A lane-exhausted
-		// waiter spills silently to the next lane (spill_queue.go) — a
+		// waiter spills silently to the next lane (spill_queue.go) - a
 		// full lane is not an upstream refusal, so it writes no bucket
 		// and no error string. The caller's own ctx expiry returns
-		// as-is. Skipped entirely when ROUTING_SMART is off (legacy path
-		// untouched).
+		// as-is.
 		var routeSlot *slotPermit
-		if cfg.RoutingSmart {
-			slotCap, slotDepth, slotWait := slotParams(cfg)
-			// SLOTS_PER_ACCOUNT=0 skips slot gating entirely: no
-			// counter, no queue — the upstream quota/429 is the brake.
-			if slotCap > 0 {
-				parkStart := time.Now()
-				permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: tok, model: model}, idx+1, slotCap, slotDepth, slotWait)
-				if slotErr != nil {
-					if qerr, ok := slotErr.(*slotQueueExhaustedError); ok {
-						// Trust the signal's carried lane wait: the
-						// lane's own timer elapsed, so the park is the
-						// configured laneWait — not the wall clock
-						// around the call, which a failing assertion
-						// in this file once zeroed.
-						if qerr.Reason == "timeout" {
-							queueWait += qerr.Wait
-						}
-						if spill.note(qerr, slotCap) {
-							p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", slotErr)
-							continue
-						}
-						break
+		slotCap, slotDepth, slotWait := slotParams(cfg)
+		// SLOTS_PER_ACCOUNT=0 skips slot gating entirely: no
+		// counter, no queue - the upstream quota/429 is the brake.
+		if slotCap > 0 {
+			parkStart := time.Now()
+			permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: tok, model: model}, idx+1, slotCap, slotDepth, slotWait)
+			if slotErr != nil {
+				if qerr, ok := slotErr.(*slotQueueExhaustedError); ok {
+					// Trust the signal's carried lane wait: the
+					// lane's own timer elapsed, so the park is the
+					// configured laneWait — not the wall clock
+					// around the call, which a failing assertion
+					// in this file once zeroed.
+					if qerr.Reason == "timeout" {
+						queueWait += qerr.Wait
 					}
-					return nil, slotErr
+					if spill.note(qerr, slotCap) {
+						p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", slotErr)
+						continue
+					}
+					break
 				}
-				// Queue-wait telemetry: the accumulated park rides the
-				// request's phase accumulator (the server puts it on the
-				// chat trace, inside the console's request card) and the
-				// lease. Never recorded for a request that did not park.
-				if parked {
-					queueWait += time.Since(parkStart)
-					phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
-				}
-				routeSlot = permit
+				return nil, slotErr
 			}
+			// Queue-wait telemetry: the accumulated park rides the
+			// request's phase accumulator (the server puts it on the
+			// chat trace, inside the console's request card) and the
+			// lease. Never recorded for a request that did not park.
+			if parked {
+				queueWait += time.Since(parkStart)
+				phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+			}
+			routeSlot = permit
 		}
 
 		// Session admission: the live-turn slot above is the only local
@@ -254,47 +251,45 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			}
 			if rle := c.rateLimited; rle != nil && !c.authRejected && c.banned == nil && c.ipCapped == nil && c.countryBlocked == nil && c.limitedIp == nil {
 				// MASQ same-lane quota requeue (I5, spill_queue.go): a
-				// short-window quota jail is waited out on this lane —
+				// short-window quota jail is waited out on this lane -
 				// no cooldown write, no failover, no spill hop. Longer
-				// (or windowless) windows fall through to the legacy
-				// per-lane record below.
-				if cfg.RoutingSmart {
-					if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
-						if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
-							// Issue #178: tag the refusal with the requested
-							// model when the upstream body omits it.
-							if rle.Model == "" {
-								rle.Model = model
-							}
-							// Issue #122: count spend_limited on the ledger.
-							if c.spendLimited {
-								tok.ledger.recordSpendLimited()
-							}
-							routeSlot.Release()
-							p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter)
-							rqStart := time.Now()
-							permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
-							if rerr != nil {
-								if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
-									if qerr.Reason == "timeout" {
-										queueWait += qerr.Wait
-									}
-									if spill.note(qerr, sCap) {
-										p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
-										continue
-									}
-									break
-								}
-								return nil, rerr
-							}
-							if parked {
-								queueWait += time.Since(rqStart)
-								phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
-							}
-							routeSlot = permit
-							oi--
-							continue
+				// (or windowless) windows fall through to the per-lane
+				// record below.
+				if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
+					if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
+						// Issue #178: tag the refusal with the requested
+						// model when the upstream body omits it.
+						if rle.Model == "" {
+							rle.Model = model
 						}
+						// Issue #122: count spend_limited on the ledger.
+						if c.spendLimited {
+							tok.ledger.recordSpendLimited()
+						}
+						routeSlot.Release()
+						p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter)
+						rqStart := time.Now()
+						permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+						if rerr != nil {
+							if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
+								if qerr.Reason == "timeout" {
+									queueWait += qerr.Wait
+								}
+								if spill.note(qerr, sCap) {
+									p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+									continue
+								}
+								break
+							}
+							return nil, rerr
+						}
+						if parked {
+							queueWait += time.Since(rqStart)
+							phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+						}
+						routeSlot = permit
+						oi--
+						continue
 					}
 				}
 			}
@@ -396,48 +391,46 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			}
 			// MASQ same-lane quota requeue (I5, spill_queue.go): a
 			// short-window run-start quota jail is waited out on this
-			// lane — no cooldown write, no failover, no spill hop.
-			// Longer (or windowless) windows fall through to the legacy
-			// per-lane record below. Terminal mixes (ban, correlative
+			// lane - no cooldown write, no failover, no spill hop.
+			// Longer (or windowless) windows fall through to the per-lane
+			// record below. Terminal mixes (ban, correlative
 			// refusals, auth rejection) never requeue.
 			if rle := c.rateLimited; rle != nil && !c.authRejected && c.banned == nil && c.ipCapped == nil && c.countryBlocked == nil && c.limitedIp == nil {
-				if cfg.RoutingSmart {
-					if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
-						if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
-							// Issue #178: tag the refusal with the requested
-							// model when the upstream body omits it.
-							if rle.Model == "" {
-								rle.Model = model
-							}
-							// Issue #122: count spend_limited on the ledger.
-							if c.spendLimited {
-								tok.ledger.recordSpendLimited()
-							}
-							routeSlot.Release()
-							p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "phase", "run-start")
-							rqStart := time.Now()
-							permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
-							if rerr != nil {
-								if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
-									if qerr.Reason == "timeout" {
-										queueWait += qerr.Wait
-									}
-									if spill.note(qerr, sCap) {
-										p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
-										continue
-									}
-									break
-								}
-								return nil, rerr
-							}
-							if parked {
-								queueWait += time.Since(rqStart)
-								phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
-							}
-							routeSlot = permit
-							oi--
-							continue
+				if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
+					if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
+						// Issue #178: tag the refusal with the requested
+						// model when the upstream body omits it.
+						if rle.Model == "" {
+							rle.Model = model
 						}
+						// Issue #122: count spend_limited on the ledger.
+						if c.spendLimited {
+							tok.ledger.recordSpendLimited()
+						}
+						routeSlot.Release()
+						p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "phase", "run-start")
+						rqStart := time.Now()
+						permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+						if rerr != nil {
+							if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
+								if qerr.Reason == "timeout" {
+									queueWait += qerr.Wait
+								}
+								if spill.note(qerr, sCap) {
+									p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+									continue
+								}
+								break
+							}
+							return nil, rerr
+						}
+						if parked {
+							queueWait += time.Since(rqStart)
+							phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
+						}
+						routeSlot = permit
+						oi--
+						continue
 					}
 				}
 			}
@@ -517,15 +510,15 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		return lease, nil
 	}
 
-	// Failover precedence: when buckets are mixed the highest-precedence
-	// non-empty bucket wins — ban > rate-limit > waiting-room >
+	// Spill precedence: when buckets are mixed the highest-precedence
+	// non-empty bucket wins - ban > rate-limit > waiting-room >
 	// spill-exhausted. Correlative refusals (ip_capped, country-blocked,
 	// limited_ip) surface directly at the failing token and never reach
 	// these buckets. Each bucket contributes its best error (first ban,
 	// shortest rate window, lowest queue position, last spilled lane).
-	// Only when every bucket is empty — all tokens failed with errors
-	// outside the matrix — is the generic error surfaced.
-	// Freebucks-capped tokens were excluded in acquireOrder (never
+	// Only when every bucket is empty - all tokens failed with errors
+	// outside the matrix - is the generic error surfaced.
+	// Freebucks-capped tokens were excluded in spillOrder (never
 	// attempted); their rate-limit reasons land here so a fully-capped pool
 	// surfaces a real 429 with the earliest window reset instead of a
 	// generic combined error.

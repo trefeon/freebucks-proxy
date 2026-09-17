@@ -5,14 +5,13 @@ package pool
 import (
 	"context"
 	"fmt"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestAcquireScarceModelSessionStickiness verifies session stickiness:
@@ -110,7 +109,9 @@ func TestAcquireMatchingHotSessionStickinessEqualQuota(t *testing.T) {
 // TestAcquireConcurrentColdAdmissionSharesSingleFlight verifies that when multiple
 // concurrent requests arrive for the same model on a cold pool, they share the single
 // in-flight session admission on the leader token rather than firing duplicate session creates
-// across multiple tokens.
+// across multiple tokens. Dedup rides the session manager's per-entry single-flight;
+// strict spill order puts every contender on token 0, so the one-create /
+// same-token outcome is schedule-independent.
 func TestAcquireConcurrentColdAdmissionSharesSingleFlight(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -121,11 +122,14 @@ func TestAcquireConcurrentColdAdmissionSharesSingleFlight(t *testing.T) {
 	const scarceModel = "deepseek/deepseek-v4-pro"
 
 	hold := make(chan struct{})
-	arrived := make(chan struct{}, 3)
-	p.testGatePark = func() { arrived <- struct{}{} }
+	leaderParked := make(chan struct{}, 1)
 	handler := func(m *testutil.MockUpstream) func(http.ResponseWriter, *http.Request) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/freebuff/session") {
+				select {
+				case leaderParked <- struct{}{}:
+				default:
+				}
 				select {
 				case <-hold:
 				case <-r.Context().Done():
@@ -171,14 +175,17 @@ func TestAcquireConcurrentColdAdmissionSharesSingleFlight(t *testing.T) {
 			p.LeaseRelease(lease)
 		}()
 	}
-	for range 3 {
-		select {
-		case <-arrived:
-		case <-time.After(10 * time.Second):
-			close(hold)
-			t.Fatalf("only %d/3 followers registered", len(arrived))
-		}
+	// The leader must be parked upstream before its response is released;
+	// the settle lets followers arrive and park on the single-flight so the
+	// exactly-one-create assertion exercises the dedup. The outcome holds
+	// regardless — a late follower rides the hot session on token 0.
+	select {
+	case <-leaderParked:
+	case <-time.After(10 * time.Second):
+		close(hold)
+		t.Fatal("leader session create never reached upstream")
 	}
+	time.Sleep(200 * time.Millisecond)
 	close(hold)
 	wg.Wait()
 

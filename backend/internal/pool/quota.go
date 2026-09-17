@@ -2,10 +2,9 @@ package pool
 
 import (
 	"fmt"
-	"time"
-
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
 
 // freebucksCapped reports whether the token's Freebucks allowance is exhausted
@@ -26,7 +25,7 @@ func freebucksCapped(acc tokenAccount, model string) (bool, time.Duration) {
 }
 
 // freebucksCappedForSnapshot is the snapshot-direct form of freebucksCapped
-// (kept for testing and for acquireOrder's quotaLimited loop which already
+// (kept for testing and for spillOrder's quotaLimited loop which already
 // holds a snapshot).
 func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (bool, time.Duration) {
 	fb := snap.Freebucks

@@ -31,7 +31,6 @@ import (
 	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -364,21 +363,15 @@ type Pool struct {
 	persist      PoolPersist
 	persistDirty atomic.Bool
 
-	// randMu and randGen support stochastic rotation ("random" TokenRotation mode)
-	randMu  sync.Mutex
-	randGen *rand.Rand
-
 	// MASQ slot ledger (slot_ledger.go): per-lane live-turn slot
 	// semaphores with FIFO waiter queues (routeSlots, keyed by
-	// slotKey{entry, model} — *tokenEntry pooled, *bridgeEntry bridge —
-	// so dashboard reorders and concurrent clients never merge lanes)
-	// plus the consecutive-turn anti-clump cursor (routePrev). Guarded
-	// by routeMu. In-memory only: a restart resets every counter to
-	// zero (same discipline as the probe scheduler's transient flags)
-	// — no pool_state rows, no SQL.
+	// slotKey{entry, model} - *tokenEntry pooled, *bridgeEntry bridge -
+	// so dashboard reorders and concurrent clients never merge lanes).
+	// Guarded by routeMu. In-memory only: a restart resets every counter
+	// to zero (same discipline as the probe scheduler's transient flags)
+	// - no pool_state rows, no SQL.
 	routeMu    sync.Mutex
 	routeSlots map[slotKey]*slotState
-	routePrev  *tokenEntry
 
 	// MASQ precious sessions (precious.go): open set of (entry, model)
 	// pairs whose live session is never proactively dropped (load drops,
@@ -450,22 +443,6 @@ type tokenEntry struct {
 	quarantine  atomic.Pointer[quarantineState]
 	streak      atomic.Pointer[upstream.StreakInfo]
 	streakFetch atomic.Bool
-	// routeSmooth is the smart-routing smooth weighted-round-robin
-	// accumulator (route_smart.go): bumped by each pick's effective
-	// weight, debited by the round total on a win, so near-equal
-	// candidates rotate instead of clumping. On the entry (not in a
-	// pool map) so dashboard reorders and slot rebuilds cannot
-	// misattribute it; entry rebuilds reset it (fresh account, fresh
-	// smoothing). In-memory only (zero on restart).
-	routeSmooth atomic.Int64
-	// routeLastLease is the last smart-path grant time (unixnano) for
-	// the idle-longest tiebreak (zero = never served = longest idle).
-	routeLastLease atomic.Int64
-	// routeTransientCount/At record recent transport-transient failures
-	// for the decaying scorer penalty (routeNoteTransient): the count
-	// arms the penalty, At (unixnano) drives the 1m-full/5m-half decay.
-	routeTransientCount atomic.Int64
-	routeTransientAt    atomic.Int64
 }
 
 func (e *tokenEntry) Email() string {

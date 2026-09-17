@@ -12,14 +12,13 @@ package pool
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // newBridgeSmartPool is newBridgePool with the smart-routing knobs applied
@@ -31,11 +30,9 @@ func newBridgeSmartPool(t *testing.T, mut func(*config.Config), mock *testutil.M
 	t.Helper()
 	p := newBridgePool(t, mock)
 	cfg := *p.cfg.Load()
-	cfg.RoutingSmart = true
 	cfg.SlotsPerAccount = 2
 	cfg.QueueWait = 30 * time.Second
 	cfg.QueueDepth = 16
-	cfg.TokenRotation = "drain"
 	if mut != nil {
 		mut(&cfg)
 	}
@@ -377,63 +374,4 @@ func TestBridgeSlotReleaseOnErrorPaths(t *testing.T) {
 		p.LeaseRelease(holder)
 		eventually(t, "slots drain", func() bool { return p.slotLive(slotKey{entry: entry, model: modelA}) == 0 })
 	})
-}
-
-// TestBridgeSlotSmartOffKeepsSingleFlight proves ROUTING_SMART=false leaves
-// bridge exactly as it was: no slot gating (a second concurrent acquire is
-// not parked by SLOTS_PER_ACCOUNT=1), no slot state, no permit on the
-// lease, and the per-entry admission single-flight still admits the session
-// once for both callers.
-func TestBridgeSlotSmartOffKeepsSingleFlight(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgeSmartPool(t, func(c *config.Config) {
-		c.RoutingSmart = false
-		c.SlotsPerAccount = 1
-	}, mock)
-	const token = "bridge-slot-off"
-	entry := bridgeLane(t, p, token)
-
-	type result struct {
-		lease *Lease
-		err   error
-	}
-	const n = 3
-	results := make(chan result, n)
-	for range n {
-		go func() {
-			lease, err := p.AcquireBridge(context.Background(), token, modelA)
-			results <- result{lease, err}
-		}()
-	}
-	leases := make([]*Lease, 0, n)
-	for range n {
-		select {
-		case r := <-results:
-			if r.err != nil {
-				t.Fatalf("off-path acquire err = %v, want success (no slot gating)", r.err)
-			}
-			if r.lease.routeSlot != nil {
-				t.Error("off-path bridge lease carries a slot permit")
-			}
-			leases = append(leases, r.lease)
-		case <-time.After(5 * time.Second):
-			t.Fatal("off-path acquire never returned (slot gating still active)")
-		}
-	}
-	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 0 {
-		t.Errorf("off-path live slots = %d, want 0 (nothing tracked)", got)
-	}
-	p.routeMu.Lock()
-	lanes := len(p.routeSlots)
-	p.routeMu.Unlock()
-	if lanes != 0 {
-		t.Errorf("off-path slot lanes = %d, want 0", lanes)
-	}
-	if mock.SessionCreates != 1 {
-		t.Errorf("session creates = %d, want 1 (per-entry single-flight preserved)", mock.SessionCreates)
-	}
-	for _, lease := range leases {
-		p.LeaseRelease(lease)
-	}
 }

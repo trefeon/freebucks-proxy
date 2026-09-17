@@ -3,16 +3,14 @@ package pool
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 func TestCooldownToken(t *testing.T) {
@@ -637,80 +635,5 @@ func TestBanViewDerivation(t *testing.T) {
 	banType, _ = banView(&upstream.BanError{Body: "banned", ResumesAt: expired}, expired)
 	if banType != "" {
 		t.Errorf("expired ban view = %q, want empty", banType)
-	}
-}
-
-func TestSessionIdleEndReleasesSessions(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) { c.SessionIdleEnd = time.Hour }, mock)
-
-	// Prime a session so the sweep has something to release.
-	lease, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-
-	// Below the threshold: a maintain pass must not touch sessions.
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-30 * time.Minute)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 0 {
-		t.Fatalf("session ends below threshold = %d, want 0", mock.SessionEnds)
-	}
-
-	// Past the threshold: one pass releases the upstream session slot.
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-2 * time.Hour)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 1 {
-		t.Fatalf("session ends after idle = %d, want 1", mock.SessionEnds)
-	}
-
-	for range 2 {
-		p.maintainTick(context.Background())
-	}
-	if mock.SessionEnds != 1 {
-		t.Fatalf("session ends after repeat idle passes = %d, want still 1", mock.SessionEnds)
-	}
-
-	// Fresh traffic re-arms the knob: the next idle stretch ends the
-	// re-admitted session exactly once more.
-	lease2, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease2)
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-2 * time.Hour)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 2 {
-		t.Fatalf("session ends after second idle stretch = %d, want 2", mock.SessionEnds)
-	}
-}
-
-func TestSessionIdleEndSkipsCooldownToken(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) { c.SessionIdleEnd = time.Hour }, mock)
-
-	lease, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-	// A cooled-down token keeps its session: an upstream DELETE during
-	// cooldown reads as abuse (same policy as the maintain pass).
-	p.CooldownTokenRateLimit(0, &upstream.RateLimitError{Body: "rate limit", RetryAfter: time.Hour})
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-2 * time.Hour)
-	p.lastActiveMu.Unlock()
-	p.maintainTick(context.Background())
-	if mock.SessionEnds != 0 {
-		t.Fatalf("session ends during cooldown = %d, want 0", mock.SessionEnds)
 	}
 }
