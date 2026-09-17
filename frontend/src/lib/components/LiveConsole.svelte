@@ -973,11 +973,7 @@
                 state: autoScroll ? $tr("on") : $tr("off"),
               })}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onclick={copyConsoleLogs}
-            >
+            <Button variant="ghost" size="sm" onclick={copyConsoleLogs}>
               {#if copiedConsole}
                 <Check size={13} class="text-[var(--fp-success)]" />
                 <span class="text-[var(--fp-success)]">{$tr("Copied")}</span>

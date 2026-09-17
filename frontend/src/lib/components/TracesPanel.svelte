@@ -294,11 +294,7 @@
         >
           {$tr("Filtered to {id}", { id: effectiveFocus })}
         </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onclick={() => (clearedFocus = true)}
-        >
+        <Button variant="ghost" size="sm" onclick={() => (clearedFocus = true)}>
           {$tr("Clear")}
         </Button>
       </div>

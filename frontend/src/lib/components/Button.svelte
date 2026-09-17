@@ -26,7 +26,11 @@
 
 <button
   {type}
-  class="fp-btn fp-btn-{variant} {size === 'sm' ? 'fp-btn-sm' : size === 'lg' ? 'fp-btn-lg' : ''} {className}"
+  class="fp-btn fp-btn-{variant} {size === 'sm'
+    ? 'fp-btn-sm'
+    : size === 'lg'
+      ? 'fp-btn-lg'
+      : ''} {className}"
   disabled={disabled || loading}
   aria-busy={loading || undefined}
   {...rest}
