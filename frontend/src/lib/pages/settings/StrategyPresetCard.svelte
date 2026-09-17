@@ -63,7 +63,7 @@
 
   const MASQ_LABEL = "MASQ";
   const MASQ_DESC =
-    "Ordered Sticky Slot-Packing: 2 slots per account with 1500ms deferred scale-out and sticky session retention. Maximizes account session reuse.";
+    "Ordered Sticky Slot-Packing: 2 slots per account with 60s deferred scale-out and sticky session retention. Maximizes account session reuse.";
   const DRAIN_LABEL = "Drain";
   const DRAIN_DESC =
     "Deep queues: each account serves up to 5 minutes / 1024 parked waiters before the request spills to the next account. Safest for a few accounts.";

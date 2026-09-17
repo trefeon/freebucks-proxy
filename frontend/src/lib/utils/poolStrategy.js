@@ -35,10 +35,10 @@ export const STRATEGY_OWNED_KEYS = [
   "MAX_SPILL_ACCOUNTS",
 ];
 
-/** Exact values the MASQ preset writes (1500ms deferred scale-out). */
+/** Exact values the MASQ preset writes (60s deferred scale-out). */
 export const STRATEGY_MASQ = {
   SLOTS_PER_ACCOUNT: "2",
-  QUEUE_WAIT: "1500ms",
+  QUEUE_WAIT: "60s",
   QUEUE_DEPTH: "32",
   MAX_SPILL_ACCOUNTS: "0",
 };
@@ -197,8 +197,11 @@ export function detectStrategy(values = {}) {
   if (
     slots === 2 &&
     spill === 0 &&
-    (depth === 32 || depth === 16) &&
-    (waitRaw === "1500ms" || Math.abs(waitSecs - 1.5) < 0.01)
+    depth === 32 &&
+    (waitRaw === "60s" ||
+      waitRaw === "1m" ||
+      waitRaw === "1m0s" ||
+      Math.abs(waitSecs - 60) < 0.01)
   ) {
     return "masq";
   }
