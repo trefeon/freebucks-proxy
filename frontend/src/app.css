@@ -50,6 +50,14 @@
   --fp-radius-sm: 3px;
   --fp-radius: 4px;
 
+  /* Button geometry — min-height floors, never fixed heights */
+  --fp-btn-h-sm: 32px;
+  --fp-btn-h-md: 40px;
+  --fp-btn-h-lg: 48px;
+  --fp-btn-pad-sm: 6px 10px;
+  --fp-btn-pad-md: 10px 16px;
+  --fp-btn-pad-lg: 12px 20px;
+
   /* Transitions */
   --fp-ease: cubic-bezier(0.23, 1, 0.32, 1);
   --fp-duration: 150ms;
@@ -220,8 +228,8 @@ pre,
   line-height: 1;
   border-radius: var(--fp-radius-sm);
   border: 1px solid transparent;
-  padding: 0.625rem 1rem;
-  min-height: 44px;
+  padding: var(--fp-btn-pad-md);
+  min-height: var(--fp-btn-h-md);
   min-width: auto;
   box-sizing: border-box;
   cursor: pointer;
@@ -244,9 +252,11 @@ pre,
   font-weight: 600;
 }
 
-.fp-btn-primary:hover:not(:disabled) {
-  background: var(--fp-accent-hover);
-  border-color: var(--fp-accent-hover);
+@media (hover: hover) {
+  .fp-btn-primary:hover:not(:disabled) {
+    background: var(--fp-accent-hover);
+    border-color: var(--fp-accent-hover);
+  }
 }
 
 .fp-btn-primary:active:not(:disabled) {
@@ -259,9 +269,11 @@ pre,
   border-color: var(--fp-border-bright);
 }
 
-.fp-btn-secondary:hover:not(:disabled) {
-  background: var(--fp-surface-2);
-  border-color: var(--fp-dim);
+@media (hover: hover) {
+  .fp-btn-secondary:hover:not(:disabled) {
+    background: var(--fp-surface-2);
+    border-color: var(--fp-dim);
+  }
 }
 
 .fp-btn-secondary:active:not(:disabled) {
@@ -274,9 +286,11 @@ pre,
   border-color: transparent;
 }
 
-.fp-btn-ghost:hover:not(:disabled) {
-  color: var(--fp-text);
-  background: var(--fp-surface);
+@media (hover: hover) {
+  .fp-btn-ghost:hover:not(:disabled) {
+    color: var(--fp-text);
+    background: var(--fp-surface);
+  }
 }
 
 .fp-btn-danger {
@@ -285,24 +299,79 @@ pre,
   border-color: var(--fp-error);
 }
 
-.fp-btn-danger:hover:not(:disabled) {
-  background: rgba(248, 113, 113, 0.12);
-  border-color: var(--fp-error);
+@media (hover: hover) {
+  .fp-btn-danger:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.12);
+    border-color: var(--fp-error);
+  }
 }
 .fp-btn.fp-btn-sm,
 .fp-btn-sm {
-  padding: 0.5rem 0.625rem;
-  min-height: 44px;
+  padding: var(--fp-btn-pad-sm);
+  min-height: var(--fp-btn-h-sm);
   min-width: auto;
   font-size: 12px;
   gap: 5px;
 }
 
-/* Icon-only copy button (table cells, mobile cards): square tap target, no caption */
+/* Large — login / empty-state / hero CTA, max one per view */
+.fp-btn.fp-btn-lg,
+.fp-btn-lg {
+  padding: var(--fp-btn-pad-lg);
+  min-height: var(--fp-btn-h-lg);
+  min-width: auto;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 8px;
+}
+
+/* Icon-only buttons: square per size, icon + REQUIRED action aria-label, no caption */
 .fp-btn.fp-copy-icon {
   padding-left: 0.5rem;
   padding-right: 0.5rem;
-  min-width: 44px;
+  min-width: var(--fp-btn-h-md);
+}
+.fp-btn.fp-btn-sm.fp-copy-icon {
+  min-width: var(--fp-btn-h-sm);
+}
+.fp-btn.fp-btn-lg.fp-copy-icon {
+  min-width: var(--fp-btn-h-lg);
+}
+
+/* Coarse pointers get larger floors — touch never goes below 36px */
+@media (pointer: coarse) {
+  .fp-btn {
+    min-height: 44px;
+  }
+  .fp-btn.fp-btn-sm,
+  .fp-btn-sm {
+    min-height: 36px;
+  }
+  .fp-btn.fp-copy-icon {
+    min-width: 44px;
+  }
+  .fp-btn.fp-btn-sm.fp-copy-icon {
+    min-width: 36px;
+  }
+}
+
+/* Forced-colors: drop token fills, keep a real border + Highlight ring */
+@media (forced-colors: active) {
+  .fp-btn {
+    border: 1px solid ButtonText;
+  }
+  .fp-btn-primary {
+    background: ButtonFace;
+    color: ButtonText;
+  }
+  .fp-btn:disabled {
+    opacity: 1;
+    color: GrayText;
+    border-color: GrayText;
+  }
+  *:focus-visible {
+    outline: 3px solid Highlight;
+  }
 }
 
 .fp-input {
@@ -401,6 +470,13 @@ select.fp-input option,
 .fp-select option {
   background-color: #141a25;
   color: #e9edf3;
+}
+
+/* Invalid controls — Field.svelte sets aria-invalid in error state */
+.fp-input[aria-invalid="true"],
+.fp-select[aria-invalid="true"],
+select.fp-input[aria-invalid="true"] {
+  border-color: var(--fp-error);
 }
 
 /* ── Table — hairline rows, left text, right numbers ──────────── */
@@ -520,5 +596,9 @@ select.fp-input option,
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .fp-btn-primary:active:not(:disabled),
+  .fp-btn-secondary:active:not(:disabled) {
+    transform: none;
   }
 }

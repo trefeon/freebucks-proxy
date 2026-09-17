@@ -79,7 +79,6 @@
         variant="secondary"
         size="sm"
         onclick={() => (cursor = Date.now())}
-        class="!h-8 !text-xs !px-2.5"
       >
         <RefreshCw size={13} />
         <span class="hidden min-[480px]:inline">{$tr("Refresh all")}</span>

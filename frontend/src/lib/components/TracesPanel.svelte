@@ -298,7 +298,6 @@
           variant="ghost"
           size="sm"
           onclick={() => (clearedFocus = true)}
-          class="!h-7 !text-xs"
         >
           {$tr("Clear")}
         </Button>

@@ -736,7 +736,7 @@
                 {/if}
                 <div class="flex flex-wrap gap-1.5">
                   <Button
-                    variant="primary"
+                    variant="secondary"
                     size="sm"
                     disabled={actionPending || spawnOpt.kind === "paywall"}
                     onclick={() =>

@@ -110,7 +110,7 @@
             title={$tr("Move Up / Prioritize")}
             aria-label={$tr("Move Up")}
             onclick={() => onSwap?.(idx, idx - 1)}
-            class="inline-flex items-center justify-center w-5 h-5 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface-2)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            class="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface-2)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronUp size={13} />
           </button>
@@ -120,7 +120,7 @@
             title={$tr("Move Down")}
             aria-label={$tr("Move Down")}
             onclick={() => onSwap?.(idx, idx + 1)}
-            class="inline-flex items-center justify-center w-5 h-5 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface-2)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            class="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface-2)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronDown size={13} />
           </button>
@@ -210,9 +210,9 @@
         </div>
         {#if token.session_status === "active" && token.session_instance && token.session_remaining_seconds > 0 && token.session_model}
           <Button
-            variant="danger"
+            variant="secondary"
             size="sm"
-            class="!h-7 !text-xs !px-2 shrink-0"
+            class="shrink-0"
             disabled={actionPending}
             aria-label={$tr("Drop Session")}
             title={$tr("Drop Session")}

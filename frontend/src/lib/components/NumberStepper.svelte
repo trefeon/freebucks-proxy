@@ -1,4 +1,5 @@
 <script>
+  import Button from "./Button.svelte";
   import { Minus, Plus } from "@lucide/svelte";
 
   /**
@@ -33,14 +34,15 @@
 </script>
 
 <div class="flex items-center gap-1.5 w-full">
-  <button
-    type="button"
-    class="fp-btn fp-btn-secondary fp-btn-sm !px-2 shrink-0"
+  <Button
+    variant="secondary"
+    size="sm"
+    class="shrink-0"
     aria-label="Decrease {ariaLabel}"
     onclick={() => nudge(-1)}
   >
     <Minus size={13} />
-  </button>
+  </Button>
   <input
     type="number"
     {min}
@@ -51,12 +53,13 @@
     {value}
     oninput={(e) => oninput(e.currentTarget.value)}
   />
-  <button
-    type="button"
-    class="fp-btn fp-btn-secondary fp-btn-sm !px-2 shrink-0"
+  <Button
+    variant="secondary"
+    size="sm"
+    class="shrink-0"
     aria-label="Increase {ariaLabel}"
     onclick={() => nudge(1)}
   >
     <Plus size={13} />
-  </button>
+  </Button>
 </div>

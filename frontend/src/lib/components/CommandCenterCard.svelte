@@ -191,7 +191,7 @@
           href={versionInfo.update_url}
           target="_blank"
           rel="noopener noreferrer"
-          class="fp-btn fp-btn-ghost !text-xs !py-1.5 !px-2.5 flex items-center gap-1 text-[var(--fp-muted)] hover:text-[var(--fp-text)]"
+          class="fp-btn fp-btn-ghost fp-btn-sm inline-flex items-center gap-1 text-[var(--fp-muted)] hover:text-[var(--fp-text)]"
           title={$tr("View release notes")}
         >
           <ExternalLink size={13} />

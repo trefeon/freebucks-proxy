@@ -164,7 +164,6 @@
         <Button
           variant="secondary"
           size="sm"
-          class="!h-7 !text-xs !px-2.5"
           disabled={actionPending || selectedIntent.kind === "paywall"}
           title={selectedIntent.kind === "paywall"
             ? $tr("Not enough Freebucks (price {price}, balance {balance})", {
@@ -192,7 +191,6 @@
         <Button
           variant="ghost"
           size="sm"
-          class="!h-7 !text-xs !px-2"
           disabled={actionPending}
           onclick={() => onRefresh?.("probe")}
         >
@@ -202,7 +200,6 @@
         <Button
           variant="ghost"
           size="sm"
-          class="!h-7 !text-xs !px-2"
           disabled={actionPending}
           onclick={() => onRefresh?.("finish")}
         >
@@ -347,7 +344,6 @@
       <Button
         variant="secondary"
         size="sm"
-        class="!h-7 !text-xs !px-2.5"
         disabled={pinSaving || !pinSelect}
         onclick={() => savePin(pinSelect)}
       >

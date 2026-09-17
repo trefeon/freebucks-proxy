@@ -120,6 +120,7 @@
 
       <Button
         variant="primary"
+        size="lg"
         type="submit"
         class="w-full"
         disabled={loading || !token.trim()}

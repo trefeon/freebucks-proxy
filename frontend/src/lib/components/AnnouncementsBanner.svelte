@@ -185,7 +185,7 @@
             </span>
             <button
               type="button"
-              class="fp-btn fp-btn-ghost !p-1 text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
+              class="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
               onclick={() => toggleFold(notice.id)}
               title={$tr("Show notice")}
               aria-label={$tr("Show {title}", { title: notice.title })}
@@ -247,7 +247,7 @@
                   href={notice.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="fp-btn fp-btn-ghost !text-xs !py-1 !px-2 flex items-center gap-1 text-[var(--fp-accent)] hover:underline"
+                  class="fp-btn fp-btn-ghost fp-btn-sm inline-flex items-center gap-1 text-[var(--fp-accent)] hover:underline"
                 >
                   <span>{$tr("Learn More")}</span>
                   <ExternalLink size={11} />
@@ -255,7 +255,7 @@
               {/if}
               <button
                 type="button"
-                class="fp-btn fp-btn-ghost !p-1 text-[var(--fp-dim)] hover:text-[var(--fp-text)]"
+                class="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)]"
                 onclick={() => toggleFold(notice.id)}
                 title={$tr("Fold notice")}
                 aria-label={$tr("Fold {title}", { title: notice.title })}
