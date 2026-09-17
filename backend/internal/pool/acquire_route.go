@@ -48,6 +48,45 @@ func tagLimitedIPModel(lie *upstream.LimitedIpError, model string) *upstream.Lim
 	return &tagged
 }
 
+// rememberModelRateLimit records one lane's admission/run-start rate-limit
+// refusal as that model's refusal memory (runs.RememberModelRateLimit), so
+// the next same-model walk skips the dead lane without upstream contact.
+// The Model is filled on a walk-local copy first: walk errors may be
+// single-flight-shared and must never be mutated. The display index is
+// resolved live — a dashboard reorder mid-flight must not mislabel the
+// log line (same rule as the ban path).
+func (p *Pool) rememberModelRateLimit(tok *tokenEntry, model string, rle *upstream.RateLimitError) {
+	if tok == nil || rle == nil {
+		return
+	}
+	cp := *rle
+	if cp.Model == "" {
+		cp.Model = model
+	}
+	tok.runs.RememberModelRateLimit(model, &cp)
+	args := []any{"model", model, "retry_after", cp.RetryAfter}
+	if !cp.ResetAt.IsZero() {
+		args = append(args, "reset", cp.ResetAt.Format(time.RFC3339))
+	}
+	if li := p.indexOfEntry(tok); li >= 0 {
+		args = append([]any{"token", li + 1}, args...)
+	}
+	// RememberModelRateLimit parks only refusals with a live expiry window;
+	// an opaque refusal is a no-op there, so say so here too — the Info
+	// line must mean the lane will actually be skipped. The predicate
+	// mirrors RememberModelRateLimit's (which stays authoritative).
+	now := time.Now()
+	until := cp.ResetAt
+	if cp.RetryAfter > 0 {
+		until = now.Add(cp.RetryAfter)
+	}
+	if until.IsZero() || !until.After(now) {
+		p.logger.Debug("pool: admission rate limit not remembered (no usable expiry)", args...)
+		return
+	}
+	p.logger.Info("pool: admission rate limit remembered", args...)
+}
+
 // Acquire resolves the model's agent and walks the strict index order
 // until a token yields both a run and a session. Returns a lease on
 // success. Registry misses (unknown model) are returned as-is.
@@ -210,6 +249,23 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				continue
 			}
 		}
+		// Remembered per-model refusal (runs.RememberModelRateLimit): a
+		// previous walk's admission/run-start 429 for THIS model is still
+		// inside its window, so the lane is skipped with no upstream
+		// contact and no slot taken — the bucket + errs records stay
+		// truthful via the remembered refusal. Other models fall through
+		// (per-model memory, never a blanket park); an expired window
+		// reads nil and re-attempts live.
+		if mrle := tok.runs.ModelRateLimit(model); mrle != nil {
+			tagged := *mrle
+			if tagged.Model == "" {
+				tagged.Model = model
+			}
+			rateLimited = appendRateLimitEntry(rateLimited, &tagged, idx)
+			errs = append(errs, name+": "+tagged.Error()+" (remembered, no upstream contact)")
+			p.logger.Debug("pool: token skipped (remembered model rate limit)", "token", idx+1, "model", model)
+			continue
+		}
 		// Live-turn slot (SLOTS_PER_ACCOUNT per account-model lane,
 		// slot_ledger.go): a lease is granted only while the token holds
 		// fewer live turns for this model than the cap; otherwise the
@@ -344,6 +400,12 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				// mutate it (data race on Model).
 				rle = tagRateLimitModel(rle, model)
 				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
+				// Remember the lane's refusal for this model AFTER the
+				// same-lane requeue above: a waited-out short jail stays
+				// memory-free (keeper TestNatural429RequeuesNoParkNoFailover),
+				// while a long window parks the lane contact-free until it
+				// resets. Opaque refusals (no expiry) never stick.
+				p.rememberModelRateLimit(tok, model, rle)
 				// Issue #122: the fresh-admission spend ceiling is the
 				// upstream's primary spend gate, so an admission-path
 				// spend_limited counts on the ledger too (same counter as
@@ -490,6 +552,11 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				// be mutated by concurrent walks).
 				rle = tagRateLimitModel(rle, model)
 				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
+				// Remember the lane's refusal for this model AFTER the
+				// same-lane requeue above (see the admission path): a
+				// waited-out short jail stays memory-free, while a long
+				// window parks the lane contact-free until it resets.
+				p.rememberModelRateLimit(tok, model, rle)
 				if c.spendLimited {
 					tok.ledger.recordSpendLimited()
 				}
