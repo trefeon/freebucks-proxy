@@ -12,7 +12,7 @@ import (
 // applied before the goose migration chain). A production v4 file carries
 // exactly these objects stamped user_version=4 with no goose rows; Open must
 // take it over unmodified: every row preserved, version restamped, goose
-// baselined at 4 with nothing left to run.
+// baselined at 4 with only 00005 left to run.
 const legacyV4Schema = `
 CREATE TABLE IF NOT EXISTS log_entries(
   id INTEGER PRIMARY KEY,
@@ -140,7 +140,7 @@ func TestOpenLegacyV4File(t *testing.T) {
 	if got, ok, err := s.LoadPoolState("pool/burst"); err != nil || !ok || string(got) != `{"m":[]}` {
 		t.Fatalf("v4 pool_state row lost: %q ok=%v err=%v", got, ok, err)
 	}
-	// Goose baselined the whole chain: nothing pending, MAX at 4.
+	// Goose baselined 1..4: only 00005 ran, nothing pending, MAX at the latest.
 	var maxV int
 	if err := s.db.QueryRow(`SELECT MAX(version_id) FROM goose_db_version`).Scan(&maxV); err != nil {
 		t.Fatalf("goose version: %v", err)

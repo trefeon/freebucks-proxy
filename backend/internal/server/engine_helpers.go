@@ -3,13 +3,12 @@ package server
 import (
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
-
 	"freebuff-proxy/backend/internal/phasetiming"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/store"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // traceChat records a structured "chat trace" entry for the dashboard
@@ -113,15 +112,19 @@ func (s *Server) recordRequestOutcome(lease *pool.Lease, model string, status, e
 	if phases != nil {
 		ttfb = phases[phasetiming.UpstreamTTFBMS]
 	}
+	// clientKeyHash is the pooled API-key identity (hex(sha256)[:16]),
+	// "" for bridge/no-key — finalized by chatCore after routing. The raw
+	// key never reaches the store.
 	if err := s.hist.RecordRequest(store.RequestRecord{
-		ReqID:    st.reqID,
-		TS:       store.Millis(time.Now()),
-		Endpoint: "/v1/chat/completions",
-		Model:    model,
-		TokenIdx: tokenIdx,
-		Status:   status,
-		TTFBms:   ttfb,
-		Err:      errClass,
+		ReqID:         st.reqID,
+		TS:            store.Millis(time.Now()),
+		Endpoint:      "/v1/chat/completions",
+		Model:         model,
+		TokenIdx:      tokenIdx,
+		Status:        status,
+		TTFBms:        ttfb,
+		Err:           errClass,
+		ClientKeyHash: st.clientKeyHash,
 	}); err != nil {
 		s.logger.Warn("request record failed", "err", err, "req_id", st.reqID)
 	}
@@ -184,6 +187,12 @@ type chatTraceState struct {
 	// unknown (egress refusals keep TOKEN —).
 	rateToken  string
 	rateTokens string
+	// clientKeyHash is the pooled client API-key identity for this
+	// request (hex(sha256(rawKey))[:16]), "" for bridge/no-key requests.
+	// Finalized by chatCore after the pooled-vs-bridge decision; the
+	// usage ring (via the request context) and the request_records row
+	// (via recordRequestOutcome) both read this same value.
+	clientKeyHash string
 }
 
 // statusesSeen renders the observed attempt statuses comma-joined

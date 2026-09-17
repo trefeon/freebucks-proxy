@@ -6,6 +6,7 @@
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import LiveConsole from "../components/LiveConsole.svelte";
   import MetricsPanel from "../components/MetricsPanel.svelte";
+  import TeamUsagePanel from "../components/TeamUsagePanel.svelte";
   import TracesPanel from "../components/TracesPanel.svelte";
   import { tr } from "../i18n.js";
   import { recordPageVisit } from "../stores/pageState.js";
@@ -49,8 +50,8 @@
     // consumed on mount so back-navigation keeps the operator's own tab.
     try {
       const t = sessionStorage.getItem("fp-page-tab:activity") || "";
-      sessionStorage.removeItem("fp-page-tab:activity");
-      if (t === "live" || t === "metrics" || t === "traces") tab = t;
+      if (t === "live" || t === "metrics" || t === "team" || t === "traces")
+        tab = t;
     } catch {
       // Storage unavailable — stay on the default Live tab.
     }
@@ -60,7 +61,7 @@
 <PageShell
   crumb="freebuff-proxy / Admin / logs.conf"
   title={$tr("Logs")}
-  description={$tr("Live traffic, metrics, and traces.")}
+  description={$tr("Live traffic, metrics, team usage, and traces.")}
 >
   {#snippet actions()}
     <div class="flex flex-wrap items-center gap-2">
@@ -69,6 +70,7 @@
         options={[
           { id: "live", label: $tr("Live") },
           { id: "metrics", label: $tr("Metrics") },
+          { id: "team", label: $tr("Team") },
           { id: "traces", label: $tr("Traces") },
         ]}
         ariaLabel={$tr("Activity view")}
@@ -95,6 +97,8 @@
     {/key}
   {:else if tab === "metrics"}
     <MetricsPanel {cursor} {onOpenToken} {onOpenLogs} />
+  {:else if tab === "team"}
+    <TeamUsagePanel {cursor} />
   {:else}
     <TracesPanel {cursor} focusReqId={traceFocus} {onOpenToken} {onOpenLogs} />
   {/if}

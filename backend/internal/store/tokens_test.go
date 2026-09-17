@@ -10,7 +10,7 @@ import (
 
 // legacyV2TokensSchema is the v2 tokens table (before the maturity columns).
 // A v2 file crafted from it must open cleanly and migrate: existing rows
-// preserved, maturity_json + streak_blob added, version stamped v3.
+// preserved, maturity_json + streak_blob added, version stamped latest.
 const legacyV2TokensSchema = `
 CREATE TABLE tokens(
   id INTEGER PRIMARY KEY,
@@ -22,7 +22,23 @@ CREATE TABLE tokens(
 );
 `
 
-func TestOpenMigratesV2ToV3(t *testing.T) {
+// A real v2 file also carries the v1 history tables; request_records is
+// included at its v2 shape so the pending chain (00004, 00005) migrates it
+// the way production files converge.
+const legacyV2HistorySchema = `
+CREATE TABLE request_records(
+  req_id TEXT PRIMARY KEY,
+  ts INTEGER NOT NULL,
+  endpoint TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  token_idx INTEGER NOT NULL DEFAULT -1,
+  status TEXT NOT NULL DEFAULT '',
+  ttfb_ms INTEGER NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT ''
+);
+`
+
+func TestOpenMigratesV2ToLatest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tokens.db")
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -30,6 +46,9 @@ func TestOpenMigratesV2ToV3(t *testing.T) {
 	}
 	if _, err := raw.Exec(legacyV2TokensSchema); err != nil {
 		t.Fatalf("v2 schema: %v", err)
+	}
+	if _, err := raw.Exec(legacyV2HistorySchema); err != nil {
+		t.Fatalf("v2 history schema: %v", err)
 	}
 	if _, err := raw.Exec(`INSERT INTO tokens(value_hash, label) VALUES('abc', 'kept')`); err != nil {
 		t.Fatalf("v2 seed: %v", err)

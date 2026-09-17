@@ -17,17 +17,19 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/pressly/goose/v3"
 	"io/fs"
 	"math/rand/v2"
-	sqlite "modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pressly/goose/v3"
+
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // schemaVersion guards the on-disk format. v1 held the history tables only
@@ -38,10 +40,10 @@ import (
 // string keys for ledger counters, admissions, bridge usage/survivors and
 // burst hits — see pool_persist.go).
 // Open migrates older files in place via the embedded goose migrations
-// (migrations/00001..00004, one version per legacy user_version stamp);
+// (migrations/00001..00005, one version per legacy user_version stamp);
 // anything else non-zero is rejected so a stale file is ignored instead of
 // mis-parsed (mirrors session.storeVersion).
-const schemaVersion = 4
+const schemaVersion = 5
 
 // migrationsFS embeds the goose migration chain. Versions are sequential
 // 1..schemaVersion on purpose: a legacy file stamped with PRAGMA
@@ -97,15 +99,19 @@ type MaturityEvent struct {
 }
 
 // RequestRecord is one /v1 inference outcome for the Logs console view.
+// ClientKeyHash is the caller's pooled API-key identity
+// (hex(sha256(rawKey))[:16]), "" for bridge/no-key requests and for rows
+// written before migration 00005. The raw key is never stored.
 type RequestRecord struct {
-	ReqID    string
-	TS       int64
-	Endpoint string
-	Model    string
-	TokenIdx int
-	Status   string
-	TTFBms   int64
-	Err      string
+	ReqID         string
+	TS            int64
+	Endpoint      string
+	Model         string
+	TokenIdx      int
+	Status        string
+	TTFBms        int64
+	Err           string
+	ClientKeyHash string
 }
 
 // LogFilter selects log rows. Zero values mean "no constraint"; Limit <= 0
@@ -304,7 +310,7 @@ func OpenWithStatus(path string) (*Store, MigrateStatus, error) {
 	}
 	st.FromVersion = v
 	switch v {
-	case 0, 1, 2, 3, schemaVersion:
+	case 0, 1, 2, 3, 4, schemaVersion:
 		// Fresh file or a supported legacy stamp: goose converges it.
 	default:
 		_ = db.Close()
@@ -350,14 +356,12 @@ func OpenWithStatus(path string) (*Store, MigrateStatus, error) {
 }
 
 // migrateUp brings any supported file to the latest schema via the embedded
-// goose migrations. Pre-goose files (user_version 1..4) carry no version
+// goose migrations. Pre-goose files (user_version 1..5) carry no version
 // rows, so versions at or below the baseline are recorded as applied without
 // running — their objects already exist — and only the remainder executes.
 // Every row is preserved; only DDL runs. It returns the versions that
-// actually executed (never nil: empty when Up ran nothing, e.g. a legacy v4
-// takeover whose whole chain baselined) and whether baseline rows were
-// seeded (a write even when nothing executed, so callers can tell a
-// first-boot takeover from a steady-state no-op).
+// actually executed (never nil: empty when Up ran nothing, e.g. a
+// goose-converged re-boot) and whether baseline rows were
 func migrateUp(db *sql.DB, legacy int) (applied []int, seeded bool, err error) {
 	sub, err := fs.Sub(migrationsFS, "migrations")
 	if err != nil {
@@ -470,6 +474,9 @@ func baselineVersion(db *sql.DB, legacy int) int {
 	}
 	if base < 4 && hasTable(db, "pool_state") {
 		base = 4
+	}
+	if base < 5 && hasColumn(db, "request_records", "client_key_hash") {
+		base = 5
 	}
 	return base
 }
