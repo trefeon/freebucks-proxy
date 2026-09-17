@@ -11,19 +11,36 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            go:
+              - 'backend/**'
+              - 'go.mod'
+              - 'go.sum'
+              - '.github/workflows/codeql.yml'
+
       - name: Initialize CodeQL
+        if: github.event_name != 'pull_request' || steps.filter.outputs.go == 'true'
         uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           languages: go
 
       - name: Autobuild
+        if: github.event_name != 'pull_request' || steps.filter.outputs.go == 'true'
         uses: github/codeql-action/autobuild@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
 
       - name: Perform CodeQL analysis
+        if: github.event_name != 'pull_request' || steps.filter.outputs.go == 'true'
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4

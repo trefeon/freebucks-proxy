@@ -6,13 +6,29 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: dependency-review-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dependency-review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            deps:
+              - 'go.mod'
+              - 'go.sum'
+              - 'frontend/package.json'
+              - 'frontend/package-lock.json'
+              - '.github/workflows/dependency-review.yml'
+
       - name: Check dependency review availability
+        if: steps.filter.outputs.deps == 'true'
         id: precheck
         env:
           GH_TOKEN: ${{ github.token }}
@@ -38,5 +54,5 @@ jobs:
           exit 1
 
       - name: Review dependencies
-        if: steps.precheck.outputs.supported == 'true'
+        if: steps.filter.outputs.deps == 'true' && steps.precheck.outputs.supported == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0

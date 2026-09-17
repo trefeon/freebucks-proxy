@@ -8,18 +8,34 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   golangci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            go:
+              - 'backend/**'
+              - 'go.mod'
+              - 'go.sum'
+              - '.github/workflows/lint.yml'
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        if: github.event_name != 'pull_request' || steps.filter.outputs.go == 'true'
         with:
           go-version-file: go.mod
           cache: true
 
       - name: golangci-lint
+        if: github.event_name != 'pull_request' || steps.filter.outputs.go == 'true'
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12

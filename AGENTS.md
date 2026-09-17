@@ -71,8 +71,9 @@ dotenv → static → live → SSE hash → store refresh.
    `docker build --network=host` + compose up, then `GET /healthz` → 200.
    GHCR preview: `docker compose pull && VERSION=x docker compose up -d` runs the
    release image; pin `VERSION` to the release tag. Prod is VPS SG.
-5. Frontend `dist` is rebuilt and committed LAST (dist-freshness CI diffs the
-   bundle; any `src` touch after `vite build` fails it).
+5. Frontend `dist` is rebuilt and committed before merge when `frontend/src`
+   changes (dist-freshness CI diffs the bundle). For fast audits or static
+   reviews, skip dist rebuild/e2e and run `npm run check` (typecheck ~3s).
 6. Upstream syncs: classify wire drift BEFORE refreshing the baseline, else
    `review-wire-drift.sh` reports all-SAME against the new anchors and hides
    FUNCTIONAL rows. LF-normalize `snapshots.json` comparisons (CRLF checkouts
@@ -89,7 +90,7 @@ dotenv → static → live → SSE hash → store refresh.
    (vendor-version.txt + snapshots.json vendor_version) land atomically in
    the same bump commit before the wiregen SHA gate.
 7. Upstream-first: start any wire/registry/model work by updating `upstream/freebuff` to latest `origin/main` (`git -C upstream/freebuff fetch origin main`, checkout `origin/main`). Nothing gates or pre-approves this update. If it moved past the recorded pins, classify with `check-upstream.sh` + `review-wire-drift.sh` and carry any port/re-pin through the drift PR flow.
-8. Subagent worktrees: many subagents share ONE tree (one checkout + branch) when editing the same domain — same feature area, disjoint files or tightly-coupled edits, with hub coordination before touching shared files. Split to one-worktree-per-agent only when domains differ or clobber risk is real. Workers never touch dist; the integrator rebuilds + commits dist LAST.
+8. Subagent worktrees: many subagents share ONE tree (one checkout + branch) when editing the same domain — same feature area, disjoint files or tightly-coupled edits, with hub coordination before touching shared files. Split to one-worktree-per-agent only when domains differ or clobber risk is real. In multi-agent parallel lanes touching frontend/, the integrating lane rebuilds + commits dist LAST.
 
 ## 5. Budgets and freezes (as observed)
 
