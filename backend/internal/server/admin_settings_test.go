@@ -482,8 +482,8 @@ func TestSettingsMigratePayloadShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenWithStatus: %v", err)
 	}
-	if ms.FromVersion != 0 || len(ms.Applied) != 4 || !ms.Fresh || ms.Noop {
-		t.Fatalf("fresh status = %+v, want {From:0 Applied:x4 Fresh:true Noop:false}", ms)
+	if ms.FromVersion != 0 || len(ms.Applied) != 5 || !ms.Fresh || ms.Noop {
+		t.Fatalf("fresh status = %+v, want {From:0 Applied:x5 Fresh:true Noop:false}", ms)
 	}
 	srv, _ := server.NewTestServerStack(t, nil, []*testutil.MockUpstream{testutil.NewMock()},
 		func(c *config.Config) { c.AdminToken = "secret" }, nil, nil, server.WithHistory(st))
@@ -498,12 +498,12 @@ func TestSettingsMigratePayloadShape(t *testing.T) {
 	if mig == nil {
 		t.Fatal("store-backed settings has no migrate object, want the boot report")
 	}
-	if mig["from_version"] != 0.0 || mig["to_version"] != 4.0 {
-		t.Errorf("migrate from/to = %v/%v, want 0/4", mig["from_version"], mig["to_version"])
+	if mig["from_version"] != 0.0 || mig["to_version"] != 5.0 {
+		t.Errorf("migrate from/to = %v/%v, want 0/5", mig["from_version"], mig["to_version"])
 	}
 	applied, ok := mig["applied"].([]any)
-	if !ok || len(applied) != 4 {
-		t.Fatalf("migrate applied = %v, want the 4-step chain", mig["applied"])
+	if !ok || len(applied) != 5 {
+		t.Fatalf("migrate applied = %v, want the 5-step chain", mig["applied"])
 	}
 	for i, v := range applied {
 		if v != float64(i+1) {
