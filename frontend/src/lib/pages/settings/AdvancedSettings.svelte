@@ -56,26 +56,26 @@
     degraded = false,
   } = $props();
   // Keys owned by the curated section components above (Gateway, Traffic,
-  // ModelRouting, Dashboard access, the Pool Strategy card, Pool Custom
-  // advanced, and the Warming tab's Streak Maintenance card which owns every
-  // MATURITY_* key); Advanced shows everything else the catalog exposes.
+  // ModelRouting, Dashboard access, the Pool Strategy card, and Pool Custom
+  // advanced); Advanced shows everything else the catalog exposes.
   // PIN_MODEL is drawer-owned (the token drawer is its only editor), so it
   // stays out of this generic list like MODEL_LOCKS did before it.
+  // MODELS_ALLOW is intentionally NOT here: it renders in the Usage page's
+  // Upstream & Quota card (onlyGroups upstream) via this same generic list.
+  // MATURITY_* needs no entry: the Warming tab's Streak Maintenance card
+  // owns those keys with hardcoded rows and the catalog exposes no such
+  // rows. QUOTA_PROBE_* needs no entry either: excised from the catalog
+  // with the prober removal, so no catalog row can match them.
   const COVERED = new Set([
     "ADOPT_CLI_SESSION",
     "BRIDGE_ENABLED",
     "DASHBOARD_REQUIRE_LOGIN",
     "HTTP_READ_TIMEOUT",
     "LOG_LEVEL",
-    "MATURITY_ENABLED",
-    "MATURITY_TOUCH_MODEL",
     "PIN_MODEL",
     "MODEL_UNAVAILABLE_CACHE_TTL",
-    "MODELS_ALLOW",
     "QUEUE_DEPTH",
     "QUEUE_WAIT",
-    "QUOTA_PROBE_ACTIVE_INTERVAL",
-    "QUOTA_PROBE_IDLE_HEARTBEAT",
     "RATE_LIMIT_PER_IP",
     "REASONING_IN_CONTENT",
     "SAFE_MODE",
