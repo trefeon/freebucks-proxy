@@ -89,7 +89,7 @@ dotenv → static → live → SSE hash → store refresh.
    (vendor-version.txt + snapshots.json vendor_version) land atomically in
    the same bump commit before the wiregen SHA gate.
 7. Upstream-first: start any wire/registry/model work by updating `upstream/freebuff` to latest `origin/main` (`git -C upstream/freebuff fetch origin main`, checkout `origin/main`). Nothing gates or pre-approves this update. If it moved past the recorded pins, classify with `check-upstream.sh` + `review-wire-drift.sh` and carry any port/re-pin through the drift PR flow.
-8. Subagent worktrees: default one agent = one branch + one `/tmp` worktree. Same-domain lanes MAY share one checkout (combo) when files are disjoint or edits are tightly coupled, with hub coordination before touching shared files. Split when domains differ or contention is real.
+8. Subagent worktrees: many subagents share ONE tree (one checkout + branch) when editing the same domain — same feature area, disjoint files or tightly-coupled edits, with hub coordination before touching shared files. Split to one-worktree-per-agent only when domains differ or clobber risk is real. Workers never touch dist; the integrator rebuilds + commits dist LAST.
 
 ## 5. Budgets and freezes (as observed)
 
