@@ -179,7 +179,6 @@ func (p *Pool) FlushPoolPersist() error {
 // the live per-token key sets for orphan pruning.
 func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns map[string]bool) {
 	liveLedgers = make(map[string]bool)
-	liveCooldowns = make(map[string]bool)
 
 	// Per-token ledgers (roster lock; entry pointers stay in memory —
 	// only the counters cross into blobs).
