@@ -170,8 +170,17 @@
           {token.email || token.account_id}
         </span>
       {/if}
-    </div>
-  </td>
+      {#if token.pinned_model}
+        <span
+          class="inline-flex items-center gap-1 text-[11px] text-[var(--fp-accent)] truncate min-w-0 max-w-[160px]"
+          title={token.pinned_model}
+        >
+          <Lock size={11} aria-hidden="true" class="shrink-0" />
+          <span class="truncate">{token.pinned_model}</span>
+        </span>
+      {/if}
+    </div></td
+  >
   <td class="w-[1%] whitespace-nowrap">
     <div class="flex flex-col items-start gap-1">
       <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />

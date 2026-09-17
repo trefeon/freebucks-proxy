@@ -1,5 +1,5 @@
-import { fetchAPI, csrfHeader } from "../api/client.js";
-import { adminApi, adminActions } from "../api/paths.js";
+import { fetchAPI } from "../api/client.js";
+import { adminApi } from "../api/paths.js";
 import { useEventStream } from "../utils/events.js";
 import { createQueryStore } from "./query.js";
 
@@ -14,9 +14,7 @@ import { createQueryStore } from "./query.js";
 // visibility-aware, overlap-guarded. This module only contributes the
 // tokens-specific pieces — the static/live merge below and the SSE push —
 // while keeping the historical exports stable for all consumers.
-
-const INTERVAL_MS = 10000;
-
+//
 // Issue #322: account-stable fields (email/account_id, standing_*,
 // referral_*) ride a once-per-mount full fetch; the 10s hot poll hits
 // ?view=live and merges over the cached static snapshot. A full refresh
@@ -28,8 +26,6 @@ const STATIC_TOP_KEYS = [
   "in_bridge",
   "show_bridge",
   "unmetered_models",
-  "token_rotation",
-  "rate_limit_failover",
   "maturity_enabled",
   "maturity_window_start",
   "maturity_window_end",
@@ -53,7 +49,7 @@ const STATIC_TOKEN_KEYS = [
   "referral_qualified_count",
   "referral_github_linked",
   "referral_reset_at",
-  "allowed_models",
+  "pinned_model",
   "streak",
   "today_used",
   "last_usage",
@@ -102,8 +98,13 @@ async function fetchLive() {
   return fetchAPI(adminApi.tokens + LIVE_QS);
 }
 
+/**
+ * Force an immediate refetch, used by page mutations (add/remove/lock/
+ * pin) so the shared value updates without waiting for the next tick.
+ * @returns {Promise<void>}
+ */
 const store = createQueryStore({
-  intervalMs: INTERVAL_MS,
+  intervalMs: 10000,
   fetchFull,
   fetchLive,
   merge: (_cached, live) => mergeLive(live),
@@ -135,7 +136,7 @@ export function ensureTokensStore() {
 
 /**
  * Force an immediate refetch, used by page mutations (add/remove/lock/
- * rotation) so the shared value updates without waiting for the next tick.
+ * pin) so the shared value updates without waiting for the next tick.
  * @returns {Promise<void>}
  */
 export function refreshTokens() {
@@ -143,48 +144,4 @@ export function refreshTokens() {
   // cache so the next poll takes the full shape.
   staticTop = null;
   return store.refresh();
-}
-
-/**
- * Zero-cost quota refresh for every pooled token (the CLI-landing trick):
- * POSTs /admin/tokens/test-all, which probes each token with a read-only
- * upstream GET (no session claim, no slot spent) and writes the fresh
- * quota into the snapshots via UpdateQuotaFromProbe. The store refetch
- * below then renders the new numbers. The manual endpoint answers with
- * one JSON array; the body is drained as text and ignored either way —
- * only res.ok matters here. Per-token detail stays on the
- * Tokens page probe buttons.
- * With `{ auto: true }` (ADR-0025 visit probe) the request carries
- * `?auto=1`: the server probes only when its pool-scoped last-bulk-probe
- * timestamp is older than an hour, otherwise it returns the current view
- * untouched. Either way the body shape stays drain-as-text.
- * @param {{ auto?: boolean }} [opts]
- * @returns {Promise<void>}
- */
-export function probeAllQuotas(opts = {}) {
-  const url = opts.auto
-    ? `${adminActions.tokenTestAll}?auto=1`
-    : adminActions.tokenTestAll;
-  return fetch(url, {
-    method: "POST",
-    headers: csrfHeader("POST"),
-  })
-    .then(async (res) => {
-      const text = await res.text().catch(() => "");
-      if (!res.ok) {
-        // Admin endpoints emit one envelope ({ok,message[,code]}); surface
-        // the human message (e.g. "No tokens to test…") instead of a bare
-        // HTTP status. The manual test-all body shape (array vs objects)
-        // is irrelevant here — only the failure message is parsed.
-        let msg;
-        try {
-          const parsed = JSON.parse(text);
-          msg = parsed?.message ?? "";
-        } catch {
-          msg = text;
-        }
-        throw new Error(msg || `HTTP ${res.status}`);
-      }
-    })
-    .then(() => refreshTokens());
 }
