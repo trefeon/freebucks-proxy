@@ -74,6 +74,8 @@ func (m *RunManager) Cooldown(d time.Duration) {
 
 // ClearCooldowns removes any cooldown, rate-limit lock, and ban window so
 // the token is immediately acquirable again (dashboard unlock action).
+// Per-model refusal memory dies here too: success/unlock proves health,
+// mirroring the blanket clearing.
 func (m *RunManager) ClearCooldowns() {
 	m.mu.Lock()
 	m.cooldownUntil = time.Time{}
@@ -83,6 +85,7 @@ func (m *RunManager) ClearCooldowns() {
 	m.banUntil = time.Time{}
 	m.countryBlock = nil
 	m.countryUntil = time.Time{}
+	m.modelLimits = nil
 	m.mu.Unlock()
 }
 
@@ -141,6 +144,67 @@ func (m *RunManager) RateLimitError() *upstream.RateLimitError {
 		return m.rateLimit
 	}
 	return nil
+}
+
+// modelLimitEntry is one model's remembered admission/run-start refusal:
+// the refusal plus the instant the lane may be re-attempted.
+type modelLimitEntry struct {
+	err   *upstream.RateLimitError
+	until time.Time
+}
+
+// RememberModelRateLimit remembers one model's admission/run-start rate-limit
+// refusal so the next same-model walk can skip the dead lane without
+// upstream contact. Admission 429s carry quota truth that dies with the
+// walk unless remembered here. The struct value is copied onto a fresh
+// heap object — walk errors may be single-flight-shared, so the caller's
+// pointer is never stored. Opaque refusals (no RetryAfter/ResetAt) or
+// already-past windows are not parked: they retry live next time.
+// Overwrites any previous memory for the model.
+func (m *RunManager) RememberModelRateLimit(model string, rle *upstream.RateLimitError) {
+	if model == "" || rle == nil {
+		return
+	}
+	now := time.Now()
+	var until time.Time
+	if rle.RetryAfter > 0 {
+		until = now.Add(rle.RetryAfter)
+	} else {
+		until = rle.ResetAt
+	}
+	if until.IsZero() || !until.After(now) {
+		return
+	}
+	cp := *rle
+	m.mu.Lock()
+	if m.modelLimits == nil {
+		m.modelLimits = make(map[string]*modelLimitEntry)
+	}
+	m.modelLimits[model] = &modelLimitEntry{err: &cp, until: until}
+	m.mu.Unlock()
+}
+
+// ModelRateLimit returns the remembered rate-limit refusal for model while
+// its window is still live, nil when absent or expired (lazy expiry on
+// read, same discipline as RateLimitError). Admission 429s carry quota
+// truth that dies with the walk unless remembered — this is that memory.
+// The returned pointer is the stored copy: callers must copy before
+// tagging (cf. tagRateLimitModel) and never mutate it.
+func (m *RunManager) ModelRateLimit(model string) *upstream.RateLimitError {
+	if model == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e := m.modelLimits[model]
+	if e == nil {
+		return nil
+	}
+	if !time.Now().Before(e.until) {
+		delete(m.modelLimits, model)
+		return nil
+	}
+	return e.err
 }
 
 // CooldownBan applies a ban cooldown and remembers the error so Acquires

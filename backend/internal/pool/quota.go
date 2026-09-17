@@ -32,6 +32,18 @@ func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (boo
 	if fb == nil {
 		return false, 0
 	}
+	// Reuse bypass: a token holding a live reusable session for THIS model
+	// is never capped — reuse performs zero admission POST, so the balance
+	// is irrelevant, and a later chat-path refusal is owned by the existing
+	// chat handling. Applies to balance- and monthly-based caps alike (the
+	// gate predicts a fresh admission's cost; a live session pays none).
+	// Deliberately conservative: "ended"+grace sessions are NOT bypassed —
+	// a walk attempt may still reuse them, but the pre-filter stays strict.
+	if snap.Status == "active" && snap.InstanceID != "" &&
+		(snap.Model == "" || snap.Model == model) &&
+		(snap.ExpiresAt.IsZero() || time.Now().Before(snap.ExpiresAt)) {
+		return false, 0
+	}
 	price, ok := fb.Prices[model]
 	if !ok {
 		return false, 0

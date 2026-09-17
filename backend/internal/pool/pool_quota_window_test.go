@@ -283,6 +283,12 @@ func TestBridgeQuotaMirrorsPooled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The setup admission leaves a live reusable session on the bridge
+	// entry while the pooled entry has none — and a live session for the
+	// model now bypasses the cap by design (reuse costs zero admission).
+	// Drop it so both sides are compared on identical (session-less)
+	// state: the pin is the allowance semantics, not the setup residue.
+	pb.InvalidateBridgeSession(blease)
 	pb.LeaseRelease(blease)
 	blease.Bridge.sessionMgr().UpdateQuotaFromProbe(&upstream.SessionState{Freebucks: fb})
 
