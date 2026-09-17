@@ -250,31 +250,6 @@ func (p *Pool) slotQueued(key slotKey) int {
 	return 0
 }
 
-// slotStats reports the lane's live-turn count, parked waiter count and
-// how long the oldest (front) waiter has been parked — zero when nothing
-// is queued. This is the telemetry view of one lane: TokenSnapshot
-// aggregates it across models so the dashboard can show a saturated
-// account (live turns at the cap with waiters behind them) versus a free
-// one.
-func (p *Pool) slotStats(key slotKey) (live, queued int, oldestWait time.Duration) {
-	p.routeMu.Lock()
-	defer p.routeMu.Unlock()
-	st, ok := p.routeSlots[key]
-	if !ok || st == nil {
-		return 0, 0, 0
-	}
-	if st.waiters == nil {
-		return st.live, 0, 0
-	}
-	queued = st.waiters.Len()
-	if queued > 0 {
-		if head, ok := st.waiters.Front().Value.(*slotWaiter); ok && !head.at.IsZero() {
-			oldestWait = time.Since(head.at)
-		}
-	}
-	return st.live, queued, oldestWait
-}
-
 // slotEntryStats aggregates every model lane of one entry (pooled token or
 // bridge) into a single live/queued/oldest triple for the per-account
 // snapshot: live and queued sum across models, oldest is the longest-parked

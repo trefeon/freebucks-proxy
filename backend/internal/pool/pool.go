@@ -264,7 +264,6 @@ type Pool struct {
 	retiredMu sync.Mutex
 	retired   map[*tokenEntry]time.Time
 
-	rr     atomic.Uint64 // round-robin start index
 	logger *slog.Logger
 	// histSink is the optional maturity history consumer (ADR-0016); nil
 	// keeps the pool free of persistence. Set once via SetHistorySink.
@@ -308,29 +307,11 @@ type Pool struct {
 	// prevents thundering-herd creation when many new client tokens
 	// arrive simultaneously.
 	bridgeCreateGate chan struct{}
-
-	// lastTokenByModel tracks the token index last successfully acquired for
-	// each model (model stickiness / multi-turn session preservation).
-	// Guarded by lastTokenMu.
-	lastTokenMu      sync.Mutex
-	lastTokenByModel map[string]int
-
 	// admissions tracks in-flight session admissions per model across the pool
 	// (issue #191: prevents concurrent requests from creating duplicate sessions
 	// on different tokens for the same model). Guarded by admissionsMu.
 	admissionsMu sync.Mutex
 	admissions   map[string]int
-
-	// modelAdmissionGate serializes cold-path Acquire per model: the leader
-	// creates a gate on registration; concurrent followers block on it
-	// Guarded by modelAdmissionGateMu; entries are deleted when the channel
-	// is closed.
-	modelAdmissionGateMu sync.Mutex
-	modelAdmissionGate   map[string]*admissionGate
-	// testGatePark, when non-nil (tests only), runs while modelAdmissionGateMu is held
-	// at the moment a follower is about to park on the leader's gate. Lets tests
-	// deterministically count parked waiters before the leader releases.
-	testGatePark func()
 	// store persists session state across restarts (SESSION_PERSIST); nil
 	// disables. Injected by the caller (main) via SetSessionStore so there
 	// is exactly one store shared by pooled and bridge entries.
@@ -383,14 +364,6 @@ type Pool struct {
 	precious   map[preciousKey]struct{}
 }
 
-// admissionGate is the per-model leader election gate: the leader creates
-// the gate, followers block on gate.ch, and the chosen token is
-// communicated via gate.token/hasToken (guarded by modelAdmissionGateMu).
-type admissionGate struct {
-	ch       chan struct{}
-	token    int
-	hasToken bool
-}
 type tokenEntry struct {
 	session   *session.Manager
 	runs      *runs.RunManager
@@ -587,7 +560,7 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 		return nil, fmt.Errorf("pool: %d sessions for %d tokens", len(sessions), len(cfg.AuthTokens))
 	}
 
-	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), lastTokenByModel: make(map[string]int), admissions: make(map[string]int), modelAdmissionGate: make(map[string]*admissionGate)}
+	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), admissions: make(map[string]int)}
 	p.cfg.Store(cfg)
 	toks := make([]*tokenEntry, 0, len(cfg.AuthTokens))
 	for i := range cfg.AuthTokens {
