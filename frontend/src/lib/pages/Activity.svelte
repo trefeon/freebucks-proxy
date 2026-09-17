@@ -50,7 +50,8 @@
     // consumed on mount so back-navigation keeps the operator's own tab.
     try {
       const t = sessionStorage.getItem("fp-page-tab:activity") || "";
-      if (t === "live" || t === "metrics" || t === "team" || t === "traces") tab = t;
+      if (t === "live" || t === "metrics" || t === "team" || t === "traces")
+        tab = t;
     } catch {
       // Storage unavailable — stay on the default Live tab.
     }

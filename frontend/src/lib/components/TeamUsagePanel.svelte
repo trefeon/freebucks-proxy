@@ -70,11 +70,12 @@
   function formatTime(v) {
     if (v == null || v === "") return "—";
     const n = typeof v === "number" ? v : Number(v);
-    const ms = Number.isFinite(n) && v !== "" && typeof v !== "string"
-      ? n < 1e12
-        ? n * 1000
-        : n
-      : Date.parse(v);
+    const ms =
+      Number.isFinite(n) && v !== "" && typeof v !== "string"
+        ? n < 1e12
+          ? n * 1000
+          : n
+        : Date.parse(v);
     if (!Number.isFinite(ms)) return "—";
     return new Date(ms).toLocaleString();
   }
@@ -128,9 +129,8 @@
               {#each keys as k (k.key_id)}
                 <tr>
                   <td class="font-mono text-xs whitespace-nowrap"
-                    ><span
-                      class="block truncate max-w-40"
-                      title={k.key_id}>{k.key_id ?? "—"}</span
+                    ><span class="block truncate max-w-40" title={k.key_id}
+                      >{k.key_id ?? "—"}</span
                     ></td
                   >
                   <td class="num whitespace-nowrap">
