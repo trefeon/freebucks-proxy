@@ -249,7 +249,8 @@ test.describe("dashboard edge states (mock backend)", () => {
     const retry = page.getByRole("button", { name: "Retry" });
     await expect(retry).toBeVisible();
     await expect(retry).toBeEnabled();
-    expect(await boxHeight(retry)).toBeGreaterThanOrEqual(44);
+    // DESIGN.md button scale: md controls are 40px on desktop (44 on coarse pointers).
+    expect(await boxHeight(retry)).toBeGreaterThanOrEqual(40);
     await retry.click();
     await expect(
       page.getByText("deepseek/deepseek-v4-flash").first(),
@@ -727,9 +728,9 @@ test.describe("dashboard edge states (mock backend)", () => {
     await expect.poll(() => posted.length).toBeGreaterThan(1);
   });
 
-  // -- Touch targets (44px hit area, visual density unchanged) ---------------
+  // -- Touch targets (DESIGN.md scale: md 40 desktop, 44 coarse) ---------------
 
-  test("key controls keep a 44px touch target and stay enabled", async ({
+  test("key controls keep the standard touch target and stay enabled", async ({
     page,
   }) => {
     await mockDashboard(page, loadFixtures(), {
@@ -745,17 +746,17 @@ test.describe("dashboard edge states (mock backend)", () => {
       await expect(btn).toBeEnabled();
       expect(await boxHeight(btn)).toBeGreaterThanOrEqual(24);
     }
-    // Primary action: enabling it keeps the 44px box in both dimensions.
+    // Primary action: enabling it keeps the md box in both dimensions.
     await page.locator("#add-token-input").fill("test-token-1234");
     const addToken = page.getByRole("button", { name: "Add Token" });
     await expect(addToken).toBeEnabled();
     const addBox = await addToken.boundingBox();
-    expect(Math.round(addBox?.height ?? 0)).toBeGreaterThanOrEqual(44);
+    expect(Math.round(addBox?.height ?? 0)).toBeGreaterThanOrEqual(40);
     expect(Math.round(addBox?.width ?? 0)).toBeGreaterThanOrEqual(44);
     const deviceLogin = page.getByRole("button", { name: "Device Login" });
     await expect(deviceLogin).toBeVisible();
     await expect(deviceLogin).toBeEnabled();
-    expect(await boxHeight(deviceLogin)).toBeGreaterThanOrEqual(44);
+    expect(await boxHeight(deviceLogin)).toBeGreaterThanOrEqual(40);
     // Activity view tabs plus the small-button density (Refresh all and the
     // Activity tabs + inner views render sleek desktop controls.
     await page.goto(adminUrl("activity"));

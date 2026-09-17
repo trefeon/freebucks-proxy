@@ -1,4 +1,5 @@
 <script>
+  import Button from "./Button.svelte";
   /**
    * DurationPicker — preset buttons plus a free-text input for Go
    * duration settings. Each preset button writes its value straight
@@ -17,16 +18,15 @@
 <div class="space-y-1.5 w-full">
   <div class="flex flex-wrap gap-1.5">
     {#each presets as p (p)}
-      <button
-        type="button"
-        class="fp-btn fp-btn-sm shrink-0 {value === p
-          ? 'fp-btn-primary'
-          : 'fp-btn-secondary'}"
+      <Button
+        variant={value === p ? "primary" : "secondary"}
+        size="sm"
+        class="shrink-0"
         aria-pressed={value === p}
         onclick={() => oninput(p)}
       >
         {p}
-      </button>
+      </Button>
     {/each}
   </div>
   <input

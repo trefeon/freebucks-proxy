@@ -1,4 +1,5 @@
 <script>
+  import Button from "../../components/Button.svelte";
   import SettingsCard from "../../components/SettingsCard.svelte";
   import SettingsRow from "../../components/SettingsRow.svelte";
   import DbOverrideSave from "../../components/DbOverrideSave.svelte";
@@ -218,39 +219,33 @@
       role="radiogroup"
       aria-label={$tr("Pool strategy")}
     >
-      <button
-        type="button"
+      <Button
+        variant={strategy === "masq" ? "primary" : "ghost"}
+        size="sm"
         role="radio"
         aria-checked={strategy === "masq"}
         onclick={() => applyPreset(STRATEGY_MASQ)}
-        class="fp-btn {strategy === 'masq'
-          ? 'fp-btn-primary'
-          : 'fp-btn-ghost'} fp-btn-sm text-xs"
       >
         {$tr(MASQ_LABEL)}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant={strategy === "drain" ? "primary" : "ghost"}
+        size="sm"
         role="radio"
         aria-checked={strategy === "drain"}
         onclick={() => applyPreset(STRATEGY_DRAIN)}
-        class="fp-btn {strategy === 'drain'
-          ? 'fp-btn-primary'
-          : 'fp-btn-ghost'} fp-btn-sm text-xs"
       >
         {$tr(DRAIN_LABEL)}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant={strategy === "balance" ? "primary" : "ghost"}
+        size="sm"
         role="radio"
         aria-checked={strategy === "balance"}
         onclick={() => applyPreset(STRATEGY_BALANCE)}
-        class="fp-btn {strategy === 'balance'
-          ? 'fp-btn-primary'
-          : 'fp-btn-ghost'} fp-btn-sm text-xs"
       >
         {$tr(BALANCE_LABEL)}
-      </button>
+      </Button>
       {#if strategy === "custom"}
         <span class="text-[11px] text-[var(--fp-dim)]">{$tr(CUSTOM_LABEL)}</span
         >
@@ -330,27 +325,27 @@
 
     {#if strategy === "custom"}
       <div class="flex flex-wrap items-center gap-2 pt-3">
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           onclick={() => applyPreset(STRATEGY_MASQ)}
-          class="fp-btn fp-btn-secondary fp-btn-sm text-xs"
         >
           {$tr("Reset to MASQ")}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
           onclick={() => applyPreset(STRATEGY_DRAIN)}
-          class="fp-btn fp-btn-secondary fp-btn-sm text-xs"
         >
           {$tr("Reset to Drain")}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
           onclick={() => applyPreset(STRATEGY_BALANCE)}
-          class="fp-btn fp-btn-secondary fp-btn-sm text-xs"
         >
           {$tr("Reset to Balance")}
-        </button>
+        </Button>
       </div>
     {/if}
 

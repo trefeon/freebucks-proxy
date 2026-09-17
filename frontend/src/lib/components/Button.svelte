@@ -5,7 +5,8 @@
    * Button — ranked by importance, never colored by meaning.
    *
    * @prop {'primary'|'secondary'|'ghost'|'danger'} [variant='secondary']
-   * @prop {'sm'|'md'} [size='md']
+   * @prop {'sm'|'md'|'lg'} [size='md'] — sm: dense tables/toolbars only;
+   *   md: default workhorse; lg: login / empty-state / hero CTA, max one per view
    * @prop {boolean} [disabled=false]
    * @prop {boolean} [loading=false]
    * @prop {string} [type='button']
@@ -25,7 +26,11 @@
 
 <button
   {type}
-  class="fp-btn fp-btn-{variant} {size === 'sm' ? 'fp-btn-sm' : ''} {className}"
+  class="fp-btn fp-btn-{variant} {size === 'sm'
+    ? 'fp-btn-sm'
+    : size === 'lg'
+      ? 'fp-btn-lg'
+      : ''} {className}"
   disabled={disabled || loading}
   aria-busy={loading || undefined}
   {...rest}

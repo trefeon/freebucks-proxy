@@ -1,5 +1,6 @@
 <script>
   import { Menu, X, LogOut } from "@lucide/svelte";
+  import Button from "./components/Button.svelte";
 
   /**
    * @prop {string} activeTab
@@ -240,11 +241,12 @@
 
     <div class="mt-auto border-t border-[var(--fp-border)] px-2 pt-3 pb-1">
       {#if $authState.requireLogin}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onclick={handleLogout}
           disabled={loggingOut}
-          class="fp-btn fp-btn-ghost fp-btn-sm w-full justify-start gap-2 mb-2 font-mono text-xs"
+          class="w-full justify-start gap-2 mb-2 font-mono text-xs"
         >
           {#if loggingOut}
             <span>{$tr("Logging out…")}</span>
@@ -252,7 +254,7 @@
             <LogOut size={14} class="shrink-0" />
             <span>{$tr("Log out")}</span>
           {/if}
-        </button>
+        </Button>
       {/if}
       {#if versionInfo?.has_update}
         <a

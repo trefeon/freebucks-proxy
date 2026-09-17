@@ -953,7 +953,7 @@
                   clearedBefore = Date.now();
                 }
               }}
-              class="!h-8 !text-xs !px-2 sm:!px-2.5 text-[var(--fp-dim)] hover:text-[var(--fp-error)]"
+              class="text-[var(--fp-dim)] hover:text-[var(--fp-error)]"
             >
               <Trash2 size={13} />
               <span class="hidden min-[480px]:inline">{$tr("Clear")}</span>
@@ -963,7 +963,6 @@
               size="sm"
               aria-pressed={autoScroll}
               onclick={toggleAutoScroll}
-              class="!h-8 !text-xs !px-2 sm:!px-2.5"
               title={autoScroll
                 ? $tr("Following the newest logs")
                 : $tr(
@@ -974,12 +973,7 @@
                 state: autoScroll ? $tr("on") : $tr("off"),
               })}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onclick={copyConsoleLogs}
-              class="!h-8 !text-xs !px-2 sm:!px-2.5"
-            >
+            <Button variant="ghost" size="sm" onclick={copyConsoleLogs}>
               {#if copiedConsole}
                 <Check size={13} class="text-[var(--fp-success)]" />
                 <span class="text-[var(--fp-success)]">{$tr("Copied")}</span>
@@ -993,7 +987,6 @@
               size="sm"
               aria-pressed={autoPoll}
               onclick={() => (autoPoll = !autoPoll)}
-              class="!h-8 !text-xs !px-2 sm:!px-2.5"
               title={autoPoll
                 ? $tr("Auto-refreshing every 1s")
                 : $tr("Auto-refresh paused")}
@@ -1008,7 +1001,6 @@
               loading={manualRefresh}
               onclick={refresh}
               disabled={loading && !data}
-              class="!h-8 !text-xs !px-2 sm:!px-2.5"
             >
               <RefreshCw size={13} />
               <span class="hidden min-[480px]:inline">{$tr("Refresh")}</span>
@@ -1230,7 +1222,7 @@
                 hideAdmin = !hideAdmin;
                 page = 0;
               }}
-              class="!h-8 !text-xs !px-2.5 shrink-0"
+              class="shrink-0"
             >
               <EyeOff size={13} />
               <span>{$tr("Hide admin")}</span>
@@ -1241,7 +1233,7 @@
                 variant="ghost"
                 size="sm"
                 onclick={clearFilters}
-                class="!h-8 !text-xs !px-2 text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
+                class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
               >
                 {$tr("Clear filters")}
               </Button>
@@ -1266,7 +1258,6 @@
               size="sm"
               aria-pressed={autoPoll}
               onclick={() => (autoPoll = !autoPoll)}
-              class="!h-8 !text-xs !px-2.5"
               title={autoPoll
                 ? $tr("Auto-refreshing every 1s")
                 : $tr("Auto-refresh paused")}
@@ -1282,7 +1273,6 @@
               loading={manualRefresh}
               onclick={refresh}
               disabled={loading && !data}
-              class="!h-8 !text-xs !px-2.5"
             >
               <RefreshCw size={13} />
               <span>{$tr("Refresh")}</span>

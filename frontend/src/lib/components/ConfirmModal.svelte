@@ -1,5 +1,6 @@
 <script>
   import { AlertTriangle, AlertCircle, HelpCircle } from "@lucide/svelte";
+  import Button from "./Button.svelte";
   import Modal from "./Modal.svelte";
   import { tr } from "../i18n.js";
   import { confirmState } from "../stores/confirm.js";
@@ -103,30 +104,21 @@
   {/snippet}
 
   {#snippet footer()}
-    <button
-      type="button"
-      data-autofocus
-      class="fp-btn fp-btn-secondary !text-xs !py-1.5 !px-3.5"
+    <Button
+      variant="secondary"
       onclick={handleCancel}
       disabled={isLoading}
+      data-autofocus
     >
       {resolvedCancelText}
-    </button>
+    </Button>
 
-    <button
-      type="button"
-      class="fp-btn !text-xs !py-1.5 !px-4 {resolvedTone === 'danger'
-        ? 'bg-red-600 hover:bg-red-500 text-white border-red-600'
-        : resolvedTone === 'warn'
-          ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-600'
-          : 'fp-btn-primary'}"
+    <Button
+      variant={resolvedTone === "neutral" ? "primary" : "danger"}
       onclick={handleConfirm}
-      disabled={isLoading}
+      loading={isLoading}
     >
-      {#if isLoading}
-        <span class="inline-block animate-spin mr-1.5">⏳</span>
-      {/if}
       {resolvedConfirmText}
-    </button>
+    </Button>
   {/snippet}
 </Modal>
