@@ -1,66 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
 import type { PostedSetting } from "./mocks.js";
+import { tokenRow, tokenRowsOf, tokensPayload } from "./mock-data.js";
 
 // ---------------------------------------------------------------------------
-// Fixture builders (per-test copies — never mutate shared fixtures)
+// Fixture builders live in the centralized mock-data.ts factory (per-test
+// copies — never mutate shared fixtures).
 // ---------------------------------------------------------------------------
-
-// Minimal token row mirroring the real /admin/api/tokens row shape.
-function tokenRow(
-  idx: number,
-  over: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    index: idx,
-    session_status: "idle",
-    queue_position: 0,
-    queue_depth: 0,
-    active_runs: 0,
-    requests: 0,
-    messages_24h: 0,
-    cooldown_active: false,
-    cooldown_until: "",
-    locked: false,
-    transient_retries: 1,
-    has_standing: false,
-    session_instance: "",
-    session_model: "",
-    session_remaining_seconds: 0,
-    has_quota: false,
-    ...over,
-  };
-}
-
-function tokensPayload(
-  tokens: Array<Record<string, unknown>>,
-  extra: Record<string, unknown> = {},
-) {
-  return {
-    mode: "pooled",
-    in_bridge: false,
-    bridge_tokens: 0,
-    token_count: tokens.length,
-    has_tokens: true,
-    tokens,
-    bridge_token_cards: [],
-    ...extra,
-  };
-}
-
-// Copies the fixture's token rows into fresh objects (never mutate shared
-// fixtures) after a runtime shape check.
-function tokenRowsOf(value: unknown): Array<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null) return [];
-  if (!("tokens" in value)) return [];
-  const arr = value.tokens;
-  if (!Array.isArray(arr)) return [];
-  return arr
-    .filter(
-      (t): t is Record<string, unknown> => typeof t === "object" && t !== null,
-    )
-    .map((t) => ({ ...t }));
-}
 
 test.describe("operator UX journey (hermetic mocks)", () => {
   // The Settings page catalog render is heavy; under parallel workers on slow
