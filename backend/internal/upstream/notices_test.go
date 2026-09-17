@@ -40,11 +40,12 @@ func TestEvaluateDeepSeekPeak(t *testing.T) {
 
 func TestNoticeConstants(t *testing.T) {
 	// Exact copy parity with upstream
-	// common/src/constants/freebuff-spend-ceilings.ts (vendor abd1eed4a):
+	// common/src/constants/freebuff-spend-ceilings.ts (vendor 2c3eb00;
+	// restricted reword appends the verify-country sentence):
 	// a silent reword here desyncs refusal UX from the official CLI.
 	want := map[string]string{
 		"CapacityNotice":         "Capacity is now limited per account — sustained automated abuse forced us to cap how much any one account can use.",
-		"RestrictedNotice":       "This account has reduced capacity: it was flagged for VPN or proxy usage, a restricted location, or an email domain commonly used by bot farms. If you are on a VPN, connecting directly restores normal limits.",
+		"RestrictedNotice":       "This account has reduced capacity: it was flagged for VPN or proxy usage, a restricted location, or an email domain commonly used by bot farms. If you are on a VPN, connecting directly restores normal limits. If you have moved, verify your country at freebuff.com/account?tab=country.",
 		"BudgetNotice":           "You have used all of today’s free usage on this account.",
 		"FreebucksCeilingNotice": "This account hit today’s hard usage cap. Freebucks pay for sessions, but the compute a day can draw is capped at three times what its Freebucks are worth, to protect the service from runaway usage.",
 	}

@@ -1,6 +1,6 @@
 {
-  "upstream_sha": "6cd897087694d199aa6c9e8eacc679e824a4b030",
-  "vendor_version": "0.0.175",
+  "upstream_sha": "2c3eb00bc22df848189323439a1cb42d6c3b03f9",
+  "vendor_version": "0.0.176",
   "files": [
     {
       "path": "common/src/constants/freebuff-standing.ts",
@@ -12,7 +12,7 @@
     },
     {
       "path": "common/src/constants/freebuff-spend-ceilings.ts",
-      "sha256": "c649e9f3fc8a735a15f12991ca4340ba31ac7c765a7233f02b225982514294d7"
+      "sha256": "5f40df1b178c6248a8f190fb467f8adc5a4bbbe06032711ca4e3d1dfa8dbe2ea"
     },
     {
       "path": "common/src/constants/freebuff-signup-block.ts",
@@ -24,7 +24,7 @@
     },
     {
       "path": "common/src/util/freebuff-model-availability.ts",
-      "sha256": "43971606f9410a967c321836823485c555e97d228ebffaae4f1e0b4c54a96025"
+      "sha256": "b7434b7920faf7e7f40f3ba535fc70f43a5672f218f6563dfdf2505e62ef151c"
     },
     {
       "path": "cli/src/components/freebuff-model-selector.tsx",
@@ -32,7 +32,7 @@
     },
     {
       "path": "common/src/types/freebuff-session.ts",
-      "sha256": "e126b12ca89fb5046ee274a13f1e1f4636ce8e02b3aa4efdaf2cde7532a91f68"
+      "sha256": "01b8a66f23f37627b2c6782de68b8f47eb30599e4d1ebdaa8d2c184353b241a1"
     },
     {
       "path": "packages/agent-runtime/src/constants.ts",

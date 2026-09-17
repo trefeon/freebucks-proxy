@@ -387,6 +387,29 @@ func TestClassifyCountryBlockedToleratesAbsentFields(t *testing.T) {
 	}
 }
 
+// TestClassifyCountryBlockedRecentLimitedCountry pins the vendor 2c3eb00
+// FreebuffCountryBlockReason member: a body carrying it still classifies as
+// CountryBlockedError with the reason preserved verbatim. Reasons stay opaque
+// downstream (classify/parse/store/surface pass the string through, never
+// switch on it), so the new member needs passthrough, not a branch.
+func TestClassifyCountryBlockedRecentLimitedCountry(t *testing.T) {
+	body := `{"status":"country_blocked","countryCode":"DE","countryBlockReason":"recent_limited_country","ipPrivacySignals":["vpn"]}`
+	err := classifyError(403, body, http.Header{})
+	var cbe *CountryBlockedError
+	if !errors.As(err, &cbe) {
+		t.Fatalf("want CountryBlockedError, got %v", err)
+	}
+	if cbe.CountryCode != "DE" {
+		t.Errorf("countryCode = %q, want DE", cbe.CountryCode)
+	}
+	if cbe.CountryBlockReason != "recent_limited_country" {
+		t.Errorf("countryBlockReason = %q, want recent_limited_country", cbe.CountryBlockReason)
+	}
+	if !errors.Is(err, ErrCountryBlocked) {
+		t.Error("not unwrap-able to ErrCountryBlocked")
+	}
+}
+
 // TestClassifyDeploymentOutsideHoursRetryable verifies a
 // deployment_outside_hours body (when no other classifier claims it) maps to
 // an UpstreamError marked Retryable, not a hard failure.
