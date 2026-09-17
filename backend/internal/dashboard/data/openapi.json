@@ -2366,6 +2366,9 @@
           "maturity_window_start": {
             "type": "string"
           },
+          "max_spill_accounts": {
+            "type": "integer"
+          },
           "mode": {
             "type": "string"
           },
@@ -2375,23 +2378,14 @@
           "queue_wait": {
             "type": "string"
           },
-          "rate_limit_failover": {
-            "type": "boolean"
-          },
-          "routing_smart": {
-            "type": "boolean"
-          },
           "show_bridge": {
             "type": "boolean"
           },
+          "slots_per_account": {
+            "type": "integer"
+          },
           "token_count": {
             "type": "integer"
-          },
-          "token_max_concurrent": {
-            "type": "integer"
-          },
-          "token_rotation": {
-            "type": "string"
           },
           "tokens": {
             "items": {
@@ -2915,14 +2909,13 @@
           "has_tokens",
           "in_bridge",
           "maturity_enabled",
+          "max_spill_accounts",
           "mode",
           "queue_depth",
           "queue_wait",
-          "rate_limit_failover",
-          "routing_smart",
           "show_bridge",
+          "slots_per_account",
           "token_count",
-          "token_max_concurrent",
           "tokens"
         ],
         "type": "object"
