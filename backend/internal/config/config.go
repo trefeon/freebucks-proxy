@@ -241,6 +241,12 @@ type Config struct {
 	// no queueing (fail over at once when no live-turn slot is free);
 	// negative is rejected in Validate. Live-apply (read per Acquire).
 	QueueDepth int
+	// MaxSpillAccounts bounds how many continuation accounts one Acquire
+	// may spill to after its head lane's QUEUE_WAIT elapses
+	// (MAX_SPILL_ACCOUNTS; default 0 = unbounded, the full index chain).
+	// A 429 quota requeue never consumes spill budget. Live-apply (read
+	// per Acquire).
+	MaxSpillAccounts int
 	// Cooldown backoffs (COOLDOWN_*_MS, integer milliseconds): every
 	// upstream-refusal backoff the pool and classifier apply, tunable
 	// without a restart. Zero-tolerant: unset or non-positive values fall

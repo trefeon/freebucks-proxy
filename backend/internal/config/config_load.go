@@ -118,6 +118,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideInt(&raw.SlotsPerAccount, "SLOTS_PER_ACCOUNT")
 	overrideString(&raw.QueueWait, "QUEUE_WAIT")
 	overrideInt(&raw.QueueDepth, "QUEUE_DEPTH")
+	overrideInt(&raw.MaxSpillAccounts, "MAX_SPILL_ACCOUNTS")
 	overrideBool(&raw.WaitingRoomChain, "WAITING_ROOM_CHAIN")
 	overrideFloat(&raw.RateLimitPerIP, "RATE_LIMIT_PER_IP")
 	overrideInt(&raw.RateLimitBurst, "RATE_LIMIT_BURST")
@@ -367,6 +368,12 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	if raw.QueueDepth != nil {
 		queueDepth = *raw.QueueDepth
 	}
+	// MAX_SPILL_ACCOUNTS defaults to 0 (unbounded spill chain); negative
+	// is rejected in Validate.
+	maxSpillAccounts := 0
+	if raw.MaxSpillAccounts != nil {
+		maxSpillAccounts = *raw.MaxSpillAccounts
+	}
 	cfg := Config{
 		ListenAddr:               strings.TrimSpace(raw.ListenAddr),
 		UpstreamBaseURL:          upstreamBaseURL,
@@ -416,6 +423,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		SlotsPerAccount:          slotsPerAccount,
 		QueueWait:                queueWait,
 		QueueDepth:               queueDepth,
+		MaxSpillAccounts:         maxSpillAccounts,
 		WaitingRoomChain:         raw.WaitingRoomChain,
 		RateLimitPerIP:           rateLimitPerIP,
 		RateLimitBurst:           rateLimitBurst,
@@ -601,6 +609,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideIntFrom(&raw.SlotsPerAccount, get, "SLOTS_PER_ACCOUNT")
 	overrideStringFrom(&raw.QueueWait, get, "QUEUE_WAIT")
 	overrideIntFrom(&raw.QueueDepth, get, "QUEUE_DEPTH")
+	overrideIntFrom(&raw.MaxSpillAccounts, get, "MAX_SPILL_ACCOUNTS")
 	overrideBoolFrom(&raw.WaitingRoomChain, get, "WAITING_ROOM_CHAIN")
 	overrideFloatFrom(&raw.RateLimitPerIP, get, "RATE_LIMIT_PER_IP")
 	overrideIntFrom(&raw.RateLimitBurst, get, "RATE_LIMIT_BURST")

@@ -197,6 +197,7 @@ func (p *Pool) slotAcquire(ctx context.Context, key slotKey, displayIdx int, cap
 	w := &slotWaiter{ch: make(chan struct{}), at: time.Now()}
 	w.element = st.waiters.PushBack(w)
 	live := st.live
+	laneWait := wait
 	p.routeMu.Unlock()
 
 	timer := time.NewTimer(wait)
@@ -227,7 +228,7 @@ func (p *Pool) slotAcquire(ctx context.Context, key slotKey, displayIdx int, cap
 			w.element = nil
 		}
 		p.routeMu.Unlock()
-		return nil, true, &slotQueueExhaustedError{Reason: "timeout", Token: displayIdx, Cap: cap, Live: live, Wait: wait}
+		return nil, true, &slotQueueExhaustedError{Reason: "timeout", Token: displayIdx, Cap: cap, Live: live, Wait: laneWait}
 	}
 }
 

@@ -65,6 +65,16 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 	var waiting []*session.WaitingRoomError
 	var rateLimited []rateLimitEntry
 	var banned []*upstream.BanError
+	// MASQ spill walk (spill_queue.go): lane-exhausted lanes move the
+	// request to the next account silently, bounded by
+	// MAX_SPILL_ACCOUNTS; the last signal surfaces end-of-chain below.
+	spill := newSpillChain(cfg, model)
+	// queueWait accumulates every lane's park duration across spill hops:
+	// a waiter that parked on lane #1 then granted on lane #2 reports the
+	// full wait, not just the granting lane's. Recorded only when the
+	// request actually parked somewhere; a waiter that timed out or was
+	// cancelled held no slot and reports nothing on that lane.
+	var queueWait time.Duration
 	for _, idx := range order {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -156,15 +166,13 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		// fewer live turns for this model than the cap; otherwise the
 		// caller parks FIFO until QUEUE_WAIT elapses. The slot is taken
 		// BEFORE any upstream admission so a queued request never burns a
-		// session slot or run START while it waits. Queue-full and
-		// wait-timeout map to the existing 429 rate-limit shape and fail
-		// over to the next token; the caller's own ctx expiry returns as-is.
-		// Skipped entirely when ROUTING_SMART is off (legacy path untouched).
+		// session slot or run START while it waits. A lane-exhausted
+		// waiter spills silently to the next lane (spill_queue.go) — a
+		// full lane is not an upstream refusal, so it writes no bucket
+		// and no error string. The caller's own ctx expiry returns
+		// as-is. Skipped entirely when ROUTING_SMART is off (legacy path
+		// untouched).
 		var routeSlot *slotPermit
-		// queueWait is this attempt's park duration: set only when the
-		// request actually parked AND the slot was granted. A waiter that
-		// timed out or was cancelled held no slot and reports nothing.
-		var queueWait time.Duration
 		if cfg.RoutingSmart {
 			slotCap, slotDepth, slotWait := slotParams(cfg)
 			// SLOTS_PER_ACCOUNT=0 skips slot gating entirely: no
@@ -173,22 +181,30 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				parkStart := time.Now()
 				permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: tok, model: model}, idx+1, slotCap, slotDepth, slotWait)
 				if slotErr != nil {
-					if slotIsQueueExhausted(slotErr) {
-						live := p.slotLive(slotKey{entry: tok, model: model})
-						rateLimited = appendRateLimitEntry(rateLimited, slotQueueRateLimit(slotErr.(*slotQueueExhaustedError), model, slotCap, live), idx)
-						errs = append(errs, fmt.Sprintf("%s: %v", name, slotErr))
-						p.logger.Debug("pool: token skipped (live-turn queue exhausted)", "token", idx+1, "err", slotErr)
-						continue
+					if qerr, ok := slotErr.(*slotQueueExhaustedError); ok {
+						// Trust the signal's carried lane wait: the
+						// lane's own timer elapsed, so the park is the
+						// configured laneWait — not the wall clock
+						// around the call, which a failing assertion
+						// in this file once zeroed.
+						if qerr.Reason == "timeout" {
+							queueWait += qerr.Wait
+						}
+						if spill.note(qerr, slotCap) {
+							p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", slotErr)
+							continue
+						}
+						break
 					}
 					return nil, slotErr
 				}
-				// Queue-wait telemetry: the park duration rides the
+				// Queue-wait telemetry: the accumulated park rides the
 				// request's phase accumulator (the server puts it on the
 				// chat trace, inside the console's request card) and the
 				// lease. Never recorded for a request that did not park.
 				if parked {
-					queueWait = time.Since(parkStart)
-					phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, parkStart)
+					queueWait += time.Since(parkStart)
+					phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
 				}
 				routeSlot = permit
 			}
@@ -402,12 +418,13 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 	}
 
 	// Failover precedence: when buckets are mixed the highest-precedence
-	// non-empty bucket wins — ban > rate-limit > waiting-room. Correlative
-	// refusals (ip_capped, country-blocked, limited_ip) surface directly at
-	// the failing token and never reach these buckets. Each bucket
-	// contributes its best error (first ban, shortest rate window, lowest
-	// queue position). Only when every bucket is empty — all tokens failed
-	// with errors outside the matrix — is the generic error surfaced.
+	// non-empty bucket wins — ban > rate-limit > waiting-room >
+	// spill-exhausted. Correlative refusals (ip_capped, country-blocked,
+	// limited_ip) surface directly at the failing token and never reach
+	// these buckets. Each bucket contributes its best error (first ban,
+	// shortest rate window, lowest queue position, last spilled lane).
+	// Only when every bucket is empty — all tokens failed with errors
+	// outside the matrix — is the generic error surfaced.
 	// Freebucks-capped tokens were excluded in acquireOrder (never
 	// attempted); their rate-limit reasons land here so a fully-capped pool
 	// surfaces a real 429 with the earliest window reset instead of a
@@ -443,6 +460,11 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		wr := bestWaitingRoom(waiting)
 		p.logger.Debug("pool: waiting room surfaced", "position", wr.Position, "queue_depth", wr.QueueDepth, "retry_after", wr.RetryAfter.String())
 		return nil, wr
+	}
+	// Every lane spilled and nothing else was recorded: surface the last
+	// lane's signal once as the existing 429 shape.
+	if err := spill.exhausted(); err != nil {
+		return nil, err
 	}
 	return nil, fmt.Errorf("unable to acquire run from any token: %s", strings.Join(errs, "; "))
 }

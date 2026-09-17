@@ -92,6 +92,9 @@ type rawConfig struct {
 	// QueueDepth records QUEUE_DEPTH (default 16): the per-token FIFO
 	// queue depth cap.
 	QueueDepth *int `json:"QUEUE_DEPTH"`
+	// MaxSpillAccounts records MAX_SPILL_ACCOUNTS (default 0): the spill
+	// walk bound, 0 = unbounded.
+	MaxSpillAccounts *int `json:"MAX_SPILL_ACCOUNTS"`
 }
 
 // modelsAllowList is the raw MODELS_ALLOW value. The README documents list
@@ -153,6 +156,7 @@ func defaultRawConfig() rawConfig {
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
 		RoutingSmart:           true,       // smart pool routing on by default; false restores the legacy acquire path
 		SlotsPerAccount:        ptrInt(2),  // per account-model live turns (floor 1; bunker strictness is 1)
+		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
 	}
 }
 
