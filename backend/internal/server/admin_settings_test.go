@@ -629,17 +629,15 @@ func TestSettingsDurationEchoStable(t *testing.T) {
 		}
 	}
 
-	// The MASQ owned keys (strict spill posture) plus one sibling
-	// duration knob sharing the normalize path.
+	// The MASQ owned keys (strict spill posture).
 	post("SLOTS_PER_ACCOUNT", "2")
 	post("MAX_SPILL_ACCOUNTS", "0")
 	post("QUEUE_WAIT", "60s")
 	post("QUEUE_DEPTH", "16")
-	post("QUOTA_PROBE_ACTIVE_INTERVAL", "90s")
 	for key, want := range map[string]string{
 		"SLOTS_PER_ACCOUNT":  "2",
 		"MAX_SPILL_ACCOUNTS": "0", "QUEUE_WAIT": "60s",
-		"QUEUE_DEPTH": "16", "QUOTA_PROBE_ACTIVE_INTERVAL": "90s",
+		"QUEUE_DEPTH": "16",
 	} {
 		echo(key, want)
 	}

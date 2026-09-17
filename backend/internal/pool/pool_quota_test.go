@@ -72,7 +72,12 @@ func TestPoolSnapshotQuotaByModel(t *testing.T) {
 	}
 }
 
-func TestAcquireRateLimitCooldowns(t *testing.T) {
+// TestAcquireRateLimitRetryAfterShape pins the admission 429 shape: a
+// quota-capped token surfaces the upstream RetryAfter verbatim on every
+// pass. MASQ writes no cooldown for the refusal (a short window requeues
+// same-lane; a long one is re-derived live), so there is no CooldownUntil
+// to assert — only the stable client-visible 429.
+func TestAcquireRateLimitRetryAfterShape(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.RateLimit = true
@@ -90,13 +95,8 @@ func TestAcquireRateLimitCooldowns(t *testing.T) {
 		t.Errorf("quota = %v/%v, want 3/3.6", rle.RecentCount, rle.Limit)
 	}
 
-	// The token cooled down for the upstream retry window, so subsequent
-	// acquires skip it AND still surface the remembered 429 (not a generic
-	// combined error) — the client keeps getting Retry-After.
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.Before(time.Now().Add(13 * time.Hour)) {
-		t.Errorf("cooldown until = %v, want ~now+13.5h", snap.CooldownUntil)
-	}
+	// A second acquire surfaces the same 429 (not a generic combined
+	// error) — the client keeps getting Retry-After.
 	_, err = p.Acquire(context.Background(), modelA)
 	var rle2 *upstream.RateLimitError
 	if !errors.As(err, &rle2) {

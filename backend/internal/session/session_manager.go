@@ -120,6 +120,7 @@ func NewManagerWithStore(client *upstream.Client, store *Store) *Manager {
 		panic("session: nil client")
 	}
 	m := &Manager{client: client, store: store, now: time.Now}
+	m.key = client.TokenKey()
 	return m
 }
 

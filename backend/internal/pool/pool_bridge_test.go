@@ -4,15 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 func TestBridgeLRUEviction(t *testing.T) {
@@ -56,37 +55,6 @@ func TestBridgeInvalidationAndCooldowns(t *testing.T) {
 	p.CooldownBridgeBan(lease, &upstream.BanError{Body: "banned", ResumesAt: time.Now().Add(5 * time.Minute)})
 
 	p.LeaseRelease(lease)
-}
-
-// TestAcquireBridgeCountryCooldown pins the bridge-mode country cooldown: a
-// country_blocked admission cools the entry ~15m, and the cooldown skip
-// surfaces the remembered block instead of re-hitting upstream.
-func TestAcquireBridgeCountryCooldown(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.SessionMode = "country_blocked"
-	p := newBridgePool(t, mock)
-
-	_, err := p.AcquireBridge(context.Background(), "client-tok", modelA)
-	var cbe *upstream.CountryBlockedError
-	if !errors.As(err, &cbe) {
-		t.Fatalf("want *upstream.CountryBlockedError, got %v", err)
-	}
-	if !errors.Is(err, upstream.ErrCountryBlocked) {
-		t.Errorf("errors.Is(ErrCountryBlocked) = false")
-	}
-
-	// The entry cooled down: the next acquire skips it and surfaces the
-	// remembered block without a second admission attempt.
-	creates := mock.SessionCreates
-	_, err = p.AcquireBridge(context.Background(), "client-tok", modelA)
-	var cbe2 *upstream.CountryBlockedError
-	if !errors.As(err, &cbe2) {
-		t.Fatalf("second acquire: want *upstream.CountryBlockedError, got %v", err)
-	}
-	if mock.SessionCreates != creates {
-		t.Errorf("session creates = %d, want %d (country-cooled entry must not re-hit upstream)", mock.SessionCreates, creates)
-	}
 }
 
 func TestBridgeAcquireReusesEntry(t *testing.T) {

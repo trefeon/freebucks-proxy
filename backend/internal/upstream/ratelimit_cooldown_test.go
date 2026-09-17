@@ -158,13 +158,13 @@ func TestParseRateLimit30MinutesText(t *testing.T) {
 // TestParseRateLimitResetAtText verifies that a body containing
 // "reset at <ISO>" (without JSON resetAt field) yields the parsed ResetAt.
 func TestParseRateLimitResetAtText(t *testing.T) {
-	body := `{"error":"session_quota_exhausted","message":"Daily quota exceeded. Resets at 2026-08-22T07:00:00Z."}`
+	body := `{"error":"session_quota_exhausted","message":"Daily quota exceeded. Resets at 2032-08-22T07:00:00Z."}`
 	err := parseRateLimit(body, 0)
 	var rle *RateLimitError
 	if !errors.As(err, &rle) {
 		t.Fatalf("err = %v, want RateLimitError", err)
 	}
-	want, _ := time.Parse(time.RFC3339, "2026-08-22T07:00:00Z")
+	want, _ := time.Parse(time.RFC3339, "2032-08-22T07:00:00Z")
 	if !rle.ResetAt.Equal(want) {
 		t.Errorf("ResetAt = %v, want %v", rle.ResetAt, want)
 	}

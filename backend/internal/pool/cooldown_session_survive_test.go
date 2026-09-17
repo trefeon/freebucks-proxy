@@ -3,21 +3,23 @@ package pool
 import (
 	"context"
 	"errors"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"testing"
 )
 
-// TestWindowCooldownParksWithoutDroppingSession pins the prod 2026-09-16
-// contract: a vendor 24h-window refusal (429 rate_limited, pacific_day body
-// with windowHours + resetAt and a reset-reaching retryAfterMs) parks the
-// token — cooldown memory plus the full retry_after window are preserved —
-// while a healthy cached session SURVIVES. The window refusal is a quota
-// refusal, not a session-ending gate code (upstream FREEBUFF_GATE_CODES
-// endsTheSession:true covers only waiting_room_required, session_expired,
-// session_superseded and session_model_mismatch), so no invalidate may fire.
+// TestWindowCooldownParksWithoutDroppingSession pins the MASQ prod contract
+// for a vendor 24h-window refusal (429 rate_limited, pacific_day body with
+// windowHours + resetAt and a reset-reaching retryAfterMs): the refusal
+// surfaces as ErrRateLimited with NO cooldown memory — MASQ writes no
+// per-token 429 park (the upstream RetryAfter is only carried for surfacing,
+// and a short jail is waited out same-lane), so the lane stays eligible —
+// while a healthy cached session SURVIVES (precious: never proactively
+// dropped). (Name is historical: pre-MASQ the token parked; under MASQ
+// nothing parks.) The window refusal is a quota refusal, not a
+// session-ending gate code (upstream FREEBUFF_GATE_CODES endsTheSession:true
+// covers only waiting_room_required, session_expired, session_superseded and
+// session_model_mismatch), so no invalidate may fire.
 func TestWindowCooldownParksWithoutDroppingSession(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -53,18 +55,17 @@ func TestWindowCooldownParksWithoutDroppingSession(t *testing.T) {
 		t.Fatalf("window refusal: want ErrRateLimited, got %v", err)
 	}
 
-	// Half 1 — the token parks with its cooldown memory intact.
-	rle := entry.runs.RateLimitError()
-	if rle == nil {
-		t.Fatal("no remembered rate-limit error after the window refusal (token did not park)")
-	} else if want := 71766 * time.Second; rle.RetryAfter != want {
-		t.Errorf("remembered retry_after = %v, want %v (window truncated)", rle.RetryAfter, want)
+	// Half 1 — MASQ keeps no refusal memory: no remembered error, no parked
+	// window. The caller saw the upstream 429 above and retries into a
+	// fully eligible lane.
+	if rle := entry.runs.RateLimitError(); rle != nil {
+		t.Errorf("remembered rate-limit error %v after the window refusal (MASQ keeps no 429 memory)", rle)
 	}
-	if until := entry.runs.CooldownUntil(); time.Until(until) < 19*time.Hour {
-		t.Errorf("cooldown window = %v, want ~19.9h parked (memory not preserved)", time.Until(until))
+	if until := entry.runs.CooldownUntil(); !until.IsZero() {
+		t.Errorf("cooldown until = %v, want zero (no 429 park under MASQ)", until)
 	}
 
-	// Half 2 — the healthy session survives the park.
+	// Half 2 — the healthy session survives the refusal.
 	snap := entry.session.Snapshot()
 	if !snap.Usable() {
 		t.Fatalf("session dropped by the window refusal (status %q, instance %q)", snap.Status, snap.InstanceID)
@@ -73,8 +74,8 @@ func TestWindowCooldownParksWithoutDroppingSession(t *testing.T) {
 		t.Errorf("session instance = %q, want the surviving %q", snap.InstanceID, heldInstance)
 	}
 
-	// A window refusal is cooldown-only, never terminal.
+	// A window refusal is never terminal.
 	if got := p.Snapshot()[0]; got.Quarantined {
-		t.Errorf("Quarantined = true after a window refusal (cooldown only, reason %q)", got.QuarantineReason)
+		t.Errorf("Quarantined = true after a window refusal (refusal only, reason %q)", got.QuarantineReason)
 	}
 }

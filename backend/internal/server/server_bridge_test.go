@@ -160,38 +160,6 @@ func TestBridgeModeModelsAndHealthz(t *testing.T) {
 	}
 }
 
-func TestBridgeModeChat401Cooldown(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.ChatStatus = 401
-	mock.ChatErrorBody = `{"error":{"message":"unauthorized","type":"authentication_error"}}`
-	ts, _ := newBridgeTestServer(t, mock)
-	chatURL := ts.URL + "/v1/chat/completions"
-	hdr := map[string]string{"Authorization": "Bearer client-tok-401"}
-
-	resp, data := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), hdr)
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502: %s", resp.StatusCode, data)
-	}
-	if !strings.Contains(string(data), "upstream_auth_rejected") {
-		t.Errorf("body missing upstream_auth_rejected: %s", data)
-	}
-
-	// The entry's token went on cooldown; the next request surfaces the
-	// cooldown without re-hitting upstream.
-	mock.ChatStatus = 200
-	resp2, data2 := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), hdr)
-	if resp2.StatusCode != http.StatusBadGateway {
-		t.Fatalf("second request status = %d, want 502 (cooldown): %s", resp2.StatusCode, data2)
-	}
-	if !strings.Contains(string(data2), "cooling down") {
-		t.Errorf("second request body = %q, want cooldown error", data2)
-	}
-	if got := len(mock.RecordedChatHeaders); got != 1 {
-		t.Errorf("upstream chat calls = %d, want 1 (cooldown skipped upstream)", got)
-	}
-}
-
 // TestBridgeModeHealthzReportsMode pins the healthz "mode" field in pure
 // bridge mode.
 func TestBridgeModeHealthzReportsMode(t *testing.T) {

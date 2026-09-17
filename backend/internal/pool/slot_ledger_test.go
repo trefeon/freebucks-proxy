@@ -324,9 +324,9 @@ func TestSlotSignals(t *testing.T) {
 	eventually(t, "slots drain", func() bool { return p.slotLive(slotKey{entry: entry, model: modelA}) == 0 })
 }
 
-// TestSlotDrainParityNoPressure proves drain == today under no
-// pressure: the smart path reproduces the legacy cold round-robin order
-// and admission counts exactly.
+// TestSlotDrainParityNoPressure proves the no-pressure drain follows the
+// MASQ strict positional spill order: account #1 drains before #2, so
+// every cold acquire lands on #1 and all admissions happen there.
 func TestSlotDrainParityNoPressure(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -347,13 +347,13 @@ func TestSlotDrainParityNoPressure(t *testing.T) {
 		got[i] = lease.Token
 		p.LeaseRelease(lease)
 	}
-	for i, want := range []int{0, 1, 0, 1, 0, 1} {
-		if got[i] != want {
-			t.Errorf("acquire %d token = %d, want %d", i, got[i], want)
+	for i, tok := range got {
+		if tok != 0 {
+			t.Errorf("acquire %d token = %d, want 0 (strict spill drains #1 first)", i, tok)
 		}
 	}
-	if mock0.SessionCreates != 3 || mock1.SessionCreates != 3 {
-		t.Errorf("session creates = %d/%d, want 3/3", mock0.SessionCreates, mock1.SessionCreates)
+	if mock0.SessionCreates != 6 || mock1.SessionCreates != 0 {
+		t.Errorf("session creates = %d/%d, want 6/0 (strict spill drains #1 first)", mock0.SessionCreates, mock1.SessionCreates)
 	}
 }
 

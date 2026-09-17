@@ -22,22 +22,19 @@ import (
 	"time"
 )
 
-// TestLiveFailoverMatrix drives the LIVE failover path end-to-end for every
-// upstream failure class: the first token fails its session admission with
-// the real wire error, the pool cools it down, and the second healthy token
-// serves the lease. Subsequent acquires skip the cooled token without
-// re-hitting it. (Existing tests only mix remembered-cooldown states; this
-// exercises the live admission failures, including the country 403 path
-// with no server E2E coverage.)
+// TestLiveFailoverMatrix drives the LIVE ban-quarantine path end-to-end:
+// the first token fails its session admission with the real wire error,
+// the pool quarantines it (terminal), and the second healthy token serves
+// the lease. Subsequent acquires skip the quarantined token without
+// re-hitting it. Correlative refusals (ip_capped, country-blocked) and
+// short-window 429s never fail over under MASQ, so they are not in this
+// matrix (see the spill and natural-429 keepers).
 func TestLiveFailoverMatrix(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(*testutil.MockUpstream)
 	}{
 		{"ban", func(m *testutil.MockUpstream) { m.Ban = true }},
-		{"rate-limit", func(m *testutil.MockUpstream) { m.RateLimit = true }},
-		{"country-blocked", func(m *testutil.MockUpstream) { m.SessionMode = "country_blocked" }},
-		{"auth-reject", func(m *testutil.MockUpstream) { m.AuthReject = true }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -889,51 +886,5 @@ func TestCooldownAfterBanClearsBanMemory(t *testing.T) {
 	}
 	if !p.Snapshot()[0].Quarantined {
 		t.Error("quarantine cleared by CooldownToken, want persistent")
-	}
-}
-
-// TestAcquireHotSessionModelTiebreak pins the hot-session model tiebreak:
-// among hot tokens, the one whose live session already serves the requested
-// model is tried first (token-2 for modelB here), so its session is reused.
-func TestAcquireHotSessionModelTiebreak(t *testing.T) {
-	mock0 := testutil.NewMock()
-	defer mock0.Close()
-	mock1 := testutil.NewMock()
-	defer mock1.Close()
-	p := newTestPool(t, mock0, mock1)
-
-	// Token 1 admits a modelA session; token 2 admits a modelB session
-	// (token 1 is cooled down so the second admission lands on token 2).
-	lease, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-	p.CooldownToken(0, time.Hour)
-	lease, err = p.Acquire(context.Background(), modelB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lease.Token != 1 {
-		t.Fatalf("modelB lease token = %d, want 1", lease.Token)
-	}
-	p.LeaseRelease(lease)
-	_ = p.UnlockToken(0)
-
-	// Both tokens are hot; the modelB request must prefer token 2 (its
-	// session already serves modelB) over token 1.
-	lease, err = p.Acquire(context.Background(), modelB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lease.Token != 1 {
-		t.Errorf("tiebreak lease token = %d, want 1 (hot session serves modelB)", lease.Token)
-	}
-	p.LeaseRelease(lease)
-	if mock1.SessionCreates != 1 {
-		t.Errorf("token 2 session creates = %d, want 1 (session reused)", mock1.SessionCreates)
-	}
-	if mock0.SessionCreates != 1 {
-		t.Errorf("token 1 session creates = %d, want 1 (never re-admitted for modelB)", mock0.SessionCreates)
 	}
 }

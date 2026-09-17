@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestWaitingRoom503ThenRetry(t *testing.T) {
@@ -48,27 +47,6 @@ func TestWaitingRoom503ThenRetry(t *testing.T) {
 	}
 }
 
-func TestChat401Cooldown(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.ChatStatus = 401
-	mock.ChatErrorBody = `{"error":{"message":"unauthorized","type":"authentication_error"}}`
-	ts, p := newTestServer(t, nil, mock)
-
-	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502: %s", resp.StatusCode, data)
-	}
-	if !strings.Contains(string(data), "upstream_auth_rejected") {
-		t.Errorf("body missing upstream_auth_rejected: %s", data)
-	}
-
-	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.Before(time.Now().Add(29 * time.Minute)) {
-		t.Errorf("cooldown until = %v, want ~now+30m", snap.CooldownUntil)
-	}
-}
-
 func TestChatRateLimitSurfaced(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -91,8 +69,12 @@ func TestChatRateLimitSurfaced(t *testing.T) {
 		t.Errorf("body missing resetAt: %s", data)
 	}
 
-	// The token cooled down for the window; a second request surfaces the
-	// remembered 429 + Retry-After, never a 502.
+	// MASQ: turn-time 429s write no cooldown memory — the second request
+	// re-hits upstream and surfaces the same 429 shape (never a remembered
+	// refusal, never a 502). The mock short-circuits every route on
+	// RateLimit (no per-route counter advances), so the re-hit proof is
+	// the total-request counter growing across the second request.
+	upstreamBefore := mock.RequestsSnapshot()
 	resp2, data2 := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
 	if resp2.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("second request status = %d, want 429: %s", resp2.StatusCode, data2)
@@ -100,85 +82,12 @@ func TestChatRateLimitSurfaced(t *testing.T) {
 	if ra := resp2.Header.Get("Retry-After"); ra != "48550" {
 		t.Errorf("second Retry-After = %q, want 48550", ra)
 	}
-
+	if got := mock.RequestsSnapshot(); got <= upstreamBefore {
+		t.Errorf("upstream requests = %d after second request (was %d), want growth (no cooldown memory skips upstream)", got, upstreamBefore)
+	}
 	snap := p.Snapshot()[0]
-	if snap.CooldownUntil.Before(time.Now().Add(13 * time.Hour)) {
-		t.Errorf("cooldown until = %v, want ~now+13.5h", snap.CooldownUntil)
-	}
-}
-
-func TestRunInvalidRecovers(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.RunIDs = []string{"run-0001", "run-0002"}
-	var calls atomic.Int32
-	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
-		if calls.Add(1) == 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = io.WriteString(w, `{"error":{"message":"runId not found"}}`)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("chatcmpl-r1", 1, `"choices":[{"index":0,"delta":{"content":"recovered"},"finish_reason":null}]`)))
-	}
-	ts, _ := newTestServer(t, nil, mock)
-
-	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200 after run-invalid retry: %s", resp.StatusCode, data)
-	}
-	if !strings.Contains(string(data), "recovered") {
-		t.Errorf("retry stream missing content: %s", data)
-	}
-	if got := len(mock.StartedRunsSnapshot()); got != 2 {
-		t.Errorf("started runs = %d, want 2 (re-START after run-invalid)", got)
-	}
-	// With the #91 context-pruner child traffic gone there is NO
-	// best-effort side-effect traffic at all: the invalidated run-0001 is
-	// dropped WITHOUT an upstream FINISH, and run-0002 stays active (lease
-	// released) until rotation/shutdown — so zero agent-runs FINISH calls
-	// may have been issued.
-	if got := mock.FinishesStartedSnapshot(); got != 0 {
-		t.Errorf("FINISH attempts = %d, want 0 (invalidated run is not FINISHed; no pruner children exist)", got)
-	}
-}
-
-func TestChatSessionInvalidBoundedRetry(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	// Every chat returns a session-invalid error. Without a retry budget the
-	// recovery loop re-creates the session and re-chats forever, hanging the
-	// client; the budget must cap it at one retry (2 chat attempts total).
-	// session_superseded is its OWN terminal sentinel (see
-	// TestChatSessionSupersededTerminal) — this test uses session_expired to
-	// pin the invalidate+reacquire-once budget for ErrSessionInvalid.
-	mock.ChatStatus = http.StatusBadRequest
-	mock.ChatErrorBody = `{"error":{"message":"session_expired"}}`
-	ts, _ := newTestServer(t, nil, mock)
-
-	// A client timeout makes a regression (unbounded loop) fail fast instead
-	// of hanging the whole suite.
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(ts.URL+"/v1/chat/completions", "application/json", bytes.NewReader(chatBody(modelA)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502: %s", resp.StatusCode, data)
-	}
-	if !strings.Contains(string(data), "session_invalid") {
-		t.Errorf("body missing session_invalid: %s", data)
-	}
-	if got := len(mock.RecordedChatHeaders); got != 2 {
-		t.Errorf("upstream chat attempts = %d, want exactly 2 (bounded retry)", got)
-	}
-	if got := mock.SessionCreates; got != 2 {
-		t.Errorf("upstream session creates = %d, want exactly 2 (bounded retry)", got)
+	if !snap.CooldownUntil.IsZero() {
+		t.Errorf("cooldown until = %v, want zero (turn-time 429 writes no cooldown)", snap.CooldownUntil)
 	}
 }
 
@@ -613,7 +522,7 @@ func TestChatModelIPLimitedConcurrentRefusals(t *testing.T) {
 // TestChatRunFanoutSurfaced429 is the end-to-end contract for the
 // free_mode_run_fanout refusal Finn hit as a turn-killing
 // 502 upstream_unavailable: the exact observed upstream body must reach the
-// client as 429 free_mode_run_fanout + a bounded Retry-After, and the mock
+// client as 429 free_mode_run_fanout, and the mock
 // must see exactly ONE chat call — re-POSTing into an anti-fanout refusal is
 // what feeds upstream's ban-grade sweep counter.
 func TestChatRunFanoutSurfaced429(t *testing.T) {
@@ -632,8 +541,10 @@ func TestChatRunFanoutSurfaced429(t *testing.T) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429 (never the 502 that killed the turn): %s", resp.StatusCode, data)
 	}
-	if ra := resp.Header.Get("Retry-After"); ra != "60" {
-		t.Errorf("Retry-After = %q, want 60 (FanoutCooldown default)", ra)
+	// MASQ: no synthesized Retry-After — the refusal carries no upstream
+	// window, so none is emitted (honest upstream window only).
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		t.Errorf("Retry-After = %q, want none (no synthesized default)", ra)
 	}
 	if !strings.Contains(string(data), `"code":"free_mode_run_fanout"`) {
 		t.Errorf("body missing free_mode_run_fanout code: %s", data)

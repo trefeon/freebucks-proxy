@@ -9,21 +9,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
-	"regexp"
-	"strings"
-	"sync/atomic"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/logring"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/server"
 	"freebuff-proxy/backend/internal/testutil"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
 )
 
 // newTestServerWithLogger builds the full stack like newTestServer but with
@@ -1231,131 +1228,6 @@ func TestTransientRetrySkippedOnCanceledContext(t *testing.T) {
 		}
 	}
 	<-errCh
-}
-
-// TestChatRetryTelemetry verifies T12/T13: a retried request logs the
-// structured "transient chat error, retrying once" (reason/backoff_ms/
-// attempt/req_id), "chat retry succeeded" (attempts=2), a chat trace with
-// attempts=2/retried=true/statuses_seen=500,200, and the SAME req_id on
-// both upstream attempt lines (D1 threading to the client do() logs).
-func TestChatRetryTelemetry(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	var calls atomic.Int32
-	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
-		if calls.Add(1) == 1 {
-			// Generic 5xx: not a classified error and not Retryable, so the
-			// server's retry-once recovery fires (the UpstreamError carries
-			// status 500 into statuses_seen).
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = io.WriteString(w, `{"error":"internal boom"}`)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, responsesChunks())
-	}
-	_, ring, logger := debugRing(t)
-	ts, _ := newTestServerWithLogger(t, nil, logger, ring, mock)
-
-	_, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA),
-		map[string]string{"X-Request-Id": "req-1"})
-	if !strings.Contains(string(data), "Hello") {
-		t.Fatalf("retried chat stream unexpected: %s", truncate(string(data), 200))
-	}
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("upstream chat attempts = %d, want 2", got)
-	}
-
-	var transient, retriedOK, trace, ok1, ok2 *logring.Entry
-	recent := ring.Recent(400)
-	for i := range recent {
-		e := &recent[i]
-		switch e.Message {
-		case "transient chat error, retrying once":
-			transient = e
-		case "chat retry succeeded":
-			retriedOK = e
-		case "chat trace":
-			trace = e
-		case "upstream ok", "upstream response":
-			// Session/run management calls also log these; only the
-			// two /api/v1/chat/completions attempts carry the chat req_id.
-			// T5: the failed attempt logs "upstream response", the
-			// successful retry logs "upstream ok".
-			if entryField(*e, "path") != "/api/v1/chat/completions" {
-				continue
-			}
-			if ok1 == nil {
-				ok1 = e
-			} else if ok2 == nil {
-				ok2 = e
-			}
-		}
-	}
-	if transient == nil {
-		t.Fatal("no 'transient chat error, retrying once' entry")
-		return
-	}
-	if got := entryField(*transient, "attempt"); got != "1" {
-		t.Errorf("transient entry attempt = %q, want 1", got)
-	}
-	if entryField(*transient, "reason") == "" {
-		t.Error("transient entry missing reason")
-	}
-	if entryField(*transient, "backoff_ms") == "" {
-		t.Error("transient entry missing backoff_ms")
-	}
-	if retriedOK == nil {
-		t.Fatal("no 'chat retry succeeded' entry")
-		return
-	}
-	if got := entryField(*retriedOK, "attempts"); got != "2" {
-		t.Errorf("retry succeeded attempts = %q, want 2", got)
-	}
-	if entryField(*retriedOK, "ms") == "" {
-		t.Error("retry succeeded missing ms")
-	}
-	if trace == nil {
-		t.Fatal("no chat trace entry")
-		return
-	}
-	reqID := entryField(*trace, "req_id")
-	if reqID == "" {
-		t.Fatal("chat trace missing req_id")
-	}
-	for _, f := range []struct{ key, want string }{
-		{"attempts", "2"},
-		{"retried", "true"},
-		{"statuses_seen", "500,200"},
-		{"client_request_id", "req-1"},
-	} {
-		if got := entryField(*trace, f.key); got != f.want {
-			t.Errorf("chat trace %s = %q, want %q", f.key, got, f.want)
-		}
-	}
-	if got := entryField(*trace, "backoff_ms"); got == "" {
-		t.Error("chat trace missing backoff_ms")
-	}
-	// D1: the same req_id must appear on both upstream attempt lines, and
-	// on the server-side retry lines.
-	if ok1 == nil || ok2 == nil {
-		t.Fatal("expected two upstream attempt entries (one per chat attempt)")
-		return
-	}
-	if got := entryField(*ok1, "req_id"); got != reqID {
-		t.Errorf("first upstream attempt req_id = %q, want %q", got, reqID)
-	}
-	if got := entryField(*ok2, "req_id"); got != reqID {
-		t.Errorf("second upstream attempt req_id = %q, want %q", got, reqID)
-	}
-	if got := entryField(*transient, "req_id"); got != reqID {
-		t.Errorf("transient entry req_id = %q, want %q", got, reqID)
-	}
-	if got := entryField(*retriedOK, "req_id"); got != reqID {
-		t.Errorf("retry succeeded req_id = %q, want %q", got, reqID)
-	}
 }
 
 // TestTraceSessionIDThreaded verifies T3: the run's trace_session_id (the

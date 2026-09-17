@@ -5,15 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 func newTestManagerWithStore(t *testing.T, mock *testutil.MockUpstream, store *Store) *Manager {
@@ -29,6 +28,28 @@ func newTestManagerWithStore(t *testing.T, mock *testutil.MockUpstream, store *S
 		t.Fatal(err)
 	}
 	return NewManagerWithStore(client, store)
+}
+
+// TestManagerWithStoreWiresTokenKey locks the 1602a71f regression: the
+// constructor must derive the store key from the client token, or every
+// persistence path (commit mirror, pollPersisted resume, Shutdown flush,
+// quota restore) silently no-ops on the empty key. Fails without the
+// `m.key = client.TokenKey()` line, passes with it.
+func TestManagerWithStoreWiresTokenKey(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	store := NewStore(filepath.Join(t.TempDir(), "state.json"))
+	mgr := newTestManagerWithStore(t, mock, store)
+	if mgr.key == "" {
+		t.Fatal("manager store key empty, want the client TokenKey (persistence disabled by accident)")
+	}
+	expiry := time.Now().Add(time.Hour)
+	mgr.mu.Lock()
+	mgr.commit(&cachedState{status: "active", instanceID: "inst-key", model: "m", expiresAt: expiry, gracePeriodEndsAt: expiry.Add(graceWindow)})
+	mgr.mu.Unlock()
+	if got := store.Load(mgr.key); got == nil || got.instanceID != "inst-key" {
+		t.Fatalf("store after commit = %+v, want inst-key mirrored under the wired key", got)
+	}
 }
 
 func TestStoreRoundtrip(t *testing.T) {
