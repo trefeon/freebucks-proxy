@@ -723,22 +723,6 @@ func overrideBoolFrom(target *bool, get func(string) string, envName string) {
 	override(target, get, envName, parseBool)
 }
 
-func overrideBoolPtr(target **bool, envName string) {
-	override(target, os.Getenv, envName, parseBoolPtr)
-}
-
-func overrideBoolPtrFrom(target **bool, get func(string) string, envName string) {
-	override(target, get, envName, parseBoolPtr)
-}
-
-func parseBoolPtr(s string) (*bool, bool) {
-	b, ok := parseBool(s)
-	if !ok {
-		return nil, false
-	}
-	return new(b), true
-}
-
 // overrideInt sets target from int env vars; unset or
 // unparseable values leave the file/default value untouched.
 func overrideInt(target **int, envName string) {

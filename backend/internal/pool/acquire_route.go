@@ -269,7 +269,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 						routeSlot.Release()
 						p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter)
 						rqStart := time.Now()
-						permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+						_, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
 						if rerr != nil {
 							if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
 								if qerr.Reason == "timeout" {
@@ -287,7 +287,6 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 							queueWait += time.Since(rqStart)
 							phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
 						}
-						routeSlot = permit
 						oi--
 						continue
 					}
@@ -340,7 +339,6 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				// is invalidated; stamping Model makes the surfaced refusal
 				// self-describing. Surface directly, no failover walk.
 				lie.Model = model
-				errs = append(errs, fmt.Sprintf("%s: %v", name, err))
 				routeSlot.Release()
 				return nil, err
 			}
@@ -410,7 +408,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 						routeSlot.Release()
 						p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "phase", "run-start")
 						rqStart := time.Now()
-						permit, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
+						_, parked, rerr := p.slotRequeue(ctx, slotKey{entry: tok, model: model}, idx+1, sCap, sDepth, sWait, notBefore)
 						if rerr != nil {
 							if qerr, ok := rerr.(*slotQueueExhaustedError); ok {
 								if qerr.Reason == "timeout" {
@@ -428,7 +426,7 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 							queueWait += time.Since(rqStart)
 							phasetiming.FromContext(ctx).Since(phasetiming.QueueWaitMS, time.Now().Add(-queueWait))
 						}
-						routeSlot = permit
+						oi--
 						oi--
 						continue
 					}
