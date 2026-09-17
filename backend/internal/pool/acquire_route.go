@@ -16,6 +16,38 @@ import (
 	"time"
 )
 
+// tagRateLimitModel stamps the requested model on a WALK-LOCAL copy of a
+// rate-limit refusal when the upstream body omits it, so the surfaced
+// error is self-describing. The *upstream.RateLimitError handed out by the
+// session single-flight is SHARED by every waiter parked on the same
+// refresh (Acquire documents the sharing above; the manager retains one
+// refreshErr pointer for all of them): stamping Model in place races
+// concurrent walks (concurrent read+write on one struct). The copy is
+// confined to this goroutine; the shared value is never mutated. A refusal
+// that already names a model is returned as-is (read-only downstream).
+func tagRateLimitModel(rle *upstream.RateLimitError, model string) *upstream.RateLimitError {
+	if rle == nil || rle.Model != "" {
+		return rle
+	}
+	tagged := *rle
+	tagged.Model = model
+	return &tagged
+}
+
+// tagLimitedIPModel stamps the requested model on a WALK-LOCAL copy of a
+// limited_ip refusal. Same single-flight sharing as tagRateLimitModel: the
+// stamp must not land on the shared value. Unlike the rate-limit tag the
+// pool always names the requested model, even when the upstream body
+// carried one.
+func tagLimitedIPModel(lie *upstream.LimitedIpError, model string) *upstream.LimitedIpError {
+	if lie == nil {
+		return nil
+	}
+	tagged := *lie
+	tagged.Model = model
+	return &tagged
+}
+
 // Acquire resolves the model's agent and walks the strict index order
 // until a token yields both a run and a session. Returns a lease on
 // success. Registry misses (unknown model) are returned as-is.
@@ -257,11 +289,10 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 				// record below.
 				if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
 					if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
-						// Issue #178: tag the refusal with the requested
-						// model when the upstream body omits it.
-						if rle.Model == "" {
-							rle.Model = model
-						}
+						// No Model tag here: the refusal is discarded after
+						// the requeue (only RetryAfter is read above), and
+						// rle is single-flight-shared — stamping it would
+						// mutate state owned by every parked waiter.
 						// Issue #122: count spend_limited on the ledger.
 						if c.spendLimited {
 							tok.ledger.recordSpendLimited()
@@ -294,12 +325,11 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			}
 			if rle := c.rateLimited; rle != nil {
 				// Issue #178: tag the refusal with the requested model when
-				// the upstream body omits it, so the remembered cooldown can
-				// be isolated per model — a quota cap on one model (glm-5.2,
-				// gpt-5.6-luna) must not block the same token's other models.
-				if rle.Model == "" {
-					rle.Model = model
-				}
+				// the upstream body omits it, so the surfaced refusal is
+				// self-describing. Tag a walk-local copy: rle is
+				// single-flight-shared and concurrent walks must not
+				// mutate it (data race on Model).
+				rle = tagRateLimitModel(rle, model)
 				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
 				// Issue #122: the fresh-admission spend ceiling is the
 				// upstream's primary spend gate, so an admission-path
@@ -336,11 +366,11 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			if lie := c.limitedIp; lie != nil {
 				// The egress IP cannot serve this model. The session row is
 				// fine — it stays bound to its admitted model — so nothing
-				// is invalidated; stamping Model makes the surfaced refusal
-				// self-describing. Surface directly, no failover walk.
-				lie.Model = model
+				// is invalidated. Surface a walk-local Model-stamped copy
+				// (never mutate the single-flight-shared value), no
+				// failover walk.
 				routeSlot.Release()
-				return nil, err
+				return nil, tagLimitedIPModel(lie, model)
 			}
 			errs = append(errs, fmt.Sprintf("%s: %v", name, err))
 			routeSlot.Release()
@@ -396,11 +426,9 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			if rle := c.rateLimited; rle != nil && !c.authRejected && c.banned == nil && c.ipCapped == nil && c.countryBlocked == nil && c.limitedIp == nil {
 				if sCap, sDepth, sWait := slotParams(cfg); sCap > 0 {
 					if notBefore, ok := quotaRequeueNotBefore(rle, sWait); ok {
-						// Issue #178: tag the refusal with the requested
-						// model when the upstream body omits it.
-						if rle.Model == "" {
-							rle.Model = model
-						}
+						// No Model tag here: the refusal is discarded after
+						// the requeue (only RetryAfter is read above) — see
+						// the admission path.
 						// Issue #122: count spend_limited on the ledger.
 						if c.spendLimited {
 							tok.ledger.recordSpendLimited()
@@ -434,15 +462,12 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			}
 			if rle := c.rateLimited; rle != nil {
 				// Issue #178: tag the refusal with the requested model when
-				// the upstream body omits it, so the remembered cooldown can
-				// be isolated per model — a quota cap on one model (glm-5.2,
-				// gpt-5.6-luna) must not block the same token's other models.
-				if rle.Model == "" {
-					rle.Model = model
-				}
+				// the upstream body omits it, so the surfaced refusal is
+				// self-describing. Tag a walk-local copy — see the
+				// admission path (single-flight-shared values must never
+				// be mutated by concurrent walks).
+				rle = tagRateLimitModel(rle, model)
 				rateLimited = appendRateLimitEntry(rateLimited, rle, idx)
-				// Issue #122: count run-start spend_limited refusals on the
-				// ledger (same counter as the chat-path refusal).
 				if c.spendLimited {
 					tok.ledger.recordSpendLimited()
 				}

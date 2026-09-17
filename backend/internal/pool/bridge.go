@@ -280,8 +280,10 @@ admitRetry:
 		if lie := c.limitedIp; lie != nil {
 			// The shared egress cannot serve this model (limited_ip).
 			// Bridge requests keep their own token and the error is
-			// returned as-is; stamp Model so it is self-describing.
-			lie.Model = model
+			// returned as-is; surface a walk-local Model-stamped copy —
+			// the admission single-flight shares one error value across
+			// parked followers, which must never mutate it.
+			err = tagLimitedIPModel(lie, model)
 		}
 		if be := c.banned; be != nil {
 			p.notifyBan(0, model) // issue #48: alert on admission-path bans
@@ -371,8 +373,9 @@ sessionReady:
 		}
 		if lie := c.limitedIp; lie != nil {
 			// The shared egress cannot serve this model (limited_ip);
-			// stamp Model so the surfaced error is self-describing.
-			lie.Model = model
+			// surface a walk-local Model-stamped copy, never the shared
+			// value (see the admission path above).
+			err = tagLimitedIPModel(lie, model)
 		}
 		if be := c.banned; be != nil {
 			p.notifyBan(0, model) // issue #48: alert on admission-path bans
