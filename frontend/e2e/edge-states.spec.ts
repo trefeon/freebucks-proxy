@@ -356,6 +356,10 @@ test.describe("dashboard edge states (mock backend)", () => {
       page.getByRole("heading", { name: "Team usage" }),
     ).toBeVisible();
     await expect(page.getByText("No per-client usage yet.")).toBeVisible();
+    // Empty names the cause and the next action, not just the absence.
+    await expect(
+      page.getByText(/once clients send requests with per-client API keys/),
+    ).toBeVisible();
   });
 
   test("team rows render short key hashes, never raw keys", async ({
@@ -414,21 +418,21 @@ test.describe("dashboard edge states (mock backend)", () => {
     await page.goto(adminUrl("activity"));
     await page.getByRole("button", { name: "Team", exact: true }).click();
     await expect(page.getByText("Loading team usage")).toBeAttached();
+    // Announced via role=status (pattern LiveConsole), not a bare live div.
     await expect(
-      page.getByRole("heading", { name: "Team usage" }),
-    ).toBeVisible();
+      page.getByRole("status", { name: "Loading team usage" }),
+    ).toBeAttached();
   });
 
   test("team failure offers retry and toasts what broke", async ({ page }) => {
     await mockDashboard(page, loadFixtures());
     await mockSettingsOverlay(page, []);
-    // The panel fires fetchTeam twice on mount (onMount plus the shared
-    // cursor effect), so the failure must hold for both for the error state
-    // to land; the manual Retry then takes the success path.
+    // One fetch per mount: the first request fails and the manual Retry
+    // takes the success path.
     let calls = 0;
     await page.route("**/admin/api/usage*key*", async (route) => {
       calls += 1;
-      if (calls <= 2) {
+      if (calls <= 1) {
         await route.fulfill({ status: 500, body: "boom" });
       } else {
         await route.fulfill({
@@ -441,8 +445,9 @@ test.describe("dashboard edge states (mock backend)", () => {
     await page.goto(adminUrl("activity"));
     await page.getByRole("button", { name: "Team", exact: true }).click();
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
-    // The mount double-fetch fails twice, so a dismissed (inert, fading)
-    // duplicate can sit beside the live toast: pin the live one.
+    // One failure renders exactly one toast (deduped by message): a second
+    // fetch or a duplicate push would show up as a second live alert.
+    await expect(page.locator('[role="alert"]:not([inert])')).toHaveCount(1);
     await expect(
       page.locator('[role="alert"]:not([inert])', { hasText: "boom" }),
     ).toBeVisible();
@@ -450,6 +455,28 @@ test.describe("dashboard edge states (mock backend)", () => {
     await expect(
       page.getByRole("heading", { name: "Team usage" }),
     ).toBeVisible();
+  });
+
+  test("team issues one upstream request per mount", async ({ page }) => {
+    await mockDashboard(page, loadFixtures());
+    await mockSettingsOverlay(page, []);
+    let calls = 0;
+    await page.route("**/admin/api/usage*key*", async (route) => {
+      calls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ keys: [] }),
+      });
+    });
+    await page.goto(adminUrl("activity"));
+    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Team usage" }),
+    ).toBeVisible();
+    // Mount fetches once (onMount); the shared-cursor effect only refetches
+    // when the cursor advances, so no second request follows.
+    expect(calls).toBe(1);
   });
 
   // -- Filtered-to-nothing vs unavailable -----------------------------------

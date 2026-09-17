@@ -23,7 +23,13 @@
   let loading = $state(true);
   let error = $state("");
   let errorToast = $state(0);
+  let lastErrorMsg = "";
   function notifyError(msg) {
+    // Concurrent refetches fail with the same message: only replace the
+    // toast when it actually changes, so one failure renders one toast
+    // and a manual dismiss is respected until the next distinct failure.
+    if (msg === lastErrorMsg) return;
+    lastErrorMsg = msg;
     if (errorToast) dismissToast(errorToast);
     errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
   }
@@ -46,11 +52,17 @@
 
   onMount(fetchTeam);
 
-  // Shared time cursor from the Activity page ("Refresh all"): refetch when
-  // it advances. fetchTeam reads no reactive state, so cursor is the only
-  // dependency.
+  // Shared time cursor from the Activity page ("Refresh all"): refetch only
+  // when it advances past the mount value. The effect runs once on mount
+  // too, so an unguarded `if (cursor >= 0)` fetch would double every mount
+  // (onMount plus effect); the lastCursor guard keeps one fetch per mount
+  // while preserving Refresh-all.
+  let lastCursor = cursor;
   $effect(() => {
-    if (cursor >= 0) fetchTeam();
+    if (cursor !== lastCursor) {
+      lastCursor = cursor;
+      fetchTeam();
+    }
   });
 
   function formatRate(rate) {
@@ -88,7 +100,12 @@
 
 <div class="space-y-6">
   {#if loading && !payload}
-    <div class="space-y-6" aria-busy="true">
+    <div
+      class="space-y-6"
+      role="status"
+      aria-label={$tr("Loading team usage")}
+      aria-busy="true"
+    >
       <div class="skeleton skeleton-card h-64"></div>
       <span class="sr-only">{$tr("Loading team usage")}</span>
     </div>
@@ -171,7 +188,9 @@
       {:else}
         <div class="px-5 py-6">
           <p class="text-sm text-[var(--fp-muted)]">
-            {$tr("No per-client usage yet.")}
+            {$tr(
+              "No per-client usage yet. Usage appears here once clients send requests with per-client API keys.",
+            )}
           </p>
         </div>
       {/if}
