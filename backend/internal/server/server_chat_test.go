@@ -69,11 +69,13 @@ func TestChatRateLimitSurfaced(t *testing.T) {
 		t.Errorf("body missing resetAt: %s", data)
 	}
 
-	// MASQ: turn-time 429s write no cooldown memory — the second request
-	// re-hits upstream and surfaces the same 429 shape (never a remembered
-	// refusal, never a 502). The mock short-circuits every route on
-	// RateLimit (no per-route counter advances), so the re-hit proof is
-	// the total-request counter growing across the second request.
+	// MASQ sticky-spill: this 429 fired on the ADMISSION path (RateLimit
+	// mode 429s every route, so no session was ever admitted), and
+	// admission 429s are remembered per model — the second request skips
+	// the dead lane with no upstream contact yet surfaces the same 429
+	// shape (never a 502). The re-hit proof inverts vs the old turn-time
+	// reading: the total-request counter must NOT grow across the second
+	// request, and no blanket cooldown is written (per-model memory only).
 	upstreamBefore := mock.RequestsSnapshot()
 	resp2, data2 := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
 	if resp2.StatusCode != http.StatusTooManyRequests {
@@ -82,8 +84,60 @@ func TestChatRateLimitSurfaced(t *testing.T) {
 	if ra := resp2.Header.Get("Retry-After"); ra != "48550" {
 		t.Errorf("second Retry-After = %q, want 48550", ra)
 	}
+	if !strings.Contains(string(data2), `"code":"rate_limited"`) {
+		t.Errorf("second body missing rate_limited code: %s", data2)
+	}
+	if !strings.Contains(string(data2), "reset at 2026-08-12T07:00:00") {
+		t.Errorf("second body missing resetAt: %s", data2)
+	}
+	if got := mock.RequestsSnapshot(); got != upstreamBefore {
+		t.Errorf("upstream requests = %d after second request (was %d), want no growth (remembered admission refusal, no contact)", got, upstreamBefore)
+	}
+	snap := p.Snapshot()[0]
+	if !snap.CooldownUntil.IsZero() {
+		t.Errorf("cooldown until = %v, want zero (per-model memory only, no blanket cooldown)", snap.CooldownUntil)
+	}
+}
+
+// TestChatTurnTimeRateLimitRehitsUpstream pins the preserved turn-time
+// policy: a 429 that fires on the CHAT path (healthy admission, refusal at
+// turn time) writes no memory of any kind — every chat re-hits upstream.
+// Contrast TestChatRateLimitSurfaced, where the 429 fires at admission and
+// IS remembered per model. The chat path (chatAttempt) releases the lease
+// with no cooldown write on ErrRateLimited, so the proof is counter growth
+// across the second chat plus a zero blanket cooldown.
+func TestChatTurnTimeRateLimitRehitsUpstream(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	// Healthy admission; only the chat turn refuses, with the exact
+	// RateLimit-mode shape (retryAfterMs 48549499, resetAt
+	// 2026-08-12T07:00:00.000Z).
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		writeRawJSON(w, http.StatusTooManyRequests, `{"model":"deepseek/deepseek-v4-flash","entitlementBreakdown":{"base":3,"referral":0,"streak":0},"limit":3,"period":"pacific_day","resetTimeZone":"America/Los_Angeles","resetAt":"2026-08-12T07:00:00.000Z","windowHours":24,"recentCount":3.6,"status":"rate_limited","accessTier":"limited","retryAfterMs":48549499}`)
+	}
+	ts, p := newTestServer(t, nil, mock)
+
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("first status = %d, want 429: %s", resp.StatusCode, data)
+	}
+	if ra := resp.Header.Get("Retry-After"); ra != "48550" {
+		t.Errorf("first Retry-After = %q, want 48550 (ceil of 48549499ms)", ra)
+	}
+	if !strings.Contains(string(data), `"code":"rate_limited"`) {
+		t.Errorf("first body missing rate_limited code: %s", data)
+	}
+
+	upstreamBefore := mock.RequestsSnapshot()
+	resp2, data2 := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second status = %d, want 429: %s", resp2.StatusCode, data2)
+	}
+	if ra := resp2.Header.Get("Retry-After"); ra != "48550" {
+		t.Errorf("second Retry-After = %q, want 48550", ra)
+	}
 	if got := mock.RequestsSnapshot(); got <= upstreamBefore {
-		t.Errorf("upstream requests = %d after second request (was %d), want growth (no cooldown memory skips upstream)", got, upstreamBefore)
+		t.Errorf("upstream requests = %d after second chat (was %d), want growth (turn-time 429 writes no memory)", got, upstreamBefore)
 	}
 	snap := p.Snapshot()[0]
 	if !snap.CooldownUntil.IsZero() {
