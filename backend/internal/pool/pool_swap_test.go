@@ -2,11 +2,12 @@ package pool
 
 import (
 	"context"
-	"testing"
-	"time"
-
+	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"net/http"
+	"testing"
+	"time"
 )
 
 func TestPoolSwapTokens(t *testing.T) {
@@ -96,8 +97,10 @@ func TestPoolSwapTokens(t *testing.T) {
 		t.Error("CooldownLeaseRateLimit hit the swapped-in entry")
 	}
 
-	// Session invalidate via lease drops the ORIGIN session only.
-	p.InvalidateLeaseSession(lease)
+	// Session invalidate via lease drops the ORIGIN session only. The lease
+	// marked the origin precious, so the terminal superseded reason carries
+	// the targeting assertion (a generic reason would keep it).
+	p.InvalidateLeaseSessionWithReason(lease, session.ReasonSuperseded, http.StatusConflict)
 	if origEntry.session.Snapshot().Usable() {
 		t.Error("origin session still usable after InvalidateLeaseSession")
 	}

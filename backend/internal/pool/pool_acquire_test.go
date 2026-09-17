@@ -357,14 +357,27 @@ func TestInvalidateSessionRecreates(t *testing.T) {
 		t.Fatalf("session creates = %d, want 1", mock.SessionCreates)
 	}
 
+	// MASQ precious: the granted lease marked the session precious, so a
+	// generic recovery invalidation keeps it — the terminal superseded
+	// reason is the path that still drops and recreates.
 	p.InvalidateSession(lease.Token, lease.SessionInstanceID)
+	leaseKept, err := p.Acquire(context.Background(), modelA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.LeaseRelease(leaseKept)
+	if mock.SessionCreates != 1 {
+		t.Errorf("session creates = %d, want still 1 (precious kept)", mock.SessionCreates)
+	}
+
+	p.InvalidateSessionWithReason(lease.Token, leaseKept.SessionInstanceID, session.ReasonSuperseded, http.StatusConflict)
 	lease2, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.LeaseRelease(lease2)
 	if mock.SessionCreates != 2 {
-		t.Errorf("session creates = %d, want 2 (recreated after invalidate)", mock.SessionCreates)
+		t.Errorf("session creates = %d, want 2 (recreated after superseded invalidate)", mock.SessionCreates)
 	}
 	if lease2.SessionInstanceID != "inst-abc-123" {
 		t.Errorf("recreated instance = %q, want inst-abc-123", lease2.SessionInstanceID)

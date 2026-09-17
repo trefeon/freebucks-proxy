@@ -408,6 +408,9 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			Token: idx, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: instanceID,
 			entry: tok, routeSlot: routeSlot, QueueWait: queueWait, AcquiredAt: time.Now(),
 		}
+		// MASQ precious (precious.go): the account served this model, so its
+		// live session is never proactively dropped from here on.
+		p.markPrecious(tok, effectiveModel)
 		// Track the activity and end any idle-maintenance pause: the next
 		// maintain tick resumes rotation/refresh work.
 		p.lastActiveMu.Lock()

@@ -380,6 +380,15 @@ type Pool struct {
 	routeMu    sync.Mutex
 	routeSlots map[slotKey]*slotState
 	routePrev  *tokenEntry
+
+	// MASQ precious sessions (precious.go): open set of (entry, model)
+	// pairs whose live session is never proactively dropped (load drops,
+	// recovery invalidations and operator drops keep them; superseded and
+	// entry teardown still drop). Guarded by preciousMu, never nested
+	// with routeMu, the roster or session locks. In-memory only like the
+	// slot ledger: a restart resets every mark to zero.
+	preciousMu sync.Mutex
+	precious   map[preciousKey]struct{}
 }
 
 // admissionGate is the per-model leader election gate: the leader creates
