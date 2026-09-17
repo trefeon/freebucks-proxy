@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
-import type { Fixtures, PostedSetting } from "./mocks.js";
+import type { PostedSetting } from "./mocks.js";
+import { settingsConfig, tokenRow, tokensPayload } from "./mock-data.js";
 
 // ---------------------------------------------------------------------------
 // Clickable / interactable coverage (hermetic mocks).
@@ -13,54 +14,8 @@ import type { Fixtures, PostedSetting } from "./mocks.js";
 // sidebar navigation and the overview error-retry path.
 // ---------------------------------------------------------------------------
 
-// Minimal token row mirroring the real /admin/api/tokens row shape.
-function tokenRow(
-  idx: number,
-  over: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    index: idx,
-    email: `acct${idx}@example.com`,
-    session_status: "idle",
-    queue_position: 0,
-    queue_depth: 0,
-    active_runs: 0,
-    requests: 0,
-    messages_24h: 0,
-    cooldown_active: false,
-    cooldown_until: "",
-    locked: false,
-    transient_retries: 1,
-    has_standing: false,
-    session_instance: "",
-    session_model: "",
-    session_remaining_seconds: 0,
-    has_quota: false,
-    ...over,
-  };
-}
-
-function tokensPayload(tokens: Array<Record<string, unknown>>) {
-  return {
-    mode: "pooled",
-    in_bridge: false,
-    bridge_tokens: 0,
-    token_count: tokens.length,
-    has_tokens: true,
-    tokens,
-    bridge_token_cards: [],
-  };
-}
-
-// Settings fixtures carry a live .env so the form cards render with values.
-function settingsConfig(f: Fixtures) {
-  return {
-    ...f.config,
-    env_content:
-      "LISTEN_ADDR=127.0.0.1:3457\nAUTH_TOKENS=tok0,tok1\nAPI_KEYS=sk-local-xyz\nSAFE_MODE=true\nLOG_LEVEL=info\n",
-    has_env_file: true,
-  };
-}
+// Token rows, pool payloads, and live-.env settings come from the centralized
+// mock-data.ts factory (same shapes as the helpers deleted here).
 
 test.describe("operator interactions (hermetic mocks)", () => {
   test.use({ expect: { timeout: 10_000 } });
