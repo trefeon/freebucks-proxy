@@ -125,7 +125,6 @@ type rawWalletConsent struct {
 }
 
 func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, body string) (*SessionState, error) {
-
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
 		if req.Method == http.MethodPost && isSessionAdmissionRequest(req) {
 			// The dedicated admission route fails closed on servers
@@ -284,7 +283,14 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 			fb := &FreebucksInfo{
 				Balance:      raw.Freebucks.Balance,
 				Prices:       raw.Freebucks.Prices,
+				ListPrices:   raw.Freebucks.ListPrices,
 				PriceNotices: raw.Freebucks.PriceNotices,
+			}
+			if raw.Freebucks.OffPeak != nil {
+				fb.OffPeak = make(map[string]FreebuffOffPeakPrice, len(raw.Freebucks.OffPeak))
+				for id, o := range raw.Freebucks.OffPeak {
+					fb.OffPeak[id] = FreebuffOffPeakPrice(o)
+				}
 			}
 			fb.ClaimableGrant = raw.Freebucks.ClaimableGrant
 			if raw.Freebucks.Upgrade != nil {

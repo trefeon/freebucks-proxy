@@ -2,11 +2,10 @@ package upstream
 
 import (
 	"context"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestParseFreebucks pins issue #232 with the issue #321 wire shape: the
@@ -261,5 +260,48 @@ func TestApplyFreebucksPriceChangesFirstTabDiscount(t *testing.T) {
 	ApplyFreebucksPriceChanges(fb, now)
 	if fb.Prices["m"] != 0 {
 		t.Errorf("Prices[m] = %v, want 0 (discount floors at zero)", fb.Prices["m"])
+	}
+}
+
+// TestParseFreebucksListPricesOffPeak pins the vendor 3420c99 wire shape:
+// listPrices rides beside prices (pre-discount, display only) and offPeak
+// carries the server-owned recurring policy per model id. Absent on older
+// servers stays nil — never a zero allocation.
+func TestParseFreebucksListPricesOffPeak(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"active","instanceId":"inst-op","model":"openai/gpt-5.6-luna","expiresAt":"2030-01-01T00:00:00Z","freebucks":{"balance":17.5,"daily":{"limit":20,"spent":5,"remaining":15,"resetAt":"2026-09-01T07:00:00Z"},"prices":{"openai/gpt-5.6-luna":5},"listPrices":{"openai/gpt-5.6-luna":15},"firstTabDiscount":{"amount":10,"available":true},"offPeak":{"openai/gpt-5.6-luna":{"startHourUtc":0,"endHourUtc":8,"price":5,"regularPrice":15}}}}`))
+	}
+
+	client, err := NewForAuth(testConfig(mock.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := client.ProbeAccount(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Freebucks == nil {
+		t.Fatal("Freebucks = nil, want parsed block")
+	}
+	fb := st.Freebucks
+	if fb.ListPrices["openai/gpt-5.6-luna"] != 15 {
+		t.Errorf("ListPrices = %v, want luna 15", fb.ListPrices)
+	}
+	if fb.Prices["openai/gpt-5.6-luna"] != 5 {
+		t.Errorf("Prices = %v, want luna 5 (discounted, not list)", fb.Prices)
+	}
+	op, ok := fb.OffPeak["openai/gpt-5.6-luna"]
+	if !ok {
+		t.Fatal("OffPeak missing luna entry, want parsed policy")
+	}
+	if op.StartHourUtc != 0 || op.EndHourUtc != 8 || op.Price != 5 || op.RegularPrice != 15 {
+		t.Errorf("OffPeak[luna] = %+v, want 0-8 price 5 regular 15", op)
 	}
 }

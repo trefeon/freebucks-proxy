@@ -714,3 +714,20 @@ func TestWriteErrorSessionInvalid(t *testing.T) {
 		t.Errorf("message = %q, want retry-immediately hint", writeBody.Error.Message)
 	}
 }
+
+// TestWriteErrorNoEndpoints verifies issue #630's routing refusal surfaces
+// as 502 with code "model_no_endpoints" — never the opaque
+// upstream_unavailable — plus the shape-to-change hint.
+func TestWriteErrorNoEndpoints(t *testing.T) {
+	err := &upstream.NoEndpointsError{Status: http.StatusNotFound, Model: "deepseek/deepseek-v4-flash", Body: "No endpoints found for deepseek/deepseek-v4-flash."}
+	status, _, writeBody := errorResponse(t, err)
+	if status != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502", status)
+	}
+	if writeBody.Error.Code != "model_no_endpoints" {
+		t.Errorf("code = %q, want model_no_endpoints", writeBody.Error.Code)
+	}
+	if !strings.Contains(writeBody.Error.Message, "retry without tools") {
+		t.Errorf("message = %q, want without-tools hint", writeBody.Error.Message)
+	}
+}

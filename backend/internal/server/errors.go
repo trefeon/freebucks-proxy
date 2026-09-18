@@ -5,17 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 	"math"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // quotaSummary renders the live per-model session quota from a probe's
@@ -164,6 +163,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	var cbe *upstream.CountryBlockedError
 	var ce *upstream.CreditsError
 	var cde *upstream.CapacityDeferredError
+	var nee *upstream.NoEndpointsError
 	switch {
 	case errors.As(err, &be):
 		status, code = http.StatusForbidden, "account_banned"
@@ -322,6 +322,23 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 			message = "Session expired or model changed — retry immediately."
 		}
 		retryAfter = 1 * time.Second
+	case errors.As(err, &nee):
+		// Issue #630: upstream routing has no serving endpoint for the
+		// (model, request-shape) combination (404 "No endpoints ...").
+		// 502 keeps client retry behavior; the distinct code plus the
+		// hint replace the opaque upstream_unavailable so operators see
+		// the shape to change. NoEndpointsError is a distinct type, so
+		// no earlier arm matches it; placed beside the other
+		// model-scoped refusals. Model-scoped: no cooldown, no
+		// Retry-After drumbeat (re-POSTing the same shape re-trips the
+		// same fence).
+		status, code = http.StatusBadGateway, "model_no_endpoints"
+		message = nee.Body
+		if message == "" {
+			message = "upstream has no serving endpoints for this model and request shape"
+		}
+		message += "; retry without tools[] or pick another model"
+		retryAfter = 0
 	case errors.As(err, &ue):
 		if ue.Retryable {
 			// deployment_outside_hours etc.: temporarily unavailable, worth
