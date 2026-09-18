@@ -39,6 +39,9 @@ func keepalivePingsOf(t *testing.T, body string) int {
 // upstream produces no bytes, and the stream must still complete with the
 // terminal finish_reason once data resumes — never aborting mid-silence.
 func TestConformanceKeepaliveDuringUpstreamSilence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	old := keepaliveInterval
 	// Shrink the cadence so the test is fast (pattern from
 	// relay_internal_test.go TestRelayStreamKeepalive). The 15s production
