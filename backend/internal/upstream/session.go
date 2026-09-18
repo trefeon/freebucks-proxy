@@ -192,7 +192,7 @@ func (c *Client) ProbeAccount(ctx context.Context) (*SessionState, error) {
 // does not load as an IANA zone (including bare "Local") falls back to
 // UTC — always valid, always boring.
 func localIANATimezone() string {
-	if name := time.Local.String(); name != "" {
+	if name := time.Local.String(); name != "" && name != "Local" {
 		if _, err := time.LoadLocation(name); err == nil {
 			return name
 		}
