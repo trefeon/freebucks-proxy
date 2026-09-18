@@ -56,6 +56,18 @@ type FreebucksPriceChange struct {
 	Tagline string  `json:"tagline"`
 }
 
+// FreebuffOffPeakPrice mirrors FreebuffOffPeakPrice (vendor 3420c99): one
+// model id's off-peak offer — the daily [startHourUtc, endHourUtc) window
+// (end may be on the next day) priced at price against regularPrice.
+// Server-owned recurring policy for new sessions; admitted charges never
+// change.
+type FreebuffOffPeakPrice struct {
+	StartHourUtc int     `json:"startHourUtc"`
+	EndHourUtc   int     `json:"endHourUtc"`
+	Price        float64 `json:"price"`
+	RegularPrice float64 `json:"regularPrice"`
+}
+
 // FreebucksUpgrade is the upstream upgrade nudge carried on the Freebucks
 // block (vendor af898dc): kind limited_offer is the DeepSeek discount for an
 // unpaid limited account (modelId names the discounted row), kind upgrade is
@@ -93,7 +105,8 @@ type FreebucksFirstTabDiscount struct {
 // the daily pool + the never-expiring wallet + the USD spend ceiling +
 // the plan id ("" when the account is on the free allowance) +
 // the server-authorized quota exemption + per-model prices with their
-// display copy + the announced repricing schedule (issue #350) +
+// display copy + the pre-discount list prices and the off-peak policy
+// (vendor 3420c99) + the announced repricing schedule (issue #350) +
 // claimable earned grants and the upgrade nudge (vendor af898dc).
 type FreebucksInfo struct {
 	Balance float64         `json:"balance"`
@@ -109,6 +122,12 @@ type FreebucksInfo struct {
 	// the meter's canStart is exempt || balance >= price).
 	QuotaExempt bool               `json:"quotaExempt,omitempty"`
 	Prices      map[string]float64 `json:"prices"`
+	// ListPrices mirrors FreebuffFreebucksInfo.listPrices (vendor 3420c99):
+	// the per-model list price BEFORE the first-tab discount, for display
+	// cross-out beside the discounted prices entry. Present only on a
+	// quote that carries firstTabDiscount; never used for admission or
+	// charging.
+	ListPrices map[string]float64 `json:"listPrices,omitempty"`
 	// PriceNotices overrides the static model tagline with price-resolved
 	// copy (mirrors taglineFor in freebuff-model-selector.tsx).
 	PriceNotices map[string]string      `json:"priceNotices,omitempty"`
@@ -125,6 +144,10 @@ type FreebucksInfo struct {
 	// 6cd8970); nil when the server sends none. Display state only: the
 	// server already folds an available offer into prices.
 	FirstTabDiscount *FreebucksFirstTabDiscount `json:"firstTabDiscount,omitempty"`
+	// OffPeak mirrors FreebuffFreebucksInfo.offPeak (vendor 3420c99):
+	// server-owned recurring prices for new sessions. Display/policy
+	// state only — admitted charges never change.
+	OffPeak map[string]FreebuffOffPeakPrice `json:"offPeak,omitempty"`
 }
 
 // Spendable is the admission-time spendable amount: the server-computed
@@ -249,24 +272,35 @@ type rawFreebucksUpgrade struct {
 
 // rawFreebucks mirrors upstream FreebuffFreebucksInfo (issue #321 wire
 // drift, #350 for exemption/notices/schedule, af898dc for claimable
-// grants and the upgrade nudge): spendable balance + the
-// daily pool window + the never-expiring wallet + the USD spend ceiling +
-// the monthly allowance + the plan id + the quota exemption + per-model
-// price-notice copy + the announced repricing schedule.
+// grants and the upgrade nudge, 3420c99 for listPrices/offPeak):
+// spendable balance + the daily pool window + the never-expiring wallet
+// + the USD spend ceiling + the monthly allowance + the plan id + the
+// quota exemption + per-model prices with their pre-discount list prices
+// + price-notice copy + the off-peak policy + the announced schedule.
 type rawFreebucks struct {
-	Balance          float64                       `json:"balance"`
-	ClaimableGrant   float64                       `json:"claimableGrantFreebucks"`
-	Daily            rawFreebucksWindow            `json:"daily"`
-	Wallet           *rawFreebucksWallet           `json:"wallet"`
-	Spend            *rawFreebucksSpendCeiling     `json:"spend"`
-	Monthly          *rawFreebucksMonthlyAllowance `json:"monthly"`
-	PlanID           *string                       `json:"planId"`
-	QuotaExempt      *bool                         `json:"quotaExempt"`
-	Prices           map[string]float64            `json:"prices"`
-	PriceNotices     map[string]string             `json:"priceNotices"`
-	PriceChanges     []rawFreebucksPriceChange     `json:"priceChanges"`
-	Upgrade          *rawFreebucksUpgrade          `json:"upgrade"`
-	FirstTabDiscount *rawFreebucksFirstTabDiscount `json:"firstTabDiscount"`
+	Balance          float64                             `json:"balance"`
+	ClaimableGrant   float64                             `json:"claimableGrantFreebucks"`
+	Daily            rawFreebucksWindow                  `json:"daily"`
+	Wallet           *rawFreebucksWallet                 `json:"wallet"`
+	Spend            *rawFreebucksSpendCeiling           `json:"spend"`
+	Monthly          *rawFreebucksMonthlyAllowance       `json:"monthly"`
+	PlanID           *string                             `json:"planId"`
+	QuotaExempt      *bool                               `json:"quotaExempt"`
+	Prices           map[string]float64                  `json:"prices"`
+	ListPrices       map[string]float64                  `json:"listPrices"`
+	PriceNotices     map[string]string                   `json:"priceNotices"`
+	PriceChanges     []rawFreebucksPriceChange           `json:"priceChanges"`
+	Upgrade          *rawFreebucksUpgrade                `json:"upgrade"`
+	FirstTabDiscount *rawFreebucksFirstTabDiscount       `json:"firstTabDiscount"`
+	OffPeak          map[string]rawFreebucksOffPeakPrice `json:"offPeak"`
+}
+
+// rawFreebucksOffPeakPrice mirrors FreebuffOffPeakPrice (vendor 3420c99).
+type rawFreebucksOffPeakPrice struct {
+	StartHourUtc int     `json:"startHourUtc"`
+	EndHourUtc   int     `json:"endHourUtc"`
+	Price        float64 `json:"price"`
+	RegularPrice float64 `json:"regularPrice"`
 }
 
 // rawFreebucksPriceChange mirrors FreebuffPriceChange (issue #350).
