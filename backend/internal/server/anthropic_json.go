@@ -49,7 +49,13 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 	// Restore client tool names (#140) BEFORE the Anthropic translation
 	// reads them: tool_use blocks must carry the client's dispatch name.
 	stats.toolMap.FromUpstreamChunk(completion)
-	msgObj := anthropicMessageFromCompletion(completion, servedModel)
+	// Strict gate: unusable arguments for a strict:true tool fail the turn
+	// with 400 invalid_tool_arguments; loose tools keep the legacy {} input.
+	msgObj, err := anthropicMessageFromCompletionStrict(completion, servedModel, strictToolsFromRequest(r))
+	if err != nil {
+		s.writeAnthropicError(w, r, http.StatusBadRequest, err.Error(), invalidToolArgumentsCode, 0)
+		return
+	}
 	out, err := json.Marshal(msgObj)
 	if err != nil {
 		s.writeAnthropicError(w, r, http.StatusBadGateway,
@@ -139,12 +145,19 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 	_, _ = w.Write(out)
 }
 
-// anthropicMessageFromCompletion builds the Anthropic message object from
-// an accumulated chat.completion. servedModel is the authoritative model the
-// proxy's lease was bound to (issue #164) and wins over the upstream echo;
-// the echo only fills the field when no served model is known (direct unit
-// calls) — the response must name what actually served the request.
 func anthropicMessageFromCompletion(completion map[string]any, servedModel string) map[string]any {
+	// Loose entry point: no tool is strict, so every unusable argument
+	// falls back to the legacy {} input (callers with a request use the
+	// strict variant, which 400s for strict:true tools instead).
+	msg, _ := anthropicMessageFromCompletionStrict(completion, servedModel, nil)
+	return msg
+}
+
+// anthropicMessageFromCompletionStrict is anthropicMessageFromCompletion
+// with the per-tool strict lookup: tool_use input for a tool declared
+// strict:true must parse as a JSON object, else an error is returned for
+// the caller to surface as 400 invalid_tool_arguments.
+func anthropicMessageFromCompletionStrict(completion map[string]any, servedModel string, strictTools map[string]bool) (map[string]any, error) {
 	id, _ := completion["id"].(string)
 	if id == "" {
 		id = "msg_" + randHexString(10)
@@ -194,11 +207,15 @@ func anthropicMessageFromCompletion(completion map[string]any, servedModel strin
 							toolID = "toolu_" + randHexString(6)
 						}
 						hasToolCall = true
+						input, err := parseJSONArgsForTool(args, name, strictTools)
+						if err != nil {
+							return nil, err
+						}
 						content = append(content, map[string]any{
 							"type":  "tool_use",
 							"id":    sanitizeToolID(toolID),
 							"name":  name,
-							"input": parseJSONArgs(args),
+							"input": input,
 						})
 					}
 				}
@@ -228,7 +245,7 @@ func anthropicMessageFromCompletion(completion map[string]any, servedModel strin
 	if _, ok := uMap["output_tokens"]; !ok {
 		uMap["output_tokens"] = 0
 	}
-	return message
+	return message, nil
 }
 
 // anthropicStopReason maps an OpenAI finish reason to the Anthropic

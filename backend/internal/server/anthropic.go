@@ -93,6 +93,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["stream"].(bool); ok {
 		stream = v
 	}
+	// Strict tool-calling closer on the Anthropic tool declarations, before
+	// conversion wraps input_schema into the chat envelope.
+	if msg := validateAnthropicStrictTools(raw); msg != "" {
+		s.writeAnthropicError(w, r, http.StatusBadRequest, msg, strictViolationCode, 0)
+		return
+	}
 	chatParams, err := anthropicToChatParams(raw)
 	if err != nil {
 		s.writeAnthropicError(w, r, http.StatusBadRequest,
@@ -233,6 +239,11 @@ func anthropicToChatParams(raw map[string]any) ([]byte, error) {
 			fn := map[string]any{"name": name, "description": desc}
 			if schema, ok := tool["input_schema"]; ok && schema != nil {
 				fn["parameters"] = schema
+			}
+			// Preserve the client's strict declaration on the chat envelope
+			// for the response-side strict lookup; absent for loose tools.
+			if strict, ok := tool["strict"].(bool); ok && strict {
+				fn["strict"] = true
 			}
 			chatTools = append(chatTools, map[string]any{"type": "function", "function": fn})
 		}

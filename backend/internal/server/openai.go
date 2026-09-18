@@ -71,6 +71,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONError(w, http.StatusBadRequest, msg, "invalid_request_error", "invalid_request_error", 0)
 		return
 	}
+	// Strict tool-calling closer: a strict:true tool whose schema does not
+	// meet the strict contract fails here, before normalization could strip
+	// or rewrite the markers it declares.
+	if msg := validateChatStrictTools(raw); msg != "" {
+		s.writeClientError(w, r, http.StatusBadRequest, msg, strictViolationCode, 0)
+		return
+	}
 	stream := false
 	if v, ok := raw["stream"].(bool); ok {
 		stream = v

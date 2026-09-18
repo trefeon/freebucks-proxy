@@ -89,6 +89,12 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			ModelUnavailableMessage(rawModel), "invalid_request_error", "model_unavailable", 0)
 		return
 	}
+	// Strict tool-calling closer on the flat Responses function tools,
+	// before conversion wraps them into the chat envelope.
+	if msg := validateResponsesStrictTools(raw); msg != "" {
+		s.writeClientError(w, r, http.StatusBadRequest, msg, strictViolationCode, 0)
+		return
+	}
 	stream := false
 	if v, ok := raw["stream"].(bool); ok {
 		stream = v
@@ -229,13 +235,20 @@ func responsesToChatParams(raw map[string]any) ([]byte, error) {
 			if params == nil {
 				params = map[string]any{"type": "object", "properties": map[string]any{}}
 			}
+			fn := map[string]any{
+				"name":        name,
+				"description": desc,
+				"parameters":  params,
+			}
+			// Preserve the client's strict declaration on the chat envelope
+			// so the response-side strict lookup (strictToolsFromBody) and the
+			// upstream both see it; absent for loose tools (byte-identical).
+			if strict, ok := tool["strict"].(bool); ok && strict {
+				fn["strict"] = true
+			}
 			chatTools = append(chatTools, map[string]any{
-				"type": "function",
-				"function": map[string]any{
-					"name":        name,
-					"description": desc,
-					"parameters":  params,
-				},
+				"type":     "function",
+				"function": fn,
 			})
 		}
 		if len(chatTools) > 0 {

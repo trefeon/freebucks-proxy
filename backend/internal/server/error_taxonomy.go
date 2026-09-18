@@ -3,12 +3,13 @@ package server
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // openAIErrorType maps an internal error code to the OpenAI error `type`
@@ -20,6 +21,10 @@ func openAIErrorType(status int, code string) string {
 	case "rate_limit_exceeded":
 		return "rate_limit_exceeded"
 	case "missing_bearer_token":
+		return "invalid_request_error"
+	case "strict_violation", "invalid_tool_arguments":
+		// Strict tool-calling contract failures (strict_tools.go) are
+		// client request errors, never upstream failures.
 		return "invalid_request_error"
 	default:
 		return "upstream_error"
@@ -65,6 +70,10 @@ func defaultHintForCode(code, message string) string {
 		return "Premium peak-hours window — transient. Retry after ~30m."
 	case code == "missing_bearer_token":
 		return "Bridge mode active: pass your FreeBuff token in Authorization: Bearer <token>"
+	case code == "strict_violation":
+		return "A tool declared strict:true but its schema does not meet the strict contract: parameters must be type object with every property listed in required and additionalProperties false."
+	case code == "invalid_tool_arguments":
+		return "The model returned unusable arguments for a tool declared strict:true. Retry the turn; a strict tool's arguments must be a JSON object."
 	case code == "model_not_found":
 		return "Check available models via GET /v1/models"
 	default:
