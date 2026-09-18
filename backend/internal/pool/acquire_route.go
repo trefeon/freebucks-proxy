@@ -221,6 +221,14 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 			p.logger.Debug("pool: token skipped (model pin)", "token", idx+1, "model", model)
 			continue
 		}
+		// Freebucks balance cap: skip tokens whose Freebucks allowance is exhausted
+		// for this model, rather than attempting a doomed session admission.
+		if capped, retryAfter := freebucksCapped(tok, model); capped {
+			rateLimited = appendRateLimitEntry(rateLimited, freebucksLimitError(tok, model), idx)
+			errs = append(errs, fmt.Sprintf("%s: freebucks balance exhausted for model %q (retry in %v)", name, model, retryAfter.Round(time.Second)))
+			p.logger.Debug("pool: token skipped (freebucks capped)", "token", idx+1, "model", model)
+			continue
+		}
 
 		if until := tok.runs.CooldownUntil(); time.Now().Before(until) || tok.runs.BanError() != nil {
 			// Issue #155: if the cooldown was caused by a specific model's quota exhaustion,

@@ -10,15 +10,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/notify"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestTemporaryBanQuarantineLiftsAfterResumesAt pins the lift-aware
@@ -605,5 +606,40 @@ func TestFreebucksCappedClaimableGrants(t *testing.T) {
 	// revived legacy quota — there is no legacy path to revive).
 	if capped, _ := freebucksCappedForSnapshot(session.SessionSnapshot{}, "deepseek/deepseek-v4-flash"); capped {
 		t.Error("capped with nil Freebucks, want not capped")
+	}
+}
+
+// TestFreebucksCappedExhaustedZeroBalance verifies that an account with no Freebucks
+// left (Spendable < price) is strictly capped and skipped even when upstream omits
+// an explicit future reset timestamp (falling back to Pacific midnight refill),
+// and that premium models default to capped when balance is exhausted.
+func TestFreebucksCappedExhaustedZeroBalance(t *testing.T) {
+	mkSnap := func(fb *upstream.FreebucksInfo) session.SessionSnapshot {
+		return session.SessionSnapshot{Freebucks: fb}
+	}
+	// Zero balance, no explicit ResetAt → must be capped with retry > 0 (until Pacific midnight).
+	zeroFb := &upstream.FreebucksInfo{
+		Balance: 0,
+		Daily:   upstream.FreebucksWindow{Limit: 20, Spent: 20, Remaining: 0},
+		Prices:  map[string]float64{"upstage/solar-pro4": 2},
+	}
+	capped, retry := freebucksCappedForSnapshot(mkSnap(zeroFb), "upstage/solar-pro4")
+	if !capped {
+		t.Fatal("not capped with 0 balance on priced model, want capped")
+	}
+	if retry <= 0 {
+		t.Errorf("retry = %v, want > 0 (until Pacific midnight fallback)", retry)
+	}
+
+	// Zero balance on a premium model not in Prices map → must be capped.
+	capped, _ = freebucksCappedForSnapshot(mkSnap(zeroFb), "openai/gpt-5.6-luna")
+	if !capped {
+		t.Fatal("not capped with 0 balance on premium model not in prices map, want capped")
+	}
+
+	// Zero balance on unmetered model (not in prices and not premium) → not capped.
+	capped, _ = freebucksCappedForSnapshot(mkSnap(zeroFb), "z-ai/glm-5.3-flash")
+	if capped {
+		t.Fatal("capped on unmetered model with 0 balance, want unmetered model accessible")
 	}
 }

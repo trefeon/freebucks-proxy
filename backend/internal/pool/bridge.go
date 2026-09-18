@@ -10,14 +10,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"freebuff-proxy/backend/internal/phasetiming"
+	"freebuff-proxy/backend/internal/runs"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // bridgeEntry is one lazily-created client-token slot in bridge mode: the
@@ -456,14 +457,11 @@ func (p *Pool) ProbeNewToken(ctx context.Context, token string) (*upstream.Sessi
 // ErrNoActiveSession when the token has no active session (still a valid
 // token), or the classified auth/network error otherwise.
 func (p *Pool) ProbeToken(ctx context.Context, token int) (*upstream.SessionState, error) {
-	toks := p.roster.Load()
-	if token < 0 || token >= len(*toks) {
-		return nil, fmt.Errorf("pool: token %d out of range", token)
-	}
-	tok := (*toks)[token]
-	st, err := tok.client.ProbeAccount(ctx)
-	if err == nil && st != nil {
-		tok.session.UpdateQuotaFromProbe(st)
+	_, st, err := p.ProbeTokenDetailed(ctx, token)
+	if err == nil && st == nil {
+		// Legacy contract: healthy idle tokens report ErrNoActiveSession
+		// (callers treat it as valid). Detailed already synced state.
+		return nil, upstream.ErrNoActiveSession
 	}
 	return st, err
 }

@@ -858,6 +858,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/admin/tokens/test-all": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Zero-cost upstream probe of all tokens */
+    post: operations["tokensTestAll"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/tokens/{id}/drop-session": {
     parameters: {
       query?: never;
@@ -1782,6 +1799,19 @@ export interface components {
         name: string;
       }[];
     };
+    tokensTestAllResponse: {
+      cooldown_until?: string;
+      cooling: boolean;
+      daily_limit_freebucks: number;
+      daily_spent_freebucks: number;
+      detail?: string;
+      email?: string;
+      index: number;
+      quarantined: boolean;
+      reset_at?: string;
+      spendable_freebucks: number;
+      status: string;
+    }[];
     tracesData: {
       enabled: boolean;
       traces: {
@@ -3052,6 +3082,26 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ResultEnvelope"];
+        };
+      };
+    };
+  };
+  tokensTestAll: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Zero-cost upstream probe of all tokens */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["tokensTestAllResponse"];
         };
       };
     };
