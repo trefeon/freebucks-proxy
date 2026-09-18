@@ -49,14 +49,15 @@ func TestUpdateEnvKeysAt(t *testing.T) {
 		t.Errorf("old token value still present:\n%s", got)
 	}
 
-	if runtime.GOOS != "windows" {
-		fi, err := os.Stat(envPath)
-		if err != nil {
-			t.Fatalf("stat: %v", err)
-		}
-		if fi.Mode().Perm() != 0o600 {
-			t.Errorf("file mode = %v, want 0600", fi.Mode().Perm())
-		}
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
+	fi, err := os.Stat(envPath)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
 

@@ -56,13 +56,14 @@ package pool
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 const (
@@ -463,6 +464,9 @@ func ladEqualInts(a, b []int) bool {
 // level. Fresh pool per wave (history-free routing); holds to the all-held
 // barrier so C turns overlap live; peak measured, then release.
 func TestConcurrencyLadderBase(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	ctx := context.Background()
 
 	t.Run("drain", func(t *testing.T) {
@@ -614,6 +618,9 @@ func TestConcurrencyLadderBase(t *testing.T) {
 // (stick-first, no spill) — C<=cap with zero parks, C>cap with 2 live +
 // (C-2) parked FIFO.
 func TestConcurrencyLadderScale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	ctx := context.Background()
 
 	t.Run("drain", func(t *testing.T) {
@@ -735,6 +742,9 @@ func TestConcurrencyLadderScale(t *testing.T) {
 // zero queue-timeouts (every parked turn is queue-granted, never
 // timeout-failed-over).
 func TestConcurrencyLadderQueueFull(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	p, mocks := newLadderPool(t, 10, "drain", 5*time.Minute)
 	r := runLadWave(t, p, modelA, 25)
 	assertLadCaps(t, r.peak, "queue-full")
@@ -826,6 +836,9 @@ func ladQuarantineViaBan(t *testing.T, ctx context.Context, p *Pool, mocks []*te
 // zero parks, C>cap with 2 live + (C-2) parked FIFO. Banned takes ZERO
 // turns; all succeed.
 func TestConcurrencyLadderBanned(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	ctx := context.Background()
 	for _, c := range []int{1, 2, 3, 4, 5, 6, 8} {
 		p, mocks := newLadderPool(t, 5, "drain", 0)
@@ -920,6 +933,9 @@ func TestConcurrencyLadderBanned(t *testing.T) {
 // so nothing waits out QUEUE_WAIT and nothing overflows). Caps + zero
 // errors + quiescence asserted per step.
 func TestConcurrencyLadderRamp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	ramp := func(t *testing.T, p *Pool, model string, steps []int, what string) {
 		t.Helper()
 		for _, n := range steps {
@@ -982,6 +998,9 @@ func TestConcurrencyLadderRamp(t *testing.T) {
 // shared session; peak live <= 2. The order trace below is the headline
 // answer to "2 streaming + 3 queue".
 func TestConcurrencyLadderSingleFIFO(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	p, mocks := newLadderPool(t, 1, "drain", 5*time.Minute)
 	r := runLadWave(t, p, modelA, 5)
 	for i, tok := range r.assign {
@@ -1045,6 +1064,9 @@ func ladAffinitySetup(t *testing.T, ctx context.Context, p *Pool, model string) 
 // session-create total) — serving from the live session beats spending a
 // second entitlement elsewhere. Accounts 2-5 take 0 turns.
 func TestAffinitySequential(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	ctx := context.Background()
 	p, mocks := newLadderPool(t, 5, "drain", 0)
 	inst := ladAffinitySetup(t, ctx, p, modelA)
@@ -1082,6 +1104,9 @@ func TestAffinitySequential(t *testing.T) {
 // session-holder beats spending a second entitlement, even though another
 // account would admit "faster". Zero spread, order preserved, zero errors.
 func TestAffinityConcurrent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	// Stick-first (operator ruling 2026-09-16): same-model arrivals rank the
 	// usable holder HEAD even when slot-full and park FIFO on it — no spill.
 	// History: #593 shipped this test with a t.Skip citing the irreconcilable
@@ -1137,6 +1162,9 @@ func TestAffinityConcurrent(t *testing.T) {
 // error unchanged (same 429 shape, queue-wait wording, Retry-After hint),
 // never a new error code and never a silent drop.
 func TestAffinityOverflowFailClosed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	ctx := context.Background()
 	p, _ := newLadderPool(t, 1, "drain", 2*time.Second)
 	ladAffinitySetup(t, ctx, p, modelA)
@@ -1185,6 +1213,9 @@ func TestAffinityOverflowFailClosed(t *testing.T) {
 // (single-flight, no double-create storm); all 5 served on it, zero errors.
 // The landing index is reported, not pinned.
 func TestAffinityExpired(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	ctx := context.Background()
 	p, mocks := newLadderPool(t, 5, "drain", 0)
 	oldInst := ladAffinitySetup(t, ctx, p, modelA)

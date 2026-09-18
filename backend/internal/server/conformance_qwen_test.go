@@ -22,6 +22,9 @@ import (
 )
 
 func TestConformanceQwenStreamGates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {

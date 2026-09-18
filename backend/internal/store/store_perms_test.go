@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -11,6 +12,9 @@ import (
 // and WEBHOOK_URL rows, so Open creates the file at 0600 and tightens a
 // pre-migration 0644 file on open.
 func TestOpenEnforces0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
 	path := filepath.Join(t.TempDir(), "perms.db")
 	s, err := Open(path)
 	if err != nil {
@@ -29,6 +33,9 @@ func TestOpenEnforces0600(t *testing.T) {
 }
 
 func TestOpenTightensExisting0644(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
 	path := filepath.Join(t.TempDir(), "legacy-perms.db")
 	s, err := Open(path)
 	if err != nil {

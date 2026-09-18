@@ -2,9 +2,10 @@ package pool
 
 import (
 	"context"
+	"testing"
+
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/testutil"
-	"testing"
 )
 
 // TestStrictOrderDrainsAccountOneFirst is the MASQ C1 keeper: strict
@@ -14,6 +15,9 @@ import (
 // with zero park wait on every lease. A precious holder stays at its own
 // index: no re-rank, no head boost.
 func TestStrictOrderDrainsAccountOneFirst(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool spill lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mocks := []*testutil.MockUpstream{testutil.NewMock(), testutil.NewMock(), testutil.NewMock()}
 	for _, m := range mocks {
 		t.Cleanup(m.Close)

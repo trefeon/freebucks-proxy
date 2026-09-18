@@ -61,6 +61,9 @@ func frameSetHasToolCall(frames []map[string]any, want string) bool {
 // turn. The upstream wire must carry the official signature names + the
 // injected end_turn; the model's calls arrive back under the CLIENT names.
 func TestConformancePiChatToolRenameRestore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +133,9 @@ func TestConformancePiChatToolRenameRestore(t *testing.T) {
 // sends both, which is what keeps the shared run_terminal_command target
 // unambiguous). Assert powershell renames upstream and restores downstream.
 func TestConformancePiPowershellWindowsTurn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +172,9 @@ func TestConformancePiPowershellWindowsTurn(t *testing.T) {
 // never dropped), the mapped todo renamed, and end_turn still injected so
 // the foreign_toolset gate never fires.
 func TestConformanceOmpUnmappedLoopToolsPassthrough(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +224,9 @@ func TestConformanceOmpUnmappedLoopToolsPassthrough(t *testing.T) {
 // entries are renamed on the translated upstream chat wire, and the tool_use
 // content block the client parses opens with the CLIENT name.
 func TestConformancePiAnthropicToolRenameRestore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +276,9 @@ func TestConformancePiAnthropicToolRenameRestore(t *testing.T) {
 // renamed on the upstream chat wire and the function_call item streamed back
 // carries the CLIENT name.
 func TestConformanceResponsesSurfaceToolRename(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -294,6 +309,9 @@ func TestConformanceResponsesSurfaceToolRename(t *testing.T) {
 // tool_choice pins a mapped client tool: the choice must be re-pointed at
 // the official name upstream.
 func TestConformanceToolChoicePinnedRename(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {

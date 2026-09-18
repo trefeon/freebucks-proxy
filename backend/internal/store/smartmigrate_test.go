@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -192,7 +193,7 @@ func TestOpenSteadyStateStrictNoop(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 	beforeHash, beforeMode := fileHash(t, path), fileMode(t, path)
-	if beforeMode != 0o600 {
+	if runtime.GOOS != "windows" && beforeMode != 0o600 {
 		t.Fatalf("mode = %o, want 600 before the no-op re-boot", beforeMode)
 	}
 
@@ -221,7 +222,9 @@ func TestOpenSteadyStateStrictNoop(t *testing.T) {
 	if got := fileHash(t, path); got != beforeHash {
 		t.Error("DB bytes changed across a no-op re-boot (want zero writes)")
 	}
-	if got := fileMode(t, path); got != beforeMode {
-		t.Errorf("DB mode = %o across a no-op re-boot, want %o (unchanged)", got, beforeMode)
+	if runtime.GOOS != "windows" {
+		if got := fileMode(t, path); got != beforeMode {
+			t.Errorf("DB mode = %o across a no-op re-boot, want %o (unchanged)", got, beforeMode)
+		}
 	}
 }

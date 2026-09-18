@@ -4,10 +4,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"freebuff-proxy/backend/internal/config"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"freebuff-proxy/backend/internal/config"
 
 	history "freebuff-proxy/backend/internal/store"
 
@@ -209,8 +211,9 @@ func TestSmartMigrateMarkedLatestZeroWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if got := fi.Mode().Perm(); got != 0o600 {
-		t.Fatalf("mode = %o, want 600 before the no-op re-boot", got)
+	gotPerm := fi.Mode().Perm()
+	if runtime.GOOS != "windows" && gotPerm != 0o600 {
+		t.Fatalf("mode = %o, want 600 before the no-op re-boot", gotPerm)
 	}
 
 	second, ms, err := history.OpenWithStatus(path)
@@ -232,7 +235,9 @@ func TestSmartMigrateMarkedLatestZeroWrites(t *testing.T) {
 	if got := smartMigrateFileHash(t, path); got != beforeHash {
 		t.Error("DB bytes changed across a marked latest re-boot (want zero writes)")
 	}
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(path); err != nil {
+		t.Errorf("DB mode changed across a marked latest re-boot: %v", err)
+	} else if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("DB mode changed across a marked latest re-boot: %v %o", err, fi.Mode().Perm())
 	}
 }

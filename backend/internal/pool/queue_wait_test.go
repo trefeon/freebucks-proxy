@@ -40,6 +40,9 @@ func waitForParkedWaiter(t *testing.T, p *Pool, key slotKey) {
 // path reports its wait: the lease carries it and the request's phase
 // accumulator carries queue_wait_ms.
 func TestQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
@@ -89,6 +92,9 @@ func TestQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
 // TestQueueWaitAbsentWhenNeverParked proves an immediate grant reports no
 // wait at all: no phase key and a zero lease wait.
 func TestQueueWaitAbsentWhenNeverParked(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, nil, mock)
@@ -111,6 +117,9 @@ func TestQueueWaitAbsentWhenNeverParked(t *testing.T) {
 // TestQueueWaitAbsentAfterQueueWaitTimeout proves a waiter whose QUEUE_WAIT
 // elapsed claims no wait: it never held a slot, so no wait was granted.
 func TestQueueWaitAbsentAfterQueueWaitTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) {
@@ -143,6 +152,9 @@ func TestQueueWaitAbsentAfterQueueWaitTimeout(t *testing.T) {
 // bridge lane keys the slot state off the *bridgeEntry, and its lease must
 // report the park identically.
 func TestBridgeQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newBridgeSmartPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
@@ -191,6 +203,9 @@ func TestBridgeQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
 // timeout/exhausted skip, so an operator could not tell a queued admission
 // from a slow one.
 func TestLeaseAcquiredLineReportsQueueWait(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)

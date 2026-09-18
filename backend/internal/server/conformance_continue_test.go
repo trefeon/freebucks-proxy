@@ -57,6 +57,9 @@ func continueToolUseBlock(events []map[string]any) (int, string, string) {
 // the tool shape through untouched, and relay a stream with terminal
 // finish_reason, the final usage chunk, and [DONE].
 func TestConformanceContinueDualAuthIncludeUsage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +136,9 @@ func TestConformanceContinueDualAuthIncludeUsage(t *testing.T) {
 // OpenAI upstream body, and the stream yields the standard Anthropic block
 // lifecycle ending in message_stop.
 func TestConformanceContinueAnthropicCacheControlBeta(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +207,9 @@ func TestConformanceContinueAnthropicCacheControlBeta(t *testing.T) {
 // stop_reason "tool_use", and the stream must end with message_stop — never
 // a bare hang or a truncated terminal.
 func TestConformanceContinueAnthropicToolUseStopReason(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {

@@ -131,6 +131,9 @@ func codexDeltasOf(events []map[string]any, typ, key string) []string {
 // response.id plus a usage carrying input_tokens/output_tokens/total_tokens
 // and no response.failed.
 func TestConformanceCodexResponsesTurn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	// The proxy renames client tool "bash" to the official upstream
@@ -320,6 +323,9 @@ func TestConformanceCodexResponsesTurn(t *testing.T) {
 // client-side (it has no chat-completions analogue and must never surface
 // as a chat field).
 func TestConformanceCodexFunctionCallRoundTrip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {

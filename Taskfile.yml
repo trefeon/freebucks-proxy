@@ -32,13 +32,33 @@ tasks:
     cmds:
       - go build -o bin/freebuff-proxy{{exeExt}} ./backend/cmd/freebuff-proxy
 
+  test:fast:
+    desc: Fast tier — all backend pkgs except pool+server+cmd entrypoints (seconds-scale lane default)
+    cmds:
+      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test $(go list ./backend/... | grep -v 'backend/internal/pool' | grep -v 'backend/internal/server' | grep -v 'backend/cmd/')
+
+  test:pool:
+    desc: Pool tier — backend/internal/pool only (slot/spill/pin ordering)
+    cmds:
+      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/internal/pool/...
+
+  test:server:
+    desc: Server tier — backend/internal/server only (known Windows-host flake zone; Linux CI is authority)
+    cmds:
+      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/internal/server/...
+
+  test:e2e:
+    desc: Entrypoint tier — backend/cmd/... (E2E harness; hermetic, needs safe.directory in docker)
+    cmds:
+      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/cmd/...
+
   test:
-    desc: Run the hermetic Go test suite
+    desc: Run the hermetic Go test suite (full; CI authority — default behavior unchanged)
     cmds:
       - env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/...
 
   test:race:
-    desc: Run the Go test suite with -race detector
+    desc: Run the Go test suite with -race detector (Linux CI owns race; Windows fails cgo exit 2)
     cmds:
       - env -u AUTH_TOKENS -u ADMIN_TOKEN go test -race ./backend/...
 
@@ -53,19 +73,26 @@ tasks:
     cmds:
       - go run ./backend/cmd/freebuff-proxy
 
+  verify:quick:
+    desc: Seconds-scale gate (format + vet + frontend check)
+    cmds:
+      - test -z "$(gofmt -l backend)"
+      - go vet ./backend/...
+      - npm --prefix frontend run check
+
   verify:
-    desc: Canonical fast gate (format, vet, build, hermetic Go tests, frontend checks)
+    desc: Canonical fast gate (format, vet, build, fast-tier Go tests, frontend checks)
     cmds:
       - test -z "$(gofmt -l backend)"
       - go vet ./backend/...
       - go build ./backend/...
-      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/...
+      - task: test:fast
       - npm --prefix frontend run check
       - npm --prefix frontend run lint
       - npm --prefix frontend run format:check
 
   verify:full:
-    desc: Full CI-equivalent gate (verify + race + frontend build/e2e + dist freshness)
+    desc: Full CI-equivalent gate (verify + race + frontend build/e2e + dist freshness; Windows cgo-exit-2 on race expected, CI owns race)
     cmds:
       - task: verify
       - task: test:race

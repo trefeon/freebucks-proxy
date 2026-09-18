@@ -57,6 +57,9 @@ func piToolCallIDAndType(frames []map[string]any, index int) (string, string) {
 // role:tool + tool_call_id preserved (pi requires the tool history or the
 // tool-result turn breaks).
 func TestConformancePiChatToolLoop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 

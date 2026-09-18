@@ -78,6 +78,9 @@ func kiloFramesOf(t *testing.T, body string) []map[string]any {
 // message_stop — no [DONE] sentinel required or emitted), and that every
 // frame is valid JSON.
 func TestConformanceKilocodeAnthropicWire(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +138,7 @@ func TestConformanceKilocodeAnthropicWire(t *testing.T) {
 	// Thinking block (index 0) opens first and closes with the
 	// signature_delta before the text/tool blocks open — the client closes
 	// reasoning on signature_delta (anthropic-messages.ts:714-736).
-	var thinkingIdx = -1
+	thinkingIdx := -1
 	for _, ev := range events {
 		if ev["type"] != "content_block_start" {
 			continue
@@ -171,7 +174,7 @@ func TestConformanceKilocodeAnthropicWire(t *testing.T) {
 
 	// The tool_use block: client name/id restored, input assembled from the
 	// input_json_delta fragments against the block index.
-	var toolIdx = -1
+	toolIdx := -1
 	var toolName, toolID string
 	for _, ev := range events {
 		if ev["type"] != "content_block_start" {

@@ -2,12 +2,13 @@ package pool
 
 import (
 	"context"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestPinBurst5OneAccount is the MASQ I4 burst keeper: slot 0 pinned to
@@ -15,6 +16,9 @@ import (
 // the pinned lane — while slot 1 (pinned to modelB) sees zero contact and
 // no client-visible error surfaces.
 func TestPinBurst5OneAccount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool pin-burst lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()

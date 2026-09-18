@@ -3,13 +3,14 @@ package pool
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestSpillWaitsFullQueueWaitBeforeTouchingNextAccount proves the spill
@@ -17,6 +18,9 @@ import (
 // #1's lane — account #2 sees zero contact before QUEUE_WAIT elapses —
 // then the waiter spills and is granted on #2 with QueueWait>0.
 func TestSpillWaitsFullQueueWaitBeforeTouchingNextAccount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool spill lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()
@@ -80,6 +84,9 @@ func TestSpillWaitsFullQueueWaitBeforeTouchingNextAccount(t *testing.T) {
 // first take #1's fast-path slots (QueueWait==0), any two of the
 // remaining three take #2's spilled slots, and one always loses.
 func TestSpillBurst5TwoAccounts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: pool spill lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()

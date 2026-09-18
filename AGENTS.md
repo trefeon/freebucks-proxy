@@ -55,6 +55,13 @@ bash scripts/drift-exact.sh
 
 # Config validation
 go test ./backend/internal/config/...
+
+# Test tiers (seconds → minutes; CI stays authority for -race/golangci/e2e)
+task verify:quick                            # gofmt + vet + svelte-check, seconds
+task test:fast                               # all backend pkgs except pool+server+cmd
+go test -short ./backend/internal/<pkg>/...  # skip heavy keepers (pool ladder/pin, conformance, mock-e2e)
+task test:pool | task test:server | task test:e2e   # heavy lanes, run alone serially
+npm --prefix frontend run test:unit          # node unit suites, no browser
 ```
 
 ### Full Verification (Pre-Merge / Nightly)
@@ -73,6 +80,12 @@ npm --prefix frontend run check && npm --prefix frontend run lint && npm --prefi
 npm --prefix frontend run build             # vite build → refresh backend/internal/dashboard/dist
 npm --prefix frontend run test:e2e          # Playwright 18 specs (needs built dist)
 ```
+
+# Windows host: AV blocks test-exe link in %TEMP% (e2e builds outside it),
+# -race never links (cgo exit 2 — CI owns race), 0600 asserts skip on Windows.
+# Rotating server-suite failures that pass solo are the known pre-existing flake
+# (proven on pristine HEAD) — note-and-move-on after 2 reruns. `task verify:full`
+# is the CI mirror (race + e2e + dist-diff); `task verify` is the fast gate.
 
 Knob chain: any `.env` knob must propagate
 dotenv → static → live → SSE hash → store refresh.

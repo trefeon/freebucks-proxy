@@ -66,8 +66,29 @@ func moduleRoot(t *testing.T) string {
 // the self-update swap copy it first (proxyInDir).
 func proxyBinary(t *testing.T) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "freebuff-proxy-e2e-build-*")
+		// Build outside %TEMP%: Windows AV scans %TEMP% aggressively and can
+		// lock a freshly linked .exe, breaking the build. Prefer
+		// os.UserCacheDir, falling back to a repo-ignored .testbin/ under
+		// the module root (*.exe is gitignored).
+		parent := ""
+		if cache, err := os.UserCacheDir(); err == nil && cache != "" {
+			candidate := filepath.Join(cache, "freebuff-proxy-e2e")
+			if err := os.MkdirAll(candidate, 0o755); err == nil {
+				parent = candidate
+			}
+		}
+		if parent == "" {
+			parent = filepath.Join(moduleRoot(t), ".testbin")
+			if err := os.MkdirAll(parent, 0o755); err != nil {
+				buildErr = err
+				return
+			}
+		}
+		dir, err := os.MkdirTemp(parent, "freebuff-proxy-e2e-build-*")
 		if err != nil {
 			buildErr = err
 			return
@@ -96,6 +117,10 @@ func proxyBinary(t *testing.T) string {
 // like a real install. Returns the binary path.
 func proxyInDir(t *testing.T, dir string) string {
 	t.Helper()
+	// Windows: Defender may hold a scan handle on the just-written exe,
+	// leaving a locked stray that breaks TempDir's RemoveAll. Registered
+	// here, the drain runs first (LIFO) while dir still exists.
+	testutil.DrainStrayTempFiles(t, dir)
 	name := "freebuff-proxy"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -105,7 +130,7 @@ func proxyInDir(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dst, data, 0755); err != nil {
+	if err := os.WriteFile(dst, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return dst
@@ -214,7 +239,7 @@ func writeDotenv(t *testing.T, dir string, kv map[string]string) {
 		sb.WriteString(v)
 		sb.WriteString("\n")
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(sb.String()), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(sb.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -293,6 +318,9 @@ func shutdownAndExpectExit(t *testing.T, cmd *exec.Cmd) {
 // --- 1. flagship: serve + chat + graceful drain ---
 
 func TestE2EServeAndDrain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	// Prewarm starts a run for every registry agent (~13) plus the chat's
@@ -421,6 +449,9 @@ func TestE2EServeAndDrain(t *testing.T) {
 // --- 2. -version ---
 
 func TestE2EVersionFlag(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	dir := t.TempDir()
 	bin := proxyInDir(t, dir)
 	code, stdout, stderr := runSimple(t, dir, bin, []string{"-version"}, e2eEnv(t, "AUTO_DISCOVER_TOKEN=false"), 30*time.Second)
@@ -435,6 +466,9 @@ func TestE2EVersionFlag(t *testing.T) {
 // --- 3. port conflict ---
 
 func TestE2EPortConflict(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 
@@ -467,6 +501,9 @@ func TestE2EPortConflict(t *testing.T) {
 // --- 4. -config JSON ---
 
 func TestE2EConfigJSON(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	port := freePort(t)
@@ -481,7 +518,7 @@ func TestE2EConfigJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -507,6 +544,9 @@ func TestE2EConfigJSON(t *testing.T) {
 // --- 5. bridge mode (explicit empty AUTH_TOKENS) ---
 
 func TestE2EBridgeMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	port := freePort(t)
@@ -534,6 +574,9 @@ func TestE2EBridgeMode(t *testing.T) {
 // --- 6. -doctor broken config ---
 
 func TestE2EDoctorBrokenConfig(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	dir := t.TempDir()
 	writeDotenv(t, dir, map[string]string{"LISTEN_ADDR": "invalid"})
 	bin := proxyInDir(t, dir)
@@ -559,6 +602,9 @@ func TestE2EDoctorBrokenConfig(t *testing.T) {
 // process exits 1; the assertions target the probe behavior, not the exit
 // code.
 func TestE2EDoctorProbesDefault(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	dir := t.TempDir()
@@ -583,6 +629,9 @@ func TestE2EDoctorProbesDefault(t *testing.T) {
 // --- 7. -test-token ---
 
 func TestE2ETestToken(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	t.Run("token ok", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
@@ -640,34 +689,37 @@ func TestE2ETestToken(t *testing.T) {
 // --- 8. -setup -yes with stubbed HOME + aider on PATH ---
 
 func TestE2ESetupYes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	home := t.TempDir()
 
 	// Continue: existing YAML with one model (no freebuff entry yet).
 	continueDir := filepath.Join(home, ".continue")
-	if err := os.MkdirAll(continueDir, 0755); err != nil {
+	if err := os.MkdirAll(continueDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	continueYaml := filepath.Join(continueDir, "config.yaml")
 	origContinue := "models:\n  - title: \"Existing\"\n    provider: \"openai\"\n    model: \"gpt-4o\"\n    apiBase: \"https://api.openai.com/v1\"\n"
-	if err := os.WriteFile(continueYaml, []byte(origContinue), 0644); err != nil {
+	if err := os.WriteFile(continueYaml, []byte(origContinue), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// opencode: existing providers (JSONC-free plain JSON).
 	opencodeDir := filepath.Join(home, ".config", "opencode")
-	if err := os.MkdirAll(opencodeDir, 0755); err != nil {
+	if err := os.MkdirAll(opencodeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	opencodeCfg := filepath.Join(opencodeDir, "opencode.json")
 	origOpencode := "{\n  \"providers\": {\n    \"anthropic\": {\"type\": \"anthropic\"}\n  }\n}\n"
-	if err := os.WriteFile(opencodeCfg, []byte(origOpencode), 0644); err != nil {
+	if err := os.WriteFile(opencodeCfg, []byte(origOpencode), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// aider: existing config to merge into.
 	aiderCfg := filepath.Join(home, ".aider.conf.yml")
 	origAider := "editor: code\n"
-	if err := os.WriteFile(aiderCfg, []byte(origAider), 0644); err != nil {
+	if err := os.WriteFile(aiderCfg, []byte(origAider), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -675,11 +727,11 @@ func TestE2ESetupYes(t *testing.T) {
 	// executable script on Unix. setup never runs it — detection only.
 	stubDir := t.TempDir()
 	if runtime.GOOS == "windows" {
-		if err := os.WriteFile(filepath.Join(stubDir, "aider.bat"), []byte("@echo off\r\n"), 0755); err != nil {
+		if err := os.WriteFile(filepath.Join(stubDir, "aider.bat"), []byte("@echo off\r\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	} else {
-		if err := os.WriteFile(filepath.Join(stubDir, "aider"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		if err := os.WriteFile(filepath.Join(stubDir, "aider"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -771,7 +823,7 @@ func buildReleaseArchive(t *testing.T, assetName, binaryName string, content []b
 	} else {
 		gz := gzip.NewWriter(&buf)
 		tw := tar.NewWriter(gz)
-		hdr := &tar.Header{Name: entry, Mode: 0755, Size: int64(len(content))}
+		hdr := &tar.Header{Name: entry, Mode: 0o755, Size: int64(len(content))}
 		if err := tw.WriteHeader(hdr); err != nil {
 			t.Fatal(err)
 		}
@@ -837,6 +889,9 @@ func fakeReleaseServer(t *testing.T, withChecksums bool) (*httptest.Server, stri
 }
 
 func TestE2EUpdateFakeRelease(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	srv, _, newBinary := fakeReleaseServer(t, true)
 	dir := t.TempDir()
 	bin := proxyInDir(t, dir)
@@ -910,6 +965,9 @@ func TestE2EUpdateFakeRelease(t *testing.T) {
 // WITHOUT a checksums.txt asset must fail the update (exit 1), never
 // silently install an unverified binary.
 func TestE2EUpdateMissingChecksumsFailsClosed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	srv, _, _ := fakeReleaseServer(t, false)
 	dir := t.TempDir()
 	bin := proxyInDir(t, dir)

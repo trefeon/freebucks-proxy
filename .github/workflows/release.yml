@@ -9,6 +9,10 @@ permissions:
   id-token: write # for artifact attestations (provenance)
   attestations: write
 
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Tag pushes bypass the branch- and PR-triggered CI runs, so gate the
   # release on the same hermetic suite ci.yml runs before GoReleaser can
@@ -21,6 +25,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -54,6 +59,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -86,6 +92,7 @@ jobs:
   release:
     needs: [test, frontend]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -120,6 +127,7 @@ jobs:
   docker:
     needs: [test, frontend]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.ref_type == 'tag' && !contains(github.ref_name, '-')
     permissions:
       contents: read

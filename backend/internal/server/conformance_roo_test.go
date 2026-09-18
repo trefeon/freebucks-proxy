@@ -18,6 +18,9 @@ import (
 )
 
 func TestConformanceRooStrictSchemaPreserved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	// Non-streaming: single JSON completion answering a native tool call.

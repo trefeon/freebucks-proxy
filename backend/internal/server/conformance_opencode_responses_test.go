@@ -74,6 +74,9 @@ func ocResponsesBody(model, instructions string) string {
 // the response body NEVER contains the "encrypted_content" key (the ignored
 // include contract, devdocs/compatibility-roadmap.md Phase 0/2).
 func TestConformanceOpencodeResponsesStream(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -300,6 +303,9 @@ func TestConformanceOpencodeResponsesStream(t *testing.T) {
 // message_delta → message_stop, thinking must translate to a reasoning effort
 // upstream, and no [DONE] terminator leaks into the Anthropic stream.
 func TestConformanceOpencodeAnthropicBetaBundle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +349,7 @@ func TestConformanceOpencodeAnthropicBetaBundle(t *testing.T) {
 	// Thinking block: type thinking at index 0, thinking_delta then the
 	// signature_delta that closes it (empty signature — the chat upstream
 	// never emits signatures) before the text block opens.
-	var thinkingIdx = -1
+	thinkingIdx := -1
 	for _, ev := range events {
 		if ev["type"] != "content_block_start" {
 			continue

@@ -599,6 +599,9 @@ func parseAnthropicSSE(sseData []byte) (*anthropicParsedResponse, error) {
 }
 
 func TestAgenticMiMoE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: agentic-mimo lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	t.Run("OpenAI_NonStreaming", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()

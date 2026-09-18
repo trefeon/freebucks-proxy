@@ -70,6 +70,9 @@ func clineThinkingJoin(events []map[string]any) string {
 // token cap through UNCHANGED end-to-end and include_usage survives — a 400
 // or a dropped cap would break cline's reasoning-model chat requests.
 func TestConformanceClineChatCompatMaxCompletionTokens(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 
@@ -130,6 +133,9 @@ func TestConformanceClineChatCompatMaxCompletionTokens(t *testing.T) {
 // token cap, no [DONE] sentinel (Responses clients terminate on
 // response.completed).
 func TestConformanceClineResponsesMaxOutputTokens(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 
@@ -209,6 +215,9 @@ func TestConformanceClineResponsesMaxOutputTokens(t *testing.T) {
 // replayed thinking history, and the tool_result must reach the upstream as
 // a role:tool message with the echoed tool_use id.
 func TestConformanceClineAnthropicThinkingSignatureReplay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 
@@ -270,14 +279,16 @@ func TestConformanceClineAnthropicThinkingSignatureReplay(t *testing.T) {
 	}
 
 	events1 := collectAnthropicEvents(t, string(data1))
-	wantTypes1 := []string{"message_start", "content_block_start", "content_block_delta", "content_block_delta",
+	wantTypes1 := []string{
+		"message_start", "content_block_start", "content_block_delta", "content_block_delta",
 		"content_block_stop", "content_block_start", "content_block_delta", "content_block_delta",
-		"content_block_stop", "message_delta", "message_stop"}
+		"content_block_stop", "message_delta", "message_stop",
+	}
 	if got := replayEventTypes(events1); strings.Join(got, ",") != strings.Join(wantTypes1, ",") {
 		t.Fatalf("turn 1 event sequence = %v, want %v", got, wantTypes1)
 	}
 
-	var thinkingIdx, toolIdx = -1, -1
+	thinkingIdx, toolIdx := -1, -1
 	var toolName, toolID string
 	var sawThinkingDelta, sawSignatureDelta bool
 	for _, ev := range events1 {

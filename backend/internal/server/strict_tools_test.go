@@ -25,6 +25,9 @@ import (
 // a terminal tool with NO strict flag is accepted and forwarded verbatim
 // (no strict marker injected, no validation applied).
 func TestStrictTools_LooseHermesTerminalPasses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatBody = responsesChunks()
@@ -49,6 +52,9 @@ func TestStrictTools_LooseHermesTerminalPasses(t *testing.T) {
 // TestStrictTools_LooseOpenClawBashPasses pins the loose OpenClaw path on
 // the Responses surface: a flat bash tool with NO strict flag is accepted.
 func TestStrictTools_LooseOpenClawBashPasses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatBody = responsesChunks()
@@ -78,6 +84,9 @@ func TestStrictTools_LooseOpenClawBashPasses(t *testing.T) {
 // delivers a tool_use block with an empty-object input (Hermes/OpenClaw
 // unchanged).
 func TestStrictTools_LooseBadJSONArgsFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatBody = testutil.SSEEvent(chunk("chatcmpl-sl1", 201,
@@ -100,6 +109,9 @@ func TestStrictTools_LooseBadJSONArgsFallback(t *testing.T) {
 // TestStrictTools_ChatCloser rejects strict:true chat tools whose schema
 // violates the strict contract, and accepts a fully strict declaration.
 func TestStrictTools_ChatCloser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	cases := []struct {
 		name       string
 		function   string // raw function-object JSON (inside {"type":"function","function":...})
@@ -184,6 +196,9 @@ func TestStrictTools_ChatCloser(t *testing.T) {
 // function tools: a strict tool missing required fails with strict_violation
 // before any upstream call.
 func TestStrictTools_ResponsesCloser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatBody = responsesChunks()
@@ -207,6 +222,9 @@ func TestStrictTools_ResponsesCloser(t *testing.T) {
 // TestStrictTools_AnthropicCloser pins the closer on Anthropic
 // input_schema tools, in the Anthropic error envelope.
 func TestStrictTools_AnthropicCloser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatBody = responsesChunks()
@@ -235,6 +253,9 @@ func TestStrictTools_AnthropicCloser(t *testing.T) {
 // upstream arguments for a STRICT tool fail the Anthropic turn with 400
 // invalid_tool_arguments (bad-JSON and empty variants).
 func TestStrictTools_StrictBadJSONArgs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	strictTool := `"tools":[{"name":"get_strict","description":"strict lookup","strict":true,` +
 		`"input_schema":{"type":"object","properties":{"city":{"type":"string"}},` +
 		`"required":["city"],"additionalProperties":false}}]`
@@ -275,6 +296,9 @@ func TestStrictTools_StrictBadJSONArgs(t *testing.T) {
 // strict:true tool with well-formed arguments still delivers the tool_use
 // block.
 func TestStrictTools_StrictValidArgsPass(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatBody = testutil.SSEEvent(chunk("chatcmpl-ss2", 201,
