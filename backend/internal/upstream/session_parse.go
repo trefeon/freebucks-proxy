@@ -260,6 +260,8 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 			GlmPromo:           string(raw.GlmPromo),
 			UpdateRequired:     raw.UpdateRequired,
 			PurchasesPaused:    raw.PurchasesPaused,
+			// LimitedOfferReason deliberately unset here: the switch below
+			// admits only the three known vendor members, anything else stays ''.
 		}
 		// limitedOfferReason is an opaque passthrough like CountryBlockReason,
 		// but only the three vendor members survive: an unknown string (a

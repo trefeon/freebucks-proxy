@@ -11,7 +11,7 @@ func TestCheapestFreeIn(t *testing.T) {
 	}
 	// Without the cheapest row, the next unmetered served row wins — never
 	// an unlisted id and never the alphabetically-first gated row.
-	rest := []string{"anthropic/claude-fable-5", "mimo/mimo-v2.5", "openai/gpt-5.6-luna"}
+	rest := []string{"anthropic/claude-fable-5.1", "mimo/mimo-v2.5", "openai/gpt-5.6-luna"}
 	if got := CheapestFreeIn(rest, nil, false); got != "mimo/mimo-v2.5" {
 		t.Errorf("CheapestFreeIn(restricted) = %q, want mimo/mimo-v2.5", got)
 	}
