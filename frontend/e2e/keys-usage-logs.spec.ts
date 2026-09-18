@@ -380,8 +380,9 @@ test.describe("keys, usage and logs (mock backend)", () => {
     await page.goto(adminUrl("plans"));
     await page.getByRole("button", { name: "Accounts" }).click();
     await replayed;
+    // Vendor formatFreebucks rounds the 1.5 mock refund to 2.
     await expect(page.getByTestId("refund-settled-line")).toContainText(
-      "1.5 Freebucks returned to your wallet.",
+      "2 Freebucks returned to your wallet.",
     );
     await expect(page.getByTestId("refund-line")).toHaveCount(0);
   });

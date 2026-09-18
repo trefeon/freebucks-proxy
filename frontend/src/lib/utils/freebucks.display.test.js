@@ -122,6 +122,12 @@ describe("formatFreebucks grouping", () => {
   it("clamps negatives to zero like upstream", () => {
     assert.equal(formatFreebucks(-5), "0");
   });
+
+  it("rounds fractional units to integers like upstream", () => {
+    assert.equal(formatFreebucks(1.5), "2");
+    assert.equal(formatFreebucks(7.5), "8");
+    assert.equal(formatFreebucks(2.5), "3");
+  });
 });
 
 describe("streakBonusNote (bonus branches only with a value present)", () => {

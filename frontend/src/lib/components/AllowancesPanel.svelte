@@ -197,6 +197,7 @@
       "Add a token to the pool to see Freebucks allowances and model pricing.",
     )}
   />
+{:else}
   {#if resetAt}
     {#if Date.parse(resetAt) <= now}
       <p

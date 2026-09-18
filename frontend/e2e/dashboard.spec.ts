@@ -511,8 +511,9 @@ test.describe("dashboard hermetic mocks", () => {
     // by the sibling test); the mock settles fast, so assert the replay
     // POST plus the settled line replacing the pending one.
     await replayed;
+    // Vendor formatFreebucks rounds the 1.5 mock refund to 2.
     await expect(page.getByTestId("refund-settled-line")).toContainText(
-      "1.5 Freebucks returned to your wallet.",
+      "2 Freebucks returned to your wallet.",
     );
     await expect(page.getByTestId("refund-line")).toHaveCount(0);
   });

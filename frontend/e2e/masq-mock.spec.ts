@@ -100,11 +100,12 @@ test.describe("MASQ mock-data scenarios (centralized factory)", () => {
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
     await expect(page.getByText("dev@example.com").first()).toBeVisible();
-    await expect(page.getByText("Used 2.5 / 10")).toBeVisible();
+    // Vendor formatFreebucks rounds (2.5 -> 3, 7.5 -> 8).
+    await expect(page.getByText("Used 3 / 10")).toBeVisible();
     await expect(page.getByText("Used 42 / 300")).toBeVisible();
     await expect(
       page.locator('[data-testid="freebucks-header"]').first(),
-    ).toContainText(/7\.5\/10 Freebucks daily/);
+    ).toContainText(/8\/10 Freebucks daily/);
     await expect(page.getByTestId("reset-strip")).toContainText("resets in");
   });
 

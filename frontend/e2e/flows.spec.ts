@@ -42,7 +42,15 @@ test.describe("user flows", () => {
   test("quota: reset strip renders the shared pacific-midnight countdown", async ({
     page,
   }) => {
-    await mockDashboard(page, loadFixtures(RW));
+    // Fresh reset dates: the archived Sept-6 reset_at is stale, which the
+    // vendor refill-pending rule renders as "Updating balance…" instead.
+    const f = loadFixtures(RW);
+    const list = f.tokens.tokens ?? f.tokens;
+    for (const t of Array.isArray(list) ? list : []) {
+      if (t.freebucks?.daily)
+        t.freebucks.daily.reset_at = "2030-01-01T07:00:00Z";
+    }
+    await mockDashboard(page, f);
     await page.goto(admin("plans"));
     await page.getByRole("button", { name: "Accounts" }).click();
     await page.getByText("Account #1").first().waitFor();
