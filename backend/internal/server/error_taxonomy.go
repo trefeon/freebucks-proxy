@@ -3,13 +3,12 @@ package server
 import (
 	"context"
 	"errors"
-	"net/http"
-	"strconv"
-	"strings"
-
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"net/http"
+	"strconv"
+	"strings"
 )
 
 // openAIErrorType maps an internal error code to the OpenAI error `type`
@@ -102,6 +101,8 @@ func chatErrClass(err error) string {
 		return "session_superseded"
 	case *upstream.TurnSpendLimitError:
 		return "turn_spend_limited"
+	case *upstream.NoEndpointsError:
+		return "model_no_endpoints"
 	case *upstream.UpstreamError:
 		return "upstream"
 	default:
@@ -127,6 +128,8 @@ func attemptStatus(err error) int {
 	case *upstream.TurnSpendLimitError:
 		return e.Status
 	case *upstream.SessionLimitError:
+		return e.Status
+	case *upstream.NoEndpointsError:
 		return e.Status
 	case *upstream.WaitingRoomRequiredError:
 		// The canonical 428 waiting_room_required (#94); the marker can

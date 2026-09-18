@@ -84,6 +84,14 @@ func classifyError(status int, body string, hdr http.Header) error {
 		return &WaitingRoomError{RetryAfter: retryAfter, Detail: truncate(body, 200)}
 	case status == http.StatusPaymentRequired:
 		return &CreditsError{Status: status, Body: truncate(body, 200)}
+	case status == http.StatusNotFound && strings.Contains(lower, "no endpoints"):
+		// Issue #630: upstream routing has no serving endpoint for the
+		// (model, request-shape) combination — OpenRouter phrasing ("No
+		// endpoints found for ...", same family as the max_price fence's
+		// failed_routing_step precedent). Distinct from the generic 502
+		// so clients see the shape to change instead of an opaque
+		// upstream_unavailable.
+		return parseNoEndpoints(status, body)
 	case status == http.StatusConflict && containsAny(lower, string(WireCodeSessionLimitReached)):
 		// 409 session_limit_reached: the ACCOUNT is over its concurrent-tab
 		// budget, but this session's row is fine (endsTheSession:false).
@@ -220,16 +228,18 @@ func errClassName(err error) string {
 		return "CreditsError"
 	case *SessionLimitError:
 		return "SessionLimitError"
-	case *SessionSupersededError:
-		return "SessionSupersededError"
 	case *LimitedIpError:
 		return "LimitedIpError"
+	case *SessionSupersededError:
+		return "SessionSupersededError"
 	case *CapacityDeferredError:
 		return "CapacityDeferredError"
 	case *WaitingRoomError:
 		return "WaitingRoomError"
 	case *WaitingRoomRequiredError:
 		return "WaitingRoomRequiredError"
+	case *NoEndpointsError:
+		return "NoEndpointsError"
 	case *UpstreamError:
 		return "UpstreamError"
 	}
@@ -573,6 +583,22 @@ func parseIpCapped(body string, headerRetryAfter time.Duration) error {
 		ice.RetryAfter = time.Minute
 	}
 	return ice
+}
+
+// reNoEndpointsModel extracts the model id from a "no endpoints found
+// for <model>" body. Trailing sentence punctuation is trimmed at parse
+// time; the match is best-effort and empty when the marker shape differs.
+var reNoEndpointsModel = regexp.MustCompile(`no endpoints found for\s+([^\s"']+)`)
+
+// parseNoEndpoints builds a NoEndpointsError from a 404 no-endpoints body
+// (issue #630). Never a cooldown, never a session invalidation: the
+// refusal is model-scoped routing, not account or session state.
+func parseNoEndpoints(status int, body string) error {
+	model := ""
+	if m := reNoEndpointsModel.FindStringSubmatch(strings.ToLower(body)); m != nil {
+		model = strings.TrimRight(m[1], ".,;:")
+	}
+	return &NoEndpointsError{Status: status, Model: model, Body: truncate(body, 500)}
 }
 
 // isCapacityDeferred reports whether err is a free_mode_capacity_deferred

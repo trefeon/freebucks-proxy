@@ -347,7 +347,7 @@ func TestCheckTokenHealthSessionClassification(t *testing.T) {
 				_, _ = io.WriteString(w, `{"status":"none","accessTier":"free"}`)
 			},
 			wantState: TokenOK,
-			wantHint:  "session none",
+			wantHint:  "no active session",
 		},
 		{
 			name: "200 active",
@@ -684,7 +684,6 @@ func TestProbeMeRequestShape(t *testing.T) {
 	}
 	got := make(chan gotReq, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		if r.URL.Path == "/api/v1/freebuff/session" {
 			_, _ = io.WriteString(w, `{"status":"none"}`)
 			return

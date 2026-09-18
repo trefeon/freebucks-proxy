@@ -30,6 +30,20 @@ const (
 	WalletSpendLimitHeader = "x-freebuff-wallet-spend-limit"
 	// DefaultWalletSpendLimit is the unset spend limit the proxy sends.
 	DefaultWalletSpendLimit = "0"
+	// FreebucksTimezoneHeader carries the host IANA timezone on session
+	// reads (vendor 3420c99,
+	// common/src/util/freebucks-timezone.ts FREEBUCKS_TIMEZONE_HEADER):
+	// the server picks the account reset zone for daily.resetAt from it.
+	// A timezone is a scheduling preference, never proof of country or
+	// access.
+	FreebucksTimezoneHeader = "x-fb-timezone"
+	// FirstTabDiscountHeader folds the first-tab offer into the quoted
+	// prices (vendor 3420c99,
+	// common/src/util/freebuff-first-tab-discount.ts
+	// FIRST_TAB_DISCOUNT_HEADER). The probe sends the boring value "0":
+	// it claims no discount, exactly like the CLI's unpicked GET
+	// (callFreebuffSession defaults firstTabDiscount to '0').
+	FirstTabDiscountHeader = "x-freebuff-first-tab-discount"
 	// SessionUnsupportedMessage is the verbatim fail-closed copy for
 	// servers predating the admission route
 	// (FREEBUFF_SESSION_UNSUPPORTED_MESSAGE).
@@ -112,20 +126,29 @@ func (c *Client) GetSessionWithOpts(ctx context.Context, instanceID string, comp
 // ProbeAccount validates the token with a zero-cost GET /api/v1/freebuff/session
 // that carries NO x-freebuff-instance-id header, so unlike CreateSession it
 // claims no session slot and burns none of the daily session allowance. The
-// response carries the live per-model quota (RateLimitsByModel) plus the
-// account/session state, which callers surface for token checks and doctor
-// diagnostics.
+// probe carries the CLI-parity read headers (x-fb-timezone with the host
+// IANA zone, x-freebuff-first-tab-discount "0" claiming no discount), and
+// the response carries the live pre-join meter — Freebucks, Referral,
+// RateLimitsByModel, Standing — plus the account/session state, which
+// callers surface for token checks and doctor diagnostics.
 //
-// A probe 404 maps (via sessionCall) to Status "ended"; that — or a 200 with
-// status "ended" — means the token has no active session, returned as
-// (nil, ErrNoActiveSession). Terminal refusal statuses the upstream returns
-// as session states (403 {"status":"banned"}/{"status":"country_blocked"})
-// are converted to the same typed errors the session manager surfaces
-// (ErrBanned / ErrCountryBlocked), so probe callers can distinguish a dead
-// account from a healthy idle one. All other classifications pass through
-// unchanged: 401 → ErrAuthRejected, 429 → ErrRateLimited, transport
-// failures as-is. A 200 with any other status (active/queued/disabled/…)
-// returns the full *SessionState.
+// A valid token with no active session — a 200 with status "none"/"ended",
+// or a probe 404 (no body, the CLI bare-none) — returns the decoded state
+// ALONGSIDE ErrNoActiveSession, so the idle-with-balance meter still
+// reaches the pool snapshot while old callers branching on
+// errors.Is(err, ErrNoActiveSession) behave unchanged. The 404 maps to a
+// "none" state with a nil meter. Terminal refusal statuses the upstream
+// returns as session states (403 {"status":"banned"}/
+// {"status":"country_blocked"}) are converted to the same typed errors the
+// session manager surfaces (ErrBanned / ErrCountryBlocked), so probe
+// callers can distinguish a dead account from a healthy idle one. All
+// other classifications pass through unchanged: 401 → ErrAuthRejected,
+// 429 → ErrRateLimited, transport failures as-is. A 200 with any other
+// status (active/queued/disabled/…) returns the full *SessionState with a
+// nil error.
+//
+// The probe NEVER POSTs admission and NEVER touches the streak endpoint:
+// streak stays on its own GetStreak path.
 func (c *Client) ProbeAccount(ctx context.Context) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.Probe(c.token)
@@ -134,13 +157,24 @@ func (c *Client) ProbeAccount(ctx context.Context) (*SessionState, error) {
 	if err != nil {
 		return nil, err
 	}
+	// CLI-parity read headers (callFreebuffSession GET): the host IANA
+	// timezone picks the account reset zone for daily.resetAt, and the
+	// first-tab flag folds the offer into prices. Still zero-cost: no
+	// instance header is set, so no slot is claimed.
+	req.Header.Set(FreebucksTimezoneHeader, localIANATimezone())
+	req.Header.Set(FirstTabDiscountHeader, "0")
 	state, err := c.sessionCall(req)
 	if err != nil {
 		return nil, err
 	}
 	switch state.Status {
-	case "ended":
-		return nil, ErrNoActiveSession
+	case "none", "ended":
+		if state.HTTPStatus == http.StatusNotFound {
+			// Probe 404 carries no body: normalize the parse-layer
+			// "ended" to the CLI bare-none with a nil meter.
+			state.Status = "none"
+		}
+		return state, ErrNoActiveSession
 	case "banned":
 		// Build through banFromBody so the typed error matches the
 		// classification matrix (issue #306): Body is the truncated raw body,
@@ -150,6 +184,20 @@ func (c *Client) ProbeAccount(ctx context.Context) (*SessionState, error) {
 		return nil, countryBlockFromBody(state.WireBody)
 	}
 	return state, nil
+}
+
+// localIANATimezone reports the host IANA timezone name for the probe
+// timezone header (vendor freebucksTimeZoneHeaders: the Intl-resolved host
+// zone, evaluated per request so travel needs no restart). A name that
+// does not load as an IANA zone (including bare "Local") falls back to
+// UTC — always valid, always boring.
+func localIANATimezone() string {
+	if name := time.Local.String(); name != "" && name != "Local" {
+		if _, err := time.LoadLocation(name); err == nil {
+			return name
+		}
+	}
+	return "UTC"
 }
 
 // StreakInfo is the upstream streak position (docs/maturity-plan.md PR1).

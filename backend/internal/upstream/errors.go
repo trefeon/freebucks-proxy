@@ -117,6 +117,11 @@ var (
 	// "disabled" (upstream freebuff-session-api.ts
 	// FREEBUFF_SESSION_UNSUPPORTED_MESSAGE).
 	ErrSessionAdmissionUnsupported = errors.New("upstream session admission unsupported")
+	// ErrNoEndpoints: upstream routing has no serving endpoint for the
+	// requested (model, request-shape) combination (404 "No endpoints
+	// ...", issue #630). Model-scoped: surface distinctly, never cool
+	// the token or invalidate the session over it.
+	ErrNoEndpoints = errors.New("upstream has no serving endpoints")
 )
 
 // WaitingRoomError is the concrete value behind ErrWaitingRoom; callers
@@ -208,6 +213,27 @@ type UpstreamError struct {
 func (e *UpstreamError) Error() string {
 	return fmt.Sprintf("upstream %d: %s", e.Status, e.Body)
 }
+
+// NoEndpointsError is a 404 "No endpoints ..." routing refusal: upstream
+// has no serving route for the requested (model, request-shape)
+// combination (issue #630: tools[] on deepseek/deepseek-v4-flash 404s
+// while the same body without tools succeeds — OpenRouter routing
+// phrasing, same family as the max_price fence's failed_routing_step
+// precedent). Distinct from UpstreamError so the server surfaces a
+// distinct client code instead of generic 502 upstream_unavailable.
+// Model-scoped, not token-scoped: no cooldown, no session invalidation
+// (the server's chatAttempt default arm releases and surfaces).
+type NoEndpointsError struct {
+	Status int
+	Model  string // best-effort model id parsed from the body, "" when absent
+	Body   string // truncated to 500 chars
+}
+
+func (e *NoEndpointsError) Error() string {
+	return fmt.Sprintf("upstream %d: %s", e.Status, e.Body)
+}
+
+func (e *NoEndpointsError) Unwrap() error { return ErrNoEndpoints }
 
 // RateLimitError is a 429 rate_limited response (upstream pool refusal, GLM
 // 20h window, ...). RetryAfter comes from the body's retryAfterMs (or the

@@ -142,12 +142,18 @@ type snapshotState struct {
 	// rows. The seed path (SeedQuota) only overwrites a model when its row
 	// is newer, so a stale seed never downgrades fresher live data.
 	// Rebuilt wholesale alongside savedQuota; seed upserts stamp one key.
-	savedQuotaSrcAt    map[string]int64
-	savedRemainingMs   int64
-	savedReferral      *upstream.SessionReferral
-	savedGlmPromo      string
-	savedAccessTier    string
-	savedFreebucks     *upstream.FreebucksInfo
+	savedQuotaSrcAt  map[string]int64
+	savedRemainingMs int64
+	savedReferral    *upstream.SessionReferral
+	savedGlmPromo    string
+	savedAccessTier  string
+	savedFreebucks   *upstream.FreebucksInfo
+	// savedStanding is the upstream account standing block (issue #96)
+	// from the last probe/admission that carried it. The pre-join "none"
+	// response is the only state that renders a picker, so it is the one
+	// place standing is guaranteed present — without this the dashboard
+	// standing card stays empty until the first admission.
+	savedStanding      *upstream.SessionStanding
 	invalidationEvents []invalidationEvent
 	reAdmitTriggers    []time.Time
 	lastStormAt        time.Time
@@ -398,6 +404,7 @@ func (m *Manager) Snapshot() SessionSnapshot {
 			QuotaStale:    m.snap.savedQuotaStale && len(quota) > 0,
 			QuotaSavedAt:  m.snap.savedQuotaAt,
 			GlmPromo:      m.snap.savedGlmPromo,
+			Standing:      m.snap.savedStanding,
 			RemainingMs:   m.snap.savedRemainingMs,
 			Referral:      m.snap.savedReferral,
 			AccessTier:    m.snap.savedAccessTier,
@@ -505,8 +512,10 @@ func (m *Manager) hasGlmEntitlementLocked() bool {
 	return false
 }
 
-// UpdateQuotaFromProbe records the quota map and glmPromo block from a zero-cost
-// session probe into the manager's saved state (issue #183).
+// UpdateQuotaFromProbe records the quota map, glmPromo block, standing,
+// referral, access tier, and Freebucks from a zero-cost session probe into
+// the manager's saved state (issue #183; pre-session populate: the pre-join
+// "none" response carries the full meter without holding a slot).
 func (m *Manager) UpdateQuotaFromProbe(st *upstream.SessionState) {
 	if st == nil {
 		return
@@ -555,6 +564,12 @@ func (m *Manager) UpdateQuotaFromProbe(st *upstream.SessionState) {
 		m.snap.savedFreebucks = st.Freebucks
 		if m.state != nil {
 			m.state.freebucks = st.Freebucks
+		}
+	}
+	if st.Standing != nil {
+		m.snap.savedStanding = st.Standing
+		if m.state != nil {
+			m.state.standing = st.Standing
 		}
 	}
 }

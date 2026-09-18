@@ -173,7 +173,7 @@ func (m *Manager) createSessionForModel(ctx context.Context, model string) (*ups
 		// with x-freebuff-model: z-ai/glm-5.2 (which upstream punishes with 403 account_banned).
 		if !m.HasGlmEntitlement() {
 			if m.client != nil {
-				if probeState, err := m.client.ProbeAccount(ctx); err == nil && probeState != nil {
+				if probeState, err := m.client.ProbeAccount(ctx); probeState != nil && (err == nil || errors.Is(err, upstream.ErrNoActiveSession)) {
 					m.mu.Lock()
 					if probeState.GlmPromo != "" {
 						m.snap.savedGlmPromo = probeState.GlmPromo

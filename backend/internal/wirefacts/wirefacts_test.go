@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	testUpstream = "2c3eb00bc22df848189323439a1cb42d6c3b03f9"
+	testUpstream = "3420c996d4e4bbad371306eadb0639c326a38178"
 	testWireDir  = "testdata/wire"
 	testRegDir   = "../registry/testdata/upstream"
 	testGenFile  = "wirefacts_gen.go"
