@@ -98,6 +98,7 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Claude-Code", "NotebookRead", classPassthru, ""},
 		{"Claude-Code", "NotebookEdit", classPassthru, ""},
 		{"Claude-Code", "Task", classPassthru, ""},
+		// AskUserQuestion stays unmapped: no official ask_user target exists.
 		{"Claude-Code", "AskUserQuestion", classPassthru, ""},
 
 		// ── kimi-cli (reference/agents/kimi-cli src/kimi_cli/tools/*) ──
@@ -107,7 +108,7 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Kimi-CLI", "SearchWeb", classMapped, "web_search"},
 		{"Kimi-CLI", "Glob", classOfficial, ""},
 		{"Kimi-CLI", "WriteFile", classMapped, "write_file"},
-		{"Kimi-CLI", "StrReplaceFile", classPassthru, ""},
+		{"Kimi-CLI", "StrReplaceFile", classMapped, "str_replace"},
 		{"Kimi-CLI", "ReadMediaFile", classPassthru, ""},
 		{"Kimi-CLI", "Think", classPassthru, ""},
 		{"Kimi-CLI", "SetTodoList", classMapped, "write_todos"},
@@ -117,6 +118,8 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Kimi-CLI", "TaskStop", classPassthru, ""},
 		{"Kimi-CLI", "Agent", classPassthru, ""},
 		{"Kimi-CLI", "EnterPlanMode", classPassthru, ""},
+		// AskUserQuestion stays unmapped: no official ask_user target exists.
+		{"Kimi-CLI", "AskUserQuestion", classPassthru, ""},
 
 		// ── crush (reference/agents/crush internal/agent/tools/*.go) ──
 		{"Crush", "bash", classMapped, "run_terminal_command"},
@@ -130,10 +133,10 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Crush", "glob", classOfficial, ""},
 		{"Crush", "rg", classMapped, "code_search"},
 		{"Crush", "todos", classMapped, "write_todos"},
-		{"Crush", "multiedit", classPassthru, ""},
-		{"Crush", "fetch", classPassthru, ""},
+		{"Crush", "multiedit", classMapped, "str_replace"},
+		{"Crush", "fetch", classMapped, "read_url"},
 		{"Crush", "download", classPassthru, ""},
-		{"Crush", "sourcegraph", classPassthru, ""},
+		{"Crush", "sourcegraph", classMapped, "code_search"},
 		{"Crush", "question", classPassthru, ""},
 		{"Crush", "lsp_definition", classPassthru, ""},
 		{"Crush", "job_output", classPassthru, ""},
@@ -143,7 +146,8 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Crush", "safe", classPassthru, ""},
 
 		// ── OpenHands agent-server (reference/harnesses/OpenHands) ──
-		{"OpenHands", "terminal", classPassthru, ""},
+		{"OpenHands", "terminal", classMapped, "run_terminal_command"},
+		{"OpenHands", "invoke_skill", classMapped, "skill"},
 		{"OpenHands", "file_editor", classPassthru, ""},
 		{"OpenHands", "task_tracker", classPassthru, ""},
 		{"OpenHands", "browser_navigate", classPassthru, ""},
@@ -182,7 +186,8 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Reasonix", "todo_write", classMapped, "write_todos"},
 		{"Reasonix", "web_fetch", classMapped, "read_url"},
 		{"Reasonix", "glob", classOfficial, ""},
-		{"Reasonix", "multi_edit", classPassthru, ""},
+		{"Reasonix", "multi_edit", classMapped, "str_replace"},
+		{"Reasonix", "complete_step", classMapped, "write_todos"},
 		{"Reasonix", "fleet", classPassthru, ""},
 		{"Reasonix", "run_skill", classPassthru, ""},
 		{"Reasonix", "explore", classPassthru, ""},
@@ -197,14 +202,17 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Jcode", "webfetch", classMapped, "read_url"},
 		{"Jcode", "websearch", classMapped, "web_search"},
 		{"Jcode", "apply_patch", classOfficial, ""},
-		{"Jcode", "agentgrep", classPassthru, ""},
-		{"Jcode", "multiedit", classPassthru, ""},
-		{"Jcode", "patch", classPassthru, ""},
+		{"Jcode", "agentgrep", classMapped, "code_search"},
+		{"Jcode", "file_grep", classMapped, "code_search"},
+		{"Jcode", "multiedit", classMapped, "str_replace"},
+		{"Jcode", "patch", classMapped, "str_replace"},
+		{"Jcode", "todoread", classMapped, "write_todos"},
+		{"Jcode", "skill_manage", classMapped, "skill"},
 		{"Jcode", "browser", classPassthru, ""},
 		{"Jcode", "memory", classPassthru, ""},
 		{"Jcode", "initiative", classPassthru, ""},
 		{"Jcode", "swarm", classPassthru, ""},
-		{"Jcode", "skill_manage", classPassthru, ""},
+		{"Jcode", "todo_read", classMapped, "write_todos"},
 		{"Jcode", "session_search", classPassthru, ""},
 
 		// ── Codewhale (reference/agents/Codewhale crates/tui/src/tools) ──
@@ -213,8 +221,24 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Codewhale", "edit", classMapped, "str_replace"},
 		{"Codewhale", "bash", classMapped, "run_terminal_command"},
 		{"Codewhale", "list_dir", classMapped, "list_directory"},
-		{"Codewhale", "grep_files", classPassthru, ""},
-		{"Codewhale", "file_search", classPassthru, ""},
+		{"Codewhale", "grep_files", classMapped, "code_search"},
+		{"Codewhale", "file_search", classMapped, "glob"},
+		{"Codewhale", "exec_shell", classMapped, "run_terminal_command"},
+		{"Codewhale", "fetch_url", classMapped, "read_url"},
+		{"Codewhale", "web.fetch", classMapped, "read_url"},
+		// request_user_input stays unmapped: no official ask_user target exists.
+		{"Codewhale", "request_user_input", classPassthru, ""},
+
+		// ── Hermes (reference/agents/hermes-agent toolsets.py + agent/*) ──
+		{"Hermes", "terminal", classMapped, "run_terminal_command"},
+		{"Hermes", "web_extract", classMapped, "read_url"},
+		{"Hermes", "patch", classMapped, "str_replace"},
+		{"Hermes", "todo_list", classMapped, "write_todos"},
+		{"Hermes", "skills_list", classMapped, "skill"},
+		{"Hermes", "skill_view", classMapped, "skill"},
+		{"Hermes", "skill_manage", classMapped, "skill"},
+		// clarify stays unmapped: no official ask_user target exists.
+		{"Hermes", "clarify", classPassthru, ""},
 
 		// ── Original corpus rows kept for classification continuity ──
 		{"Cline", "read_file", classMapped, "read_files"},
@@ -225,6 +249,17 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Kilocode", "execute_bash", classMapped, "run_terminal_command"},
 		{"Aider", "replace_lines", classMapped, "str_replace"},
 		{"Gemini-CLI", "read_many_files", classMapped, "read_files"},
+		{"Gemini-CLI", "replace", classMapped, "str_replace"},
+		{"Gemini-CLI", "google_web_search", classMapped, "web_search"},
+		{"Gemini-CLI", "activate_skill", classMapped, "skill"},
+		{"Gemini-CLI", "search_file_content", classMapped, "code_search"},
+		// tracker_* stay unmapped: task-graph operations with no official equivalent.
+		{"Gemini-CLI", "tracker_create_task", classPassthru, ""},
+		{"Gemini-CLI", "tracker_update_task", classPassthru, ""},
+		{"Gemini-CLI", "tracker_get_task", classPassthru, ""},
+		{"Gemini-CLI", "tracker_list_tasks", classPassthru, ""},
+		{"Gemini-CLI", "tracker_add_dependency", classPassthru, ""},
+		{"Gemini-CLI", "tracker_visualize", classPassthru, ""},
 	}
 
 	for _, rc := range rows {

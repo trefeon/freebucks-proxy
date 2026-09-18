@@ -124,8 +124,46 @@ var clientToOfficial = map[string]string{
 	"websearch":    "web_search",
 	"webfetch":     "read_url",
 
-	// Gemini-CLI
-	"read_many_files": "read_files",
+	// Gemini-CLI (reference/agents/gemini-cli packages/core/src/tools/
+	// definitions/base-declarations.ts wire names + tool-names.ts legacy aliases)
+	"read_many_files":     "read_files",
+	"replace":             "str_replace",
+	"google_web_search":   "web_search",
+	"activate_skill":      "skill",
+	"search_file_content": "code_search",
+	// Hermes (reference/agents/hermes-agent toolsets.py + agent/* tool refs)
+	"terminal":     "run_terminal_command",
+	"web_extract":  "read_url",
+	"patch":        "str_replace",
+	"todo_list":    "write_todos",
+	"skills_list":  "skill",
+	"skill_view":   "skill",
+	"skill_manage": "skill",
+	// OpenHands agent-server (reference/harnesses/OpenHands __tests__ tool_call
+	// fixtures carry the wire function name; terminal shares the Hermes entry)
+	"invoke_skill": "skill",
+	// Crush-additions (reference/agents/crush internal/agent/tools/*.go)
+	"fetch":       "read_url",
+	"multiedit":   "str_replace",
+	"sourcegraph": "code_search",
+	// Kimi-additions (reference/agents/kimi-cli src/kimi_cli/tools/file/replace.py)
+	"strreplacefile": "str_replace",
+	// Codewhale (reference/agents/Codewhale crates/tui/src/tools/*.rs)
+	"exec_shell":  "run_terminal_command",
+	"fetch_url":   "read_url",
+	"web.fetch":   "read_url",
+	"grep_files":  "code_search",
+	"file_search": "glob",
+	// jcode (reference/agents/jcode crates/jcode-tool-types/src/lib.rs aliases +
+	// crates/jcode-app-core/src/tool/*.rs; multiedit/patch share entries above)
+	"shell_exec": "run_terminal_command",
+	"agentgrep":  "code_search",
+	"file_grep":  "code_search",
+	"todoread":   "write_todos",
+	"todo_read":  "write_todos",
+	// Reasonix (reference/agents/DeepSeek-Reasonix internal/tool/builtin/*.go)
+	"multi_edit":    "str_replace",
+	"complete_step": "write_todos",
 }
 
 // officialTools is the set of official codebuff signature tool names a

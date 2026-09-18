@@ -231,6 +231,44 @@ func TestAllHarnessToolsBidirectionalMapping(t *testing.T) {
 		{"Kilocode", "webfetch", "read_url"},
 		// Gemini-CLI
 		{"Gemini-CLI", "read_many_files", "read_files"},
+		{"Gemini-CLI", "replace", "str_replace"},
+		{"Gemini-CLI", "google_web_search", "web_search"},
+		{"Gemini-CLI", "activate_skill", "skill"},
+		{"Gemini-CLI", "search_file_content", "code_search"},
+		// Hermes
+		{"Hermes", "terminal", "run_terminal_command"},
+		{"Hermes", "web_extract", "read_url"},
+		{"Hermes", "patch", "str_replace"},
+		{"Hermes", "todo_list", "write_todos"},
+		{"Hermes", "skills_list", "skill"},
+		{"Hermes", "skill_view", "skill"},
+		{"Hermes", "skill_manage", "skill"},
+		// OpenHands agent-server
+		{"OpenHands", "terminal", "run_terminal_command"},
+		{"OpenHands", "invoke_skill", "skill"},
+		// Crush-additions
+		{"Crush", "fetch", "read_url"},
+		{"Crush", "multiedit", "str_replace"},
+		{"Crush", "sourcegraph", "code_search"},
+		// Kimi-additions
+		{"Kimi-CLI", "StrReplaceFile", "str_replace"},
+		// Codewhale
+		{"Codewhale", "exec_shell", "run_terminal_command"},
+		{"Codewhale", "fetch_url", "read_url"},
+		{"Codewhale", "web.fetch", "read_url"},
+		{"Codewhale", "grep_files", "code_search"},
+		{"Codewhale", "file_search", "glob"},
+		// jcode
+		{"Jcode", "shell_exec", "run_terminal_command"},
+		{"Jcode", "agentgrep", "code_search"},
+		{"Jcode", "file_grep", "code_search"},
+		{"Jcode", "multiedit", "str_replace"},
+		{"Jcode", "patch", "str_replace"},
+		{"Jcode", "todoread", "write_todos"},
+		{"Jcode", "todo_read", "write_todos"},
+		// Reasonix
+		{"Reasonix", "multi_edit", "str_replace"},
+		{"Reasonix", "complete_step", "write_todos"},
 		// Claude Code (PascalCase names; mapping is case-insensitive and
 		// restore must return the EXACT client casing)
 		{"Claude-Code", "Bash", "run_terminal_command"},
