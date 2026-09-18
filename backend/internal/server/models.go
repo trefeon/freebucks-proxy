@@ -51,7 +51,7 @@ func (s *Server) servedModelCount() int {
 // when present, else the catalog default (modelcat.DefaultModelID, the
 // picker lead the upstream CLI resolves a blank pick to), else the first
 // SERVED row in catalog order. Never alphabetical models[0] alone: that
-// would pick anthropic/claude-fable-5, a capacity-gated offer model that
+// would pick anthropic/claude-fable-5.1, a capacity-gated offer model that
 // makes smoke tests fail on most accounts. The served gating means probes
 // never target an id the gateway itself would refuse.
 func probeModel(reg *registry.Registry) string {

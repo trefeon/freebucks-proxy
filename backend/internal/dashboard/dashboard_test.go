@@ -563,8 +563,8 @@ func TestTokensPageQuotaRows(t *testing.T) {
 					"streak":   3,
 				},
 			},
-			"anthropic/claude-fable-5": map[string]any{
-				"model":       "anthropic/claude-fable-5",
+			"anthropic/claude-fable-5.1": map[string]any{
+				"model":       "anthropic/claude-fable-5.1",
 				"limit":       100,
 				"recentCount": 80, // exactly at NearLimit threshold
 				"period":      "pacific_day",

@@ -18,7 +18,11 @@
   import { adminApi } from "../api/paths.js";
   import { refreshTokens } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
-  import { spawnIntent } from "../utils/freebucks.js";
+  import {
+    spawnIntent,
+    firstTabListPriceFor,
+    formatFreebucks,
+  } from "../utils/freebucks.js";
   import { onMount } from "svelte";
 
   /**
@@ -53,6 +57,13 @@
   let selectedIntent = $derived(
     spawnIntent(token, spawnModel || cheapestFreeOption(modelOptions)),
   );
+  // Crossed-out list price for one model option (<option> carries text
+  // only, so the strike renders as a ~N~ prefix): "" unless the first-tab
+  // offer actually moved the row (available + list > price).
+  function strikeFor(id) {
+    const list = firstTabListPriceFor(token?.freebucks, id);
+    return list === undefined ? "" : formatFreebucks(list);
+  }
   // --- Single-model pin (PIN_MODEL slot syntax) ---
   // Instant-saves through the settings overlay (POST /admin/api/settings),
   // the same path every dashboard row uses — no whole-file .env write,
@@ -143,6 +154,7 @@
         >
           {#each modelOptions as m (m.id)}
             {@const intent = spawnIntent(token, m.id)}
+            {@const strike = strikeFor(m.id)}
             <option
               value={m.id}
               disabled={intent.kind === "paywall"}
@@ -155,7 +167,7 @@
                     },
                   )
                 : m.label}
-              >{m.label}{intent.kind === "paywall"
+              >{strike ? `~${strike}~ ` : ""}{m.label}{intent.kind === "paywall"
                 ? " — paywalled"
                 : ""}</option
             >

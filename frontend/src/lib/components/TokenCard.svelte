@@ -161,6 +161,12 @@
           <Flame size={11} aria-hidden="true" />
           {streak.label}
         </span>
+        {#if streak.bonus}
+          <span
+            class="text-[10px] text-[var(--fp-muted)] whitespace-nowrap"
+            title={streak.bonus}>{streak.bonus}</span
+          >
+        {/if}
       </div>
       {#if token.email || token.account_id}
         <span

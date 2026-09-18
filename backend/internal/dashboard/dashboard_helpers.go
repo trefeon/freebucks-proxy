@@ -239,6 +239,27 @@ func freebucksCardFromInfo(info *upstream.FreebucksInfo) *freebucksCard {
 		PriceNotices: info.PriceNotices,
 		QuotaExempt:  info.QuotaExempt,
 	}
+	// ListPrices rides through by reference, display only: prices
+	// (effective) stays the only gating map. Nil-safe with no zero-alloc —
+	// a quote that predates listPrices keeps a nil map so the key omits.
+	if info.ListPrices != nil {
+		card.ListPrices = info.ListPrices
+	}
+	// OffPeak rides through entry by entry into the snake_case card shape,
+	// same nil-safe rule: absent on older servers stays nil, never an
+	// empty allocation.
+	if info.OffPeak != nil {
+		off := make(map[string]freebucksOffPeakCard, len(info.OffPeak))
+		for id, o := range info.OffPeak {
+			off[id] = freebucksOffPeakCard{
+				StartHourUtc: o.StartHourUtc,
+				EndHourUtc:   o.EndHourUtc,
+				Price:        o.Price,
+				RegularPrice: o.RegularPrice,
+			}
+		}
+		card.OffPeak = off
+	}
 	if info.FirstTabDiscount != nil {
 		d := &freebucksFirstTabCard{
 			Amount:    info.FirstTabDiscount.Amount,

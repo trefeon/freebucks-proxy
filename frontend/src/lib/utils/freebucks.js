@@ -94,8 +94,9 @@ export function formatFreebucks(v) {
   if (v == null || v === "") return "0";
   const n = Number(v);
   if (Number.isNaN(n)) return String(v);
-  if (Number.isInteger(n)) return String(n);
-  return String(Math.round(n * 100) / 100);
+  // Whole units with locale grouping, never negative (mirrors upstream
+  // formatFreebucks: Math.max(0, Math.round(amount)).toLocaleString()).
+  return Math.max(0, Math.round(n)).toLocaleString();
 }
 
 // "4h 12m", "38m", "2d 5h" — until the daily pool refills; "now" once it
@@ -130,4 +131,137 @@ export function sortModelsByPrice(modelIds, freebucks, names) {
   return [...modelIds].sort(
     (a, b) => priceOf(a) - priceOf(b) || nameOf(a).localeCompare(nameOf(b)),
   );
+}
+/** Session price after a first-tab discount, floored at zero (mirrors
+ * discountedSessionPrice in freebuff-first-tab-discount.ts). */
+export function discountedSessionPrice(price, discount) {
+  return Math.max(0, price - discount);
+}
+
+/**
+ * The list price to draw crossed out beside `modelId`'s discounted price,
+ * or undefined when there is nothing to cross out: no offer, the offer in
+ * use by another session, an unpriced row, or a row the discount did not
+ * move (a row already at 0 is not "0 off 0"). A quote from a server that
+ * predates `listPrices` answers undefined for every row rather than
+ * guessing — `price + amount` is wrong for every row the zero floor
+ * clamped. Port of firstTabListPriceFor (vendor 3420c99); reads both the
+ * snake_case dashboard keys and the camelCase wire keys.
+ */
+export function firstTabListPriceFor(info, modelId) {
+  const discount = info?.first_tab_discount ?? info?.firstTabDiscount ?? null;
+  if (!discount?.available) return undefined;
+  const price = info?.prices?.[modelId];
+  const listPrice = (info?.list_prices ?? info?.listPrices)?.[modelId];
+  if (price === undefined || listPrice === undefined || listPrice <= price)
+    return undefined;
+  return listPrice;
+}
+
+/** Resolve a server-owned daily off-peak policy, including windows crossing
+ * midnight. Port of offPeakPriceAt (vendor freebuff-price-changes.ts). */
+export function offPeakPriceAt(offer, now) {
+  const start = new Date(now);
+  start.setUTCHours(offer.startHourUtc, 0, 0, 0);
+  if (+start > now) start.setUTCDate(start.getUTCDate() - 1);
+  const end = new Date(start);
+  end.setUTCHours(offer.endHourUtc, 0, 0, 0);
+  if (+end <= +start) end.setUTCDate(end.getUTCDate() + 1);
+  const active = now < +end;
+  if (!active) {
+    start.setUTCDate(start.getUTCDate() + 1);
+    end.setUTCDate(end.getUTCDate() + 1);
+  }
+  return { start, end, active };
+}
+
+function resolveWindowTimeZone(timeZone) {
+  if (timeZone) return timeZone;
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+function formatWindowTimeZoneLabel(on, timeZone) {
+  const zone = resolveWindowTimeZone(timeZone);
+  const named = new Intl.DateTimeFormat(undefined, {
+    timeZone: zone,
+    hour: "numeric",
+    timeZoneName: "short",
+  })
+    .formatToParts(on)
+    .find((part) => part.type === "timeZoneName")?.value;
+  return named ?? zone;
+}
+
+/**
+ * Presentation copy for one model id's off-peak offer (port of
+ * freebucksOffPeakCopy, vendor 3420c99): { active, badge, detail, tooltip },
+ * or undefined when the model carries no offer or no price. Prices come
+ * from the server quote, never a local rate card. The resolved quote owns
+ * the active badge too — no second pricing clock is run.
+ */
+export function offPeakCopy(
+  info,
+  modelId,
+  { now = Date.now(), timeZone } = {},
+) {
+  const offer = info?.off_peak?.[modelId] ?? info?.offPeak?.[modelId] ?? null;
+  if (!offer || info?.prices?.[modelId] === undefined) return undefined;
+  const { start, end } = offPeakPriceAt(offer, now);
+  const zone = resolveWindowTimeZone(timeZone);
+  const fmt = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: zone,
+  });
+  const startZone = formatWindowTimeZoneLabel(start, zone);
+  const endZone = formatWindowTimeZoneLabel(end, zone);
+  const hours = `${fmt.format(start)}${startZone === endZone ? "" : ` ${startZone}`}–${fmt.format(end)} ${endZone}`;
+  const discount = info?.first_tab_discount ?? info?.firstTabDiscount;
+  const active =
+    info.prices[modelId] ===
+    discountedSessionPrice(
+      offer.price,
+      discount?.available ? discount.amount : 0,
+    );
+  return {
+    active,
+    badge: "Off-peak",
+    detail: active
+      ? `Off-peak · normally ${offer.regularPrice}/hr · until ${fmt.format(end)} ${endZone}`
+      : `Off-peak ${offer.price}/hr · ${hours}`,
+    tooltip:
+      `Off-peak: ${offer.price} Freebucks/hour, daily ${hours}. ` +
+      `Regular price: ${offer.regularPrice} Freebucks/hour. ` +
+      "The price at session start is locked for the full hour." +
+      (discount?.available
+        ? " Your first-tab discount is also included in the displayed price."
+        : ""),
+  };
+}
+
+/**
+ * Short perk note for an active streak (port of getFreebuffStreakBonusNote,
+ * vendor freebuff-streak-line.ts, Freebucks-meter branches only). Returns
+ * null unless a freebucks_daily_bonus value is present: a positive number
+ * means the account is on the meter and the perk is Freebucks; null or
+ * absent (older servers) keeps the session copy — the caller draws no
+ * Freebucks bonus note. No streak polling here; pure copy of the payload.
+ */
+export function streakBonusNote(token) {
+  const bonus =
+    token?.freebucks_daily_bonus ?? token?.freebucksDailyBonus ?? null;
+  if (bonus == null) return null;
+  const days = Number(token?.streak) || 0;
+  if (days <= 0) return null;
+  const perk =
+    bonus > 0 ? `+${bonus} Freebucks every day` : "+1 bonus session every day";
+  if (days < 7) {
+    const remaining = 7 - days;
+    return `🎁 ${remaining} more ${remaining === 1 ? "day" : "days"} to unlock ${perk}`;
+  }
+  return `🎁 Streak perk: ${perk}`;
 }

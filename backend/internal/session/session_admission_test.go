@@ -915,3 +915,46 @@ func TestModelLockedFallbackInstance(t *testing.T) {
 		t.Errorf("DELETE x-freebuff-instance-id = %q, want locked-inst-123 (model-lock release carries the refused slot id)", deleteInstanceIDs[0])
 	}
 }
+
+// TestModelUnavailableFallbackWithLimitedOfferReason pins the vendor e2b911eca
+// limitedOfferReason path through refresh: a 409 carrying
+// limitedOfferReason "used" still falls back to the meter-resolved model and
+// adopts it, and the cached refusal short-circuits the next admission for
+// the same model with zero additional creates (cache semantics unchanged
+// for all three reasons; no admission-math change).
+func TestModelUnavailableFallbackWithLimitedOfferReason(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	var createdModels []string
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			model := r.Header.Get("x-freebuff-model")
+			createdModels = append(createdModels, model)
+			w.Header().Set("Content-Type", "application/json")
+			if model == "rare/model" {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = io.WriteString(w, `{"status":"model_unavailable","requestedModel":"rare/model","limitedOfferReason":"used"}`)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-fallback","model":"`+model+`","expiresAt":"2030-01-01T00:00:00Z"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}
+
+	mgr := newTestManager(t, mock)
+	instance, err := mgr.EnsureSessionForModel(context.Background(), "rare/model")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if instance != "inst-fallback" {
+		t.Errorf("instance = %q, want inst-fallback", instance)
+	}
+	if len(createdModels) != 2 {
+		t.Fatalf("createdModels = %v, want 2 attempts", createdModels)
+	}
+	if createdModels[0] != "rare/model" || createdModels[1] != DefaultFallbackModel() {
+		t.Errorf("createdModels = %v, want rare/model then cheapest fallback %s", createdModels, DefaultFallbackModel())
+	}
+}

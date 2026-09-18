@@ -1,4 +1,5 @@
 import { get } from "svelte/store";
+import { streakBonusNote } from "./freebucks.js";
 import { tr } from "../i18n.js";
 
 // Shared token-status helpers for TokenCard + TokenCardMobile. The two cards
@@ -88,13 +89,23 @@ export function sessionCountdownLabel(totalSeconds) {
  * The full "Streak 7 days" wording survives on the aria-label.
  */
 export function streakBadgeFor(token) {
+  // Freebucks bonus note, drawn only when a freebucks_daily_bonus value is
+  // present: "+N Freebucks every day" / unlock countdown on the meter, null
+  // (session copy, no note) on older data.
+  const bonus = streakBonusNote(token);
   const days = Number(token.streak) || 0;
   if (days > 0) {
     return {
       label: t()("{days}d streak", { days }),
       aria: t()("Streak {days} days", { days }),
       active: true,
+      bonus,
     };
   }
-  return { label: t()("no streak"), aria: t()("No streak"), active: false };
+  return {
+    label: t()("no streak"),
+    aria: t()("No streak"),
+    active: false,
+    bonus,
+  };
 }

@@ -189,7 +189,9 @@
               >
             </div>
             <span class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
-              {#if wRel === "now"}
+              {#if w.resetAt && Date.parse(w.resetAt) <= now}
+                {$tr("Updating balance…")}
+              {:else if wRel === "now"}
                 {$tr("Reset")} {wReset}
               {:else}
                 {$tr("Resets in")}

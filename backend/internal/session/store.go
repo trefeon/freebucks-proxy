@@ -3,13 +3,12 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"time"
-
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // storeVersion guards the legacy on-disk format; a stale file is ignored
@@ -553,6 +552,12 @@ func cloneFreebucksInfo(fb *upstream.FreebucksInfo) *upstream.FreebucksInfo {
 			out.Prices[k] = v
 		}
 	}
+	if len(fb.ListPrices) > 0 {
+		out.ListPrices = make(map[string]float64, len(fb.ListPrices))
+		for k, v := range fb.ListPrices {
+			out.ListPrices[k] = v
+		}
+	}
 	if len(fb.PriceNotices) > 0 {
 		out.PriceNotices = make(map[string]string, len(fb.PriceNotices))
 		for k, v := range fb.PriceNotices {
@@ -573,6 +578,16 @@ func cloneFreebucksInfo(fb *upstream.FreebucksInfo) *upstream.FreebucksInfo {
 			d.Holder = &h
 		}
 		out.FirstTabDiscount = &d
+	}
+	if fb.Upgrade != nil {
+		u := *fb.Upgrade
+		out.Upgrade = &u
+	}
+	if len(fb.OffPeak) > 0 {
+		out.OffPeak = make(map[string]upstream.FreebuffOffPeakPrice, len(fb.OffPeak))
+		for k, v := range fb.OffPeak {
+			out.OffPeak[k] = v
+		}
 	}
 	return &out
 }

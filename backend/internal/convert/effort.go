@@ -83,7 +83,7 @@ const defaultReasoningEffort = "high"
 // stealth/ox-alpha and z-ai/glm-5.3-flash run ['low','high','max'] (medium is
 // not a distinct level and rewrites to high — see normalizeReasoning; the GLM
 // row laddered 2026-08-30 with upstream defaultEffort 'max'); gpt-5.6-luna and
-// claude-fable-5 run EFFORTS_THROUGH_MAX low..max; mimo-v2.5 and minimax-m3
+// claude-fable-5.1 run EFFORTS_THROUGH_MAX low..max; mimo-v2.5 and minimax-m3
 // expose only {'high'} (no depth ladder upstream); z-ai/glm-5.2 and
 // kimi-k3-eco accept but ignore reasoning_effort, so no clamp.
 //

@@ -231,11 +231,11 @@ func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
 // A future SUPPORTED row defaults to trimmed unless served; restoring a row
 // to FREEBUFF_MODELS automatically restores its copy.
 var catalogDisplayTrimmed = map[string]bool{
-	"stealth/ox-alpha":         true,
-	"deepseek/deepseek-v4-pro": true,
-	"minimax/minimax-m3":       true,
-	"google/gemini-3.8-flash":  true,
-	"anthropic/claude-fable-5": true,
+	"stealth/ox-alpha":           true,
+	"deepseek/deepseek-v4-pro":   true,
+	"minimax/minimax-m3":         true,
+	"google/gemini-3.8-flash":    true,
+	"anthropic/claude-fable-5.1": true,
 }
 
 // Pinned copy the snapshots only reference indirectly (asserted at build).
@@ -808,7 +808,7 @@ type ModelInfo struct {
 	// admission-refused. It names the model the refusal copy recommends.
 	PausedReplacement string
 	// Premium marks FREEBUFF_PREMIUM_MODEL_IDS membership (the shared daily
-	// premium pool). Fable 5 is premium-flagged upstream but metered by its
+	// premium pool). Fable 5.1 is premium-flagged upstream but metered by its
 	// own global pool (FREEBUFF_LIMITED_OFFER_MODEL_IDS), not the shared
 	// pool, so it is NOT marked Premium here.
 	Premium bool

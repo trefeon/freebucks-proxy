@@ -27,7 +27,7 @@ func TestIsMediumlessLadderModel(t *testing.T) {
 		{"case-insensitive", "STEALTH/OX-ALPHA", true},
 		{"loose suffix hit (historical behavior)", "notreal/ox-alpha", true},
 		{"luna ladder has medium", "openai/gpt-5.6-luna", false},
-		{"fable ladder has medium", "anthropic/claude-fable-5", false},
+		{"fable ladder has medium", "anthropic/claude-fable-5.1", false},
 		{"mimo single-rung ladder", "mimo/mimo-v2.5", false},
 		{"minimax single-rung ladder", "minimax/minimax-m3", false},
 		{"glm-5.2 ignores effort", "z-ai/glm-5.2", false},

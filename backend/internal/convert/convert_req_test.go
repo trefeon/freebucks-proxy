@@ -541,7 +541,7 @@ func TestEffortsForModel(t *testing.T) {
 		"stealth/ox-alpha":                {"low", "high", "max"},
 		"mimo/mimo-v2.5":                  {"high"}, // Xiaomi: disabled/high only
 		"minimax/minimax-m3":              {"high"}, // adaptive/disabled only
-		"anthropic/claude-fable-5":        {"low", "medium", "high", "xhigh", "max"},
+		"anthropic/claude-fable-5.1":      {"low", "medium", "high", "xhigh", "max"},
 		"meta/muse-spark-1.2-contributor": {"minimal", "low", "medium", "high", "xhigh"},
 		"meta/muse-spark-1.3-contributor": {"minimal", "low", "medium", "high", "xhigh"}, // paused, frozen ladder
 	} {
@@ -1186,7 +1186,7 @@ func TestNormalizeRequest_MiMoReasoningLadder(t *testing.T) {
 
 	for _, eff := range []string{"low", "medium", "high", "xhigh", "max"} {
 		body := map[string]any{
-			"model":            "anthropic/claude-fable-5",
+			"model":            "anthropic/claude-fable-5.1",
 			"reasoning_effort": eff,
 			"messages": []any{
 				map[string]any{"role": "user", "content": "hi"},
@@ -1194,11 +1194,11 @@ func TestNormalizeRequest_MiMoReasoningLadder(t *testing.T) {
 		}
 		out, err := NormalizeRequest(mustJSON(t, body), "")
 		if err != nil {
-			t.Fatalf("NormalizeRequest(claude-fable-5, %s): %v", eff, err)
+			t.Fatalf("NormalizeRequest(claude-fable-5.1, %s): %v", eff, err)
 		}
 		got := decode(t, out)
 		if got["reasoning_effort"] != eff {
-			t.Errorf("model anthropic/claude-fable-5 with requested effort %s got %v, want %s", eff, got["reasoning_effort"], eff)
+			t.Errorf("model anthropic/claude-fable-5.1 with requested effort %s got %v, want %s", eff, got["reasoning_effort"], eff)
 		}
 	}
 }

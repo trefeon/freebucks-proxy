@@ -12,12 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // SetReAdmitLead configures the pre-emptive re-admit lead (issue #99): when
@@ -618,6 +617,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			m.recordModelUnavailable(targetModel, st.UnavailableWindow, st.AvailableHours)
 			fallbackPrices, fallbackExempt := liveFallbackMeter(st)
 			fallback := DefaultFallbackModelFor(fallbackPrices, fallbackExempt)
+			slog.Debug("session falling back on model unavailable", "requested", targetModel, "fallback", fallback, "limited_offer_reason", st.LimitedOfferReason)
 			targetModel = fallback
 			m.mu.Lock()
 			m.commit(nil)

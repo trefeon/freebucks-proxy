@@ -56,7 +56,7 @@ var expectedFallback = map[string]string{
 	"openai/gpt-5.6-luna-max":         "base2-free-luna-max",
 	"meta/muse-spark-1.2-contributor": "base2-free-muse-spark",
 	"meta/muse-spark-1.3-contributor": "base2-free-muse-spark-1-3",
-	"anthropic/claude-fable-5":        "base2-free-fable",
+	"anthropic/claude-fable-5.1":      "base2-free-fable",
 	"openai/gpt-5.6-luna-es":          "base2-free-luna-es",
 	"stealth/ox-alpha":                "base2-free-ox-alpha",
 	"google/gemini-3.8-flash":         "base2-free-gemini-3-8-flash",

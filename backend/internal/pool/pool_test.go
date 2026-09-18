@@ -18,10 +18,10 @@ import (
 // Test models must map to agents with EXCLUSIVE ownership in the registry
 // FALLBACK map (see backend/internal/registry/registry_test.go expectedFallback):
 // the five base2-free models are root-mapped to their per-model agents, while
-// glm-5.2 and claude-fable-5 are owned by their dedicated one-model agents.
+// glm-5.2 and claude-fable-5.1 are owned by their dedicated one-model agents.
 // Tests pin the offline (fallback) state.
 const (
-	modelA = "anthropic/claude-fable-5"
+	modelA = "anthropic/claude-fable-5.1"
 	modelB = "deepseek/deepseek-v4-flash"
 	agentA = "base2-free-fable"
 	agentB = "base2-free-deepseek-flash"

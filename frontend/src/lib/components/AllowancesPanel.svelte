@@ -19,6 +19,7 @@
     formatFreebucks,
     formatAllowanceUsd,
     freebucksResetCountdown,
+    offPeakCopy,
   } from "../utils/freebucks.js";
 
   let data = $state(null);
@@ -122,6 +123,20 @@
       token.freebucks?.quota_exempt ?? token.freebucks?.quotaExempt,
     );
   }
+  // Off-peak per-model lines for one account card: the active/upcoming
+  // detail for every priced model carrying a server off-peak offer.
+  function offPeakLines(token) {
+    const fb = token.freebucks;
+    if (!fb) return [];
+    const offers = fb.off_peak ?? fb.offPeak ?? {};
+    const out = [];
+    for (const id of Object.keys(offers)) {
+      if (fb.prices?.[id] === undefined) continue;
+      const detail = offPeakCopy(fb, id, { now })?.detail;
+      if (detail) out.push(detail);
+    }
+    return out;
+  }
 
   let unsubStore = null;
   let unsubErr = null;
@@ -182,16 +197,24 @@
       "Add a token to the pool to see Freebucks allowances and model pricing.",
     )}
   />
-{:else if data}
   {#if resetAt}
-    <p
-      class="text-xs text-[var(--fp-muted)] font-mono"
-      data-testid="reset-strip"
-    >
-      {$tr("Daily pools reset at")}
-      {resetAt} · {$tr("resets in")}
-      {resetCountdown} · {$tr("shared for all accounts")}
-    </p>
+    {#if Date.parse(resetAt) <= now}
+      <p
+        class="text-xs text-[var(--fp-muted)] font-mono"
+        data-testid="reset-strip"
+      >
+        {$tr("Updating balance…")}
+      </p>
+    {:else}
+      <p
+        class="text-xs text-[var(--fp-muted)] font-mono"
+        data-testid="reset-strip"
+      >
+        {$tr("Daily pools reset at")}
+        {resetAt} · {$tr("resets in")}
+        {resetCountdown} · {$tr("shared for all accounts")}
+      </p>
+    {/if}
   {/if}
   <ul
     class="grid grid-cols-1 lg:grid-cols-2 gap-2.5"
@@ -247,6 +270,14 @@
               {discountLine(token.freebucks.first_tab_discount)}
             </p>
           {/if}
+          {#each offPeakLines(token) as line, i (i)}
+            <p
+              class="fp-num text-[11px] text-[var(--fp-muted)] tabular-nums"
+              data-testid="off-peak-line"
+            >
+              {line}
+            </p>
+          {/each}
           {#if daily}
             <div class="flex flex-col gap-1">
               <div

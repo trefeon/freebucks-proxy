@@ -77,6 +77,12 @@ var keyCatalog = []KeyDef{
 		Default:     "",
 		Description: `Optional FreeBuff account id sent as x-freebuff-acting-user-id. BAN RISK: only the token's own account id is safe (any other value impersonates another user). Pre-rename name USER_ID still works. Empty = header omitted.`,
 	},
+	// Discovery source (clicreds.ConfigDir, mirroring upstream config-dir.ts):
+	// $FREEBUFF_CONFIG_DIR/credentials.json under an absolute override (a
+	// relative value disables discovery), else
+	// ~/.config/manicode[-$NEXT_PUBLIC_CB_ENVIRONMENT]/credentials.json
+	// (suffix only when set and != "prod"); the hardcoded freebuff/codebuff
+	// dirs are last-resort fallbacks only when neither is in play.
 	{
 		Key: "AUTO_DISCOVER_TOKEN", Group: GroupGeneral, Kind: "bool", RestartOnly: true, Hidden: true,
 		Default:     "true",

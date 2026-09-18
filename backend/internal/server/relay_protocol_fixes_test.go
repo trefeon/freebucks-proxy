@@ -687,7 +687,7 @@ func TestRateLimiterCoversAllV1Surface(t *testing.T) {
 
 // TestProbeModelNeverGated pins the smoke-probe default: with the fallback
 // registry the cheapest served free row wins; a regression to alphabetical
-// models[0] would return the capacity-gated anthropic/claude-fable-5, and a
+// models[0] would return the capacity-gated anthropic/claude-fable-5.1, and a
 // regression to the old pinned id would return deepseek-v4-flash.
 func TestProbeModelNeverGated(t *testing.T) {
 	testutil.UnsetConfigEnv(t)

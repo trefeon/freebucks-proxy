@@ -1395,6 +1395,12 @@
                       ],
                       "type": "object"
                     },
+                    "list_prices": {
+                      "additionalProperties": {
+                        "type": "number"
+                      },
+                      "type": "object"
+                    },
                     "monthly": {
                       "nullable": true,
                       "properties": {
@@ -1423,6 +1429,32 @@
                         "remaining",
                         "spent"
                       ],
+                      "type": "object"
+                    },
+                    "off_peak": {
+                      "additionalProperties": {
+                        "properties": {
+                          "end_hour_utc": {
+                            "type": "integer"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "regular_price": {
+                            "type": "number"
+                          },
+                          "start_hour_utc": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "end_hour_utc",
+                          "price",
+                          "regular_price",
+                          "start_hour_utc"
+                        ],
+                        "type": "object"
+                      },
                       "type": "object"
                     },
                     "plan_id": {
@@ -1647,6 +1679,12 @@
                       ],
                       "type": "object"
                     },
+                    "list_prices": {
+                      "additionalProperties": {
+                        "type": "number"
+                      },
+                      "type": "object"
+                    },
                     "monthly": {
                       "nullable": true,
                       "properties": {
@@ -1675,6 +1713,32 @@
                         "remaining",
                         "spent"
                       ],
+                      "type": "object"
+                    },
+                    "off_peak": {
+                      "additionalProperties": {
+                        "properties": {
+                          "end_hour_utc": {
+                            "type": "integer"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "regular_price": {
+                            "type": "number"
+                          },
+                          "start_hour_utc": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "end_hour_utc",
+                          "price",
+                          "regular_price",
+                          "start_hour_utc"
+                        ],
+                        "type": "object"
+                      },
                       "type": "object"
                     },
                     "plan_id": {
@@ -1735,6 +1799,10 @@
                     "wallet"
                   ],
                   "type": "object"
+                },
+                "freebucks_daily_bonus": {
+                  "nullable": true,
+                  "type": "number"
                 },
                 "has_referral": {
                   "type": "boolean"
@@ -2225,6 +2293,12 @@
                       ],
                       "type": "object"
                     },
+                    "list_prices": {
+                      "additionalProperties": {
+                        "type": "number"
+                      },
+                      "type": "object"
+                    },
                     "monthly": {
                       "nullable": true,
                       "properties": {
@@ -2253,6 +2327,32 @@
                         "remaining",
                         "spent"
                       ],
+                      "type": "object"
+                    },
+                    "off_peak": {
+                      "additionalProperties": {
+                        "properties": {
+                          "end_hour_utc": {
+                            "type": "integer"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "regular_price": {
+                            "type": "number"
+                          },
+                          "start_hour_utc": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "end_hour_utc",
+                          "price",
+                          "regular_price",
+                          "start_hour_utc"
+                        ],
+                        "type": "object"
+                      },
                       "type": "object"
                     },
                     "plan_id": {
@@ -2480,6 +2580,12 @@
                       ],
                       "type": "object"
                     },
+                    "list_prices": {
+                      "additionalProperties": {
+                        "type": "number"
+                      },
+                      "type": "object"
+                    },
                     "monthly": {
                       "nullable": true,
                       "properties": {
@@ -2508,6 +2614,32 @@
                         "remaining",
                         "spent"
                       ],
+                      "type": "object"
+                    },
+                    "off_peak": {
+                      "additionalProperties": {
+                        "properties": {
+                          "end_hour_utc": {
+                            "type": "integer"
+                          },
+                          "price": {
+                            "type": "number"
+                          },
+                          "regular_price": {
+                            "type": "number"
+                          },
+                          "start_hour_utc": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "end_hour_utc",
+                          "price",
+                          "regular_price",
+                          "start_hour_utc"
+                        ],
+                        "type": "object"
+                      },
                       "type": "object"
                     },
                     "plan_id": {
@@ -2568,6 +2700,10 @@
                     "wallet"
                   ],
                   "type": "object"
+                },
+                "freebucks_daily_bonus": {
+                  "nullable": true,
+                  "type": "number"
                 },
                 "has_quota": {
                   "type": "boolean"

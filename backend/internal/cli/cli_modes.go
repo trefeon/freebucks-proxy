@@ -27,6 +27,7 @@ import (
 	_ "time/tzdata"
 
 	"freebuff-proxy/backend/internal/cli/port"
+	"freebuff-proxy/backend/internal/clicreds"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/registry"
 	history "freebuff-proxy/backend/internal/store"
@@ -200,15 +201,15 @@ func logRegistryRefresh(ctx context.Context, logger *slog.Logger, reg *registry.
 	}
 }
 
-// cliOwnerFilePath returns the platform freebuff-instance-owner.json path
-// (issue #97) — the manicode config dir, matching the credentials file the
-// auto-discoverer reads.
+// cliOwnerFilePath returns the freebuff-instance-owner.json path (issue #97)
+// — the shared CLI config dir (clicreds.ConfigDir), matching the credentials
+// file the auto-discoverer reads.
 func cliOwnerFilePath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "", fmt.Errorf("cannot resolve home directory")
+	dir, err := clicreds.ConfigDir()
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(home, ".config", "manicode", "freebuff-instance-owner.json"), nil
+	return filepath.Join(dir, "freebuff-instance-owner.json"), nil
 }
 
 // printPortInUseHint writes the actionable port-conflict message to stderr.

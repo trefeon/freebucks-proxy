@@ -11,7 +11,20 @@
     cheapestFreeOption,
   } from "../modelOptions.js";
   import { onMount } from "svelte";
-  import { spawnIntent, intentAskLine } from "../utils/freebucks.js";
+  import {
+    spawnIntent,
+    intentAskLine,
+    firstTabListPriceFor,
+    formatFreebucks,
+  } from "../utils/freebucks.js";
+
+  // Crossed-out list price for one model option (<option> carries text
+  // only, so the strike renders as a ~N~ prefix): "" unless the first-tab
+  // offer actually moved the row (available + list > price).
+  function strikeFor(id) {
+    const list = firstTabListPriceFor(token?.freebucks, id);
+    return list === undefined ? "" : formatFreebucks(list);
+  }
 
   let { idx, token = null, onSpawn } = $props();
 
@@ -63,11 +76,14 @@
   >
     {#each modelOptions as m (m.id)}
       {@const opt = spawnIntent(token, m.id)}
+      {@const strike = strikeFor(m.id)}
       <option
         value={m.id}
         disabled={opt.kind === "paywall"}
         title={opt.kind === "paywall" ? "Not enough Freebucks" : m.label}
-        >{m.label}{opt.kind === "paywall" ? " — paywalled" : ""}</option
+        >{strike ? `~${strike}~ ` : ""}{m.label}{opt.kind === "paywall"
+          ? " — paywalled"
+          : ""}</option
       >
     {/each}
   </select>

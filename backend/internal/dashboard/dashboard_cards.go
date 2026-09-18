@@ -138,6 +138,14 @@ type tokenCard struct {
 	TodayUsed       bool   `json:"today_used,omitempty"`
 	LastUsage       string `json:"last_usage,omitempty"`
 	StreakUpdatedAt string `json:"streak_updated_at,omitempty"`
+	// FreebucksDailyBonus mirrors FreebuffStreakResponse.freebucksDailyBonus:
+	// Freebucks a day of a 7+ day streak credits to this account's wallet,
+	// or null when the account is not on the meter and the streak still
+	// pays sessions. Nil/omitted on data that predates it (older servers
+	// omit the field) — the SPA falls back to the session copy and draws
+	// no Freebucks bonus note. No streak poller and no admission wiring
+	// read it; display state only.
+	FreebucksDailyBonus *float64 `json:"freebucks_daily_bonus,omitempty"`
 	// Maturity is the streak-maturity automation view (nil until maturity
 	// is first enabled for the token).
 	Maturity *maturityCard `json:"maturity,omitempty"`
@@ -196,10 +204,22 @@ type freebucksCard struct {
 	// Monthly is the monthly dollar allowance (wire drift 2026-09-04,
 	// issue #330). Nil when the server predates it — the SPA renders
 	// nothing rather than a zero that would read as "spent".
-	Monthly      *freebucksWindowCard `json:"monthly,omitempty"`
-	PlanID       string               `json:"plan_id,omitempty"`
-	Prices       map[string]float64   `json:"prices,omitempty"`
-	PriceNotices map[string]string    `json:"price_notices,omitempty"`
+	Monthly *freebucksWindowCard `json:"monthly,omitempty"`
+	PlanID  string               `json:"plan_id,omitempty"`
+	Prices  map[string]float64   `json:"prices,omitempty"`
+	// ListPrices mirrors FreebuffFreebucksInfo.listPrices (vendor 3420c99):
+	// the per-model list price BEFORE the first-tab discount, for the
+	// crossed-out original beside each discounted prices entry. Display
+	// only: prices (effective) stays the only gating map, listPrices never
+	// gates. Nil on quotes that predate it — the SPA renders no strike
+	// rather than guessing (price + amount is wrong for clamped rows).
+	ListPrices   map[string]float64 `json:"list_prices,omitempty"`
+	PriceNotices map[string]string  `json:"price_notices,omitempty"`
+	// OffPeak mirrors FreebuffFreebucksInfo.offPeak (vendor 3420c99):
+	// the server-owned recurring off-peak policy per model id. Display
+	// only — admitted charges never change. Nil when the server sends
+	// none.
+	OffPeak map[string]freebucksOffPeakCard `json:"off_peak,omitempty"`
 	// QuotaExempt is the server-authorized quota exemption (wire drift
 	// 2026-09-05, issue #350): new sessions stay usable at zero balance.
 	QuotaExempt bool `json:"quota_exempt,omitempty"`
@@ -207,6 +227,18 @@ type freebucksCard struct {
 	// Nil when the server sends none — the SPA renders no discount line
 	// rather than a zero that would read as an offer.
 	FirstTabDiscount *freebucksFirstTabCard `json:"first_tab_discount,omitempty"`
+}
+
+// freebucksOffPeakCard is the dashboard view of one model id's off-peak
+// offer (upstream.FreebuffOffPeakPrice, vendor 3420c99): the daily
+// [start_hour_utc, end_hour_utc) window (end may be on the next day)
+// priced at price against regular_price. Snake_case JSON for the
+// dashboard API; display state only.
+type freebucksOffPeakCard struct {
+	StartHourUtc int     `json:"start_hour_utc"`
+	EndHourUtc   int     `json:"end_hour_utc"`
+	Price        float64 `json:"price"`
+	RegularPrice float64 `json:"regular_price"`
 }
 
 // freebucksFirstTabCard is the dashboard view of the first-tab offer:
@@ -810,30 +842,36 @@ func freebucksPriceLabel(p float64) string {
 }
 
 // firstFreebucksPrices returns the first token snapshot's Freebucks price
-// map (issue #350 price sort). Prices are parse-time effective (the
-// announced schedule is already applied), so the sort reads the same
-// numbers the pool meter gates on. nil when no token reports prices.
+// map at read time (issue #350 price sort): due repricings and the
+// off-peak window project onto the stored quote via the pool meter's
+// helper, so the sort reads the same numbers the gate admits on without
+// a reprobe. nil when no token reports prices.
 func (d *Dashboard) firstFreebucksPrices() map[string]float64 {
 	if d.pool == nil {
 		return nil
 	}
 	for _, t := range d.pool.Snapshot() {
 		if t.Freebucks != nil && len(t.Freebucks.Prices) > 0 {
-			return t.Freebucks.Prices
+			prices, _ := pool.EffectiveFreebucksPrices(t.Freebucks, time.Now())
+			return prices
 		}
 	}
 	return nil
 }
 
-// firstFreebucksPriceNotices returns the first token snapshot's Freebucks
-// price-notices map (live promo taglines). nil when absent.
+// firstFreebucksPriceNotices returns the first token snapshot's effective
+// Freebucks price-notices map (live promo taglines, including due
+// repricing and off-peak copy resolved at read time). nil when absent.
 func (d *Dashboard) firstFreebucksPriceNotices() map[string]string {
 	if d.pool == nil {
 		return nil
 	}
 	for _, t := range d.pool.Snapshot() {
-		if t.Freebucks != nil && len(t.Freebucks.PriceNotices) > 0 {
-			return t.Freebucks.PriceNotices
+		if t.Freebucks != nil {
+			_, notices := pool.EffectiveFreebucksPrices(t.Freebucks, time.Now())
+			if len(notices) > 0 {
+				return notices
+			}
 		}
 	}
 	return nil

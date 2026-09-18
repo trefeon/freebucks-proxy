@@ -13,7 +13,12 @@
   import { fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import { tokensData, ensureTokensStore } from "../stores/tokens.js";
-  import { sortModelsByPrice } from "../utils/freebucks.js";
+  import {
+    sortModelsByPrice,
+    formatFreebucks,
+    firstTabListPriceFor,
+    offPeakCopy,
+  } from "../utils/freebucks.js";
   import { tr } from "../i18n.js";
   // Cheapest-first order on the meter (upstream picker revamp): merge the
   // live per-token price maps first-win, and sort only when at least one
@@ -40,6 +45,7 @@
           .filter(Boolean),
   );
   let data = $state(null);
+  let live = $state(null);
   let loading = $state(true);
   let error = $state("");
   let errorToast = $state(0);
@@ -78,18 +84,42 @@
       loading = false;
     }
   }
-
-  // Live price join: Freebucks $/hr comes from the shared tokens snapshot,
-  // keyed by model id across pool tokens.
-  let live = $state(null);
-  function priceLabel(id) {
+  // Live price join: Freebucks/hr comes from the shared tokens snapshot,
+  // keyed by model id across pool tokens. Sub-1 prices read "p
+  // Freebucks/hr" like every other row (a "$p/hr" misreads as dollars);
+  // fractionals keep one decimal, integers render bare.
+  function freebucksFor(id) {
     for (const t of live?.tokens ?? []) {
-      const p = t.freebucks?.prices?.[id];
-      if (p == null) continue;
-      if (p < 1) return `$${p}/hr`;
-      return p === 0 ? "0 Freebucks/hr" : `${p} Freebucks/hr`;
+      if (t.freebucks?.prices?.[id] != null) return t.freebucks;
     }
-    return "";
+    return null;
+  }
+  function priceText(p) {
+    const rounded = Math.round(p * 10) / 10;
+    const body = Number.isInteger(rounded)
+      ? String(rounded)
+      : rounded.toFixed(1);
+    return `${body} Freebucks/hr`;
+  }
+  function priceLabel(id) {
+    const fb = freebucksFor(id);
+    if (!fb) return "";
+    return priceText(fb.prices[id]);
+  }
+  // Crossed-out list price, drawn only on rows the first-tab offer actually
+  // moved (offer available + list > price; clamped-0 and pre-listPrices
+  // quotes answer "" via firstTabListPriceFor).
+  function strikeLabel(id) {
+    const fb = freebucksFor(id);
+    if (!fb) return "";
+    const list = firstTabListPriceFor(fb, id);
+    return list === undefined ? "" : formatFreebucks(list);
+  }
+  // Off-peak active/upcoming line for one model row ("" when no offer).
+  function offPeakLine(id) {
+    const fb = freebucksFor(id);
+    if (!fb) return "";
+    return offPeakCopy(fb, id)?.detail ?? "";
   }
   // Price staleness: the displayed price came from the live join, but every
   // contributing token is quota_stale (pool restarted since last probe).
@@ -178,6 +208,8 @@
             {@const bound = Boolean(m.agent)}
             {@const st = modelState(m)}
             {@const effectivePrice = priceLabel(m.id) || m.price_label || "—"}
+            {@const strike = strikeLabel(m.id)}
+            {@const offPeak = offPeakLine(m.id)}
             {@const stale = priceIsStale(m.id)}
             <tr>
               <td>
@@ -238,20 +270,33 @@
                 {/if}
               </td>
               <td class="w-[1%] whitespace-nowrap text-right">
-                <span class="inline-flex items-center gap-1.5">
-                  <span
-                    class="fp-num text-xs font-semibold {effectivePrice ===
-                    '0 Freebucks/hr'
-                      ? 'text-emerald-400'
-                      : 'text-[var(--fp-accent)]'}">{effectivePrice}</span
-                  >
-                  {#if stale}
+                <span class="inline-flex flex-col items-end gap-0.5">
+                  <span class="inline-flex items-center gap-1.5">
+                    {#if strike}
+                      <s
+                        class="fp-num text-[11px] text-[var(--fp-dim)]"
+                        title={$tr("Regular price")}>{strike}</s
+                      >
+                    {/if}
                     <span
-                      class="led led-warn shrink-0"
-                      title={staleTitle}
-                      aria-label={staleTitle}
-                      role="img"
-                    ></span>
+                      class="fp-num text-xs font-semibold {effectivePrice ===
+                      '0 Freebucks/hr'
+                        ? 'text-emerald-400'
+                        : 'text-[var(--fp-accent)]'}">{effectivePrice}</span
+                    >
+                    {#if stale}
+                      <span
+                        class="led led-warn shrink-0"
+                        title={staleTitle}
+                        aria-label={staleTitle}
+                        role="img"
+                      ></span>
+                    {/if}
+                  </span>
+                  {#if offPeak}
+                    <span class="fp-num text-[10px] text-[var(--fp-muted)]"
+                      >{offPeak}</span
+                    >
                   {/if}
                 </span></td
               >
@@ -269,6 +314,8 @@
         {@const bound = Boolean(m.agent)}
         {@const st = modelState(m)}
         {@const effectivePrice = priceLabel(m.id) || m.price_label || "—"}
+        {@const strike = strikeLabel(m.id)}
+        {@const offPeak = offPeakLine(m.id)}
         {@const stale = priceIsStale(m.id)}
         <li class="fp-inset rounded p-3 flex flex-col gap-2 min-w-0">
           <div class="flex items-start justify-between gap-2 min-w-0">
@@ -316,21 +363,34 @@
           <div
             class="flex items-center justify-between gap-2 text-xs pt-1 border-t border-[var(--fp-border)]/60"
           >
-            <span class="inline-flex items-center gap-1.5">
-              <span
-                class="font-semibold {effectivePrice === '0 Freebucks/hr'
-                  ? 'text-emerald-400'
-                  : 'text-[var(--fp-accent)]'}"
-              >
-                {effectivePrice}
-              </span>
-              {#if stale}
+            <span class="inline-flex flex-col items-start gap-0.5">
+              <span class="inline-flex items-center gap-1.5">
+                {#if strike}
+                  <s
+                    class="fp-num text-[11px] text-[var(--fp-dim)]"
+                    title={$tr("Regular price")}>{strike}</s
+                  >
+                {/if}
                 <span
-                  class="led led-warn shrink-0"
-                  title={staleTitle}
-                  aria-label={staleTitle}
-                  role="img"
-                ></span>
+                  class="font-semibold {effectivePrice === '0 Freebucks/hr'
+                    ? 'text-emerald-400'
+                    : 'text-[var(--fp-accent)]'}"
+                >
+                  {effectivePrice}
+                </span>
+                {#if stale}
+                  <span
+                    class="led led-warn shrink-0"
+                    title={staleTitle}
+                    aria-label={staleTitle}
+                    role="img"
+                  ></span>
+                {/if}
+              </span>
+              {#if offPeak}
+                <span class="fp-num text-[10px] text-[var(--fp-muted)]"
+                  >{offPeak}</span
+                >
               {/if}
             </span>
           </div>

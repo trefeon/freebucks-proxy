@@ -58,7 +58,7 @@ var pinnedRowIDs = map[string]string{
 	"GLM_V53_FLASH_MODEL":     "z-ai/glm-5.3-flash",
 	"DEEPSEEK_V4_FLASH_MODEL": "deepseek/deepseek-v4-flash",
 	"MIMO_V25_MODEL":          "mimo/mimo-v2.5",
-	"FABLE_5_MODEL":           "anthropic/claude-fable-5",
+	"FABLE_5_1_MODEL":         "anthropic/claude-fable-5.1",
 	"SOLAR_PRO_4_MODEL":       "upstage/solar-pro4",
 	"GEMINI_38_FLASH_MODEL":   "google/gemini-3.8-flash",
 }
