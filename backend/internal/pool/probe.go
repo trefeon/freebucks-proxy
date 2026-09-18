@@ -163,7 +163,14 @@ func (p *Pool) ProbeTokenDetailed(ctx context.Context, token int) (ProbeTokenOut
 		return outcome, st, err
 	}
 
-	// Case 5: Token is valid and healthy (err == nil || errors.Is(err, upstream.ErrNoActiveSession))
+	// Case 5: Token is valid and healthy (err == nil), or valid-but-idle
+	// (errors.Is(err, upstream.ErrNoActiveSession) with a non-nil state:
+	// the probe returns the pre-join meter ALONGSIDE the sentinel). Either
+	// way the live meter below is authoritative — persist it, so an
+	// idle-with-balance token populates quota/standing/freebucks without
+	// ever holding a session slot. Ban/country/auth/rate-limit arms above
+	// are untouched. The sentinel is swallowed here (nil error below):
+	// ProbeToken re-emits it alongside the state for legacy callers.
 	// If previously quarantined for a ban, the account is now confirmed unbanned! Lift quarantine.
 	if q := tok.quarantine.Load(); q != nil && q.reason == "banned" {
 		tok.quarantine.Store(nil)
@@ -172,7 +179,9 @@ func (p *Pool) ProbeTokenDetailed(ctx context.Context, token int) (ProbeTokenOut
 		p.logger.Info("pool: quarantine lifted (probe confirmed account unbanned)", "token", token+1)
 	}
 
-	// Update quota, standing, streak, and freebucks from live probe response
+	// Update quota, standing, referral, and freebucks from the live probe
+	// response — including the idle-with-balance state that rides with
+	// ErrNoActiveSession.
 	if st != nil {
 		tok.session.UpdateQuotaFromProbe(st)
 	}

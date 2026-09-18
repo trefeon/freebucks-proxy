@@ -454,14 +454,26 @@ func (p *Pool) ProbeNewToken(ctx context.Context, token string) (*upstream.Sessi
 // ProbeToken validates token against upstream with a zero-cost GET session
 // probe (dashboard test action): no session is created or claimed. Returns
 // the live session state (including RateLimitsByModel quota) on success, or
-// ErrNoActiveSession when the token has no active session (still a valid
-// token), or the classified auth/network error otherwise.
+// the state ALONGSIDE ErrNoActiveSession when the token has no active
+// session (still a valid token — the idle-with-balance meter rides with
+// the sentinel, mirroring ProbeAccount), or the classified auth/network
+// error otherwise.
 func (p *Pool) ProbeToken(ctx context.Context, token int) (*upstream.SessionState, error) {
 	_, st, err := p.ProbeTokenDetailed(ctx, token)
-	if err == nil && st == nil {
+	if err != nil {
+		return st, err
+	}
+	if st == nil {
 		// Legacy contract: healthy idle tokens report ErrNoActiveSession
 		// (callers treat it as valid). Detailed already synced state.
 		return nil, upstream.ErrNoActiveSession
 	}
-	return st, err
+	switch st.Status {
+	case "none", "ended":
+		// Idle-with-balance: propagate the state ALONGSIDE the sentinel
+		// so dashboard callers branch on errors.Is unchanged and still
+		// read the meter.
+		return st, upstream.ErrNoActiveSession
+	}
+	return st, nil
 }

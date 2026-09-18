@@ -165,8 +165,13 @@ func TestProbeTokenDetailed_IdleLiftsBanQuarantine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("idle probe after unban returned error: %v", err)
 	}
-	if st != nil {
-		t.Fatalf("idle probe state = %+v, want nil", st)
+	// Idle probes return the bare-none state alongside the (swallowed)
+	// sentinel: no slot held, nil meter.
+	if st == nil || st.Status != "none" {
+		t.Fatalf("idle probe state = %+v, want non-nil bare-none", st)
+	}
+	if st.Freebucks != nil {
+		t.Errorf("idle probe Freebucks = %+v, want nil meter", st.Freebucks)
 	}
 	if outcome.Status != "ok" {
 		t.Errorf("outcome.Status = %q, want ok", outcome.Status)
