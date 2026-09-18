@@ -2,9 +2,11 @@ package pool
 
 import (
 	"fmt"
+	"time"
+
+	"freebuff-proxy/backend/internal/modelcat"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
-	"time"
 )
 
 // freebucksCapped reports whether the token's Freebucks allowance is exhausted
@@ -46,7 +48,11 @@ func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (boo
 	}
 	price, ok := fb.Prices[model]
 	if !ok {
-		return false, 0
+		if modelcat.IsPremium(model) {
+			price = 1.0
+		} else {
+			return false, 0
+		}
 	}
 	// Monthly dollar allowance (wire drift 2026-09-04, issue #330): when
 	// the period is spent, fresh sessions stop upstream regardless of the
@@ -70,12 +76,17 @@ func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (boo
 	// nothing is known, surface 0.
 	now := time.Now()
 	earliest := time.Time{}
+	hasPastCandidate := false
 	candidates := []time.Time{fb.Daily.ResetAt, fb.Wallet.NextBonusAt}
 	if monthlySpent {
 		candidates = append(candidates, fb.Monthly.ResetAt)
 	}
 	for _, t := range candidates {
-		if t.IsZero() || !t.After(now) {
+		if t.IsZero() {
+			continue
+		}
+		if !t.After(now) {
+			hasPastCandidate = true
 			continue
 		}
 		if earliest.IsZero() || t.Before(earliest) {
@@ -83,13 +94,17 @@ func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (boo
 		}
 	}
 	if earliest.IsZero() {
-		// No future recovery instant: the stored numbers are self-declared
-		// stale (their own windows passed, or a server that never sent
-		// reset times). Treat as unknown so one admission revalidates
-		// against live upstream truth — a genuine refusal re-caps with
-		// fresh data — instead of 429ing forever on frozen numbers no
-		// refresh path can update (polls do not carry Freebucks).
-		return false, 0
+		if hasPastCandidate {
+			// All recovery instants past: the stored numbers are self-declared
+			// stale (their own windows passed). Treat as unknown so one admission
+			// revalidates against live upstream truth.
+			return false, 0
+		}
+		// When no explicit reset timestamp was provided by upstream, fall back
+		// to the next Pacific midnight (daily Freebucks refill). An account
+		// with exhausted Freebucks balance must be skipped rather than
+		// repeatedly failing admission live against upstream.
+		earliest = nextPacificMidnight(now)
 	}
 	return true, time.Until(earliest)
 }
