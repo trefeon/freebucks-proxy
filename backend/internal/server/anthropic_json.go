@@ -1,7 +1,7 @@
 package server
 
 // Anthropic non-streaming translation: relayAnthropicJSON drains the upstream
-// stream into one Anthropic message object (anthropicMessageFromCompletion) and
+// stream into one Anthropic message object (anthropicMessageFromCompletionStrict) and
 // maps the finish reason to the Anthropic vocabulary.
 
 import (
@@ -145,16 +145,8 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 	_, _ = w.Write(out)
 }
 
-func anthropicMessageFromCompletion(completion map[string]any, servedModel string) map[string]any {
-	// Loose entry point: no tool is strict, so every unusable argument
-	// falls back to the legacy {} input (callers with a request use the
-	// strict variant, which 400s for strict:true tools instead).
-	msg, _ := anthropicMessageFromCompletionStrict(completion, servedModel, nil)
-	return msg
-}
-
-// anthropicMessageFromCompletionStrict is anthropicMessageFromCompletion
-// with the per-tool strict lookup: tool_use input for a tool declared
+// anthropicMessageFromCompletionStrict translates a chat completion with
+// the per-tool strict lookup: tool_use input for a tool declared
 // strict:true must parse as a JSON object, else an error is returned for
 // the caller to surface as 400 invalid_tool_arguments.
 func anthropicMessageFromCompletionStrict(completion map[string]any, servedModel string, strictTools map[string]bool) (map[string]any, error) {
