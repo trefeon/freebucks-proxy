@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
 	"math"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // quotaSummary renders the live per-model session quota from a probe's
@@ -161,6 +162,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	var lie *upstream.LimitedIpError
 	var be *upstream.BanError
 	var cbe *upstream.CountryBlockedError
+	var fue *upstream.FreeModeUnavailableError
+	var pue *upstream.ProviderUsageError
+	var cre *upstream.ConsentRequiredError
+	var fte *upstream.FirstTabChangedError
 	var ce *upstream.CreditsError
 	var cde *upstream.CapacityDeferredError
 	var nee *upstream.NoEndpointsError
@@ -317,11 +322,22 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 		if strings.Contains(msg, "free_mode_legacy_luna_agent") {
 			code = "free_mode_legacy_luna_agent"
 			message = "Retired Luna agent — start a new conversation."
+			retryAfter = 1 * time.Second
+		} else if strings.Contains(msg, string(upstream.WireCodeModelLocked)) {
+			// model_locked reaching chat means the account still holds a
+			// session bound to another model: 409 with the re-pick copy.
+			// The proxy never auto-switches models here (no auto-repick):
+			// ending the old session is the caller's explicit choice —
+			// the admission path already released and retried once, so a
+			// repeat lock is a second holder, not a stale row.
+			status, code = http.StatusConflict, "model_locked"
+			message = "Already in an active session on another model. End it first, then pick the model again — the proxy never auto-switches models on an active session."
+			retryAfter = 0
 		} else {
 			code = "session_invalid"
 			message = "Session expired or model changed — retry immediately."
+			retryAfter = 1 * time.Second
 		}
-		retryAfter = 1 * time.Second
 	case errors.As(err, &nee):
 		// Issue #630: upstream routing has no serving endpoint for the
 		// (model, request-shape) combination (404 "No endpoints ...").
@@ -374,6 +390,45 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	case errors.Is(err, upstream.ErrFreeModeInvalidAgentHierarchy):
 		status, code = http.StatusForbidden, "free_mode_invalid_agent_hierarchy"
 		message = err.Error()
+	case errors.As(err, &fue):
+		// 403 free_mode_unavailable (docs/CLI-LIMITASI.md P0-1): the
+		// region/egress gate. Terminal — no Retry-After (retrying the
+		// same egress re-trips the gate), no cooldown, no failover-spin;
+		// the anonymous-network variant names the egress instead.
+		status, code = http.StatusForbidden, "free_mode_unavailable"
+		message = freeModeUnavailableMessage(fue)
+		retryAfter = 0
+	case errors.As(err, &pue):
+		// Provider-billing failure behind Freebuff (docs/CLI-LIMITASI.md
+		// P0-2): the shared provider account needs a refill — never the
+		// caller's credits, so never out_of_credits and never a
+		// buy-credits hint. 402 keeps client retry behavior; the body
+		// rides verbatim.
+		status, code = http.StatusPaymentRequired, "provider_usage_exhausted"
+		message = pue.Body
+		if message == "" {
+			message = "Freebuff ran out of provider usage and needs a refill. This is on us, not your account."
+		}
+		retryAfter = 0
+	case errors.As(err, &cre):
+		// 409 consent_required: the balance moved since the spend limit
+		// was confirmed — re-pick the model to confirm the wallet spend
+		// (the CLI drops to the picker with retry:null). Terminal, no
+		// Retry-After.
+		status, code = http.StatusConflict, "consent_required"
+		if cre.WalletSpend > 0 {
+			message = fmt.Sprintf("Your balance changed. Choose the model again to confirm %g wallet Freebucks.", cre.WalletSpend)
+		} else {
+			message = "Your balance changed. Choose the model again to confirm the wallet spend."
+		}
+		retryAfter = 0
+	case errors.As(err, &fte):
+		// 409 first_tab_discount_changed: the first-tab offer moved
+		// mid-admission, so the quote is stale and nothing was charged —
+		// re-pick from the model menu. Terminal, no Retry-After.
+		status, code = http.StatusConflict, "first_tab_discount_changed"
+		message = "Your first-tab discount changed. Review the model menu and choose again. No Freebucks were charged."
+		retryAfter = 0
 	case errors.As(err, &ce):
 		// 402 "Out of credits": surfacing the upstream body verbatim keeps
 		// the quota detail (limit/recent/reset) for the client.
@@ -431,4 +486,55 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 		s.logger.Warn("request failed", attrs...)
 	}
 	s.writeClientError(w, r, status, message, code, retryAfter)
+}
+
+// freeModeUnavailableMessage renders the client copy for a 403
+// free_mode_unavailable refusal, mirroring the CLI's
+// getFreeModeUnavailableErrorMessage (error-handling.ts): the
+// anonymous-network variant names the egress signals,
+// recent_limited_country carries the verify-country copy, otherwise the
+// upstream message rides verbatim with the Freebuff-unavailable default.
+func freeModeUnavailableMessage(fue *upstream.FreeModeUnavailableError) string {
+	if fue.CountryBlockReason == "anonymous_network" {
+		return "Freebuff cannot be used from " + formatPrivacySignals(fue.IpPrivacySignals) + " traffic. Please disable it and try again."
+	}
+	if fue.CountryBlockReason == "recent_limited_country" {
+		return "This account was recently used from a region where some models aren't available yet, so those limits still apply for a while. Moved? Verify your country at freebuff.com/account?tab=country"
+	}
+	if fue.Message != "" {
+		return fue.Message
+	}
+	return "Freebuff is not available in your country."
+}
+
+// formatPrivacySignals ports formatFreebuffHardBlockedPrivacySignals
+// (common/src/util/freebuff-privacy.ts): vpn/proxy/res_proxy/tor labels,
+// deduped and "A, B or C" joined; anything else falls back to
+// "VPN, proxy, or Tor".
+func formatPrivacySignals(signals []string) string {
+	labels := []string{}
+	seen := map[string]bool{}
+	for _, sig := range signals {
+		var label string
+		switch strings.ToLower(sig) {
+		case "vpn":
+			label = "VPN"
+		case "proxy", "res_proxy":
+			label = "proxy"
+		case "tor":
+			label = "Tor"
+		}
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		labels = append(labels, label)
+	}
+	if len(labels) == 0 {
+		return "VPN, proxy, or Tor"
+	}
+	if len(labels) == 1 {
+		return labels[0]
+	}
+	return strings.Join(labels[:len(labels)-1], ", ") + " or " + labels[len(labels)-1]
 }

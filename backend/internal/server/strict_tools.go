@@ -30,7 +30,13 @@ import (
 //     Roo nests required/additionalProperties as siblings of parameters on
 //     the function object (pinned by TestConformanceRooStrictSchemaPreserved),
 //     so the closer unions both placements instead of demanding them inside
-//     parameters.
+//     parameters. The replay gates (validateResponsesReplayStrictTools,
+//     validateAnthropicReplayStrictTools) run beside the closer: replayed
+//     tool history (Responses function_call items, Anthropic tool_use
+//     blocks) for a strict:true tool must carry usable JSON-object
+//     arguments, else 400 invalid_tool_arguments instead of the silent
+//     "{}" coercion. Chat needs no replay gate: its tool_calls arguments
+//     are opaque strings end to end, never coerced.
 //  2. Gate (Anthropic response path): parseJSONArgsForTool threads the
 //     per-tool strict lookup (tool name -> declared strict, built from the
 //     original request body) into the tool_use input translation. Bad-JSON
@@ -130,6 +136,132 @@ func validateAnthropicStrictTools(raw map[string]any) string {
 		name, _ := tool["name"].(string)
 		if msg := checkStrictSchema(name, tool["input_schema"], tool); msg != "" {
 			return msg
+		}
+	}
+	return ""
+}
+
+// validateResponsesReplayStrictTools enforces the strict contract on
+// replayed Responses function_call history items (input[] entries the
+// converter replays as assistant tool_calls): a strict:true tool whose
+// replayed arguments are missing or not a JSON object fails with the
+// invalid_tool_arguments message instead of being coerced to "{}".
+// Loose tools (Hermes/OpenClaw passthrough) always pass. Runs BEFORE
+// conversion, beside validateResponsesStrictTools.
+func validateResponsesReplayStrictTools(raw map[string]any) string {
+	strict := map[string]bool{}
+	if tools, ok := raw["tools"].([]any); ok {
+		for _, item := range tools {
+			tool, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if typ, _ := tool["type"].(string); typ != "" && typ != "function" {
+				continue
+			}
+			if name, _ := tool["name"].(string); name != "" && isStrictFlag(tool["strict"]) {
+				strict[name] = true
+			}
+		}
+	}
+	input, ok := raw["input"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, item := range input {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if typ, _ := entry["type"].(string); typ != "function_call" {
+			continue
+		}
+		callID, _ := entry["call_id"].(string)
+		name, _ := entry["name"].(string)
+		if callID == "" || name == "" {
+			continue // skipped by the converter's orphan rule
+		}
+		if !strict[name] {
+			continue
+		}
+		args, _ := entry["arguments"].(string)
+		if _, err := parseJSONArgsForTool(args, name, strict); err != nil {
+			return err.Error()
+		}
+	}
+	return ""
+}
+
+// validateAnthropicReplayStrictTools enforces the strict contract on
+// replayed Anthropic tool_use history blocks (assistant turns the
+// converter replays as tool_calls): a strict:true tool whose replayed
+// input is absent or not a JSON object fails with the
+// invalid_tool_arguments message instead of being coerced to "{}".
+// Loose tools always pass. Runs BEFORE conversion, beside
+// validateAnthropicStrictTools.
+func validateAnthropicReplayStrictTools(raw map[string]any) string {
+	strict := map[string]bool{}
+	if tools, ok := raw["tools"].([]any); ok {
+		for _, item := range tools {
+			tool, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if typ, _ := tool["type"].(string); typ != "" {
+				continue
+			}
+			if name, _ := tool["name"].(string); name != "" && isStrictFlag(tool["strict"]) {
+				strict[name] = true
+			}
+		}
+	}
+	messages, ok := raw["messages"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, item := range messages {
+		msg, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		// Mirror the converter (anthropicMessagesToOpenAI): only
+		// assistant turns replay tool_use; other roles drop it.
+		if role, _ := msg["role"].(string); role != "assistant" {
+			continue
+		}
+		content, ok := msg["content"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawPart := range content {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				continue
+			}
+			if typ, _ := part["type"].(string); typ != "tool_use" {
+				continue
+			}
+			name, _ := part["name"].(string)
+			if name == "" || !strict[name] {
+				continue
+			}
+			input, present := part["input"]
+			if !present || input == nil {
+				return fmt.Sprintf("invalid tool arguments for strict tool %q: input must be a JSON object", name)
+			}
+			if s, ok := input.(string); ok {
+				if _, err := parseJSONArgsForTool(s, name, strict); err != nil {
+					return err.Error()
+				}
+				continue
+			}
+			b, err := json.Marshal(input)
+			if err != nil {
+				return fmt.Sprintf("invalid tool arguments for strict tool %q: input must be a JSON object", name)
+			}
+			if _, err := parseJSONArgsForTool(string(b), name, strict); err != nil {
+				return err.Error()
+			}
 		}
 	}
 	return ""

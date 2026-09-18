@@ -99,6 +99,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		s.writeAnthropicError(w, r, http.StatusBadRequest, msg, strictViolationCode, 0)
 		return
 	}
+	// Strict replay gate on tool_use history blocks, before conversion
+	// wraps input into the chat envelope (strict:true only; loose "{}"
+	// coercion byte-identical).
+	if msg := validateAnthropicReplayStrictTools(raw); msg != "" {
+		s.writeAnthropicError(w, r, http.StatusBadRequest, msg, invalidToolArgumentsCode, 0)
+		return
+	}
 	chatParams, err := anthropicToChatParams(raw)
 	if err != nil {
 		s.writeAnthropicError(w, r, http.StatusBadRequest,

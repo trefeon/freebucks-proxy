@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +16,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // Internal (package server) auth tests: these exercise adminAuth with the
@@ -248,6 +249,79 @@ func TestWriteErrorNewMappings(t *testing.T) {
 		}
 		if body.Error.Hint == "" || !strings.Contains(body.Error.Hint, "COST_MODE") {
 			t.Errorf("hint = %q, want COST_MODE hint", body.Error.Hint)
+		}
+	})
+
+	t.Run("free_mode_unavailable 403 terminal", func(t *testing.T) {
+		// docs/CLI-LIMITASI.md P0-1: region/egress gate — terminal 403,
+		// never the generic 502, never a Retry-After.
+		err := &upstream.FreeModeUnavailableError{Status: http.StatusForbidden, CountryBlockReason: "anonymous_network"}
+		status, hdr, body := errorResponse(t, err)
+		if status != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", status)
+		}
+		if body.Error.Code != "free_mode_unavailable" {
+			t.Errorf("code = %q, want free_mode_unavailable", body.Error.Code)
+		}
+		if body.Error.Message == "" {
+			t.Error("message is empty, want egress-actionable copy")
+		}
+		if ra := hdr.Get("Retry-After"); ra != "" {
+			t.Errorf("Retry-After = %q, want empty (terminal gate)", ra)
+		}
+	})
+
+	t.Run("provider_usage_exhausted 402 verbatim", func(t *testing.T) {
+		// docs/CLI-LIMITASI.md P0-2: operator-side refill — 402 with a
+		// distinct code, upstream body verbatim, never out_of_credits.
+		const upstreamBody = `{"error":"insufficient credits"}`
+		err := &upstream.ProviderUsageError{Status: http.StatusPaymentRequired, Body: upstreamBody}
+		status, hdr, body := errorResponse(t, err)
+		if status != http.StatusPaymentRequired {
+			t.Errorf("status = %d, want 402", status)
+		}
+		if body.Error.Code != "provider_usage_exhausted" {
+			t.Errorf("code = %q, want provider_usage_exhausted", body.Error.Code)
+		}
+		if body.Error.Message != upstreamBody {
+			t.Errorf("message = %q, want upstream body verbatim", body.Error.Message)
+		}
+		if ra := hdr.Get("Retry-After"); ra != "" {
+			t.Errorf("Retry-After = %q, want empty", ra)
+		}
+	})
+
+	t.Run("consent_required 409 re-confirm", func(t *testing.T) {
+		err := &upstream.ConsentRequiredError{Status: http.StatusConflict, WalletSpend: 5}
+		status, hdr, body := errorResponse(t, err)
+		if status != http.StatusConflict {
+			t.Errorf("status = %d, want 409", status)
+		}
+		if body.Error.Code != "consent_required" {
+			t.Errorf("code = %q, want consent_required", body.Error.Code)
+		}
+		if !strings.Contains(body.Error.Message, "5") {
+			t.Errorf("message = %q, want re-confirm amount", body.Error.Message)
+		}
+		if ra := hdr.Get("Retry-After"); ra != "" {
+			t.Errorf("Retry-After = %q, want empty (terminal)", ra)
+		}
+	})
+
+	t.Run("first_tab_discount_changed 409 no-charge", func(t *testing.T) {
+		err := &upstream.FirstTabChangedError{Status: http.StatusConflict, Body: `{"status":"first_tab_discount_changed"}`}
+		status, hdr, body := errorResponse(t, err)
+		if status != http.StatusConflict {
+			t.Errorf("status = %d, want 409", status)
+		}
+		if body.Error.Code != "first_tab_discount_changed" {
+			t.Errorf("code = %q, want first_tab_discount_changed", body.Error.Code)
+		}
+		if !strings.Contains(body.Error.Message, "No Freebucks were charged") {
+			t.Errorf("message = %q, want no-charge copy", body.Error.Message)
+		}
+		if ra := hdr.Get("Retry-After"); ra != "" {
+			t.Errorf("Retry-After = %q, want empty (terminal)", ra)
 		}
 	})
 

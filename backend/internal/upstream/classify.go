@@ -21,6 +21,13 @@ import (
 
 // classifyError maps an upstream error response to the recovery matrix. It
 // matches on the WireCode vocabulary defined in wirecodes.go.
+//
+// Free-tier only: every call classified here is a freebuff free-tier call
+// (the proxy manages free sessions per token and has no BYOK/passthrough
+// lane). A future non-free lane must bypass this mapping the way the CLI
+// skips all free-mode handling on BYOK runs (send-message.ts isByokRun
+// gates): no free-mode envelope markers, no provider-usage/out-of-credits
+// rewrite, no gate recovery.
 func classifyError(status int, body string, hdr http.Header) error {
 	lower := strings.ToLower(body)
 	retryAfter := parseRetryAfter(hdr)
@@ -78,6 +85,15 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// 502. The incoming status is preserved for telemetry; the server
 		// still surfaces 429 turn_spend_limited with no Retry-After.
 		return &TurnSpendLimitError{Status: status, Body: truncate(body, 200)}
+	case (status == http.StatusPaymentRequired || status == http.StatusUnauthorized) && reProviderUsageBill.MatchString(lower):
+		// Provider-billing failure behind Freebuff (observed as 401 and
+		// 402): the shared provider account needs a refill — an operator
+		// problem, never the caller's credits. Must precede the blanket
+		// 402 arm so it can never become CreditsError/out_of_credits
+		// (upstream/freebuff error-handling.ts isFreebuffProviderUsageError
+		// + FREEBUFF_PROVIDER_USAGE_ERROR_PATTERN, checked before the
+		// credit arms in send-message.ts).
+		return parseProviderUsage(status, body)
 	case status == http.StatusUnauthorized:
 		return fmt.Errorf("%w: %d %s", ErrAuthRejected, status, truncate(body, 200))
 	case status == http.StatusServiceUnavailable:
@@ -99,8 +115,27 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// refreshes/recreates the session
 		// (upstream/freebuff freebuff-session.ts FREEBUFF_GATE_CODES).
 		return &SessionLimitError{Status: status, Body: truncate(body, 200)}
+	case status == http.StatusConflict && strings.Contains(lower, `"status":"`+string(WireCodeConsentRequired)+`"`):
+		// 409 consent_required: the wallet balance moved since the spend
+		// limit was confirmed. Terminal for the request (the CLI drops to
+		// the picker with retry:null) — never a cooldown, never a retry,
+		// never the generic 502. Exact marker only, like the banned arm.
+		return parseConsentRequired(status, body)
+	case status == http.StatusConflict && strings.Contains(lower, `"status":"`+string(WireCodeFirstTabDiscountChanged)+`"`):
+		// 409 first_tab_discount_changed: the first-tab offer moved
+		// mid-admission, so the quote is stale and nothing was charged.
+		// Terminal with the re-pick copy, never a cooldown or retry.
+		return parseFirstTabChanged(status, body)
 	case status == http.StatusForbidden && strings.Contains(lower, string(WireCodeFreeModeCLIRequired)):
 		return fmt.Errorf("%w: %d %s", ErrFreeModeCLIRequired, status, truncate(body, 200))
+	case status == http.StatusForbidden && strings.Contains(lower, string(WireCodeFreeModeUnavailable)):
+		// 403 free_mode_unavailable: the free tier refused the request at
+		// the region/egress gate (country_not_allowed or anonymous_network
+		// egress, with the country_blocked field shape). Terminal like
+		// cli_required — a config/egress refusal, never a cooldown, never
+		// the generic 502. The 403 gate stays tight: the same marker on
+		// any other status falls to default.
+		return parseFreeModeUnavailable(status, body)
 	case status == http.StatusForbidden && strings.Contains(lower, string(WireCodeFreeModeInvalidAgentHierarchy)):
 		// free_mode_invalid_agent_hierarchy: the subagent id is not in its
 		// root's allowlist (vendor free-agents.ts hierarchy gate). Dedicated
@@ -549,6 +584,68 @@ func parseCountryBlock(body string) error {
 	return countryBlockFromBody(body)
 }
 
+// freeModeUnavailableFromBody builds a FreeModeUnavailableError from a
+// free_mode_unavailable body, extracting message/countryCode/
+// countryBlockReason/ipPrivacySignals best-effort (absent fields are
+// tolerated; non-string signal entries are dropped like the CLI's parser).
+func freeModeUnavailableFromBody(status int, body string) *FreeModeUnavailableError {
+	fue := &FreeModeUnavailableError{Status: status, Body: truncate(body, 200)}
+	var parsed struct {
+		Message            string `json:"message"`
+		CountryCode        string `json:"countryCode"`
+		CountryBlockReason string `json:"countryBlockReason"`
+		IpPrivacySignals   []any  `json:"ipPrivacySignals"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		return fue
+	}
+	fue.Message = parsed.Message
+	fue.CountryCode = parsed.CountryCode
+	fue.CountryBlockReason = parsed.CountryBlockReason
+	for _, sig := range parsed.IpPrivacySignals {
+		if s, ok := sig.(string); ok && s != "" {
+			fue.IpPrivacySignals = append(fue.IpPrivacySignals, s)
+		}
+	}
+	return fue
+}
+
+// parseFreeModeUnavailable builds a FreeModeUnavailableError from a 403
+// free_mode_unavailable body. Terminal: no Retry-After is read (retrying
+// the same egress re-trips the gate) and no cooldown is ever scheduled.
+func parseFreeModeUnavailable(status int, body string) error {
+	return freeModeUnavailableFromBody(status, body)
+}
+
+// parseProviderUsage builds a ProviderUsageError from a 401/402 body
+// carrying provider-billing wording. Never a cooldown: the token is
+// healthy, the shared provider account needs a refill.
+func parseProviderUsage(status int, body string) error {
+	return &ProviderUsageError{Status: status, Body: truncate(body, 200)}
+}
+
+// parseConsentRequired builds a ConsentRequiredError from a 409
+// consent_required body, extracting the walletSpend re-confirm amount
+// best-effort.
+func parseConsentRequired(status int, body string) error {
+	cre := &ConsentRequiredError{Status: status, Body: truncate(body, 200)}
+	var parsed struct {
+		WalletConsent struct {
+			WalletSpend float64 `json:"walletSpend"`
+		} `json:"walletConsent"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err == nil {
+		cre.WalletSpend = parsed.WalletConsent.WalletSpend
+	}
+	return cre
+}
+
+// parseFirstTabChanged builds a FirstTabChangedError from a 409
+// first_tab_discount_changed body.
+func parseFirstTabChanged(status int, body string) error {
+	return &FirstTabChangedError{Status: status, Body: truncate(body, 200)}
+}
+
 // parseIpCapped builds an IpCappedError from a 429 ip_capped body,
 // extracting retryAfterMs/activeUsersForIp/limit best-effort (absent fields
 // are tolerated). The error carries the body's retryAfterMs verbatim (1m
@@ -589,6 +686,12 @@ func parseIpCapped(body string, headerRetryAfter time.Duration) error {
 // for <model>" body. Trailing sentence punctuation is trimmed at parse
 // time; the match is best-effort and empty when the marker shape differs.
 var reNoEndpointsModel = regexp.MustCompile(`no endpoints found for\s+([^\s"']+)`)
+
+// reProviderUsageBill ports FREEBUFF_PROVIDER_USAGE_ERROR_PATTERN
+// (common/src/constants/freebuff-errors.ts): provider-billing wording that
+// survives into a 401/402 refusal body. Matched against the lowercased
+// body, like every other marker in this matrix.
+var reProviderUsageBill = regexp.MustCompile(`(?i)\b(?:(?:not enough|insufficient|out of)\s+credits?|(?:add|refill|top up)\s+(?:more\s+)?credits?)\b`)
 
 // parseNoEndpoints builds a NoEndpointsError from a 404 no-endpoints body
 // (issue #630). Never a cooldown, never a session invalidation: the

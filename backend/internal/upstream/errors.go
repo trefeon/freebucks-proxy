@@ -122,6 +122,27 @@ var (
 	// ...", issue #630). Model-scoped: surface distinctly, never cool
 	// the token or invalidate the session over it.
 	ErrNoEndpoints = errors.New("upstream has no serving endpoints")
+	// ErrFreeModeUnavailable: 403 free_mode_unavailable — the free tier
+	// refused the request at the region/egress gate (country_blocked's
+	// chat-time sibling: country-not-allowed or anonymous-network egress,
+	// with the same countryCode/countryBlockReason/ipPrivacySignals
+	// shape). TERMINAL for the request: never a cooldown, never a
+	// failover-spin (docs/CLI-LIMITASI.md P0-1).
+	ErrFreeModeUnavailable = errors.New("upstream free mode unavailable")
+	// ErrProviderUsage: the upstream provider account behind Freebuff is
+	// out of usage (HTTP 401/402 carrying provider-billing wording). An
+	// operator-side refill problem, NOT the caller's credits — it must
+	// never become CreditsError/out_of_credits (docs/CLI-LIMITASI.md P0-2).
+	ErrProviderUsage = errors.New("upstream provider usage exhausted")
+	// ErrConsentRequired: 409 consent_required — the wallet balance moved
+	// since the spend limit was confirmed. Terminal for the request (the
+	// CLI drops to the picker with retry:null); never a cooldown, never a
+	// retry.
+	ErrConsentRequired = errors.New("upstream wallet consent required")
+	// ErrFirstTabChanged: 409 first_tab_discount_changed — the first-tab
+	// offer moved mid-admission so the quote is stale (nothing charged).
+	// Terminal for the request; never a cooldown, never a retry.
+	ErrFirstTabChanged = errors.New("upstream first-tab discount changed")
 )
 
 // WaitingRoomError is the concrete value behind ErrWaitingRoom; callers
@@ -463,3 +484,81 @@ func (e *SessionLimitError) Error() string {
 }
 
 func (e *SessionLimitError) Unwrap() error { return ErrSessionLimitReached }
+
+// FreeModeUnavailableError is a 403 free_mode_unavailable response: the
+// free tier refused the request at the region/egress gate. Fields mirror
+// CountryBlockedError best-effort (the vendor shape carries the same
+// countryCode/countryBlockReason/ipPrivacySignals block; absent fields are
+// tolerated). Unwrap makes errors.Is(err, ErrFreeModeUnavailable) work.
+type FreeModeUnavailableError struct {
+	Status             int
+	Message            string // upstream message when the body carries one
+	CountryCode        string
+	CountryBlockReason string
+	IpPrivacySignals   []string
+	Body               string // truncated upstream body
+}
+
+func (e *FreeModeUnavailableError) Error() string {
+	msg := "upstream free mode unavailable"
+	if e.CountryCode != "" {
+		msg += " (" + e.CountryCode
+		if e.CountryBlockReason != "" {
+			msg += ": " + e.CountryBlockReason
+		}
+		msg += ")"
+	}
+	if e.Body != "" {
+		msg += ": " + e.Body
+	}
+	return msg
+}
+
+func (e *FreeModeUnavailableError) Unwrap() error { return ErrFreeModeUnavailable }
+
+// ProviderUsageError is an upstream provider-billing failure behind
+// Freebuff (HTTP 401/402 with provider-billing wording): the shared
+// provider account needs a refill. Operator-side, never the caller's
+// credits — deliberately distinct from CreditsError so no buy-credits
+// copy is ever attached. Unwrap makes errors.Is(err, ErrProviderUsage)
+// work.
+type ProviderUsageError struct {
+	Status int
+	Body   string // truncated upstream body
+}
+
+func (e *ProviderUsageError) Error() string {
+	return fmt.Sprintf("upstream %d: %s", e.Status, e.Body)
+}
+
+func (e *ProviderUsageError) Unwrap() error { return ErrProviderUsage }
+
+// ConsentRequiredError is a 409 consent_required refusal: the wallet
+// balance moved since the spend limit was confirmed. WalletSpend carries
+// the re-confirm amount when the body names it. Unwrap makes
+// errors.Is(err, ErrConsentRequired) work.
+type ConsentRequiredError struct {
+	Status      int
+	WalletSpend float64
+	Body        string // truncated upstream body
+}
+
+func (e *ConsentRequiredError) Error() string {
+	return fmt.Sprintf("upstream %d: %s", e.Status, e.Body)
+}
+
+func (e *ConsentRequiredError) Unwrap() error { return ErrConsentRequired }
+
+// FirstTabChangedError is a 409 first_tab_discount_changed refusal: the
+// first-tab offer moved mid-admission so the quote is stale and nothing
+// was charged. Unwrap makes errors.Is(err, ErrFirstTabChanged) work.
+type FirstTabChangedError struct {
+	Status int
+	Body   string // truncated upstream body
+}
+
+func (e *FirstTabChangedError) Error() string {
+	return fmt.Sprintf("upstream %d: %s", e.Status, e.Body)
+}
+
+func (e *FirstTabChangedError) Unwrap() error { return ErrFirstTabChanged }

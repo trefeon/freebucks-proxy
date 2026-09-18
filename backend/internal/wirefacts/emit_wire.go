@@ -71,6 +71,9 @@ var wireCodes = []wireCode{
 	{"WireCodeSpendLimited", "spend_limited", "WireCodeSpendLimited: spend ceiling reached.", wireSessionFile},
 	{"WireCodeBanned", "banned", "WireCodeBanned: the account is temporarily banned (the canonical {\"status\":\"banned\"} marker).", wireSessionFile},
 	{"WireCodeAccountSuspended", "account_suspended", "WireCodeAccountSuspended: hard-ban shape ({\"error\":\"account_suspended\",...}).", ""},
+	{"WireCodeFreeModeUnavailable", "free_mode_unavailable", "WireCodeFreeModeUnavailable: the free tier refused the request (region/egress gate, 403).", ""},
+	{"WireCodeConsentRequired", "consent_required", "WireCodeConsentRequired: wallet-consent demand (409 admission status).", wireSessionFile},
+	{"WireCodeFirstTabDiscountChanged", "first_tab_discount_changed", "WireCodeFirstTabDiscountChanged: first-tab re-quote (409 admission status).", wireSessionFile},
 }
 
 // wireGate pins one FREEBUFF_GATE_CODES row: code plus its HTTP status and

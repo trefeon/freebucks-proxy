@@ -97,4 +97,13 @@ const (
 	// WireCodeAccountSuspended: hard-ban shape ({"error":"account_suspended",...}).
 	// pinned server-observed body marker (absent from the snapshots).
 	WireCodeAccountSuspended WireCode = "account_suspended"
+	// WireCodeFreeModeUnavailable: the free tier refused the request (region/egress gate, 403).
+	// pinned server-observed body marker (absent from the snapshots).
+	WireCodeFreeModeUnavailable WireCode = "free_mode_unavailable"
+	// WireCodeConsentRequired: wallet-consent demand (409 admission status).
+	// snapshot: common/src/types/freebuff-session.ts.
+	WireCodeConsentRequired WireCode = "consent_required"
+	// WireCodeFirstTabDiscountChanged: first-tab re-quote (409 admission status).
+	// snapshot: common/src/types/freebuff-session.ts.
+	WireCodeFirstTabDiscountChanged WireCode = "first_tab_discount_changed"
 )

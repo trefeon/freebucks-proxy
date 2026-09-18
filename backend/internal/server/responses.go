@@ -95,6 +95,13 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		s.writeClientError(w, r, http.StatusBadRequest, msg, strictViolationCode, 0)
 		return
 	}
+	// Strict replay gate on function_call history items, before conversion
+	// wraps them into the chat envelope (strict:true only; loose "{}"
+	// coercion byte-identical).
+	if msg := validateResponsesReplayStrictTools(raw); msg != "" {
+		s.writeClientError(w, r, http.StatusBadRequest, msg, invalidToolArgumentsCode, 0)
+		return
+	}
 	stream := false
 	if v, ok := raw["stream"].(bool); ok {
 		stream = v

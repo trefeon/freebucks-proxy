@@ -155,6 +155,30 @@ type LimitedModelOffer struct {
 // hiding the row.
 func (o LimitedModelOffer) Joinable() bool { return o.UserRemaining > 0 }
 
+// Fable 5.1 trace-campaign pins (vendor e2b911eca,
+// common/src/constants/freebuff-models.ts): the capacity-limited trial
+// model id and its picker display name. Fable is deliberately NOT a
+// standing picker model — the server advertises it only while the shared
+// pool has sessions left (limitedModelOffers), and it runs on the base2
+// root base2-free-fable as the campaign's deliberate base2 exception
+// (free-agent-selection.ts; there is no base3-free-fable and one must
+// never be resolved — the registry text parser cannot evaluate the base3
+// by-model maps, which enforces this today).
+const (
+	FreebuffFable51ModelID     = "anthropic/claude-fable-5.1"
+	FreebuffFable51DisplayName = "Claude Fable 5.1"
+)
+
+// LimitedOfferSessionLimit is the per-user campaign allowance: one
+// admission per user for the entire campaign, and early ends do not
+// refund it (vendor FREEBUFF_LIMITED_OFFER_SESSION_LIMIT).
+const LimitedOfferSessionLimit = 1
+
+// LimitedOfferMaxSessions is the hard ceiling for the Fable 5.1 trace
+// campaign, even if an env value is larger (vendor
+// FREEBUFF_LIMITED_OFFER_MAX_SESSIONS).
+const LimitedOfferMaxSessions = 500
+
 func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, body string) (*SessionState, error) {
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
 		if req.Method == http.MethodPost && isSessionAdmissionRequest(req) {

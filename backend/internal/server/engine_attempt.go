@@ -3,12 +3,13 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
-	"io"
-	"net/http"
 )
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the
@@ -266,6 +267,21 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrCountryBlocked):
 		// No cooldown write: surface.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrFreeModeUnavailable):
+		// Terminal region/egress refusal: surface with no cooldown
+		// write and no failover-spin.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrProviderUsage):
+		// Shared provider account needs a refill — the token itself is
+		// healthy: no cooldown write, surface.
+		release()
+		return nil, nil, err
+	case errors.Is(err, upstream.ErrConsentRequired), errors.Is(err, upstream.ErrFirstTabChanged):
+		// Terminal admission refusals surfacing mid-chat: surface with
+		// no cooldown write and no retry.
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrCredits):

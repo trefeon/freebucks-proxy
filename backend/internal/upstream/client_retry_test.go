@@ -6,9 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/stealth"
-	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +18,10 @@ import (
 	"testing"
 	"time"
 	_ "time/tzdata"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/stealth"
+	"freebuff-proxy/backend/internal/testutil"
 
 	utls "github.com/refraction-networking/utls"
 )
@@ -319,12 +320,26 @@ func TestClassifyBanUnixMsResumesAt(t *testing.T) {
 	}
 }
 
-// TestClassifyCredits verifies a 402 payment-required response maps to a
-// CreditsError unwrapping to ErrCredits (fresh free accounts hit this before
-// the free tier kicks in, so it must NOT fall through to a generic
-// UpstreamError).
+// TestClassifyCredits verifies the 402 contract split: a 402 carrying
+// provider-billing wording maps to ProviderUsageError (operator-side refill,
+// never buy-credits copy — vendor send-message.ts checks the provider arm
+// before the credit arm in IS_FREEBUFF), while a 402 without that wording
+// still maps to CreditsError so it never falls through to a generic
+// UpstreamError.
 func TestClassifyCredits(t *testing.T) {
 	err := classifyError(402, `{"error":"insufficient credits"}`, http.Header{})
+	var usageErr *ProviderUsageError
+	if !errors.As(err, &usageErr) {
+		t.Fatalf("want ProviderUsageError, got %v", err)
+	}
+	if usageErr.Status != 402 {
+		t.Errorf("status = %d, want 402", usageErr.Status)
+	}
+	if !errors.Is(err, ErrProviderUsage) {
+		t.Error("not unwrap-able to ErrProviderUsage")
+	}
+
+	err = classifyError(402, `{"error":"payment required"}`, http.Header{})
 	var credErr *CreditsError
 	if !errors.As(err, &credErr) {
 		t.Fatalf("want CreditsError, got %v", err)

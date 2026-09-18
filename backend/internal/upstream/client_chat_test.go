@@ -220,7 +220,12 @@ func TestErrorClassification(t *testing.T) {
 		{"waiting room required (428)", 428, `{"error":"waiting_room_required"}`, ErrWaitingRoomRequired},
 		{"waiting room required body (any status)", 429, `{"error":"waiting_room_required"}`, ErrWaitingRoomRequired},
 		{"generic", 500, `{"error":"boom"}`, &UpstreamError{Status: 500}},
-		{"402 out of credits", 402, `{"error":"out of credits"}`, ErrCredits},
+		{"402 provider usage (credit wording is operator-side)", 402, `{"error":"out of credits"}`, ErrProviderUsage},
+		{"402 payment required without credit wording", 402, `{"error":"payment required"}`, ErrCredits},
+		{"401 provider usage", 401, `{"error":"insufficient credits"}`, ErrProviderUsage},
+		{"403 free_mode_unavailable", 403, `{"error":"free_mode_unavailable"}`, ErrFreeModeUnavailable},
+		{"409 consent_required", 409, `{"status":"consent_required"}`, ErrConsentRequired},
+		{"409 first_tab_discount_changed", 409, `{"status":"first_tab_discount_changed"}`, ErrFirstTabChanged},
 	}
 
 	for _, tc := range cases {

@@ -102,6 +102,27 @@ func Run(autoYes bool) {
 		fmt.Println("    Manual flags: aider --openai-api-base http://localhost:3457/v1 --openai-api-key not-needed")
 	}
 
+	// TODO(-setup): writers for roo/cline/goose/qwen/kilocode/pi/omp.
+	// None matches the Continue (YAML/JSON merge), opencode (plain-JSON
+	// provider block) or aider (flat key: value merge + binary on PATH)
+	// writer patterns closely enough to add blind:
+	//   - roo/cline/kilocode: VS Code extensions configured through the
+	//     editor's settings.json (JSONC — comments break naive
+	//     encoding/json round-trips) with secrets in OS keychain storage,
+	//     not in a mergeable config file. Needs a JSONC-preserving
+	//     merge plus a secrets story before a writer is safe.
+	//   - goose: ~/.config/goose/config.yaml exists and is YAML-mergeable
+	//     in principle, but its provider/model/extension schema is not
+	//     pinned in-repo — writing unvalidated keys risks breaking
+	//     launches. Pin the schema first, then mirror setupAiderConfig.
+	//   - qwen: ~/.qwen/settings.json schema is not pinned in-repo;
+	//     same pin-then-mirror path as goose (JSON flavor).
+	//   - pi/omp (Oh My Pi harness): config surface lives outside this
+	//     repo; needs a schema pointer before any writer.
+	// Until then these stay manual: print the per-tool base URL
+	// (http://localhost:3457/v1, apiKey not-needed) copy blocks from the
+	// dashboard Setup page instead of writing files.
+
 	fmt.Printf("\n======================================\n")
 	fmt.Printf("Setup complete! Configured %d client tool(s).\n", configured)
 	fmt.Println("Base URL: http://localhost:3457/v1")
@@ -153,7 +174,7 @@ func backupFile(p string) {
 
 func setupContinueYamlConfig(p string) bool {
 	dir := filepath.Dir(p)
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0o755)
 
 	backupFile(p)
 
@@ -180,9 +201,9 @@ func setupContinueYamlConfig(p string) bool {
 		if !ok {
 			return false
 		}
-		return os.WriteFile(p, []byte(merged), 0644) == nil
+		return os.WriteFile(p, []byte(merged), 0o644) == nil
 	}
-	return os.WriteFile(p, []byte(snippet), 0644) == nil
+	return os.WriteFile(p, []byte(snippet), 0o644) == nil
 }
 
 // mergeContinueYamlModels merges the FreeBuff model into existing Continue
@@ -248,7 +269,7 @@ func mergeContinueYamlModels(existing string, itemLines []string, snippet string
 
 func setupContinueConfig(p string) bool {
 	dir := filepath.Dir(p)
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0o755)
 
 	backupFile(p)
 
@@ -294,7 +315,7 @@ func setupContinueConfig(p string) bool {
 		if err != nil {
 			return false
 		}
-		return os.WriteFile(p, out, 0644) == nil
+		return os.WriteFile(p, out, 0o644) == nil
 	}
 
 	return true
@@ -302,7 +323,7 @@ func setupContinueConfig(p string) bool {
 
 func setupOpencodeConfig(p string) bool {
 	dir := filepath.Dir(p)
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0o755)
 
 	backupFile(p)
 
@@ -346,7 +367,7 @@ func setupOpencodeConfig(p string) bool {
 	if err != nil {
 		return false
 	}
-	return os.WriteFile(p, out, 0644) == nil
+	return os.WriteFile(p, out, 0o644) == nil
 }
 
 func setupAiderConfig(p string) bool {
@@ -369,9 +390,9 @@ func setupAiderConfig(p string) bool {
 		}
 		backupFile(p)
 		merged := mergeAiderConfig(string(existing), newLines)
-		return os.WriteFile(p, []byte(merged), 0644) == nil
+		return os.WriteFile(p, []byte(merged), 0o644) == nil
 	}
-	return os.WriteFile(p, []byte(strings.Join(newLines, "\n")+"\n"), 0644) == nil
+	return os.WriteFile(p, []byte(strings.Join(newLines, "\n")+"\n"), 0o644) == nil
 }
 
 // mergeAiderConfig merges key:value lines into existing YAML-style config
