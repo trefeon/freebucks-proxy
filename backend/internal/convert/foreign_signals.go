@@ -36,6 +36,8 @@ import "strings"
 // excluded from the known-names set.
 
 // ForeignSignal is one upstream foreign-client signal.
+type ForeignSignal string
+
 const (
 	ForeignToolset      ForeignSignal = "foreign_toolset"
 	ForeignToolNames    ForeignSignal = "foreign_tool_names"
