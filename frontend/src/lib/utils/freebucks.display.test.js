@@ -111,6 +111,39 @@ describe("offPeakCopy (active vs upcoming)", () => {
       undefined,
     );
   });
+  it("snake_case dashboard keys: live quote shape renders, never throws", () => {
+    // Live /admin/api/tokens ships start_hour_utc/end_hour_utc/regular_price
+    // (2026-09-18: camelCase-only read threw RangeError mid-render, freezing
+    // the Usage Accounts/Models tabs on "Loading…").
+    const fb = {
+      prices: { "deepseek/deepseek-v4-flash": 10 },
+      off_peak: {
+        "deepseek/deepseek-v4-flash": {
+          start_hour_utc: 22,
+          end_hour_utc: 6,
+          price: 10,
+          regular_price: 15,
+        },
+      },
+    };
+    const copy = offPeakCopy(fb, "deepseek/deepseek-v4-flash", {
+      now: at("2026-09-18T23:00:00Z"),
+      timeZone: "UTC",
+    });
+    assert.equal(copy.active, true);
+    assert.match(copy.detail, /normally 15\/hr/);
+  });
+
+  it("missing window hours: undefined, never throws", () => {
+    const fb = {
+      prices: { [LUNA]: 5 },
+      off_peak: { [LUNA]: { price: 5, regularPrice: 15 } },
+    };
+    assert.equal(
+      offPeakCopy(fb, LUNA, { now: at("2026-09-18T04:00:00Z") }),
+      undefined,
+    );
+  });
 });
 
 describe("formatFreebucks grouping", () => {

@@ -159,13 +159,21 @@ export function firstTabListPriceFor(info, modelId) {
 }
 
 /** Resolve a server-owned daily off-peak policy, including windows crossing
- * midnight. Port of offPeakPriceAt (vendor freebuff-price-changes.ts). */
+ * midnight. Port of offPeakPriceAt (vendor freebuff-price-changes.ts).
+ * Reads the camelCase wire keys and the snake_case dashboard keys (the live
+ * /admin/api/tokens quote ships start_hour_utc/end_hour_utc). Returns null
+ * when the window hours are absent or non-numeric instead of building an
+ * Invalid Date — Intl formatting on one throws RangeError mid-render, which
+ * froze the Usage Accounts/Models tabs on "Loading…" (2026-09-18). */
 export function offPeakPriceAt(offer, now) {
+  const startHour = offer?.startHourUtc ?? offer?.start_hour_utc;
+  const endHour = offer?.endHourUtc ?? offer?.end_hour_utc;
+  if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) return null;
   const start = new Date(now);
-  start.setUTCHours(offer.startHourUtc, 0, 0, 0);
+  start.setUTCHours(startHour, 0, 0, 0);
   if (+start > now) start.setUTCDate(start.getUTCDate() - 1);
   const end = new Date(start);
-  end.setUTCHours(offer.endHourUtc, 0, 0, 0);
+  end.setUTCHours(endHour, 0, 0, 0);
   if (+end <= +start) end.setUTCDate(end.getUTCDate() + 1);
   const active = now < +end;
   if (!active) {
@@ -210,7 +218,9 @@ export function offPeakCopy(
 ) {
   const offer = info?.off_peak?.[modelId] ?? info?.offPeak?.[modelId] ?? null;
   if (!offer || info?.prices?.[modelId] === undefined) return undefined;
-  const { start, end } = offPeakPriceAt(offer, now);
+  const window = offPeakPriceAt(offer, now);
+  if (!window) return undefined;
+  const { start, end } = window;
   const zone = resolveWindowTimeZone(timeZone);
   const fmt = new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
@@ -221,6 +231,7 @@ export function offPeakCopy(
   const endZone = formatWindowTimeZoneLabel(end, zone);
   const hours = `${fmt.format(start)}${startZone === endZone ? "" : ` ${startZone}`}–${fmt.format(end)} ${endZone}`;
   const discount = info?.first_tab_discount ?? info?.firstTabDiscount;
+  const regularPrice = offer.regularPrice ?? offer.regular_price;
   const active =
     info.prices[modelId] ===
     discountedSessionPrice(
@@ -231,11 +242,11 @@ export function offPeakCopy(
     active,
     badge: "Off-peak",
     detail: active
-      ? `Off-peak · normally ${offer.regularPrice}/hr · until ${fmt.format(end)} ${endZone}`
+      ? `Off-peak · normally ${regularPrice}/hr · until ${fmt.format(end)} ${endZone}`
       : `Off-peak ${offer.price}/hr · ${hours}`,
     tooltip:
       `Off-peak: ${offer.price} Freebucks/hour, daily ${hours}. ` +
-      `Regular price: ${offer.regularPrice} Freebucks/hour. ` +
+      `Regular price: ${regularPrice} Freebucks/hour. ` +
       "The price at session start is locked for the full hour." +
       (discount?.available
         ? " Your first-tab discount is also included in the displayed price."
