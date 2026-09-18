@@ -22,8 +22,9 @@ import (
 )
 
 // TestStrictTools_LooseHermesTerminalPasses pins the loose Hermes path:
-// a terminal tool with NO strict flag is accepted and forwarded verbatim
-// (no strict marker injected, no validation applied).
+// a terminal tool with NO strict flag is accepted and renamed to the
+// official run_terminal_command upstream (toolmap), with the schema
+// forwarded verbatim (no strict marker injected, no validation applied).
 func TestStrictTools_LooseHermesTerminalPasses(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
@@ -41,8 +42,10 @@ func TestStrictTools_LooseHermesTerminalPasses(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
 	recorded := mock.LastChatBody()
-	if !strings.Contains(recorded, `"terminal"`) {
-		t.Errorf("upstream body missing loose tool: %s", truncate(recorded, 300))
+	// terminal renames to the official run_terminal_command on the wire
+	// (toolmap); the schema around it stays verbatim.
+	if !strings.Contains(recorded, `"run_terminal_command"`) {
+		t.Errorf("upstream body missing renamed loose tool: %s", truncate(recorded, 300))
 	}
 	if strings.Contains(recorded, "strict") {
 		t.Errorf("loose tool gained a strict marker upstream: %s", truncate(recorded, 300))
