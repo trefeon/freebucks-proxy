@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"freebuff-proxy/backend/internal/phasetiming"
+	"freebuff-proxy/backend/internal/pool"
 )
 
 // resultEnvelope is the single admin wire shape: every admin endpoint ships
@@ -67,6 +68,17 @@ func (d *Dashboard) RenderTestResults(w http.ResponseWriter, r *http.Request, ou
 	}
 	for i := range outcomes {
 		outcomes[i].InstanceID = shortID(outcomes[i].InstanceID)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(outcomes)
+}
+
+// RenderProbeAllResults writes the test-all probe outcome as ONE JSON array
+// of pool.ProbeTokenOutcome (200). The legacy TokenTestOutcome /
+// RenderTestResults pair stays untouched for the single-token path.
+func (d *Dashboard) RenderProbeAllResults(w http.ResponseWriter, r *http.Request, outcomes []pool.ProbeTokenOutcome) {
+	if outcomes == nil {
+		outcomes = []pool.ProbeTokenOutcome{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(outcomes)

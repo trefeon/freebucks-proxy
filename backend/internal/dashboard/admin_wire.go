@@ -18,7 +18,9 @@ package dashboard
 
 import (
 	"encoding/json"
+
 	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
 )
 
 // AdminAPIQuery is one documented query parameter.
@@ -370,6 +372,7 @@ func AdminAPIPaths() []AdminAPIPath {
 		{Method: "POST", Path: "/admin/tokens/{id}/drop-session", OperationID: "tokenDropSession", Summary: "Drop one token's upstream session", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/refund-refresh", OperationID: "tokenRefundRefresh", Summary: "Replay one token's parked pending-refund DELETE (same instance; drops the result if the account changed)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/test", OperationID: "tokenTest", Summary: "Zero-cost upstream probe of one token", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
+		{Method: "POST", Path: "/admin/tokens/test-all", OperationID: "tokensTestAll", Summary: "Zero-cost upstream probe of all tokens", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: []pool.ProbeTokenOutcome{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/session", OperationID: "tokenSpawnSession", Summary: "Ensure one token's upstream session for a model", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: SpawnSessionRequest{}, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/add", OperationID: "tokenAdd", Summary: "Add one upstream token to the pool and persist to .env", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenAddRequest{}, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/remove", OperationID: "tokenRemove", Summary: "Remove one pool token (absent index removes the last)", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenRemoveRequest{}, Response: ResultEnvelope{}},

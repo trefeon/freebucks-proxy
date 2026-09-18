@@ -2923,6 +2923,56 @@
         ],
         "type": "object"
       },
+      "tokensTestAllResponse": {
+        "items": {
+          "properties": {
+            "cooldown_until": {
+              "type": "string"
+            },
+            "cooling": {
+              "type": "boolean"
+            },
+            "daily_limit_freebucks": {
+              "type": "number"
+            },
+            "daily_spent_freebucks": {
+              "type": "number"
+            },
+            "detail": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            },
+            "index": {
+              "type": "integer"
+            },
+            "quarantined": {
+              "type": "boolean"
+            },
+            "reset_at": {
+              "type": "string"
+            },
+            "spendable_freebucks": {
+              "type": "number"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "cooling",
+            "daily_limit_freebucks",
+            "daily_spent_freebucks",
+            "index",
+            "quarantined",
+            "spendable_freebucks",
+            "status"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
       "tracesData": {
         "properties": {
           "enabled": {
@@ -4996,6 +5046,32 @@
           }
         ],
         "summary": "Swap two pool positions",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/admin/tokens/test-all": {
+      "post": {
+        "operationId": "tokensTestAll",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/tokensTestAllResponse"
+                }
+              }
+            },
+            "description": "Zero-cost upstream probe of all tokens"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Zero-cost upstream probe of all tokens",
         "tags": [
           "tokens"
         ]
