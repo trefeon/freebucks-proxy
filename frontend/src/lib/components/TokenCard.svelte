@@ -147,7 +147,7 @@
       </button>
     </div>
   </td>
-  <td class="w-[1%]">
+  <td class="min-w-[180px] w-[180px]">
     <div class="flex min-w-0 flex-col gap-1">
       <div
         class="flex w-full items-center justify-between gap-x-2 whitespace-nowrap"
@@ -174,7 +174,7 @@
       </div>
       {#if token.email || token.account_id}
         <span
-          class="text-[11px] text-[var(--fp-muted)] truncate min-w-0 max-w-[120px]"
+          class="text-[11px] text-[var(--fp-muted)] truncate min-w-0 max-w-[180px]"
           title={token.email || token.account_id}
         >
           {token.email || token.account_id}

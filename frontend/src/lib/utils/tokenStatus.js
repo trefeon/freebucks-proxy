@@ -16,7 +16,7 @@ function t() {
 export function banBadge(token) {
   if (token.ban_type === "hard") {
     return {
-      label: t()("banned — appeal required"),
+      label: t()("banned"),
       tone: "critical",
       pulse: true,
     };

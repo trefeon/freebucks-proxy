@@ -157,7 +157,9 @@
         <thead>
           <tr>
             <th class="w-[1%] whitespace-nowrap"></th>
-            <th class="w-[1%] whitespace-nowrap">{$tr("Account")}</th>
+            <th class="min-w-[180px] w-[180px] whitespace-nowrap"
+              >{$tr("Account")}</th
+            >
             <th class="w-[1%] whitespace-nowrap">{$tr("Status")}</th>
             <th>{$tr("Instance")}</th>
             <th class="text-right w-[1%] whitespace-nowrap">{$tr("Actions")}</th
