@@ -3,14 +3,15 @@ package dashboard
 import (
 	"bufio"
 	"encoding/json"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
 )
 
 // TestHandleEventsStreamInitialSnapshotAndPing verifies the SSE endpoint:
@@ -167,5 +168,40 @@ func TestTokenStateHashDetectsUsageChange(t *testing.T) {
 	h2 := d.tokenStateHash(td2)
 	if h1 == h2 {
 		t.Errorf("tokenStateHash did not change when per-day usage changed (%s == %s)", h1, h2)
+	}
+}
+
+// TestTokenStateHashDetectsQueuePostureChange pins the QUEUE_WAIT-only
+// push: a queue_wait/queue_depth edit with everything else identical must
+// flip the hash, or the 1s diff loop would swallow the save and the console
+// would sit stale until the next 10s poll.
+func TestTokenStateHashDetectsQueuePostureChange(t *testing.T) {
+	d := &Dashboard{}
+	base := tokensData{
+		Mode:             "pooled",
+		TokenCount:       1,
+		QueueWait:        "30s",
+		QueueDepth:       16,
+		SlotsPerAccount:  2,
+		MaxSpillAccounts: 0,
+		Tokens: []tokenDetail{
+			{
+				tokenCard: tokenCard{
+					Index:          0,
+					RequestsPerDay: 10,
+				},
+			},
+		},
+	}
+	h1 := d.tokenStateHash(base)
+	waitOnly := base
+	waitOnly.QueueWait = "5m"
+	if h2 := d.tokenStateHash(waitOnly); h1 == h2 {
+		t.Errorf("tokenStateHash did not change on QUEUE_WAIT-only edit (%s == %s)", h1, h2)
+	}
+	depthOnly := base
+	depthOnly.QueueDepth = 4
+	if h3 := d.tokenStateHash(depthOnly); h1 == h3 {
+		t.Errorf("tokenStateHash did not change on QUEUE_DEPTH-only edit (%s == %s)", h1, h3)
 	}
 }

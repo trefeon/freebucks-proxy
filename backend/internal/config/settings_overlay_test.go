@@ -265,6 +265,91 @@ func TestValidateSettingValueDurationGate(t *testing.T) {
 	}
 }
 
+// TestValidateSettingValueLoadAgreement pins the gate/Load contract behind
+// POST: for every value Load rejects, the pre-transaction gate must reject
+// too — a value the gate waves through but Load refuses costs the operator
+// a 400 on something the gate just blessed (or a stored row the running
+// config cannot use). Where the loader fails loudly (durations, selects,
+// range-checked numbers) agreement runs both ways. Unparseable ints/floats
+// are silently skipped by the override helpers (the env tier keeps its
+// historic ignore), so those pin gate-side rejection only.
+func TestValidateSettingValueLoadAgreement(t *testing.T) {
+	clearEnv(t)
+	agreeReject := map[string][]string{
+		"RATE_LIMIT_BURST":     {"-1"},
+		"QUEUE_DEPTH":          {"-1"},
+		"MAX_SPILL_ACCOUNTS":   {"-1"},
+		"TRANSIENT_RETRIES":    {"-1"},
+		"MATURITY_TARGET_DAYS": {"0", "-1", "29"},
+		"RATE_LIMIT_PER_IP":    {"-1", "NaN", "Inf"},
+		"LOG_LEVEL":            {"verbose"},
+		"LOG_FORMAT":           {"xml", "JSON"},
+		"COST_MODE":            {"paid", "FREE"},
+		"TLS_FINGERPRINT":      {"netscape"},
+		"ROTATION_INTERVAL":    {"0s"},
+		"REQUEST_TIMEOUT":      {"0s"},
+		"SESSION_CALL_TIMEOUT": {"0s"},
+		"REGISTRY_REFRESH":     {"0s"},
+		"REQUEST_JITTER":       {"-1s"},
+	}
+	for key, values := range agreeReject {
+		for _, value := range values {
+			if err := ValidateSettingValue(key, value); err == nil {
+				t.Errorf("gate accepted %s=%q, want rejection (Load refuses it)", key, value)
+			}
+			if _, err := LoadOpts("", LoadOptions{Overlay: map[string]string{key: value}}); err == nil {
+				t.Errorf("Load accepted %s=%q, want rejection (the gate refuses it)", key, value)
+			}
+		}
+	}
+	// Every value here must pass BOTH, including the case-folded selects
+	// and the loader-folded durations (QUEUE_WAIT owns its own parity
+	// test; IDLE_ROTATION_TIMEOUT pins the store-side agreement here).
+	// SLOTS_PER_ACCOUNT=-1 rides the loader floor to 0 (unlimited) — the
+	// one int negative Load takes, so the gate takes it too.
+	agreeAccept := map[string][]string{
+		"RATE_LIMIT_BURST":          {"0", "30"},
+		"QUEUE_DEPTH":               {"0", "16"},
+		"MAX_SPILL_ACCOUNTS":        {"0"},
+		"SLOTS_PER_ACCOUNT":         {"-1", "0", "2"},
+		"TRANSIENT_RETRIES":         {"0", "3"},
+		"MATURITY_TARGET_DAYS":      {"1", "7", "28"},
+		"RATE_LIMIT_PER_IP":         {"0", "2.5"},
+		"LOG_LEVEL":                 {"debug", "DEBUG"},
+		"LOG_FORMAT":                {"text", "json"},
+		"COST_MODE":                 {"free"},
+		"TLS_FINGERPRINT":           {"auto", "Chrome126"},
+		"ROTATION_INTERVAL":         {"6h"},
+		"REQUEST_TIMEOUT":           {"15m"},
+		"SESSION_CALL_TIMEOUT":      {"30s"},
+		"REGISTRY_REFRESH":          {"6h"},
+		"REQUEST_JITTER":            {"0s", "200ms"},
+		"IDLE_ROTATION_TIMEOUT":     {"0", "0s", "-5s", "30m"},
+		"BRIDGE_IDLE_EVICT":         {"0s", "72h"},
+		"RUN_FINISH_INLINE_TIMEOUT": {"0s", "250ms"},
+	}
+	for key, values := range agreeAccept {
+		for _, value := range values {
+			if err := ValidateSettingValue(key, value); err != nil {
+				t.Errorf("gate rejected %s=%q: %v, want acceptance (Load takes it)", key, value, err)
+			}
+			if _, err := LoadOpts("", LoadOptions{Overlay: map[string]string{key: value}}); err != nil {
+				t.Errorf("Load rejected %s=%q: %v, want acceptance (the gate takes it)", key, value, err)
+			}
+		}
+	}
+	// Unparseable ints/floats never reach the loader (the override helpers
+	// skip them): the gate still 400s them so POST never stores a no-op.
+	for key, value := range map[string]string{
+		"RATE_LIMIT_BURST":  "lots",
+		"RATE_LIMIT_PER_IP": "fast",
+	} {
+		if err := ValidateSettingValue(key, value); err == nil {
+			t.Errorf("gate accepted %s=%q, want a parse rejection", key, value)
+		}
+	}
+}
+
 // TestDurationSettingKeysMatchCatalog keeps the duration gate honest: every
 // name in it must be a real catalog key whose documented default parses, so a
 // renamed or dropped knob cannot leave a dead entry (or a live duration knob

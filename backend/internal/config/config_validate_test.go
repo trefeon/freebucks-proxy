@@ -200,6 +200,7 @@ func TestValidate(t *testing.T) {
 		RequestTimeout:     15 * time.Minute,
 		SessionCallTimeout: 30 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
+		MaturityTargetDays: 7,
 	}
 	if err := good.Validate(); err != nil {
 		t.Fatalf("good config Validate: %v", err)
@@ -247,6 +248,7 @@ func TestValidateListenAddr(t *testing.T) {
 		RequestTimeout:     15 * time.Minute,
 		SessionCallTimeout: 30 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
+		MaturityTargetDays: 7,
 	}
 
 	for _, addr := range []string{"127.0.0.1:3457", ":3457", "0.0.0.0:8080", "[::1]:3457", "localhost:1", "127.0.0.1:65535"} {
@@ -286,6 +288,7 @@ func TestValidateModeKnobs(t *testing.T) {
 		RequestTimeout:     15 * time.Minute,
 		SessionCallTimeout: 30 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
+		MaturityTargetDays: 7,
 	}
 	for _, cost := range []string{"", "free"} {
 		c := good
@@ -628,6 +631,7 @@ func TestValidateWebhookURL(t *testing.T) {
 		RequestTimeout:     15 * time.Minute,
 		SessionCallTimeout: 30 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
+		MaturityTargetDays: 7,
 	}
 
 	rejected := []string{

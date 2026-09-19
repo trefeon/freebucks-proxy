@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,13 +123,18 @@ func OverlayFromRows(rows map[string]string) map[string]string {
 }
 
 // ValidateSettingValue checks one overlay write before it touches the DB:
-// the key must be a known writable catalog key and the value must parse for
-// its kind. Secrets are storable: the settings table lives in the dashboard
-// DB file (0600, enforced at open), which is the persisted home of the whole
-// knob set since the env-to-DB migration. Deeper semantic checks (durations,
-// model locks, fallback maps) run through the full Load in the POST handler
-// — this gate only rejects what could never take effect (unknown keys,
-// unparseable bool/int/float), so a 400 never stores a silent no-op.
+// the key must be a known writable catalog key and the value must be one
+// Load accepts. Secrets are storable: the settings table lives in the
+// dashboard DB file (0600, enforced at open), which is the persisted home
+// of the whole knob set since the env-to-DB migration. This gate rejects
+// exactly what Load rejects — a value waved through here but refused by the
+// POST handler's double-Load would cost the operator a 400 on something the
+// gate just blessed, and a value rejected here that Load would take is a
+// 400 on something that would have worked. Parse-only is not enough: an
+// integer can parse yet fall outside its Load range (negatives, MATURITY
+// 1..28), a duration can parse yet be one Validate refuses (non-positive
+// rotation/request timeouts, negative jitter), a select can parse as text
+// yet name no enumerant, and a float can parse yet be NaN/Inf/negative.
 func ValidateSettingValue(key, value string) error {
 	n := NormalizeSettingKey(key)
 	if n == "" {
@@ -151,27 +157,84 @@ func ValidateSettingValue(key, value string) error {
 			return fmt.Errorf("%s must be a bool (true/false, 1/0, on/off, yes/no), got %q", n, value)
 		}
 	case "int":
-		if _, ok := parseIntPtr(v); !ok {
+		iv, ok := parseIntPtr(v)
+		if !ok {
 			return fmt.Errorf("%s must be an integer, got %q", n, value)
 		}
-	}
-	// RATE_LIMIT_PER_IP renders as a text knob but parses as a float: an
-	// unparseable value would fall through overrideFloat silently, so check
-	// it explicitly (every other text/select/list knob fails its Load parse
-	// loudly when malformed).
-	if n == "RATE_LIMIT_PER_IP" {
-		if _, ok := parseFloatPtr(v); !ok {
-			return fmt.Errorf("%s must be a number (requests/second, 0 disables), got %q", n, value)
+		// Every int knob but one rejects negatives at Load (Validate): the
+		// streak target additionally confines itself to 1..28.
+		// SLOTS_PER_ACCOUNT is the exception — the loader floors negatives
+		// to 0 (unlimited) instead of failing, the same QUEUE_WAIT parity
+		// model as the folded durations, so the gate waves them through
+		// and Load lands 0. (Validate still refuses a hand-built negative,
+		// which only direct Config literals can carry post-floor.)
+		// A direct Config with a zero MaturityTargetDays never reaches
+		// Validate from Load (the loader defaults blanks to 7), so the
+		// gate mirrors the loader: only an explicit out-of-range value is
+		// refused.
+		if n == "MATURITY_TARGET_DAYS" {
+			if *iv < 1 || *iv > 28 {
+				return fmt.Errorf("%s must be an integer in 1..28 (got %d)", n, *iv)
+			}
+		} else if n != "SLOTS_PER_ACCOUNT" && *iv < 0 {
+			return fmt.Errorf("%s cannot be negative (got %d)", n, *iv)
 		}
 	}
-	// Duration knobs are checked here, not left to the Load in the POST
-	// handler: that Load runs after the handler has read the DB overlay, so
-	// a typo would pay a database round trip to earn the same 400. This gate
-	// owns the parse only — a zero or negative duration can carry documented
-	// meaning (floor, disabled), and the loader applies it.
+	// Select knobs are checked against their catalog enumerants with the
+	// same case policy Load validates with: LOG_LEVEL rides the
+	// case-insensitive slog mapping and TLS_FINGERPRINT lowercases before
+	// comparing, while LOG_FORMAT and COST_MODE compare exactly (Load
+	// rejects "JSON" and "FREE").
+	if def.Kind == "select" && len(def.Enum) > 0 {
+		fold := n == "LOG_LEVEL" || n == "TLS_FINGERPRINT"
+		accepted := false
+		for _, e := range def.Enum {
+			if v == e || (fold && strings.EqualFold(v, e)) {
+				accepted = true
+				break
+			}
+		}
+		if !accepted {
+			return fmt.Errorf("%s must be one of: %s (got %q)", n, strings.Join(def.Enum, ", "), value)
+		}
+	}
+	// RATE_LIMIT_PER_IP renders as a text knob but parses as a float, and
+	// strconv.ParseFloat accepts NaN/Inf: Load (Validate) refuses
+	// non-finite and negative values, so the gate matches it exactly.
+	if n == "RATE_LIMIT_PER_IP" {
+		fv, ok := parseFloatPtr(v)
+		if !ok {
+			return fmt.Errorf("%s must be a number (requests/second, 0 disables), got %q", n, value)
+		}
+		if math.IsNaN(*fv) || math.IsInf(*fv, 0) {
+			return fmt.Errorf("%s must be a finite number (requests/second, 0 disables), got %q", n, value)
+		}
+		if *fv < 0 {
+			return fmt.Errorf("%s cannot be negative (got %q)", n, value)
+		}
+	}
+	// Duration knobs parse here so a typo is a cheap 400 before any DB
+	// round trip. Sign policy mirrors the loader: rotation, request,
+	// session-call, and registry-refresh timeouts must be positive
+	// (Validate refuses zero); jitter refuses negatives but keeps 0 (the
+	// SafeMode preset fills an unset jitter). Every other duration knob
+	// folds a non-positive value to its documented default in the loader
+	// (the QUEUE_WAIT parity model: gate accepts, Load lands positive), so
+	// parse-only keeps gate and Load in agreement there.
 	if durationSettingKeys[n] {
-		if _, err := time.ParseDuration(v); err != nil {
+		d, err := time.ParseDuration(v)
+		if err != nil {
 			return fmt.Errorf("%s must be a Go duration (e.g. 30s, 1m, 30m), got %q", n, value)
+		}
+		switch n {
+		case "ROTATION_INTERVAL", "REQUEST_TIMEOUT", "SESSION_CALL_TIMEOUT", "REGISTRY_REFRESH":
+			if d <= 0 {
+				return fmt.Errorf("%s must be greater than zero (got %q)", n, value)
+			}
+		case "REQUEST_JITTER":
+			if d < 0 {
+				return fmt.Errorf("%s cannot be negative (got %q)", n, value)
+			}
 		}
 	}
 	return nil

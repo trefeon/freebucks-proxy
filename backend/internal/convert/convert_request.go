@@ -121,6 +121,13 @@ func NormalizeRequestOpts(body []byte, modelOverride string, opts Options) ([]by
 	}
 	normalizeReasoning(payload, out)
 	model, _ := out["model"].(string)
+	// Client cache_control never crosses to upstream on the chat path
+	// (mirrors the Anthropic ingress drop-by-construction, which only maps
+	// known keys): strip top-level, per-message, per-content-block and
+	// tool-definition extras. Runs BEFORE the DeepSeek prompt-cache
+	// injection (#84) below, so any surviving cache_control bytes are
+	// proxy-originated, never client echoes.
+	stripClientCacheControl(out)
 	normalizeMessages(out, model, opts)
 	// Optional prompt compression (#58): drops middle non-tool turns and caps
 	// long content, gated by opts.CompressPrompt, never touching tool
@@ -173,6 +180,46 @@ func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options)
 		return out, ToolMapper{}, nil // fall back to unrenamed rather than fail the request
 	}
 	return renamed, mapper, nil
+}
+
+// stripClientCacheControl drops client-supplied cache_control markers from a
+// chat-completions envelope in place: the top-level key (belt-and-braces —
+// the whitelist already excludes it), per-message extras, per-content-block
+// extras, and tool-definition extras (both the tool wrapper and the function
+// dict). Tool parameters are left untouched — normalization still sees the
+// exact schema the client sent.
+func stripClientCacheControl(payload map[string]any) {
+	delete(payload, "cache_control")
+	if msgs, ok := payload["messages"].([]any); ok {
+		for _, m := range msgs {
+			msg, ok := m.(map[string]any)
+			if !ok {
+				continue
+			}
+			delete(msg, "cache_control")
+			blocks, ok := msg["content"].([]any)
+			if !ok {
+				continue
+			}
+			for _, b := range blocks {
+				if block, ok := b.(map[string]any); ok {
+					delete(block, "cache_control")
+				}
+			}
+		}
+	}
+	if tools, ok := payload["tools"].([]any); ok {
+		for _, t := range tools {
+			tool, ok := t.(map[string]any)
+			if !ok {
+				continue
+			}
+			delete(tool, "cache_control")
+			if fn, ok := tool["function"].(map[string]any); ok {
+				delete(fn, "cache_control")
+			}
+		}
+	}
 }
 
 // normalizeMessages rewrites message role "developer" to "system" in place,

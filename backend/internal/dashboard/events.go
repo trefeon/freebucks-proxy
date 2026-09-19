@@ -48,11 +48,13 @@ func newEventStreamHub() *eventStreamHub {
 // tokenStateHash fingerprints the operator-visible, liveness-sensitive state:
 // per-token status, instance, cooldown, active runs and a minute-bucket
 // of the session countdown (so the client's own per-second tick is not
-// spammed), plus mode, token count, and per-model quota recent counts.
+// spammed), plus mode, token count, queue posture (queue_wait/queue_depth
+// alongside slots/spill, so a QUEUE_WAIT-only edit pushes), and per-model
+// quota recent counts.
 func (d *Dashboard) tokenStateHash(td tokensData) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "mode=%s;count=%d;slots=%d;spill=%d;mat_en=%v;",
-		td.Mode, td.TokenCount, td.SlotsPerAccount, td.MaxSpillAccounts, td.MaturityEnabled)
+	fmt.Fprintf(&b, "mode=%s;count=%d;slots=%d;spill=%d;qwait=%s;qdepth=%d;mat_en=%v;",
+		td.Mode, td.TokenCount, td.SlotsPerAccount, td.MaxSpillAccounts, td.QueueWait, td.QueueDepth, td.MaturityEnabled)
 	for i := range td.Tokens {
 		t := &td.Tokens[i]
 		fmt.Fprintf(&b, "[%d]%s=%s;cd=%s;runs=%d;rem=%d;sess=%s;rpd=%d;lock=%v;ban=%s:%s;",

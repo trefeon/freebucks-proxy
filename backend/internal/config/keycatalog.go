@@ -193,7 +193,7 @@ var keyCatalog = []KeyDef{
 	{
 		Key: "MAX_SPILL_ACCOUNTS", Group: GroupPool, Kind: "int",
 		Default:     "0",
-		Description: `How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain). A 429 quota requeue never consumes spill budget. Applies live on reload.`,
+		Description: `How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain; negative rejects the config). A 429 quota requeue never consumes spill budget. Applies live on reload.`,
 	},
 	{
 		Key: "MODEL_UNAVAILABLE_CACHE_TTL", Group: GroupPool, Kind: "text",
@@ -218,12 +218,12 @@ var keyCatalog = []KeyDef{
 	{
 		Key: "RATE_LIMIT_BURST", Group: GroupPool, Kind: "int",
 		Default:     "0",
-		Description: `Burst request capacity per client IP (0 = defaults to 2 × RATE_LIMIT_PER_IP).`,
+		Description: `Burst request capacity per client IP (0 = defaults to 2 × RATE_LIMIT_PER_IP; negative rejects the config).`,
 	},
 	{
 		Key: "RATE_LIMIT_PER_IP", Group: GroupPool, Kind: "text", Essential: true,
 		Default:     "0",
-		Description: `Requests/second allowed per client IP (0 = disabled; e.g. 20).`,
+		Description: `Requests/second allowed per client IP (0 = disabled; e.g. 20; negative or non-finite rejects the config).`,
 	},
 	{
 		Key: "ROTATION_INTERVAL", Group: GroupPool, Kind: "text", RestartOnly: true, Hidden: true,
@@ -388,9 +388,12 @@ var keyCatalog = []KeyDef{
 // ValidateSettingValue rejects an unparseable value from this set BEFORE the
 // settings handler reads the overlay or writes a row, so a typo is a cheap
 // 400 instead of a round trip through the database that ends in the same
-// rejection. Membership is not a value judgement — "0" (and, where the loader
-// documents it, a negative value) stays accepted, because the floor/disabled
-// semantics belong to the loader, not to this gate.
+// rejection. Membership is not a value judgement for the folding knobs —
+// QUEUE_WAIT and the other loader-folded durations accept "0" and negatives
+// (the loader lands its documented default) — but the Validate-enforced
+// knobs do not: ROTATION_INTERVAL, REQUEST_TIMEOUT, SESSION_CALL_TIMEOUT,
+// and REGISTRY_REFRESH must be positive, REQUEST_JITTER must not be
+// negative, and the gate mirrors that exactly.
 var durationSettingKeys = map[string]bool{
 	"BRIDGE_IDLE_EVICT":           true,
 	"HTTP_READ_TIMEOUT":           true,

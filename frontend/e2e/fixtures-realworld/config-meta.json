@@ -239,7 +239,7 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain). A 429 quota requeue never consumes spill budget. Applies live on reload."
+    "description": "How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain; negative rejects the config). A 429 quota requeue never consumes spill budget. Applies live on reload."
   },
   {
     "key": "MODEL_UNAVAILABLE_CACHE_TTL",
@@ -289,7 +289,7 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
-    "description": "Burst request capacity per client IP (0 = defaults to 2 × RATE_LIMIT_PER_IP)."
+    "description": "Burst request capacity per client IP (0 = defaults to 2 × RATE_LIMIT_PER_IP; negative rejects the config)."
   },
   {
     "key": "RATE_LIMIT_PER_IP",
@@ -299,7 +299,7 @@
     "restart_only": false,
     "secret": false,
     "essential": true,
-    "description": "Requests/second allowed per client IP (0 = disabled; e.g. 20)."
+    "description": "Requests/second allowed per client IP (0 = disabled; e.g. 20; negative or non-finite rejects the config)."
   },
   {
     "key": "ROTATION_INTERVAL",

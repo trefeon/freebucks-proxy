@@ -3,6 +3,16 @@ package server
 // Anthropic non-streaming translation: relayAnthropicJSON drains the upstream
 // stream into one Anthropic message object (anthropicMessageFromCompletionStrict) and
 // maps the finish reason to the Anthropic vocabulary.
+// Cache direction: client cache_control markers never cross to the upstream
+// chat body — the Anthropic ingress drops them by construction
+// (anthropicToChatParams maps known keys only; tool wrappers carry
+// name/description/input_schema plus strict) and convert's
+// stripClientCacheControl removes chat-path survivors before the proxy's own
+// DeepSeek prompt-cache injection runs, so surviving cache_control bytes are
+// proxy-originated, never client echoes. No nested input-block strip/pin is
+// needed in this relay: it only translates upstream→client and never parses
+// client JSON arguments (the strict lookup reads the stashed request body
+// for the strict flag map only).
 
 import (
 	"context"

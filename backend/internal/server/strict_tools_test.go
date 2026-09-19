@@ -9,7 +9,12 @@ package server_test
 //     required[] covering every declared property and
 //     additionalProperties:false on all three ingress shapes (chat tools[],
 //     Responses flat tools, Anthropic input_schema), else 400
-//     strict_violation before any upstream call.
+//     strict_violation before any upstream call. On the chat shape both
+//     strict placements count (function.strict and the top-level marker).
+//   - Replayed tool history for a strict tool (Responses function_call,
+//     Anthropic tool_use including case variants and server_tool_use, which
+//     the converter replays as tool_calls) with unusable arguments fails
+//     with 400 invalid_tool_arguments instead of coercing to "{}".
 //   - Unusable (bad-JSON or empty) arguments returned for a strict:true tool
 //     fail the Anthropic turn with 400 invalid_tool_arguments.
 
@@ -323,5 +328,99 @@ func TestStrictTools_StrictValidArgsPass(t *testing.T) {
 	// The strict declaration survives conversion onto the upstream wire.
 	if !mock.BodyContains(`"strict":true`) {
 		t.Errorf("upstream body missing forwarded strict marker: %s", truncate(mock.LastChatBody(), 300))
+	}
+}
+
+// TestStrictTools_AnthropicReplayCaseParity pins the replay gate to exactly
+// the converter's replay set (anthropicAssistantToOpenAI case-folds the block
+// type and replays tool_use plus server_tool_use as tool_calls): an exact,
+// case-variant ("Tool_Use") or server_tool_use block carrying unusable
+// arguments for a strict tool fails with 400 invalid_tool_arguments before
+// any upstream call. The loose control proves the same block shape for a
+// non-strict tool still delivers ({} fallback byte-identical).
+func TestStrictTools_AnthropicReplayCaseParity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
+	strictTool := `"tools":[{"name":"get_strict","description":"strict lookup","strict":true,` +
+		`"input_schema":{"type":"object","properties":{"city":{"type":"string"}},` +
+		`"required":["city"],"additionalProperties":false}}]`
+	replayBody := func(tools, blockType string) []byte {
+		return []byte(`{"model":"` + modelA + `","messages":[` +
+			`{"role":"user","content":"weather?"},` +
+			`{"role":"assistant","content":[{"type":"` + blockType + `","id":"toolu_1",` +
+			`"name":"get_strict","input":"not-json"}]}]` +
+			`,` + tools + `}`)
+	}
+	for _, tc := range []struct {
+		name      string
+		blockType string
+	}{
+		{"exact", "tool_use"},
+		{"case-variant", "Tool_Use"},
+		{"server", "server_tool_use"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			mock.ChatBody = responsesChunks()
+			ts, _ := newTestServer(t, nil, mock)
+
+			resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/messages", replayBody(strictTool, tc.blockType), nil)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", resp.StatusCode, truncate(string(data), 300))
+			}
+			if !strings.Contains(string(data), "invalid_tool_arguments") {
+				t.Errorf("error body missing invalid_tool_arguments: %s", truncate(string(data), 300))
+			}
+			if mock.RequestsSnapshot() != 0 {
+				t.Errorf("upstream requests = %d, want 0 (rejected before pool)", mock.RequestsSnapshot())
+			}
+		})
+	}
+	t.Run("loose-control", func(t *testing.T) {
+		mock := testutil.NewMock()
+		defer mock.Close()
+		mock.ChatBody = responsesChunks()
+		ts, _ := newTestServer(t, nil, mock)
+
+		looseTool := `"tools":[{"name":"get_strict","description":"loose echo",` +
+			`"input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]`
+		resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/messages", replayBody(looseTool, "Tool_Use"), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 300))
+		}
+		if mock.RequestsSnapshot() == 0 {
+			t.Errorf("upstream requests = 0, want >0 (loose history still replays)")
+		}
+	})
+}
+
+// TestStrictTools_ChatTopLevelStrictCloser pins the chat closer's top-level
+// placement: a chat tool carrying strict ONLY beside type/function (not
+// inside it) with a non-conforming schema still fails with 400
+// strict_violation before any upstream call — the same acceptance the
+// response-side lookup (strictToolsFromBody) counts.
+func TestStrictTools_ChatTopLevelStrictCloser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: strict-tools lane excluded; run `go test ./backend/...` for the full tier")
+	}
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.ChatBody = responsesChunks()
+	ts, _ := newTestServer(t, nil, mock)
+	body := `{"model":"` + modelA + `","messages":[{"role":"user","content":"run it"}],` +
+		`"tools":[{"type":"function","strict":true,"function":{"name":"run_it",` +
+		`"description":"Run it","parameters":{"type":"object",` +
+		`"properties":{"command":{"type":"string"}}}}}]}`
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", []byte(body), nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", resp.StatusCode, truncate(string(data), 200))
+	}
+	if !strings.Contains(string(data), "strict_violation") {
+		t.Errorf("error body missing strict_violation: %s", truncate(string(data), 200))
+	}
+	if mock.RequestsSnapshot() != 0 {
+		t.Errorf("upstream requests = %d, want 0 (rejected before pool)", mock.RequestsSnapshot())
 	}
 }

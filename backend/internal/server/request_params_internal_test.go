@@ -146,8 +146,11 @@ func TestAnthropicToChatParams_FullMapping(t *testing.T) {
 }
 
 // TestAnthropicToChatParams_SystemAndToolBounds pins system normalization
-// (string and array-of-text shapes) and tool cache_control passthrough
-// (harmless extra key on the schema, kept — no upstream cache marker exists).
+// (string and array-of-text shapes) and tool cache_control dropped-by-
+// construction: anthropic.go builds each function tool from name/description/
+// input_schema only (plus strict), so the client marker is never copied —
+// the triple BodyContains pins (goose/continue/kilocode) assert it never
+// leaks upstream (no prompt-cache marker exists).
 func TestAnthropicToChatParams_SystemNormalization(t *testing.T) {
 	for name, system := range map[string]any{
 		"string":  "be brief",

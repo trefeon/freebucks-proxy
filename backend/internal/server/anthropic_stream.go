@@ -5,6 +5,12 @@ package server
 // content_block_start/delta, message_delta, message_stop) through the
 // sequential content_block lifecycle state machine (thinking/text/tool_use
 // blocks), plus the shared JSON/usage helpers the Anthropic relays use.
+// Strict relay-only: this file has no strictToolsFromRequest or
+// parseJSONArgsForTool by design — upstream fragments are forwarded as
+// input_json_delta bytes verbatim, never parsed or coerced, so no {}
+// fallback exists here to gate. Strict is enforced by the request-side
+// closers/replay gates (strict_tools.go, applied before conversion) and the
+// non-streaming response gate (anthropicMessageFromCompletionStrict).
 
 import (
 	"context"

@@ -279,9 +279,10 @@ func TestResponsesFunctionCallOutputReplay(t *testing.T) {
 // --- Anthropic /v1/messages ---
 
 // TestAnthropicServerToolsRejected verifies server-side tool declarations
-// (typed blocks, nameless entries) and the container param fail with an
-// explicit 400 instead of mistranslating into an empty-named function tool
-// upstream. Plain client function tools still pass.
+// (typed blocks, nameless entries) fail with an explicit 400 instead of
+// mistranslating into an empty-named function tool upstream. The container
+// param is tolerated and dropped (zero 400 refs; FullMapping pins it in the
+// never-forwarded set). Plain client function tools still pass.
 func TestAnthropicServerToolsRejected(t *testing.T) {
 	cases := []struct {
 		name    string

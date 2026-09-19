@@ -1202,3 +1202,178 @@ func TestNormalizeRequest_MiMoReasoningLadder(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Chat-path client cache_control strip (mirrors the Anthropic ingress
+// drop-by-construction): no CLIENT cache directive becomes an upstream
+// directive. The proxy's own DeepSeek prompt-cache injection (#84) runs
+// AFTER the strip, so surviving cache_control bytes are always
+// proxy-originated, never client echoes.
+// ---------------------------------------------------------------------------
+
+// cacheLadenChatBody builds a chat body with client cache_control at every
+// level: top-level, per-message, per-content-block, tool wrapper and
+// function dict. withCC=false builds the identical body without any of them.
+func cacheLadenChatBody(model string, withCC bool) map[string]any {
+	cc := func() map[string]any {
+		if !withCC {
+			return nil
+		}
+		return map[string]any{"type": "ephemeral"}
+	}
+	blk := func(text string) map[string]any {
+		b := map[string]any{"type": "text", "text": text}
+		if c := cc(); c != nil {
+			b["cache_control"] = c
+		}
+		return b
+	}
+	msg := func(role string, content any, extraCC bool) map[string]any {
+		m := map[string]any{"role": role, "content": content}
+		if extraCC {
+			if c := cc(); c != nil {
+				m["cache_control"] = c
+			}
+		}
+		return m
+	}
+	fn := map[string]any{
+		"name":        "get_weather",
+		"description": "weather",
+		"parameters": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"city": map[string]any{"type": "string"}},
+			"required":   []any{"city"},
+		},
+	}
+	tool := map[string]any{"type": "function", "function": fn}
+	body := map[string]any{
+		"model":               model,
+		"parallel_tool_calls": false,
+		"messages": []any{
+			msg("system", "sys", true),
+			msg("user", "u1", true),
+			msg("user", []any{blk("u2")}, false),
+			msg("user", []any{blk("u3a"), blk("u3b")}, false),
+			msg("user", []any{blk("u4")}, false),
+		},
+		"tools": []any{tool},
+	}
+	if c := cc(); c != nil {
+		body["cache_control"] = c
+		tool["cache_control"] = c
+		fn["cache_control"] = c
+	}
+	return body
+}
+
+func stripTestOpts(injection bool) Options {
+	return Options{
+		CacheControlInjection: injection,
+		MaxSchemaNodes:        DefaultMaxSchemaNodes,
+	}
+}
+
+// Non-DeepSeek with injection on: every client marker stripped, zero
+// cache_control bytes upstream, parallel_tool_calls preserved, and the wire
+// byte-identical to the same body sent without markers (tool parameters
+// normalization untouched by the strip).
+func TestNormalizeRequestStripsClientCacheControl(t *testing.T) {
+	model := "minimax/minimax-m3"
+	opts := stripTestOpts(true)
+	out, err := NormalizeRequestOpts(mustJSON(t, cacheLadenChatBody(model, true)), "", opts)
+	if err != nil {
+		t.Fatalf("NormalizeRequestOpts: %v", err)
+	}
+	if strings.Contains(string(out), "cache_control") {
+		t.Errorf("client cache_control leaked upstream: %s", out)
+	}
+	got := decode(t, out)
+	if _, ok := got["cache_control"]; ok {
+		t.Error("top-level cache_control kept (want dropped)")
+	}
+	if got["parallel_tool_calls"] != false {
+		t.Errorf("parallel_tool_calls = %v, want false passthrough", got["parallel_tool_calls"])
+	}
+	want, err := NormalizeRequestOpts(mustJSON(t, cacheLadenChatBody(model, false)), "", opts)
+	if err != nil {
+		t.Fatalf("NormalizeRequestOpts(clean): %v", err)
+	}
+	if !bytes.Equal(out, want) {
+		t.Errorf("strip changed more than cache_control:\n got: %s\nwant: %s", out, want)
+	}
+}
+
+// DeepSeek with injection on: client markers stripped first, then the proxy
+// re-adds its own hints ONLY on the stable prefix (messages 2-3 blocks).
+// Position distinguishes origin: everything outside 2-3 must be clean.
+func TestNormalizeRequestDeepSeekInjectionAfterStrip(t *testing.T) {
+	model := "deepseek/deepseek-v4-flash"
+	out, err := NormalizeRequestOpts(mustJSON(t, cacheLadenChatBody(model, true)), "", stripTestOpts(true))
+	if err != nil {
+		t.Fatalf("NormalizeRequestOpts: %v", err)
+	}
+	got := decode(t, out)
+	if _, ok := got["cache_control"]; ok {
+		t.Error("top-level cache_control kept (want dropped)")
+	}
+	msgs, ok := got["messages"].([]any)
+	if !ok || len(msgs) != 5 {
+		t.Fatalf("messages = %v, want 5", got["messages"])
+	}
+	blockHasCC := func(b any) bool {
+		m, ok := b.(map[string]any)
+		if !ok {
+			return false
+		}
+		_, ok = m["cache_control"]
+		return ok
+	}
+	for i, m := range msgs {
+		msg := m.(map[string]any)
+		if _, ok := msg["cache_control"]; ok {
+			t.Errorf("messages[%d] kept message-level cache_control", i)
+		}
+		blocks, ok := msg["content"].([]any)
+		if !ok {
+			continue
+		}
+		for j, b := range blocks {
+			has := blockHasCC(b)
+			want := i == 2 || i == 3
+			if has != want {
+				t.Errorf("messages[%d] block %d cache_control = %v, want %v (proxy hints only at 2-3)", i, j, has, want)
+			}
+		}
+	}
+	tools, ok := got["tools"].([]any)
+	// normalizeToolSchemas injects the hollow end_turn tool, so the wire
+	// carries the client tool plus end_turn.
+	if !ok || len(tools) != 2 {
+		t.Fatalf("tools = %v, want client tool + injected end_turn", got["tools"])
+	}
+	tool := tools[0].(map[string]any)
+	if _, ok := tool["cache_control"]; ok {
+		t.Error("tool wrapper kept cache_control (want stripped)")
+	}
+	fn := tool["function"].(map[string]any)
+	if _, ok := fn["cache_control"]; ok {
+		t.Error("tool function kept cache_control (want stripped)")
+	}
+	if _, ok := fn["parameters"]; !ok {
+		t.Error("tool parameters lost by the strip (want untouched)")
+	}
+}
+
+// DeepSeek with injection off: client markers stripped and nothing re-added
+// — proves output hints are proxy-originated (flag off means zero bytes).
+func TestNormalizeRequestDeepSeekInjectionOffStripsAll(t *testing.T) {
+	model := "deepseek/deepseek-v4-flash"
+	out, err := NormalizeRequestOpts(mustJSON(t, cacheLadenChatBody(model, true)), "", stripTestOpts(false))
+	if err != nil {
+		t.Fatalf("NormalizeRequestOpts: %v", err)
+	}
+	if strings.Contains(string(out), "cache_control") {
+		t.Errorf("cache_control present with injection off: %s", out)
+	}
+}

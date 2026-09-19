@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"strconv"
@@ -39,6 +40,8 @@ func (c Config) Validate() error {
 		return errors.New("SESSION_STATE_FILE cannot be empty when SESSION_PERSIST is enabled")
 	case c.CostMode != "" && c.CostMode != "free":
 		return errors.New(`COST_MODE must be "free" or unset -- any other value (e.g. a typo) routes requests as PAID and fresh free accounts get 402 "Out of credits"`)
+	case math.IsNaN(c.RateLimitPerIP) || math.IsInf(c.RateLimitPerIP, 0):
+		return errors.New("RATE_LIMIT_PER_IP must be a finite number (requests/second, 0 disables)")
 	case c.RateLimitPerIP < 0:
 		return errors.New("RATE_LIMIT_PER_IP cannot be negative")
 	case c.RateLimitBurst < 0:
@@ -49,6 +52,8 @@ func (c Config) Validate() error {
 		return errors.New("SLOTS_PER_ACCOUNT cannot be negative (0 = unlimited)")
 	case c.MaxSpillAccounts < 0:
 		return errors.New("MAX_SPILL_ACCOUNTS cannot be negative (0 = unbounded)")
+	case c.MaturityTargetDays < 1 || c.MaturityTargetDays > 28:
+		return fmt.Errorf("MATURITY_TARGET_DAYS must be an integer in 1..28 (got %d)", c.MaturityTargetDays)
 	}
 	// PIN_MODEL cross-check: every pinned slot must address a configured
 	// AUTH_TOKENS position, so a typo surfaces at load instead of silently

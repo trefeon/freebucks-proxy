@@ -30,10 +30,11 @@ import (
 //     Roo nests required/additionalProperties as siblings of parameters on
 //     the function object (pinned by TestConformanceRooStrictSchemaPreserved),
 //     so the closer unions both placements instead of demanding them inside
-//     parameters. The replay gates (validateResponsesReplayStrictTools,
+//     the replay gates (validateResponsesReplayStrictTools,
 //     validateAnthropicReplayStrictTools) run beside the closer: replayed
 //     tool history (Responses function_call items, Anthropic tool_use
-//     blocks) for a strict:true tool must carry usable JSON-object
+//     blocks — case-folded, plus server_tool_use, mirroring the converter)
+//     for a strict:true tool must carry usable JSON-object
 //     arguments, else 400 invalid_tool_arguments instead of the silent
 //     "{}" coercion. Chat needs no replay gate: its tool_calls arguments
 //     are opaque strings end to end, never coerced.
@@ -75,6 +76,11 @@ func validateChatStrictTools(raw map[string]any) string {
 		if !ok {
 			continue
 		}
+		// Both strict placements count — function.strict and the top-level
+		// marker beside type/function — but only boolean true opts in:
+		// absent, null, "true" and 0 never mark a tool strict. Mirrors the
+		// Anthropic/Responses closers and the response-side lookup
+		// (strictToolsFromBody counts the same two placements).
 		if !isStrictFlag(fn["strict"]) && !isStrictFlag(tool["strict"]) {
 			continue
 		}
@@ -238,7 +244,16 @@ func validateAnthropicReplayStrictTools(raw map[string]any) string {
 			if !ok {
 				continue
 			}
-			if typ, _ := part["type"].(string); typ != "tool_use" {
+			// Mirror the converter (anthropicAssistantToOpenAI): it case-folds
+			// the block type and replays both tool_use and server_tool_use as
+			// tool_calls. An exact "tool_use" match here would let a
+			// case-variant ("Tool_Use") or server_tool_use block for a strict
+			// tool skip the gate and coerce to "{}" instead of failing 400.
+			// Roles need no folding: the converter switches role exactly, so
+			// the assistant-only check above already agrees.
+			switch strings.ToLower(stringValue(part["type"])) {
+			case "tool_use", "server_tool_use":
+			default:
 				continue
 			}
 			name, _ := part["name"].(string)
@@ -353,7 +368,11 @@ func stringSet(v any) map[string]bool {
 // declared strict) from a chat-envelope request body (the original body the
 // handlers stash in the request context: raw chat JSON, or the converted
 // chat params for the Responses/Anthropic surfaces, whose wraps preserve the
-// client's strict flag). Unknown/invalid bodies yield an empty map.
+// client's strict flag). Both strict placements count — function.strict
+// and the top-level marker the chat closer (validateChatStrictTools) also
+// accepts — so a top-level-only strict tool is strict end to end instead
+// of passing validation as strict but coercing as loose.
+// Unknown/invalid bodies yield an empty map.
 func strictToolsFromBody(body []byte) map[string]bool {
 	out := map[string]bool{}
 	if len(body) == 0 {
@@ -365,13 +384,14 @@ func strictToolsFromBody(body []byte) map[string]bool {
 				Name   string `json:"name"`
 				Strict bool   `json:"strict"`
 			} `json:"function"`
+			Strict bool `json:"strict"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return out
 	}
 	for _, t := range payload.Tools {
-		if t.Function.Name != "" && t.Function.Strict {
+		if t.Function.Name != "" && (t.Function.Strict || t.Strict) {
 			out[t.Function.Name] = true
 		}
 	}
