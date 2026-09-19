@@ -18,11 +18,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"time"
-
-	"freebuff-proxy/backend/internal/convert"
 )
 
 // --- non-streaming translation ---
@@ -200,8 +199,8 @@ func anthropicMessageFromCompletionStrict(completion map[string]any, servedModel
 						}
 						fn, _ := tc["function"].(map[string]any)
 						name, _ := fn["name"].(string)
-						if name == "end_turn" {
-							continue // strip proxy-injected end_turn pseudo tool
+						if name == "end_turn" || name == "decide" {
+							continue // strip proxy-injected pseudo tool
 						}
 						args, _ := fn["arguments"].(string)
 						toolID, _ := tc["id"].(string)

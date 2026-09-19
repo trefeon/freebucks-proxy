@@ -48,6 +48,7 @@ func normalizeToolSchemas(payload map[string]any, opts Options) {
 	// One node budget per request, shared across tools.
 	budget := opts.MaxSchemaNodes
 	hasEndTurn := false
+	hasDecide := false
 	for _, t := range tools {
 		tool, ok := t.(map[string]any)
 		if !ok {
@@ -57,8 +58,13 @@ func normalizeToolSchemas(payload map[string]any, opts Options) {
 		if !ok {
 			continue
 		}
-		if name, ok := fn["name"].(string); ok && name == "end_turn" {
-			hasEndTurn = true
+		if name, ok := fn["name"].(string); ok {
+			if name == "end_turn" {
+				hasEndTurn = true
+			}
+			if name == "decide" {
+				hasDecide = true
+			}
 		}
 		params, ok := fn["parameters"].(map[string]any)
 		if !ok {
@@ -66,8 +72,8 @@ func normalizeToolSchemas(payload map[string]any, opts Options) {
 		}
 		fn["parameters"] = normalizeToolSchemaCached(params, &budget)
 	}
-	// End-turn injection lives in schemacache_endturn.go; behavior unchanged.
-	injectEndTurnTool(payload, tools, hasEndTurn)
+	// End-turn and signature injection lives in schemacache_endturn.go
+	injectEndTurnTool(payload, tools, hasEndTurn, hasDecide)
 }
 
 // ---------------------------------------------------------------------------

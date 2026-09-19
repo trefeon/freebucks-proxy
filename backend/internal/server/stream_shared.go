@@ -67,7 +67,7 @@ func feedXMLToolCalls(xmlExtractor *convert.XMLToolCallExtractor, chunk map[stri
 		bumpXMLCallIndex(tcs, xmlCallIndex)
 		grew := false
 		for _, call := range calls {
-			if call.Function.Name == "end_turn" {
+			if call.Function.Name == "end_turn" || call.Function.Name == "decide" {
 				continue // strip-parity: never relay the proxy-injected pseudo-tool
 			}
 			tcs = append(tcs, convert.ToolCallDeltaFragment(*xmlCallIndex, call))
@@ -96,7 +96,7 @@ func drainXMLToolCalls(xmlExtractor *convert.XMLToolCallExtractor, xmlCallIndex 
 	}
 	frags := make([]any, 0, len(fc))
 	for _, call := range fc {
-		if call.Function.Name == "end_turn" {
+		if call.Function.Name == "end_turn" || call.Function.Name == "decide" {
 			continue // strip-parity: never relay the proxy-injected pseudo-tool
 		}
 		frags = append(frags, convert.ToolCallDeltaFragment(*xmlCallIndex, call))
@@ -133,7 +133,7 @@ func trackToolCallIndexesInChunk(chunk map[string]any, endTurnCallIndexes map[in
 			}
 			fn, _ := tcMap["function"].(map[string]any)
 			name, _ := fn["name"].(string)
-			if name == "end_turn" {
+			if name == "end_turn" || name == "decide" {
 				if i, ok := tcMap["index"].(float64); ok {
 					endTurnCallIndexes[int(i)] = true
 					if foundEndTurn != nil {

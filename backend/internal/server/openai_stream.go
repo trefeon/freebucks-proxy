@@ -11,13 +11,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
 )
 
 // relayStream forwards sanitized upstream SSE lines to the client with
@@ -264,7 +263,7 @@ func (s *Server) relayJSON(ctx context.Context, w http.ResponseWriter, r io.Read
 	if bytes.Contains(out, []byte(`"tool_calls"`)) || bytes.Contains(out, []byte(`"finish_reason":"tool_calls"`)) {
 		if json.Unmarshal(out, &comp) == nil {
 			changed := false
-			if bytes.Contains(out, []byte(`"end_turn"`)) {
+			if bytes.Contains(out, []byte(`"end_turn"`)) || bytes.Contains(out, []byte(`"decide"`)) {
 				convert.StripEndTurnToolCalls(comp)
 				changed = true
 			}

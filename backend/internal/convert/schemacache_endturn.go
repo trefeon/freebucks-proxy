@@ -1,10 +1,15 @@
 package convert
 
-// injectEndTurnTool appends the end_turn tool definition to pass Codebuff foreign_toolset validation.
-// An existing end_turn is never duplicated. Moved verbatim from normalizeToolSchemas.
-func injectEndTurnTool(payload map[string]any, tools []any, hasEndTurn bool) {
+// injectEndTurnTool appends the end_turn pseudo-tool and the genuine custom
+// signature tool decide to pass Codebuff foreign_toolset validation.
+// Existing tools are never duplicated.
+func injectEndTurnTool(payload map[string]any, tools []any, hasEndTurn bool, hasDecide bool) {
+	raw, ok := payload["tools"].([]any)
+	if !ok {
+		raw = tools
+	}
 	if !hasEndTurn {
-		payload["tools"] = append(tools, map[string]any{
+		raw = append(raw, map[string]any{
 			"type": "function",
 			"function": map[string]any{
 				"name":        "end_turn",
@@ -16,4 +21,20 @@ func injectEndTurnTool(payload map[string]any, tools []any, hasEndTurn bool) {
 			},
 		})
 	}
+	if !hasDecide {
+		raw = append(raw, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "decide",
+				"description": "Decide next step or action.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"choice": map[string]any{"type": "string"},
+					},
+				},
+			},
+		})
+	}
+	payload["tools"] = raw
 }

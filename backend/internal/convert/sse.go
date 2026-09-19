@@ -478,7 +478,7 @@ func filterEndTurn(tcs []any) []any {
 			continue
 		}
 		fn, _ := tc["function"].(map[string]any)
-		if name, _ := fn["name"].(string); name == "end_turn" {
+		if name, _ := fn["name"].(string); name == "end_turn" || name == "decide" {
 			continue
 		}
 		out = append(out, raw)

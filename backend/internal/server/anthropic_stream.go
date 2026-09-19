@@ -15,14 +15,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
 )
 
 // --- streaming translation ---
@@ -340,7 +339,7 @@ func (s *Server) accumulateAnthropicChunk(send func(map[string]any), st *anthrop
 			if name != "" {
 				name = st.toolMap.RestoreName(name)
 			}
-			if name == "end_turn" {
+			if name == "end_turn" || name == "decide" {
 				st.endTurnCallIndexes[upIdx] = true
 				continue
 			}

@@ -94,12 +94,12 @@ func TestIssue630TestToolWireVerdict(t *testing.T) {
 		}},
 	})
 	names := toolNamesOf(tools)
-	if len(names) != 2 || names[0] != "test_tool" || names[1] != "end_turn" {
-		t.Fatalf("wire tools = %v, want [test_tool end_turn]", names)
+	if len(names) != 3 || names[0] != "test_tool" || names[1] != "end_turn" || names[2] != "decide" {
+		t.Fatalf("wire tools = %v, want [test_tool end_turn decide]", names)
 	}
 	v := ClassifyWireTools(tools)
-	if len(v.Genuine) != 0 {
-		t.Errorf("genuine = %v, want none", v.Genuine)
+	if len(v.Genuine) != 1 || v.Genuine[0] != "decide" {
+		t.Errorf("genuine = %v, want [decide]", v.Genuine)
 	}
 	if len(v.Hollow) != 1 || v.Hollow[0] != "end_turn" {
 		t.Errorf("hollow = %v, want [end_turn]", v.Hollow)
@@ -107,11 +107,9 @@ func TestIssue630TestToolWireVerdict(t *testing.T) {
 	if len(v.Unrecognised) != 1 || v.Unrecognised[0] != "test_tool" {
 		t.Errorf("unrecognised = %v, want [test_tool]", v.Unrecognised)
 	}
-	if s := WireForeignSignal(v); s != ForeignToolset {
-		t.Errorf("signal = %q, want foreign_toolset", s)
-	}
-	if !EnforcedSignals[WireForeignSignal(v)] {
-		t.Error("foreign_toolset must be an enforced signal")
+	// Injected decide is a genuine signature tool, so the wire clears foreign_toolset.
+	if s := WireForeignSignal(v); s != "" {
+		t.Errorf("signal = %q, want empty (cleared)", s)
 	}
 	// The injection is not the differentiator: test_tool alone, with no
 	// injected definition at all, trips the same enforced signal.
@@ -154,8 +152,8 @@ func TestIssue630MappedSubsetClearsToolLeg(t *testing.T) {
 	}
 	tools, _ := decode(t, out)["tools"].([]any)
 	v := ClassifyWireTools(tools)
-	if len(v.Genuine) != 1 || v.Genuine[0] != "run_terminal_command" {
-		t.Errorf("genuine = %v, want [run_terminal_command]", v.Genuine)
+	if len(v.Genuine) != 2 || v.Genuine[0] != "run_terminal_command" || v.Genuine[1] != "decide" {
+		t.Errorf("genuine = %v, want [run_terminal_command decide]", v.Genuine)
 	}
 	if s := WireForeignSignal(v); s != "" {
 		t.Errorf("signal = %q, want clear", s)
