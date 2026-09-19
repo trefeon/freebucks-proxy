@@ -16,8 +16,8 @@ import (
 func TestChatToolNameToleranceE2E(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	// Echo the wire name as upstream would: the model saw mcp__read_file
-	// (the virtualized client tool) and calls it.
+	// Echo the OFFICIAL name, as upstream would: the model saw read_files
+	// (the renamed client tool) and calls it.
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		chunk := map[string]any{
@@ -29,7 +29,7 @@ func TestChatToolNameToleranceE2E(t *testing.T) {
 						"index":    float64(0),
 						"id":       "call_tol1",
 						"type":     "function",
-						"function": map[string]any{"name": "mcp__read_file", "arguments": `{"path":"config.json"}`},
+						"function": map[string]any{"name": "read_files", "arguments": `{"path":"config.json"}`},
 					}},
 				},
 				"finish_reason": nil,
@@ -80,8 +80,8 @@ func TestChatToolNameToleranceE2E(t *testing.T) {
 		}
 	}
 	joined := strings.Join(upstreamNames, ",")
-	if !strings.Contains(joined, "mcp__read_file") {
-		t.Errorf("upstream tools missing mcp__read_file: %v", upstreamNames)
+	if !strings.Contains(joined, "read_files") {
+		t.Errorf("upstream tools missing read_files: %v", upstreamNames)
 	}
 	if !strings.Contains(joined, "run_terminal_command") {
 		t.Errorf("upstream tools missing run_terminal_command: %v", upstreamNames)
@@ -95,7 +95,7 @@ func TestChatToolNameToleranceE2E(t *testing.T) {
 	if !strings.Contains(string(data), `"read_file"`) {
 		t.Errorf("response missing client name read_file: %s", data)
 	}
-	if strings.Contains(string(data), "mcp__") || strings.Contains(string(data), `"read_files"`) {
-		t.Errorf("internal/official name leaked to client: %s", data)
+	if strings.Contains(string(data), `"read_files"`) {
+		t.Errorf("official name leaked to client: %s", data)
 	}
 }

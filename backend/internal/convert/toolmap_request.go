@@ -212,25 +212,15 @@ type ToolMapper struct {
 	tools            int               // len(tools) in the scanned body
 }
 
-var foreignHarnessLower = func() map[string]bool {
-	m := make(map[string]bool, len(ForeignHarnessToolNames))
-	for k := range ForeignHarnessToolNames {
-		m[strings.ToLower(k)] = true
-	}
-	return m
-}()
-
 func isForeignHarness(name string) bool {
-	lower := strings.ToLower(name)
-	return foreignHarnessLower[lower] || strings.HasPrefix(lower, "cron")
+	return ForeignHarnessToolNames[name] || strings.HasPrefix(strings.ToLower(name), "cron")
 }
 
 // resolveUpstreamTool decides the wire name for a client tool.
-// If the tool has genuine canonical parameters for an official signature tool,
-// it is mapped to that signature tool. Otherwise, if it matches a foreign harness
-// or was mapped in clientToOfficial, it is safely virtualized into the MCP
-// namespace (mcp__<tool_name>) to prevent triggering foreign_tool_names or
-// isHollowSignatureTool laundering flags. Unrecognized custom tools pass through.
+// Tools mapped in clientToOfficial are mapped to their official codebuff signature tool.
+// Unmapped foreign harness tools (matching ForeignHarnessToolNames exact casing)
+// are safely virtualized into the MCP namespace (mcp__<tool_name>) to prevent triggering
+// foreign_tool_names. Unrecognized custom tools and existing MCP tools pass through verbatim.
 func resolveUpstreamTool(origName string, params map[string]any) string {
 	if origName == "" {
 		return ""
@@ -240,23 +230,19 @@ func resolveUpstreamTool(origName string, params map[string]any) string {
 	}
 
 	lower := strings.ToLower(origName)
-	isForeign := isForeignHarness(origName)
 
 	if official, ok := clientToOfficial[lower]; ok && official != "" {
-		if IsGenuineSignatureTool(official, params) {
-			return official
-		}
-		if strings.Contains(origName, "__") {
-			return origName
-		}
-		return "mcp__" + origName
+		return official
 	}
 
 	if strings.Contains(origName, "__") {
 		return origName
 	}
 
-	if isForeign {
+	// Check exact case in ForeignHarnessToolNames (e.g. PascalCase "Task", "Agent",
+	// "AskUserQuestion" from Claude Code, or "browser_exec" from OpenClaw).
+	// Lowercase agentic tools like OMP's "task" are not in ForeignHarnessToolNames.
+	if ForeignHarnessToolNames[origName] || strings.HasPrefix(lower, "cron") {
 		return "mcp__" + origName
 	}
 
