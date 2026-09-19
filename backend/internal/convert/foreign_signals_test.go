@@ -109,6 +109,72 @@ func TestIsGenuineSignatureTool(t *testing.T) {
 	})
 }
 
+// Pinned canonical keys for every parameterised official tool (vendor
+// 3420c99 toolParams inputSchema literals, mirrored in
+// canonicalToolParameterKeys). Each entry duplicates the map literals on
+// purpose: a drifted pin or a dropped tool fails here before it can weaken
+// the foreign_toolset read.
+var pinnedCanonicalKeys = map[string][]string{
+	"read_files":           {"paths"},
+	"write_file":           {"path", "instructions", "content"},
+	"str_replace":          {"path", "replacements"},
+	"run_terminal_command": {"command", "process_type", "cwd", "timeout_seconds"},
+	"list_directory":       {"path"},
+	"code_search":          {"pattern", "flags", "cwd", "maxResults"},
+	"write_todos":          {"todos"},
+	"apply_patch":          {"operation"},
+	"read_url":             {"url", "max_chars"},
+	"web_search":           {"query", "depth"},
+	"glob":                 {"pattern", "cwd", "max_results"},
+	"find_files":           {"prompt"},
+	"skill":                {"name"},
+	"read_subtree":         {"paths", "maxTokens"},
+}
+
+func schemaWithKeys(keys ...string) map[string]any {
+	props := map[string]any{}
+	for _, k := range keys {
+		props[k] = map[string]any{"type": "string"}
+	}
+	return map[string]any{"type": "object", "properties": props}
+}
+
+func TestCanonicalKeysCoverAllOfficialTools(t *testing.T) {
+	// Every official target is either parameterised (pinned keys) or
+	// zero-param (never genuine by design). Nothing falls through to
+	// unknown fail-closed by accident.
+	for name := range officialTools {
+		_, param := canonicalToolParameterKeys[name]
+		_, zero := ZeroParamSignatureTools[name]
+		if !param && !zero {
+			t.Errorf("official tool %q has no canonical keys and is not zero-param", name)
+		}
+	}
+	if len(pinnedCanonicalKeys) != len(canonicalToolParameterKeys) {
+		t.Errorf("pinned table = %d tools, map = %d; keep them in sync",
+			len(pinnedCanonicalKeys), len(canonicalToolParameterKeys))
+	}
+	for name, keys := range pinnedCanonicalKeys {
+		// Full canonical set reads genuine ...
+		if !IsGenuineSignatureTool(name, schemaWithKeys(keys...)) {
+			t.Errorf("%s: full canonical schema should be genuine", name)
+		}
+		// ... a one-key subset still reads genuine (a client one
+		// release behind an added optional field still clears) ...
+		if !IsGenuineSignatureTool(name, schemaWithKeys(keys[0])) {
+			t.Errorf("%s: single-key subset should be genuine", name)
+		}
+		// ... but one extra unknown key fails closed (and reads hollow).
+		extra := append(append([]string{}, keys...), "client_only_key")
+		if IsGenuineSignatureTool(name, schemaWithKeys(extra...)) {
+			t.Errorf("%s: schema with an extra unknown key must not be genuine", name)
+		}
+		if !IsHollowSignatureTool(name, schemaWithKeys(extra...), "Some client description.") {
+			t.Errorf("%s: schema with an extra unknown key should read hollow", name)
+		}
+	}
+}
+
 func TestIsHollowSignatureTool(t *testing.T) {
 	t.Run("injected end_turn reads hollow", func(t *testing.T) {
 		// The exact shape injectEndTurnTool appends (schemacache_endturn.go):
