@@ -51,6 +51,7 @@ export const adminActions = {
   tokenAdd: "/admin/tokens/add",
   tokenRemove: "/admin/tokens/remove",
   tokenSwap: "/admin/tokens/swap",
+  testAll: "/admin/tokens/test-all",
   restart: "/admin/restart",
 };
 

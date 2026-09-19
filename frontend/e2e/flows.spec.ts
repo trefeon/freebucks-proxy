@@ -55,13 +55,13 @@ test.describe("user flows", () => {
     await page.getByRole("button", { name: "Accounts" }).click();
     await page.getByText("Account #1").first().waitFor();
     // One strip for the whole page (first account reset time, shared
-    // countdown) — no per-row Refresh/Probe buttons remain here.
+    // countdown) — no per-row Refresh buttons remain here. One page-level
+    // Probe all button (POST /admin/tokens/test-all, zero-cost) serves the
+    // whole list instead.
     await expect(page.getByTestId("reset-strip")).toHaveCount(1);
     await expect(page.getByTestId("reset-strip")).toContainText("resets in");
     await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Probe all" })).toHaveCount(
-      0,
-    );
+    await expect(page.getByRole("button", { name: "Probe all" })).toBeVisible();
   });
 
   test("quota: exempt account shows quota exempt chip", async ({ page }) => {

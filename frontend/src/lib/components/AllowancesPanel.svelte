@@ -14,6 +14,8 @@
     ensureTokensStore,
     refreshTokens,
   } from "../stores/tokens.js";
+  import { postAPI } from "../api/client.js";
+  import { adminActions } from "../api/paths.js";
   import { tr } from "../i18n.js";
   import {
     formatFreebucks,
@@ -45,6 +47,69 @@
   // Countdown tick: the global reset strip re-renders "resets in" against
   // this clock every second. Refetches nothing on its own.
   let now = $state(Date.now());
+  // Probe-all (POST /admin/tokens/test-all, zero-cost: the pool probes every
+  // token with a session-less GET and claims no slot). Progress + disabled
+  // state on the button, one summary toast, then a list refetch so the
+  // account cards render the fresh probe data.
+  let probing = $state(false);
+
+  // Short per-status labels for the summary toast, mirroring the backend
+  // pool.ProbeTokenOutcome status set (backend/internal/pool/probe.go).
+  const PROBE_STATUS_LABELS = {
+    ok: "ok",
+    banned: "banned",
+    rate_limited: "limited",
+    freebucks_exhausted: "exhausted",
+    auth_rejected: "rejected",
+    country_blocked: "blocked",
+    error: "error",
+  };
+
+  function probeSummary(outcomes) {
+    const counts = {};
+    for (const o of outcomes) {
+      const s = String(o?.status ?? "error");
+      counts[s] = (counts[s] ?? 0) + 1;
+    }
+    const parts = [`${counts.ok ?? 0} ok`];
+    delete counts.ok;
+    for (const s of Object.keys(counts))
+      parts.push(`${counts[s]} ${PROBE_STATUS_LABELS[s] ?? s}`);
+    return $tr("Probed {total}: {parts}", {
+      total: outcomes.length,
+      parts: parts.join(", "),
+    });
+  }
+
+  async function probeAll() {
+    if (probing) return;
+    probing = true;
+    try {
+      const res = await postAPI(adminActions.testAll, {});
+      if (Array.isArray(res)) {
+        const allOk = res.every((o) => o?.status === "ok");
+        pushToast({
+          tone: allOk ? "success" : "warning",
+          title: probeSummary(res),
+        });
+      } else if (res && res.ok === false) {
+        pushToast({
+          tone: "error",
+          title: res.message || $tr("Probe all failed"),
+        });
+      } else {
+        pushToast({ tone: "error", title: $tr("Probe all failed") });
+      }
+      refreshTokens();
+    } catch (e) {
+      pushToast({
+        tone: "error",
+        title: e?.message || $tr("Network error probing tokens"),
+      });
+    } finally {
+      probing = false;
+    }
+  }
 
   // Global reset strip: the first account carrying a daily reset time sets
   // the shared Pacific-midnight countdown for every account on the page.
@@ -198,6 +263,18 @@
     )}
   />
 {:else}
+  <div class="mb-2 flex flex-wrap items-center justify-end gap-2">
+    <Button
+      variant="secondary"
+      size="sm"
+      disabled={probing}
+      loading={probing}
+      onclick={probeAll}
+      title={$tr("Zero-cost probe of every account: no session claimed")}
+    >
+      {probing ? $tr("Probing…") : $tr("Probe all")}
+    </Button>
+  </div>
   {#if resetAt}
     {#if Date.parse(resetAt) <= now}
       <p

@@ -57,6 +57,31 @@
   let selectedIntent = $derived(
     spawnIntent(token, spawnModel || cheapestFreeOption(modelOptions)),
   );
+  // Remembered upstream-429 park, read off the live dashboard payload
+  // (backend/internal/dashboard/dashboard_cards.go tokenCard +
+  // dashboard_helpers.go cardFromSnapshot/liveCardFromSnapshot, both full
+  // and hot-poll paths): cooldown_active + cooldown_until, with the
+  // additive cooldown_kind / cooldown_resets_at / cooldown_window_hours
+  // naming the window refusal. The payload carries no per-model detail, so
+  // this names the pool-level reset — the next request spills to the next
+  // account. "" when the account is not parked.
+  function fmtParkedTime(raw) {
+    const ms = Date.parse(String(raw ?? ""));
+    if (!Number.isFinite(ms)) return "";
+    const d = new Date(ms);
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${hh}:${mm}Z`;
+  }
+  let parkedNote = $derived.by(() => {
+    if (!token.cooldown_active) return "";
+    const until = fmtParkedTime(token.cooldown_until);
+    const kind = token.cooldown_kind ? ` (${token.cooldown_kind})` : "";
+    const resets = token.cooldown_resets_at
+      ? ` · resets ${fmtParkedTime(token.cooldown_resets_at)}`
+      : "";
+    return `Parked — upstream 429${kind} until ${until || "—"} — spills to next account${resets}`;
+  });
   // Crossed-out list price for one model option (<option> carries text
   // only, so the strike renders as a ~N~ prefix): "" unless the first-tab
   // offer actually moved the row (available + list > price).
@@ -226,6 +251,14 @@
     pendingClass="mb-2 px-2 py-1 rounded bg-[var(--fp-warning)]/10 text-xs text-[var(--fp-warning)]"
     settledClass="mb-2 px-2 py-1 rounded bg-[var(--fp-success)]/10 text-xs text-[var(--fp-success)]"
   />
+  {#if parkedNote}
+    <p
+      class="mb-2 px-2 py-1 rounded bg-[var(--fp-warning)]/10 text-xs text-[var(--fp-warning)]"
+      data-testid="parked-note"
+    >
+      {parkedNote}
+    </p>
+  {/if}
   {#if token.has_standing}
     <!-- Standing / trust block (issue #140): level,
          score progress toward the next level, the cap
@@ -370,7 +403,7 @@
       <p class="mt-1 text-xs text-amber-300">{pinNotice}</p>
     {/if}
   </div>
-  {#if !devToolsEnabled && !(token.session_remaining_seconds > 0 && token.session_model) && !token.has_standing}
+  {#if !devToolsEnabled && !(token.session_remaining_seconds > 0 && token.session_model) && !token.has_standing && !parkedNote}
     <p class="text-xs text-[var(--fp-dim)] italic">
       {$tr("No active session or run for this auth token.")}
     </p>

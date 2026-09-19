@@ -9,7 +9,7 @@
  * - Drain: deep queues per account-model lane (300s / 1024 waiters). Safest
  *   for a few accounts: each account drains fully before the pool spills.
  * - Balance: shallow queues (16 waiters) with a tunable threshold wait
- *   (5–300s, default 60s, persisted as QUEUE_WAIT). Best for busy pools.
+ *   (5–300s, default 15s, persisted as QUEUE_WAIT). Best for busy pools.
  *
  * PIN_MODEL is owned but never preset-written: pins are per-account routing
  * owned by the token drawer, not queue posture, so a pinned account must not

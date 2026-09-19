@@ -170,6 +170,10 @@
     title,
     tone = "warn",
     confirmText = "",
+    // Frontend-side success copy: the drop-session real-drop leg answers
+    // {ok:true, kept:false} with no message field (backend lane), so callers
+    // whose endpoint omits the message pass their own toast copy here.
+    successMsg = "",
   ) {
     if (confirmMsg) {
       const ok = await confirmAction({
@@ -183,12 +187,28 @@
     actionPending = true;
     try {
       const result = await postAPI(url, body || undefined);
+      // Precious-keep honesty: the gateway answers {ok:true, kept:true} when
+      // keepSession fires (the session survives). Report the keep as a
+      // warning note — never a success toast — then refetch so the still-live
+      // row stays on screen.
+      if (result && result.kept === true) {
+        pushToast({
+          tone: "warning",
+          title:
+            result.message ||
+            $tr("Session kept (precious) — next request still rides it."),
+        });
+        refreshTokens();
+        return;
+      }
       const actOK = result.ok !== false;
       pushToast({
         tone: actOK ? "success" : "error",
         title:
           result.message ||
-          (actOK ? $tr("Action completed") : $tr("Action failed")),
+          (actOK
+            ? successMsg || $tr("Action completed")
+            : $tr("Action failed")),
       });
       refreshTokens();
     } catch (e) {
@@ -294,6 +314,10 @@
         "Drop active session on account #{idx}? This ends the current session upstream (e.g. luna) so the next request admits fresh for the model you want. Use this when you need to switch models immediately.",
         { idx: idx + 1 },
       ),
+      undefined,
+      "warn",
+      "",
+      $tr("Session dropped — next request will re-admit fresh."),
     );
   }
 

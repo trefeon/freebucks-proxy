@@ -235,10 +235,12 @@ test.describe("operator interactions (hermetic mocks)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 3b. Manual probing excised: no probe buttons anywhere; Dev Tools keeps
-  // the playground + spawner panels.
+  // 3b. Usage Accounts offers one page-level Probe all (POST
+  // /admin/tokens/test-all, zero-cost): it toasts one summary and refetches
+  // the list. Dev Tools keeps the playground + spawner panels (no
+  // "Probe All Tokens" there).
   // -------------------------------------------------------------------------
-  test("quota: plans has no manual probe buttons; devtools spawn stays", async ({
+  test("quota: plans probe-all posts test-all and toasts the summary; devtools spawn stays", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -251,14 +253,35 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Probe all" })).toHaveCount(
-      0,
+    const probe = page.getByRole("button", { name: "Probe all" });
+    await expect(probe, "usage accounts offers Probe all").toBeVisible();
+    await page.route("**/admin/tokens/test-all", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            index: 0,
+            status: "ok",
+            spendable_freebucks: 10,
+            daily_limit_freebucks: 100,
+            daily_spent_freebucks: 5,
+            quarantined: false,
+            cooling: false,
+          },
+        ]),
+      });
+    });
+    const refetch = page.waitForResponse(
+      (r) => r.url().includes("/admin/api/tokens") && r.status() === 200,
     );
-    await expect(page.getByText("Quotas refreshed from upstream.")).toHaveCount(
-      0,
-    );
-    // Manual probing is gone (test-all endpoint excised): Dev Tools keeps
-    // only the session spawn + playground panels (DEVTOOLS on for this page).
+    await probe.click();
+    await refetch;
+    await expect(
+      page.getByText("Probed 1: 1 ok"),
+      "probe-all summary toast",
+    ).toBeVisible();
+    // Dev Tools keeps only the session spawn + playground panels.
     await expect(
       page.getByRole("button", { name: "Probe All Tokens" }),
     ).toHaveCount(0);

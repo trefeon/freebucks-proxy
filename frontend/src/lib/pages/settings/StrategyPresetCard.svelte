@@ -76,7 +76,7 @@
     "Hand-edited: at least one of the strategy keys left its preset value. Reset to a preset below to return to one tap.";
   const THRESHOLD_LABEL = "Balance threshold";
   const THRESHOLD_DESC =
-    "How long one acquire parks on a full account lane's queue before spilling to the next account (Balance default 60s; unset installs run 30s). Persisted as QUEUE_WAIT — the same row as the Queue Wait editor below.";
+    "How long one acquire parks on a full account lane's queue before spilling to the next account (Balance default 15s; unset installs run 30s). Persisted as QUEUE_WAIT — the same row as the Queue Wait editor below.";
   const KEYS_TITLE = "Strategy keys";
 
   const SLOTS_LABEL = "Slots per Account";
