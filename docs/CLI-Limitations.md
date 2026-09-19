@@ -4,6 +4,11 @@ Static audit of the FreeBuff CLI behaviors in scope vs the proxy port.
 Vendor pin: `upstream/freebuff` @ `e2b911eca` (= live npm `0.0.178`, zero drift).
 Proxy: `main` @ `e9427683`.
 
+> Pin note (2026-09-20): upstream has since moved to `2b165f749` (= npm
+> `freebuff@0.0.180`). This audit was not re-run; the delta — including which
+> files audited below actually changed and whether any verdict is invalidated —
+> is recorded in `FREEBUFF-CLI.md` §14 (`Version delta 0.0.178 → 0.0.180`).
+
 - Verdicts: **PORTED** / **GAP-P0** (breaks interop — harness retry-spin or
   wrong-operator billing) / **GAP-P1** (parity gap, degraded UX, no spin) /
   **WONT-PORT-BY-DESIGN** (presentation, timing cosmetics, credential-write,

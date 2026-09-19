@@ -5,7 +5,9 @@ import { writable, get } from "svelte/store";
 // contextual states (session-expired, default-password, DB-overlay
 // degraded, upstream drift, maturity kill-switch) stay inline as <Alert>.
 const MAX_VISIBLE = 4;
-const AUTO_DISMISS_MS = 5000;
+// Every toast — error and warning included — leaves on its own after 10s.
+// Tone never decides lifetime: only an explicit `sticky: true` opts out.
+const AUTO_DISMISS_MS = 10000;
 
 let nextId = 1;
 const timers = new Map();
@@ -15,16 +17,8 @@ export const toasts = writable([]);
 /** Overflow FIFO: promoted in order as visible slots free up. */
 export const toastQueue = writable([]);
 
-function stickyByDefault(tone) {
-  return tone === "error" || tone === "warning";
-}
-
-function isSticky(t) {
-  return t.sticky ?? stickyByDefault(t.tone);
-}
-
 function schedule(t) {
-  if (isSticky(t)) return;
+  if (t.sticky) return;
   clearTimeout(timers.get(t.id));
   timers.set(
     t.id,
@@ -43,9 +37,9 @@ function pump() {
 }
 
 /**
- * Push a toast. error/warning are sticky (never auto-dismiss) unless
- * `sticky: false` is passed; success/info fade after 5s unless
- * `sticky: true` is passed.
+ * Push a toast. It fades after 10s regardless of tone unless
+ * `sticky: true` is passed; that flag is the only escape hatch, and it is
+ * for blocking states that must not vanish on their own.
  *
  * @param {{ tone?: 'info'|'success'|'warning'|'error', title?: string, body?: string, sticky?: boolean }} toast
  * @returns {number} toast id for dismiss()
