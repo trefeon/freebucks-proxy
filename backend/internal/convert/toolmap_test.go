@@ -33,8 +33,8 @@ func TestToolMapperRequestRename(t *testing.T) {
 		names[fn["name"].(string)] = fn
 	}
 
-	if _, ok := names["read_files"]; !ok {
-		t.Errorf("read_file not renamed to read_files: tools = %v", payload["tools"])
+	if _, ok := names["mcp__read_file"]; !ok {
+		t.Errorf("read_file not virtualized to mcp__read_file: tools = %v", payload["tools"])
 	}
 	if _, ok := names["run_terminal_command"]; !ok {
 		t.Errorf("bash not renamed to run_terminal_command")
@@ -47,7 +47,7 @@ func TestToolMapperRequestRename(t *testing.T) {
 	}
 
 	// Schema passes through untouched (the model fills args per this shape).
-	rf := names["read_files"]
+	rf := names["mcp__read_file"]
 	params := rf["parameters"].(map[string]any)
 	reqd := params["required"].([]any)
 	if len(reqd) != 1 || reqd[0] != "path" {
@@ -57,13 +57,13 @@ func TestToolMapperRequestRename(t *testing.T) {
 	// tool_choice follows the rename.
 	tc := payload["tool_choice"].(map[string]any)
 	tcfn := tc["function"].(map[string]any)
-	if tcfn["name"] != "read_files" {
-		t.Errorf("tool_choice name = %v, want read_files", tcfn["name"])
+	if tcfn["name"] != "mcp__read_file" {
+		t.Errorf("tool_choice name = %v, want mcp__read_file", tcfn["name"])
 	}
 
 	// The mapper restores both directions.
-	if got := mapper.RestoreName("read_files"); got != "read_file" {
-		t.Errorf("RestoreName(read_files) = %q, want read_file", got)
+	if got := mapper.RestoreName("mcp__read_file"); got != "read_file" {
+		t.Errorf("RestoreName(mcp__read_file) = %q, want read_file", got)
 	}
 	if got := mapper.RestoreName("run_terminal_command"); got != "bash" {
 		t.Errorf("RestoreName(run_terminal_command) = %q, want bash", got)

@@ -243,7 +243,13 @@ func resolveUpstreamTool(origName string, params map[string]any) string {
 	isForeign := isForeignHarness(origName)
 
 	if official, ok := clientToOfficial[lower]; ok && official != "" {
-		return official
+		if IsGenuineSignatureTool(official, params) {
+			return official
+		}
+		if strings.Contains(origName, "__") {
+			return origName
+		}
+		return "mcp__" + origName
 	}
 
 	if strings.Contains(origName, "__") {
@@ -300,6 +306,9 @@ func NewToolMapper(body []byte) ToolMapper {
 		if upstreamName != "" && upstreamName != name {
 			m.clientToUpstream[name] = upstreamName
 			m.upstreamToClient[upstreamName] = name
+		}
+		if official, ok := clientToOfficial[strings.ToLower(name)]; ok && official != "" && official != name {
+			m.upstreamToClient[official] = name
 		}
 	}
 	return m
