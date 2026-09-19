@@ -253,7 +253,7 @@ func TestWriteErrorNewMappings(t *testing.T) {
 	})
 
 	t.Run("free_mode_unavailable 403 terminal", func(t *testing.T) {
-		// docs/CLI-LIMITASI.md P0-1: region/egress gate — terminal 403,
+		// docs/CLI-Limitations.md P0-1: region/egress gate — terminal 403,
 		// never the generic 502, never a Retry-After.
 		err := &upstream.FreeModeUnavailableError{Status: http.StatusForbidden, CountryBlockReason: "anonymous_network"}
 		status, hdr, body := errorResponse(t, err)
@@ -272,7 +272,7 @@ func TestWriteErrorNewMappings(t *testing.T) {
 	})
 
 	t.Run("provider_usage_exhausted 402 verbatim", func(t *testing.T) {
-		// docs/CLI-LIMITASI.md P0-2: operator-side refill — 402 with a
+		// docs/CLI-Limitations.md P0-2: operator-side refill — 402 with a
 		// distinct code, upstream body verbatim, never out_of_credits.
 		const upstreamBody = `{"error":"insufficient credits"}`
 		err := &upstream.ProviderUsageError{Status: http.StatusPaymentRequired, Body: upstreamBody}

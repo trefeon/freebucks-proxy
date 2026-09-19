@@ -391,7 +391,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 		status, code = http.StatusForbidden, "free_mode_invalid_agent_hierarchy"
 		message = err.Error()
 	case errors.As(err, &fue):
-		// 403 free_mode_unavailable (docs/CLI-LIMITASI.md P0-1): the
+		// 403 free_mode_unavailable (docs/CLI-Limitations.md P0-1): the
 		// region/egress gate. Terminal — no Retry-After (retrying the
 		// same egress re-trips the gate), no cooldown, no failover-spin;
 		// the anonymous-network variant names the egress instead.
@@ -399,7 +399,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 		message = freeModeUnavailableMessage(fue)
 		retryAfter = 0
 	case errors.As(err, &pue):
-		// Provider-billing failure behind Freebuff (docs/CLI-LIMITASI.md
+		// Provider-billing failure behind Freebuff (docs/CLI-Limitations.md
 		// P0-2): the shared provider account needs a refill — never the
 		// caller's credits, so never out_of_credits and never a
 		// buy-credits hint. 402 keeps client retry behavior; the body

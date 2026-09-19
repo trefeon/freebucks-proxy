@@ -127,12 +127,12 @@ var (
 	// chat-time sibling: country-not-allowed or anonymous-network egress,
 	// with the same countryCode/countryBlockReason/ipPrivacySignals
 	// shape). TERMINAL for the request: never a cooldown, never a
-	// failover-spin (docs/CLI-LIMITASI.md P0-1).
+	// failover-spin (docs/CLI-Limitations.md P0-1).
 	ErrFreeModeUnavailable = errors.New("upstream free mode unavailable")
 	// ErrProviderUsage: the upstream provider account behind Freebuff is
 	// out of usage (HTTP 401/402 carrying provider-billing wording). An
 	// operator-side refill problem, NOT the caller's credits — it must
-	// never become CreditsError/out_of_credits (docs/CLI-LIMITASI.md P0-2).
+	// never become CreditsError/out_of_credits (docs/CLI-Limitations.md P0-2).
 	ErrProviderUsage = errors.New("upstream provider usage exhausted")
 	// ErrConsentRequired: 409 consent_required — the wallet balance moved
 	// since the spend limit was confirmed. Terminal for the request (the

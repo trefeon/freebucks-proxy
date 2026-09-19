@@ -1,4 +1,4 @@
-# CLI → Proxy Limitations (CLI-LIMITASI)
+# CLI → Proxy Limitations (CLI-Limitations)
 
 Static audit of the FreeBuff CLI behaviors in scope vs the proxy port.
 Vendor pin: `upstream/freebuff` @ `e2b911eca` (= live npm `0.0.178`, zero drift).
