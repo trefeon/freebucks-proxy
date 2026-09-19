@@ -85,7 +85,8 @@
     page,
   }));
   // Oversized-snapshot hint from the pageState store (PUT 413 eviction).
-  // It surfaces as a sticky warning toast, then clears — no inline banner.
+  // It surfaces as a warning toast (10s fade, like every toast), then clears
+  // — no inline banner.
   let errorToast = $state(0);
   let lastErrorMsg = "";
   function notifyError(msg) {

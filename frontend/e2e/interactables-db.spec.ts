@@ -135,8 +135,9 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
   }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
-    // Two forced login failures push two sticky error toasts through the
-    // shared login->toast path (HEAD #563): no overlay involvement.
+    // Two forced login failures push two error toasts through the shared
+    // login->toast path (HEAD #563): no overlay involvement. Error tone no
+    // longer pins them, so the manual drops below win on their own merits.
     await page.unroute("**/admin/login");
     await page.route("**/admin/login", async (route) => {
       if (route.request().method() === "POST") {
@@ -159,6 +160,17 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     await page.getByRole("button", { name: "Sign in" }).click();
     const alerts = toasts(page).getByRole("alert");
     await expect(alerts).toHaveCount(2);
+
+    // Host geometry: the stack is pinned to the viewport top and centred
+    // horizontally (fixed percentages resolve against the client box, so
+    // measure against it) — never a corner badge.
+    const host = await toasts(page).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const vw = document.documentElement.clientWidth;
+      return { top: r.top, centreGap: Math.abs(r.left + r.width / 2 - vw / 2) };
+    });
+    expect(host.top, "anchored to the top edge").toBeLessThanOrEqual(1);
+    expect(host.centreGap, "horizontally centred").toBeLessThanOrEqual(1);
 
     // Escape drops the newest only.
     await page.keyboard.press("Escape");
