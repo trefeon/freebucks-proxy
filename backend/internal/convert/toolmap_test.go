@@ -127,6 +127,68 @@ func TestToolMapperResponseRestore(t *testing.T) {
 	}
 }
 
+// TestToolMapperMcpVirtualizedRestore pins the collision-free MCP restore for
+// a virtualized harness name: Claude-Code "Task" becomes "mcp__Task" on the
+// request leg and must restore to the exact client name downstream, on both
+// chunk shapes and the single-name path.
+func TestToolMapperMcpVirtualizedRestore(t *testing.T) {
+	mapper := NewToolMapper([]byte(`{"tools":[
+		{"type":"function","function":{"name":"Task","parameters":{"type":"object"}}}
+	]}`))
+	if mapper.Len() != 1 {
+		t.Fatalf("mapper entries = %d, want 1 (Task virtualized)", mapper.Len())
+	}
+	if got := mapper.RestoreName("mcp__Task"); got != "Task" {
+		t.Errorf("RestoreName(mcp__Task) = %q, want Task", got)
+	}
+	chunk := map[string]any{"choices": []any{
+		map[string]any{"delta": map[string]any{"tool_calls": []any{
+			map[string]any{"function": map[string]any{"name": "mcp__Task"}},
+		}}},
+		map[string]any{"message": map[string]any{"tool_calls": []any{
+			map[string]any{"function": map[string]any{"name": "mcp__Task"}},
+		}}},
+	}}
+	if !mapper.FromUpstreamChunk(chunk) {
+		t.Fatal("chunk with virtualized name unchanged by restore")
+	}
+	for i, sel := range []string{"delta", "message"} {
+		section := chunk["choices"].([]any)[i].(map[string]any)[sel].(map[string]any)
+		fn := section["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)
+		if fn["name"] != "Task" {
+			t.Errorf("%s restored name = %v, want Task", sel, fn["name"])
+		}
+	}
+}
+
+// TestToolMapperMcpNativePassthrough pins that a client-native mcp__* name
+// with NO map entry (real MCP tool, passed through verbatim on the request
+// leg) passes through byte-identical downstream — never blind-stripped.
+func TestToolMapperMcpNativePassthrough(t *testing.T) {
+	mapper := NewToolMapper([]byte(`{"tools":[
+		{"type":"function","function":{"name":"mcp__my_tool","parameters":{"type":"object"}}}
+	]}`))
+	if mapper.Len() != 0 {
+		t.Fatalf("mapper entries = %d, want 0 (native MCP name maps nothing)", mapper.Len())
+	}
+	if got := mapper.RestoreName("mcp__my_tool"); got != "mcp__my_tool" {
+		t.Errorf("RestoreName(mcp__my_tool) = %q, want byte-identical passthrough", got)
+	}
+	chunk := map[string]any{"choices": []any{
+		map[string]any{"delta": map[string]any{"tool_calls": []any{
+			map[string]any{"function": map[string]any{"name": "mcp__my_tool"}},
+		}}},
+	}}
+	if mapper.FromUpstreamChunk(chunk) {
+		t.Error("native MCP name chunk reported change")
+	}
+	delta := chunk["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)
+	fn := delta["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)
+	if fn["name"] != "mcp__my_tool" {
+		t.Errorf("native MCP name = %v, want mcp__my_tool untouched", fn["name"])
+	}
+}
+
 // TestToolMapperSignatureCoverage guards the layer's whole point: every
 // mapping target must be a signature tool upstream recognizes, so renamed
 // requests classify first-party under detectForeignFreebuffClient.
@@ -522,7 +584,15 @@ func TestHarnessToolsetsWireClassification(t *testing.T) {
 				}
 			}
 
-			// Verify streaming chunk restoration
+			// Verify streaming chunk restoration matches the single-name path.
+			// Map-first restore: only names this request leg mapped or
+			// virtualized shed the mcp__ prefix downstream. The synthetic
+			// "mcp__"+ct.name candidates below (for tools that mapped to an
+			// official name or passed through untouched) are names the upstream
+			// leg never emits for this mapper, so they pass through verbatim —
+			// the same native-MCP passthrough pinned by
+			// TestToolMapperMcpNativePassthrough. What this loop pins is that
+			// the chunk path and RestoreName agree on every candidate shape.
 			for _, ct := range h.tools {
 				for _, candidate := range []string{ct.name, "mcp__" + ct.name, "run_terminal_command"} {
 					streamChunk := map[string]any{
@@ -542,8 +612,8 @@ func TestHarnessToolsetsWireClassification(t *testing.T) {
 					mapper.FromUpstreamChunk(streamChunk)
 					delta := streamChunk["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)
 					resName := delta["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)["name"].(string)
-					if strings.HasPrefix(resName, "mcp__") {
-						t.Errorf("FromUpstreamChunk left prefix: candidate %q -> %q", candidate, resName)
+					if want := mapper.RestoreName(candidate); resName != want {
+						t.Errorf("FromUpstreamChunk candidate %q -> %q, want RestoreName %q", candidate, resName, want)
 					}
 				}
 			}

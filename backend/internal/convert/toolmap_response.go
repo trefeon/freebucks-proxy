@@ -17,11 +17,11 @@ func (m ToolMapper) FromUpstreamChunk(chunk map[string]any) bool {
 		if name == "" {
 			return
 		}
-		if orig, ok := m.upstreamToClient[name]; ok {
+		// Single restore path: RestoreName is map-first and strips the mcp__
+		// prefix only when the request leg added it, so both chunk shapes
+		// share one collision-free semantic.
+		if orig := m.RestoreName(name); orig != name {
 			fn["name"] = orig
-			changed = true
-		} else if strings.HasPrefix(name, "mcp__") {
-			fn["name"] = strings.TrimPrefix(name, "mcp__")
 			changed = true
 		}
 	}
@@ -65,12 +65,23 @@ func (m ToolMapper) FromUpstreamChunk(chunk map[string]any) bool {
 // RestoreName maps one upstream tool name back to the client's original
 // (identity when unmapped). Used by the Anthropic stream state machine,
 // which tracks names outside the chunk-JSON shapes above.
+//
+// Map-first: consult upstreamToClient, then strip the mcp__ prefix ONLY when
+// the request leg added it (the stripped name maps back to this exact
+// upstream name in clientToUpstream, i.e. a virtualized foreign-harness
+// name). A client-native mcp__* name passed through verbatim on the request
+// leg — no map entry — so it passes through verbatim here instead of being
+// corrupted by a blind prefix strip.
 func (m ToolMapper) RestoreName(name string) string {
 	if orig, ok := m.upstreamToClient[name]; ok {
 		return orig
 	}
 	if strings.HasPrefix(name, "mcp__") {
-		return strings.TrimPrefix(name, "mcp__")
+		if stripped := strings.TrimPrefix(name, "mcp__"); stripped != "" {
+			if up, ok := m.clientToUpstream[stripped]; ok && up == name {
+				return stripped
+			}
+		}
 	}
 	return name
 }
