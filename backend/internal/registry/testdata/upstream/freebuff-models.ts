@@ -237,10 +237,27 @@ export const FREEBUFF_GLM_V53_FLASH_MODEL_ID = 'z-ai/glm-5.3-flash'
  * to raise the number. `max_price` takes prompt and completion only; the cache
  * read that dominates an agent turn is not expressible here, and the two bands
  * move together anyway.
+ *
+ * RAISED 2026-09-19 FROM $0.10/$0.30, because the bands above no longer exist
+ * and the raise is a reprice, not the Ox Alpha mistake. The market moved under
+ * the fence: Z.ai went to the dear band ($0.15/$0.50), Novita to $0.132/$0.44
+ * and GMICloud to $0.105/$0.35 — all three preferred endpoints ABOVE the old
+ * ceiling. What was left under it was DeepInfra (fp4), InferenceNet (deranked,
+ * stalls 60s with no token) and Relace (intermittent 401 "Invalid API key" and
+ * 504 idle timeouts from its own upstream). When Merge Gateway threw 429s and
+ * breaker 503s that morning, ~2,600 diverted turns in ten minutes landed on
+ * those three: Relace failed ~2,000 of them, InferenceNet stalled ~600 more,
+ * and DeepInfra — the one healthy survivor — began answering 429.
+ *
+ * $0.14/$0.45 sits strictly above Novita ($0.132/$0.44) and strictly below the
+ * $0.141/$0.47 and $0.15/$0.50 endpoints, so the dear band stays fenced out
+ * (verified live: a `z-ai`-only request under this ceiling 404s). The endpoints
+ * that fail in ways a ceiling cannot express are refused by name — see
+ * GLM_V53_FLASH_OPENROUTER_IGNORED.
  */
 export const FREEBUFF_GLM_V53_FLASH_MAX_PRICE = {
-  prompt: 0.1,
-  completion: 0.3,
+  prompt: 0.14,
+  completion: 0.45,
 } as const
 /** GPT-5.6 Luna (OpenAI), served through OpenRouter. The id is OpenRouter's own
  *  slug, so it falls through to the default OpenRouter route with no
@@ -459,6 +476,32 @@ export const FREEBUFF_DEEPSEEK_V4_PRO_MAX_MODEL_ID =
 export const FREEBUFF_DEEPSEEK_V4_FLASH_MAX_MODEL_ID =
   'deepseek/deepseek-v4-flash-max'
 export const FREEBUFF_GPT_5_6_LUNA_MAX_MODEL_ID = 'openai/gpt-5.6-luna-max'
+/**
+ * Early-access tiers, provisioned per-account on the same terms as the
+ * extended-context tiers above: wire ids only, absent from FREEBUFF_MODELS and
+ * every quota list, and carried directly on the request by accounts that hold
+ * the grant. Sessions are admitted against the base route each one is built
+ * on, so none of them needs its own quota or price entry.
+ */
+export const FREEBUFF_DEEPSEEK_V41_FLASH_MODEL_ID =
+  'deepseek/deepseek-v4.1-flash'
+export const FREEBUFF_DEEPSEEK_V41_PRO_MODEL_ID = 'deepseek/deepseek-v4.1-pro'
+export const FREEBUFF_GLM_V53_MODEL_ID = 'z-ai/glm-5.3'
+
+/**
+ * Internal evaluation routes. NOT released, and not to be surfaced.
+ *
+ * Staff-only wire ids for two things still under evaluation: an unreleased
+ * Fable 5.1 build, and a discounted Astra lane on pricing we have not
+ * announced. Access is enabled per account, so neither is in FREEBUFF_MODELS,
+ * FREEBUFF_WEB_MODELS or any quota list, and neither may appear in a picker,
+ * the changelog or release notes until a decision is made on each. See
+ * FREEBUFF_INTERNAL_EVAL_MODELS for the rows.
+ */
+export const FREEBUFF_FABLE_5_1_TEST_MODEL_ID =
+  'anthropic/claude-fable-5.1-test'
+export const FREEBUFF_GPT_6_ASTRA_DISCOUNT_TEST_MODEL_ID =
+  'openai/gpt-6-astra-discount-test'
 
 /**
  * Claude Fable 5.1 — Anthropic's frontier model, offered to free CLI users as a
@@ -1451,6 +1494,44 @@ const GPT_5_6_LUNA_MAX_MODEL = {
   reasoningEffort: FREEBUFF_GPT_5_6_LUNA_REASONING_EFFORT,
 } as const satisfies FreebuffModelOption
 
+const DEEPSEEK_V41_FLASH_MODEL = {
+  id: FREEBUFF_DEEPSEEK_V41_FLASH_MODEL_ID,
+  displayName: 'DeepSeek V4.1 Flash',
+  tagline: 'Early access',
+  availability: 'always',
+  warning: FREEBUFF_AI_TRAINING_NOTICE,
+  dataUse: 'training',
+  premium: false,
+  multimodal: false,
+  reasoningEffort: 'high',
+  defaultEffort: 'high',
+} as const satisfies FreebuffModelOption
+
+const DEEPSEEK_V41_PRO_MODEL = {
+  id: FREEBUFF_DEEPSEEK_V41_PRO_MODEL_ID,
+  displayName: 'DeepSeek V4.1 Pro',
+  tagline: 'Early access',
+  availability: 'always',
+  warning: FREEBUFF_AI_TRAINING_NOTICE,
+  dataUse: 'training',
+  premium: false,
+  multimodal: false,
+  reasoningEffort: 'high',
+  defaultEffort: 'high',
+} as const satisfies FreebuffModelOption
+
+const GLM_V53_MODEL = {
+  id: FREEBUFF_GLM_V53_MODEL_ID,
+  displayName: 'GLM 5.3',
+  tagline: 'Early access',
+  availability: 'always',
+  dataUse: 'service',
+  premium: true,
+  multimodal: false,
+  reasoningEffort: 'high',
+  defaultEffort: 'high',
+} as const satisfies FreebuffModelOption
+
 /**
  * The provisioned tiers, as rows. Exported for the provisioning tooling and
  * for support lookups; NOT spread into any catalog, for the reason above.
@@ -1459,6 +1540,45 @@ export const FREEBUFF_PROVISIONED_MODELS = [
   DEEPSEEK_V4_PRO_MAX_MODEL,
   DEEPSEEK_V4_FLASH_MAX_MODEL,
   GPT_5_6_LUNA_MAX_MODEL,
+  DEEPSEEK_V41_FLASH_MODEL,
+  DEEPSEEK_V41_PRO_MODEL,
+  GLM_V53_MODEL,
+] as const satisfies readonly FreebuffModelOption[]
+
+const FABLE_5_1_TEST_MODEL = {
+  id: FREEBUFF_FABLE_5_1_TEST_MODEL_ID,
+  displayName: 'Claude Fable 5.1 (hidden test)',
+  tagline: 'Internal evaluation only',
+  availability: 'always',
+  warning: FREEBUFF_AI_TRAINING_NOTICE,
+  dataUse: 'training',
+  premium: true,
+  multimodal: true,
+  efforts: EFFORTS_THROUGH_MAX,
+  defaultEffort: 'high',
+} as const satisfies FreebuffModelOption
+
+const GPT_6_ASTRA_DISCOUNT_TEST_MODEL = {
+  id: FREEBUFF_GPT_6_ASTRA_DISCOUNT_TEST_MODEL_ID,
+  displayName: 'GPT-6 Astra (discount test)',
+  tagline: 'Discount route — evaluation only',
+  availability: 'always',
+  dataUse: 'service',
+  // TRUE so it can never fall into FREEBUFF_STANDARD_MODEL_IDS if it is ever
+  // added to a catalog by mistake: that set is derived from `!premium`.
+  premium: true,
+  multimodal: false,
+  reasoningEffort: FREEBUFF_GPT_5_6_LUNA_REASONING_EFFORT,
+} as const satisfies FreebuffModelOption
+
+/**
+ * The internal evaluation routes, as rows, for support lookups and the usage
+ * ledger's display names. NOT spread into any catalog: see
+ * FREEBUFF_FABLE_5_1_TEST_MODEL_ID.
+ */
+export const FREEBUFF_INTERNAL_EVAL_MODELS = [
+  FABLE_5_1_TEST_MODEL,
+  GPT_6_ASTRA_DISCOUNT_TEST_MODEL,
 ] as const satisfies readonly FreebuffModelOption[]
 
 const MINIMAX_M3_MODEL = {
@@ -3238,6 +3358,8 @@ export function isFreebuffSessionModelAllowedForAccessTier(
   // Widening WHAT a limited user may pick, not how much: the limited pool is
   // keyed on the tier rather than the model.
   return (
+    // Campaign admission owns its global and per-user caps, on either tier.
+    FREEBUFF_LIMITED_OFFER_MODEL_IDS.some((modelId) => modelId === model) ||
     isRewardModelRedeemableAtLimitedTier(model) ||
     FREEBUFF_WEB_LIMITED_MODEL_IDS.some((modelId) => modelId === model) ||
     // Paid plans reach limited regions too — see `hasPaidSubscription`.
@@ -3330,7 +3452,7 @@ export function resolveFreebuffWebModel(
 
 /** Resolve an explicit CLI selection for an access tier. The ordinary picker
  * uses `FREEBUFF_MODELS`; a limited-tier user may also hold an earned reward
- * balance for the reward model, and a full-access user may have been told about
+ * balance for the reward model, and any user may have been told about
  * a limited-offer model this launch. Both live outside what the tier's picker
  * lists, so without these passes an explicit pick of either would be silently
  * rewritten to the fallback model — the user would press Enter on Fable and
@@ -3341,6 +3463,10 @@ export function resolveFreebuffModelForAccessTier(
   /** See `hasPaidSubscription` on isFreebuffSessionModelAllowedForAccessTier. */
   hasPaidSubscription = false,
 ): FreebuffModelId | FreebuffLimitedOfferModelId {
+  const limitedOffer = FREEBUFF_LIMITED_OFFER_MODEL_IDS.find(
+    (modelId) => modelId === id,
+  )
+  if (limitedOffer) return limitedOffer
   if (accessTier === 'limited') {
     // The reward model survives the coercion at limited tier so an earned
     // session is launchable from any region; the pool decides whether it is
@@ -3358,10 +3484,6 @@ export function resolveFreebuffModelForAccessTier(
       ? (id as FreebuffModelId)
       : LIMITED_FREEBUFF_MODEL_ID
   }
-  const limitedOffer = FREEBUFF_LIMITED_OFFER_MODEL_IDS.find(
-    (modelId) => modelId === id,
-  )
-  if (limitedOffer) return limitedOffer
   return resolveFreebuffModel(id)
 }
 

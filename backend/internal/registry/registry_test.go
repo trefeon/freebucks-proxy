@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/modelcat"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,9 +19,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/modelcat"
 )
 
 // fileSource builds a file:// URL for a local fixture path (no network).
@@ -63,6 +62,13 @@ var expectedFallback = map[string]string{
 	"google/gemini-2.5-flash-lite":    "file-picker",
 	"google/gemini-3.1-flash-lite":    "file-picker-max",
 	"google/gemini-3.5-flash-lite":    "file-picker-max",
+	// Supplier additions in the 0.0.180 registry snapshot (deepseek v4.1
+	// pair, plain GLM 5.3, and the two staff/test-only rows).
+	"deepseek/deepseek-v4.1-flash":     "base2-free-deepseek-v4-1-flash",
+	"deepseek/deepseek-v4.1-pro":       "base2-free-deepseek-v4-1-pro",
+	"z-ai/glm-5.3":                     "base2-free-glm-5-3",
+	"anthropic/claude-fable-5.1-test":  "base2-free-fable-test",
+	"openai/gpt-6-astra-discount-test": "base2-free-astra-discount-test",
 }
 
 func TestFallbackMap(t *testing.T) {
@@ -460,6 +466,7 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Errorf("unexpected final model count %d", len(models))
 	}
 }
+
 func TestResolveModelIdentity(t *testing.T) {
 	r := New(&config.Config{}, nil)
 	r.LoadFallback()
