@@ -266,9 +266,8 @@ one danger.
   lists (`LiveConsole.svelte:1315` `divide-[var(--fp-border)]` stays the
   divider mechanism).
 - Stable anchors: `id="setting-{entry.key}"` cross-page jump targets
-  (`AdvancedSettings.svelte:235-236`, `PoolCustomAdvanced.svelte:121-122`)
-  with `scroll-mt-24`; `SettingsRow first={isFirst}`
-  (`AdvancedSettings.svelte:238`) owns edge spacing.
+  (`AdvancedSettings.svelte:235`) with `scroll-mt-24`; `SettingsRow
+  first={isFirst}` (`AdvancedSettings.svelte:237`) owns edge spacing.
 - Counter/id hygiene: literal `id="…"` MUST be unique across simultaneously
   mounted components — verified clean (`dev-burst-model`/`dev-burst`
   `BatchTestPanel.svelte:114,128`; `dev-model`/`dev-account`/`dev-proto`/

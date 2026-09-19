@@ -1424,9 +1424,10 @@ test.describe("dashboard hermetic mocks", () => {
     const named = Number(/Search (\d+) settings…/.exec(placeholder ?? "")?.[1]);
     // 9 catalog rows the page renders (1 access + 2 general +
     // 1 log level + 4 diagnostics + 1 security), plus the non-catalog admin
-    // password row, plus the 21 hidden catalog keys the "Hidden keys"
-    // disclosure lists — not the catalog.
-    expect(named).toBe(31);
+    // password row, plus the 27 hidden non-secret catalog keys the "Hidden
+    // keys" disclosure lists (HTTP_READ_TIMEOUT is the one hidden key that
+    // renders in the Gateway card instead) — not the catalog.
+    expect(named).toBe(37);
     const rendered = await page.evaluate(
       () =>
         Array.from(document.querySelectorAll("code")).filter((c) =>

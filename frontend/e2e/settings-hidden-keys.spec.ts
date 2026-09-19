@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { HIDDEN_READONLY_KEYS } from "./mock-settings.js";
 import {
   loadFixtures,
   mockDashboard,
@@ -29,14 +30,13 @@ const SECRET_SENTINELS: Record<string, string> = {
   WEBHOOK_URL: "https://hooks.invalid/SENTINEL-WEBHOOK-9f13",
 };
 
-// Hidden catalog keys that DO have a dedicated editor somewhere else in the
-// dashboard (Gateway card / Pool Controls tab). They must keep that editor
-// and must not be duplicated into the hidden-keys disclosure.
-const OWNED_ELSEWHERE = [
-  "HTTP_READ_TIMEOUT",
-  "SESSION_RE_ADMIT_LEAD",
-  "WAITING_ROOM_CHAIN",
-];
+// The one hidden catalog key with a dedicated display elsewhere in the
+// dashboard: the Gateway card shows HTTP_READ_TIMEOUT read-only (env-only,
+// no editor). It must keep that row and must not be duplicated into the
+// hidden-keys disclosure. Every other hidden key — the pool session/cache
+// knobs the removed "Custom advanced" card used to edit included — belongs
+// in the disclosure.
+const OWNED_ELSEWHERE = ["HTTP_READ_TIMEOUT"];
 
 type CatalogEntry = {
   key: string;
@@ -138,7 +138,7 @@ test.describe("settings hidden keys", () => {
       ).toHaveCount(1);
     }
     // The section is exactly the un-edited remainder: one row per key, and
-    // the three exceptions stay with their own dedicated displays.
+    // the one exception stays with its own dedicated display.
     await expect(page.locator("[data-setting-key]")).toHaveCount(
       inSection.length,
     );
@@ -146,6 +146,16 @@ test.describe("settings hidden keys", () => {
       await expect(page.locator(`[data-setting-key="${owned}"]`)).toHaveCount(
         0,
       );
+    }
+    // The six pool session/cache knobs the removed "Custom advanced" card
+    // used to edit: catalog-hidden now, so this disclosure is their one home
+    // (the count above derives from the fixture; this pins the roster, so a
+    // key that silently stopped being hidden cannot pass as "moved").
+    for (const key of HIDDEN_READONLY_KEYS) {
+      await expect(
+        page.locator(`[data-setting-key="${key}"]`),
+        `${key} is stranded: no row in the hidden-keys section`,
+      ).toHaveCount(1);
     }
     // HTTP_READ_TIMEOUT is env-only: read-only row with an env-note here,
     // no combobox anywhere on the page.
@@ -156,13 +166,29 @@ test.describe("settings hidden keys", () => {
       page.getByText("the reader never consults the overlay").first(),
     ).toBeVisible();
 
+    // The Pool page lost those rows with the card: no editor anchor and no
+    // disclosure row there, while the rest of the Controls tab still paints
+    // (the absence check is not vacuous).
     await page.goto(TOKENS);
     await page.getByRole("button", { name: "Controls" }).click();
-    await expect(page.locator("#setting-SESSION_RE_ADMIT_LEAD")).toBeVisible();
-    await expect(page.locator("#setting-WAITING_ROOM_CHAIN")).toBeVisible();
     await expect(
       page.getByRole("radiogroup", { name: "Pool strategy" }),
     ).toBeVisible();
+    await expect(page.getByText("Pool Tuning")).toBeVisible();
+    // The card itself is gone, not merely filtered: no heading, no rows.
+    await expect(
+      page.getByText("Custom advanced", { exact: true }),
+    ).toHaveCount(0);
+    for (const key of HIDDEN_READONLY_KEYS) {
+      await expect(
+        page.locator(`#setting-${key}`),
+        `${key} still renders a Pool-page row`,
+      ).toHaveCount(0);
+      await expect(
+        page.locator(`[data-setting-key="${key}"]`),
+        `${key} still renders a Pool-page disclosure row`,
+      ).toHaveCount(0);
+    }
   });
 
   test("the break-glass raw .env editor is gone from Settings", async ({

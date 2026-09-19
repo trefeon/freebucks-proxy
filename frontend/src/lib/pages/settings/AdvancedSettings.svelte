@@ -56,8 +56,8 @@
     degraded = false,
   } = $props();
   // Keys owned by the curated section components above (Gateway, Traffic,
-  // ModelRouting, Dashboard access, the Pool Strategy card, and Pool Custom
-  // advanced); Advanced shows everything else the catalog exposes.
+  // ModelRouting, Dashboard access, and the Pool Strategy card); Advanced
+  // shows everything else the catalog exposes.
   // PIN_MODEL is drawer-owned (the token drawer is its only editor), so it
   // stays out of this generic list like MODEL_LOCKS did before it.
   // MODELS_ALLOW is intentionally NOT here: it renders in the Usage page's
@@ -65,22 +65,21 @@
   // MATURITY_* needs no entry: the Warming tab's Streak Maintenance card
   // owns those keys with hardcoded rows and the catalog exposes no such
   // rows. QUOTA_PROBE_* needs no entry either: excised from the catalog
-  // with the prober removal, so no catalog row can match them.
+  // with the prober removal, so no catalog row can match them. The pool
+  // session/cache knobs (ADOPT_CLI_SESSION, MODEL_UNAVAILABLE_CACHE_TTL,
+  // SESSION_PERSIST, SESSION_PROBE_CACHE_TTL) need no entry either: the
+  // catalog flags them `hidden`, so the Hidden keys disclosure owns them.
   const COVERED = new Set([
-    "ADOPT_CLI_SESSION",
     "BRIDGE_ENABLED",
     "DASHBOARD_REQUIRE_LOGIN",
     "HTTP_READ_TIMEOUT",
     "LOG_LEVEL",
     "PIN_MODEL",
-    "MODEL_UNAVAILABLE_CACHE_TTL",
     "QUEUE_DEPTH",
     "QUEUE_WAIT",
     "RATE_LIMIT_PER_IP",
     "REASONING_IN_CONTENT",
     "SAFE_MODE",
-    "SESSION_PERSIST",
-    "SESSION_PROBE_CACHE_TTL",
     "SLOTS_PER_ACCOUNT",
     "MAX_SPILL_ACCOUNTS",
     "MATURITY_ENABLED",

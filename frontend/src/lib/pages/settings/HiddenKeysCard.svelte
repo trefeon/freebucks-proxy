@@ -46,15 +46,11 @@
     degraded = false,
   } = $props();
 
-  // Keys that DO have a dedicated display elsewhere in the dashboard: the
-  // Gateway card shows HTTP_READ_TIMEOUT read-only (env-only, no editor)
-  // and the Pool Custom advanced card owns the two session keys. Listing
-  // them here would duplicate a row that already renders.
-  const OWNED_ELSEWHERE = new Set([
-    "HTTP_READ_TIMEOUT",
-    "SESSION_RE_ADMIT_LEAD",
-    "WAITING_ROOM_CHAIN",
-  ]);
+  // HTTP_READ_TIMEOUT has a dedicated read-only display in the Gateway card
+  // (env-only, no editor), so listing it here would duplicate that row.
+  // Every other hidden key — the pool session/cache knobs included — belongs
+  // here.
+  const OWNED_ELSEWHERE = new Set(["HTTP_READ_TIMEOUT"]);
 
   const GROUP_TITLES = {
     general: "General",

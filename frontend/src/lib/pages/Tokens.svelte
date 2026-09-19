@@ -13,7 +13,6 @@
   import MaturityPanel from "../components/MaturityPanel.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
   import StrategyPresetCard from "./settings/StrategyPresetCard.svelte";
-  import PoolCustomAdvanced from "./settings/PoolCustomAdvanced.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { fetchAPI, postAPI, csrfHeader } from "../api/client.js";
   import { adminApi, adminActions, tokenActions } from "../api/paths.js";
@@ -731,17 +730,6 @@
       onReset={resetSettingsKey}
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
-    />
-    <PoolCustomAdvanced
-      meta={$settingsMeta}
-      formValues={$settingsFormValues}
-      rawText={$settingsRawText}
-      onField={setSettingsField}
-      sources={$settingsSources}
-      onReset={resetSettingsKey}
-      onSaved={settingsOverlaySaved}
-      degraded={$settingsDegraded}
-      tokenCount={data?.token_count ?? (data?.tokens ?? []).length}
     />
     <AdvancedSettings
       meta={$settingsMeta}

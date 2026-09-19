@@ -146,7 +146,7 @@ var keyCatalog = []KeyDef{
 
 	// ── pool ─────────────────────────────────────────────────────────────
 	{
-		Key: "ADOPT_CLI_SESSION", Group: GroupPool, Kind: "bool", RestartOnly: true,
+		Key: "ADOPT_CLI_SESSION", Group: GroupPool, Kind: "bool", RestartOnly: true, Hidden: true,
 		Default:     "false",
 		Description: `Adopt the upstream CLI's active session (from freebuff-instance-owner.json) instead of creating a new one; with empty AUTH_TOKENS the token is sourced from the CLI credentials file.`,
 	},
@@ -196,7 +196,7 @@ var keyCatalog = []KeyDef{
 		Description: `How many continuation accounts one request may spill to after its head lane's QUEUE_WAIT elapses (0 = unbounded, the full index chain; negative rejects the config). A 429 quota requeue never consumes spill budget. Applies live on reload.`,
 	},
 	{
-		Key: "MODEL_UNAVAILABLE_CACHE_TTL", Group: GroupPool, Kind: "text",
+		Key: "MODEL_UNAVAILABLE_CACHE_TTL", Group: GroupPool, Kind: "text", Hidden: true,
 		Default:     "1h",
 		Description: `How long a model_unavailable admission refusal is remembered per model (off-window models short-circuit to the fallback within the TTL).`,
 	},
@@ -251,12 +251,12 @@ var keyCatalog = []KeyDef{
 		Description: `Bounded deferred-FINISH worker queue for rotated/drained runs (full queue falls back to a synchronous FINISH).`,
 	},
 	{
-		Key: "SESSION_PERSIST", Group: GroupPool, Kind: "bool", RestartOnly: true,
+		Key: "SESSION_PERSIST", Group: GroupPool, Kind: "bool", RestartOnly: true, Hidden: true,
 		Default:     "true",
 		Description: `Persist session state AND active agent runs to disk so a restart resumes them instead of re-creating (default true). Set via container environment.`,
 	},
 	{
-		Key: "SESSION_PROBE_CACHE_TTL", Group: GroupPool, Kind: "text",
+		Key: "SESSION_PROBE_CACHE_TTL", Group: GroupPool, Kind: "text", Hidden: true,
 		Default:     "15s",
 		Description: `Reuse the last successful quota probe (skip redundant upstream status GETs) within this window.`,
 	},

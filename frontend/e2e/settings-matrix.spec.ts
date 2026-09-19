@@ -3,8 +3,8 @@ import type { Page } from "@playwright/test";
 import type { PostedSetting } from "./mocks.js";
 import {
   ALL_MATRIX_KEYS,
-  CUSTOM_ADVANCED_KEYS,
   GATEWAY_KEYS,
+  HIDDEN_READONLY_KEYS,
   KEY_HOME,
   LOGGING_KEYS,
   MATRIX_LIVE_ENV,
@@ -31,8 +31,8 @@ import {
 // preset write set, the Go-normalized "1m0s" echo round-trip, blank-row
 // loader fallbacks (dashboard.spec); the generic rejected-save Retry row
 // (interactables-db.spec); LOG_LEVEL/LOG_FORMAT restart copy, the
-// HTTP_READ_TIMEOUT/SESSION_PERSIST env-only read-only rows + 400 pins,
-// and SAFE_MODE env-shadow (instant-save.spec).
+// HTTP_READ_TIMEOUT read-only row + the env-only POST 400 pins, and
+// SAFE_MODE env-shadow (instant-save.spec).
 async function expectPosted(
   posted: PostedSetting[],
   key: string,
@@ -62,7 +62,6 @@ test.describe("settings matrix: single-home render", () => {
     const poolKeys = [
       ...STRATEGY_KEYS,
       ...POOL_CONTROLS_KEYS,
-      ...CUSTOM_ADVANCED_KEYS,
       ...POOL_TUNING_KEYS,
     ];
     expect(ALL_MATRIX_KEYS.filter((k) => KEY_HOME[k] === "pool")).toEqual(
@@ -91,6 +90,40 @@ test.describe("settings matrix: single-home render", () => {
       await expect(
         editor(page, key),
         `${key} has no second editor on Usage Controls`,
+      ).toHaveCount(0);
+    }
+  });
+
+  test("catalog-hidden pool keys keep no editor on any surface", async ({
+    page,
+  }) => {
+    // The removed Pool "Custom advanced" card was the only editor home of
+    // these six session/cache knobs. They must not resurface as a control on
+    // any surface; their read-only disclosure rows are pinned in
+    // settings-hidden-keys.spec.
+    await mockSettingsMatrix(page, { seed: fullMatrixDbSeed() });
+
+    await gotoControls(page, "tokens");
+    for (const key of HIDDEN_READONLY_KEYS) {
+      await expect(
+        editor(page, key),
+        `${key} has an editor on Pool Controls`,
+      ).toHaveCount(0);
+    }
+
+    await gotoControls(page, "plans");
+    for (const key of HIDDEN_READONLY_KEYS) {
+      await expect(
+        editor(page, key),
+        `${key} has an editor on Usage Controls`,
+      ).toHaveCount(0);
+    }
+
+    await gotoSettings(page);
+    for (const key of HIDDEN_READONLY_KEYS) {
+      await expect(
+        editor(page, key),
+        `${key} has an editor on Settings`,
       ).toHaveCount(0);
     }
   });
@@ -212,50 +245,23 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     ).toBeVisible();
   });
 
-  test("custom advanced + pool tuning edits post their keys", async ({
-    page,
-  }) => {
+  test("pool tuning edits post their keys", async ({ page }) => {
     const { posted } = await mockSettingsMatrix(page);
     await gotoControls(page, "tokens");
 
-    await fillKey(page, "MODEL_UNAVAILABLE_CACHE_TTL", "2h");
-    await fillKey(page, "SESSION_PROBE_CACHE_TTL", "30s");
-    await fillKey(page, "SESSION_RE_ADMIT_LEAD", "90s");
-    await toggleKey(page, "WAITING_ROOM_CHAIN");
-    // SESSION_PERSIST is env-only (data-architecture decision): the Custom
-    // advanced card renders it read-only with an env-note — no switch, no
-    // POST, never a save-success copy.
-    await expect(
-      page.getByRole("switch", { name: "SESSION_PERSIST" }),
-    ).toHaveCount(0);
-    await expect(
-      page
-        .locator("#setting-SESSION_PERSIST")
-        .getByText("the reader never consults the overlay"),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("status").filter({ hasText: "SESSION_PERSIST saved" }),
-    ).toHaveCount(0);
-    await toggleKey(page, "ADOPT_CLI_SESSION");
     await fillKey(page, "BRIDGE_IDLE_EVICT", "48h");
     await fillKey(page, "IDLE_ROTATION_TIMEOUT", "1h");
     await fillKey(page, "RATE_LIMIT_BURST", "40");
 
-    await expectPosted(posted, "MODEL_UNAVAILABLE_CACHE_TTL", "2h");
-    await expectPosted(posted, "SESSION_PROBE_CACHE_TTL", "30s");
-    await expectPosted(posted, "SESSION_RE_ADMIT_LEAD", "90s");
-    await expectPosted(posted, "WAITING_ROOM_CHAIN", "true");
-    await expectPosted(posted, "ADOPT_CLI_SESSION", "true");
     await expectPosted(posted, "BRIDGE_IDLE_EVICT", "48h");
     await expectPosted(posted, "IDLE_ROTATION_TIMEOUT", "1h");
     await expectPosted(posted, "RATE_LIMIT_BURST", "40");
-    // Restart-only rows keep their honest copy, not a live-apply claim.
-    await expect(
-      page
-        .getByRole("status")
-        .filter({ hasText: "ADOPT_CLI_SESSION saved" })
-        .filter({ hasText: "restart" }),
-    ).toBeVisible();
+    // The removed card's keys are read-only now: no editor means no write,
+    // even though the mock overlay would happily accept them.
+    const keys = posted.map((p) => p.key);
+    for (const key of HIDDEN_READONLY_KEYS) {
+      expect(keys).not.toContain(key);
+    }
   });
 
   test("gateway + logging + security edits post their keys", async ({
