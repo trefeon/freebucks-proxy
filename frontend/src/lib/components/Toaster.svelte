@@ -12,9 +12,10 @@
 
   /**
    * Toaster — the single global toast host, mounted once at the App root.
-   * Fixed bottom-right above Modal. Never steals focus; Escape dismisses
-   * the newest toast. error/warning use role="alert", info/success use
-   * role="status".
+   * Fixed top-center above Modal, stacking downward from the viewport top.
+   * Every toast auto-fades after 10s (stores/toast.js); never steals focus;
+   * Escape dismisses the newest toast. error/warning use role="alert",
+   * info/success use role="status".
    */
   const icons = {
     info: Info,
@@ -46,7 +47,7 @@
 
 {#if $toasts.length > 0}
   <div
-    class="pointer-events-none fixed right-0 bottom-0 z-[100] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-2 p-4"
+    class="pointer-events-none fixed top-0 left-1/2 z-[100] flex w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 flex-col gap-2 p-4"
     aria-label={$tr("Notifications")}
   >
     {#each $toasts as t (t.id)}
