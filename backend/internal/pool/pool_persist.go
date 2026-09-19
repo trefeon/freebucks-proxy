@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"time"
 )
 
@@ -181,22 +182,27 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 	liveLedgers = make(map[string]bool)
 
 	// Per-token ledgers (roster lock; entry pointers stay in memory —
-	// only the counters cross into blobs).
+	// only the counters cross into blobs). The roster mutex is held for the
+	// typed slice clone only; the JSON encode runs after it is released
+	// (the request completion path takes this same mutex, and the blob
+	// grows with the 24h chat count — issue #656).
 	p.roster.mu.Lock()
-	ledgers := make([]poolKV, 0)
+	captures := make([]ledgerCapture, 0, len(*p.roster.toks.Load()))
+	keys := make([]string, 0, len(*p.roster.toks.Load()))
 	for _, entry := range *p.roster.toks.Load() {
-		if entry == nil {
-			continue
-		}
-		if entry.ledger == nil {
+		if entry == nil || entry.ledger == nil {
 			continue
 		}
 		key := poolLedgerKey(poolTokenHash(entry.token))
-		blob := marshalLedger(entry.ledger)
-		ledgers = append(ledgers, poolKV{key: key, val: mustMarshalPool(blob)})
+		captures = append(captures, captureLedger(entry.ledger))
+		keys = append(keys, key)
 		liveLedgers[key] = true
 	}
 	p.roster.mu.Unlock()
+	ledgers := make([]poolKV, 0, len(captures))
+	for i, cap := range captures {
+		ledgers = append(ledgers, poolKV{key: keys[i], val: mustMarshalPool(marshalLedgerCapture(cap))})
+	}
 	staged = append(staged, ledgers...)
 
 	// Terminal-cooldown hints (memory mirror; expired pruned here).
@@ -220,27 +226,73 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 	return staged, liveLedgers, liveCooldowns
 }
 
-// marshalLedger copies one ledger's counters into its blob form. Caller
-// holds the roster (or bridge) mutex.
-func marshalLedger(l *AccountLedger) poolLedgerBlob {
-	blob := poolLedgerBlob{
-		ReqDayStart: l.reqDayStart,
-		ReqDayCount: l.reqDayCount,
-	}
-	for _, t := range l.usage {
-		blob.Usage = append(blob.Usage, t.UnixMilli())
+// ledgerCapture is the lock-free copy of one ledger's persisted counters,
+// taken while the roster (or bridge) mutex is held. marshalLedgerCapture
+// turns it into the JSON blob after the lock is released.
+type ledgerCapture struct {
+	usage       []time.Time
+	reqDayStart int64
+	reqDayCount int64
+	spend       *spendCapture
+}
+
+// spendCapture mirrors spendLedger's persisted fields.
+type spendCapture struct {
+	rolling      []spendEntry
+	dayUsed      int64
+	dayStart     int64
+	weekUsed     int64
+	weekStart    int64
+	monthUsed    int64
+	monthStart   int64
+	spendLimited int
+}
+
+// captureLedger clones one ledger's persisted state. Caller holds the
+// roster (or bridge) mutex; slices are cloned (typed memcpy) so the JSON
+// encode and its per-element allocations run outside the lock.
+func captureLedger(l *AccountLedger) ledgerCapture {
+	c := ledgerCapture{
+		usage:       slices.Clone(l.usage),
+		reqDayStart: l.reqDayStart,
+		reqDayCount: l.reqDayCount,
 	}
 	if l.spend != nil {
-		sp := poolSpendBlob{
-			DayUsed:      l.spend.dayUsed,
-			DayStart:     l.spend.dayStart,
-			WeekUsed:     l.spend.weekUsed,
-			WeekStart:    l.spend.weekStart,
-			MonthUsed:    l.spend.monthUsed,
-			MonthStart:   l.spend.monthStart,
-			SpendLimited: l.spend.spendLimited,
+		c.spend = &spendCapture{
+			rolling:      slices.Clone(l.spend.rolling),
+			dayUsed:      l.spend.dayUsed,
+			dayStart:     l.spend.dayStart,
+			weekUsed:     l.spend.weekUsed,
+			weekStart:    l.spend.weekStart,
+			monthUsed:    l.spend.monthUsed,
+			monthStart:   l.spend.monthStart,
+			spendLimited: l.spend.spendLimited,
 		}
-		for _, e := range l.spend.rolling {
+	}
+	return c
+}
+
+// marshalLedgerCapture builds one ledger's blob form from its capture.
+// No lock is required; call it after releasing the roster (or bridge) mutex.
+func marshalLedgerCapture(c ledgerCapture) poolLedgerBlob {
+	blob := poolLedgerBlob{
+		ReqDayStart: c.reqDayStart,
+		ReqDayCount: c.reqDayCount,
+	}
+	for _, t := range c.usage {
+		blob.Usage = append(blob.Usage, t.UnixMilli())
+	}
+	if c.spend != nil {
+		sp := poolSpendBlob{
+			DayUsed:      c.spend.dayUsed,
+			DayStart:     c.spend.dayStart,
+			WeekUsed:     c.spend.weekUsed,
+			WeekStart:    c.spend.weekStart,
+			MonthUsed:    c.spend.monthUsed,
+			MonthStart:   c.spend.monthStart,
+			SpendLimited: c.spend.spendLimited,
+		}
+		for _, e := range c.spend.rolling {
 			sp.Rolling = append(sp.Rolling, poolSpendHit{At: e.at.UnixMilli(), Tokens: e.tokens})
 		}
 		blob.Spend = sp
@@ -333,6 +385,12 @@ func installLedger(l *AccountLedger, blob poolLedgerBlob, now time.Time) {
 		if t := time.UnixMilli(e.At); !t.Before(usageCutoff) && e.Tokens > 0 {
 			sp.rolling = append(sp.rolling, spendEntry{at: t, tokens: e.Tokens})
 		}
+	}
+	// Recompute the incremental rolling total from the restored rows
+	// (invariant: rollingTotal == sum of rolling[].tokens).
+	sp.rollingTotal = 0
+	for _, e := range sp.rolling {
+		sp.rollingTotal += e.tokens
 	}
 	sp.dayUsed, sp.dayStart = rollSpendBucket(blob.Spend.DayUsed, blob.Spend.DayStart, "day", now)
 	sp.weekUsed, sp.weekStart = rollSpendBucket(blob.Spend.WeekUsed, blob.Spend.WeekStart, "week", now)

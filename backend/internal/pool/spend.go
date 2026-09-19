@@ -52,6 +52,14 @@ type spendEntry struct {
 type spendLedger struct {
 	// rolling is the 24h window: amounts with timestamps, pruned on access.
 	rolling []spendEntry
+	// rollingTotal is the incremental sum of rolling's amounts (invariant:
+	// rollingTotal == sum of rolling[].tokens). Maintained by add /
+	// rolling24h / installLedger so the healthz+dashboard snapshot path
+	// (Pool.Snapshot -> ledgerView -> rolling24h) never rescans the window:
+	// that scan was O(chats in 24h) per token per snapshot call, and the
+	// snapshot runs on every dashboard SSE tick, /healthz, /metrics and
+	// /v1/models read (issue #656).
+	rollingTotal int64
 	// Pacific day/week/month buckets with their period start (unix); roll
 	// over per BucketStart/NeedsRollover semantics (issue #122: boundaries
 	// are America/Los_Angeles wall-clock, DST-correct).
@@ -82,7 +90,13 @@ func (l *spendLedger) add(tokens int64, now time.Time) {
 	for first < len(l.rolling) && l.rolling[first].at.Before(cutoff) {
 		first++
 	}
+	if first > 0 {
+		for _, e := range l.rolling[:first] {
+			l.rollingTotal -= e.tokens
+		}
+	}
 	l.rolling = append(l.rolling[first:], spendEntry{at: now, tokens: tokens})
+	l.rollingTotal += tokens
 
 	// Period buckets with rollover.
 	l.dayUsed, l.dayStart = rollBucket(l.dayUsed, l.dayStart, "day", now, tokens)
@@ -301,7 +315,8 @@ func nthSunday(y int, m time.Month, n int) time.Time {
 }
 
 // rolling24h prunes the window and returns the total within the last 24h.
-// Caller holds Pool.spendMu.
+// The total is maintained incrementally (rollingTotal) so the hot snapshot
+// path never rescans the window (issue #656). Caller holds Pool.spendMu.
 func (l *spendLedger) rolling24h(now time.Time) int64 {
 	if l == nil {
 		return 0
@@ -311,12 +326,13 @@ func (l *spendLedger) rolling24h(now time.Time) int64 {
 	for first < len(l.rolling) && l.rolling[first].at.Before(cutoff) {
 		first++
 	}
-	l.rolling = l.rolling[first:]
-	var total int64
-	for _, e := range l.rolling {
-		total += e.tokens
+	if first > 0 {
+		for _, e := range l.rolling[:first] {
+			l.rollingTotal -= e.tokens
+		}
+		l.rolling = l.rolling[first:]
 	}
-	return total
+	return l.rollingTotal
 }
 
 // --- pool wiring ---
@@ -376,6 +392,13 @@ type spendView struct {
 // spendSnapshot returns the fixed-token ledger view (index path).
 func (p *Pool) spendSnapshot(token int) spendView {
 	return p.roster.spendSnapshot(token)
+}
+
+// ledgerSnapshot returns usage/messages 24h, the spend view and the
+// Pacific-day request count for one token under a single roster lock
+// acquisition (the Pool.Snapshot read path, issue #656).
+func (p *Pool) ledgerSnapshot(token int) (int, spendView, int) {
+	return p.roster.ledgerSnapshot(token)
 }
 
 // bridgeSpendSnapshot returns the bridge entry's ledger view.

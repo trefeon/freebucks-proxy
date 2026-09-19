@@ -12,13 +12,12 @@ package pool
 import (
 	"bytes"
 	"context"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 func TestBucketStartPacificDay(t *testing.T) {
@@ -282,5 +281,47 @@ func TestSpendBucketUpdateLogs(t *testing.T) {
 		if !strings.Contains(logs, want) {
 			t.Errorf("spend bucket Debug missing %q: %s", want, logs)
 		}
+	}
+}
+
+// TestSpendLedgerRollingTotalStaysIncremental pins the issue-#656 fix: the
+// 24h rolling total is maintained incrementally (rollingTotal) instead of
+// rescanned on every read — the read path runs per token from Pool.Snapshot
+// on every dashboard SSE tick, /healthz, /metrics and /v1/models request,
+// so the old full-window sum was O(chats in 24h) per read. The invariant
+// under test is rollingTotal == sum(rolling[].tokens) across interleaved
+// add (append + prune) and rolling24h (prune-only) calls, plus an
+// allocation guard for the settled read.
+func TestSpendLedgerRollingTotalStaysIncremental(t *testing.T) {
+	sum := func(l *spendLedger) int64 {
+		var s int64
+		for _, e := range l.rolling {
+			s += e.tokens
+		}
+		return s
+	}
+	ledger := newSpendLedger()
+	base := time.Date(2026, time.July, 15, 12, 0, 0, 0, time.UTC)
+	for i := range 200 {
+		at := base.Add(time.Duration(i) * 20 * time.Minute)
+		if i%3 != 0 {
+			ledger.add(int64(i+1), at) // adds interleave with prune-only reads
+		}
+		if got := ledger.rolling24h(at); got != sum(ledger) {
+			t.Fatalf("step %d: rolling24h = %d, sum(rolling) = %d", i, got, sum(ledger))
+		}
+	}
+	// The window really is a window: after the last read no entry older than
+	// 24h may survive, and the total tracked every drop.
+	cutoff := base.Add(199 * 20 * time.Minute).Add(-24 * time.Hour)
+	for _, e := range ledger.rolling {
+		if e.at.Before(cutoff) {
+			t.Fatalf("entry at %v survived the 24h prune (cutoff %v)", e.at, cutoff)
+		}
+	}
+	// A settled ledger reads without walking the window or allocating.
+	allocs := testing.AllocsPerRun(100, func() { _ = ledger.rolling24h(base) })
+	if allocs != 0 {
+		t.Errorf("rolling24h allocs/run = %v, want 0", allocs)
 	}
 }

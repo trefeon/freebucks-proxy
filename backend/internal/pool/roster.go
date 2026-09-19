@@ -1,11 +1,10 @@
 package pool
 
 import (
+	"freebuff-proxy/backend/internal/upstream"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // tokenRoster owns the fixed-token entry list plus its per-token ledger
@@ -279,6 +278,24 @@ func (r *tokenRoster) spendSnapshot(token int) spendView {
 		return spendView{}
 	}
 	return cur[token].ledger.spendSnapshot()
+}
+
+// ledgerSnapshot returns the three per-token ledger counters the healthz
+// snapshot reads (messages_24h, spend view, requests_per_day) under ONE
+// mutex acquisition. Pool.Snapshot runs per token on every dashboard SSE
+// tick, /healthz, /metrics and /v1/models read; taking the roster mutex
+// three times per token there serialized with the request completion path
+// (recordChatEntry/recordSpendEntry) for no reason (issue #656).
+func (r *tokenRoster) ledgerSnapshot(token int) (usage int, spend spendView, dayReqs int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur := *r.toks.Load()
+	if token < 0 || token >= len(cur) {
+		return 0, spendView{}, 0
+	}
+	now := time.Now()
+	l := cur[token].ledger
+	return l.usageCount(now), l.spendSnapshot(), l.dayRequestCount(now)
 }
 
 // recordSpendLimited marks one upstream spend_limited refusal on the entry

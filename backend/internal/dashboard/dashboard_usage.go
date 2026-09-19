@@ -37,9 +37,13 @@ type UsageRecord struct {
 }
 
 // RecordUsage appends one usage record to the ring, evicting the oldest
-// past the cap. A zero TsMs stamps now so capture call sites that only
-// have "just completed" still log correctly. Nil-receiver safe: the engine
-// may hold a nil dashboard in tests.
+// past the cap. Once full the ring overwrites its oldest slot in place —
+// O(1) with zero allocations (the previous append-and-reslice copied the
+// whole 5000-record window on every request past the cap, which the
+// dashboard's per-request completion path could not afford: issue #656).
+// A zero TsMs stamps now so capture call sites that only have "just
+// completed" still log correctly. Nil-receiver safe: the engine may hold a
+// nil dashboard in tests.
 func (d *Dashboard) RecordUsage(rec UsageRecord) {
 	if d == nil {
 		return
@@ -49,10 +53,30 @@ func (d *Dashboard) RecordUsage(rec UsageRecord) {
 	}
 	d.usageMu.Lock()
 	defer d.usageMu.Unlock()
-	d.usageRing = append(d.usageRing, rec)
-	if len(d.usageRing) > maxUsageRecords {
-		d.usageRing = append([]UsageRecord(nil), d.usageRing[len(d.usageRing)-maxUsageRecords:]...)
+	if len(d.usageRing) < maxUsageRecords {
+		d.usageRing = append(d.usageRing, rec)
+		return
 	}
+	// Full: overwrite the oldest slot and advance the head. usageHead is
+	// the index of the oldest record whenever the ring is full.
+	d.usageRing[d.usageHead] = rec
+	d.usageHead = (d.usageHead + 1) % maxUsageRecords
+}
+
+// usageRingOrdered returns the ring's records oldest-first. The ring only
+// rotates once full (usageHead stays 0 before that), so a full ring starts
+// at usageHead. Caller holds usageMu.
+func (d *Dashboard) usageRingOrdered() []UsageRecord {
+	n := len(d.usageRing)
+	if n < maxUsageRecords || d.usageHead == 0 {
+		out := make([]UsageRecord, n)
+		copy(out, d.usageRing)
+		return out
+	}
+	out := make([]UsageRecord, 0, n)
+	out = append(out, d.usageRing[d.usageHead:]...)
+	out = append(out, d.usageRing[:d.usageHead]...)
+	return out
 }
 
 // usageTotals is the range summary: request and token sums plus a
@@ -186,8 +210,7 @@ func (d *Dashboard) usageData(r *http.Request) usageData {
 	prices := d.firstFreebucksPrices()
 	out := usageData{Range: name, Entries: []UsageRecord{}}
 	d.usageMu.Lock()
-	ring := make([]UsageRecord, len(d.usageRing))
-	copy(ring, d.usageRing)
+	ring := d.usageRingOrdered()
 	d.usageMu.Unlock()
 	// Ring is oldest-first; walk back so entries render newest-first.
 	for i := len(ring) - 1; i >= 0; i-- {

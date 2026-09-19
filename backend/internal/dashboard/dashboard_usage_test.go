@@ -132,22 +132,28 @@ func TestUsageDefaultRangeAndEmptyEntries(t *testing.T) {
 	}
 }
 
-// The ring evicts oldest-first past the cap.
+// The ring evicts oldest-first past the cap and stays O(1)/zero-alloc once
+// full (issue #656: the old append-and-reslice copied the whole window on
+// every request past the cap).
 func TestUsageRingEvictsOldest(t *testing.T) {
 	d := usageTestDashboard(t)
 	base := time.Now().UnixMilli()
 	for i := range maxUsageRecords + 1 {
 		d.RecordUsage(UsageRecord{TsMs: base + int64(i), ReqID: "r", Model: "m", Total: 1, OK: true})
 	}
-	d.usageMu.Lock()
-	n := len(d.usageRing)
-	oldest := d.usageRing[0].TsMs
-	d.usageMu.Unlock()
-	if n != maxUsageRecords {
-		t.Errorf("ring len = %d, want cap %d", n, maxUsageRecords)
+	_, out := getUsage(t, d, "")
+	if len(out.Entries) != maxUsageRecords {
+		t.Fatalf("entries = %d, want cap %d", len(out.Entries), maxUsageRecords)
 	}
-	if oldest != base+1 {
-		t.Errorf("oldest ts_ms = %d, want %d (first record evicted)", oldest, base+1)
+	if got := out.Entries[0].TsMs; got != base+int64(maxUsageRecords) {
+		t.Errorf("newest ts_ms = %d, want %d", got, base+int64(maxUsageRecords))
+	}
+	if got := out.Entries[len(out.Entries)-1].TsMs; got != base+1 {
+		t.Errorf("oldest ts_ms = %d, want %d (first record evicted)", got, base+1)
+	}
+	rec := UsageRecord{TsMs: base, ReqID: "alloc", Model: "m", Total: 1, OK: true}
+	if allocs := testing.AllocsPerRun(100, func() { d.RecordUsage(rec) }); allocs != 0 {
+		t.Errorf("RecordUsage allocs/run = %v on a full ring, want 0", allocs)
 	}
 }
 

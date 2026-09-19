@@ -94,7 +94,11 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 	for i, tok := range *toks {
 		rs := tok.runs.Snapshot()
 		ss := tok.session.Snapshot()
-		msgs := p.usageCount(i)
+		// One roster lock acquisition for all three ledger counters (issue
+		// #656): this loop runs on every dashboard SSE tick and read
+		// endpoint, and each extra acquisition serialized with the request
+		// completion path.
+		msgs, spend, reqsPerDay := p.ledgerSnapshot(i)
 
 		// Region view: the session snapshot carries the last admitted country; an
 		// active country-block cooldown overrides it with the remembered
@@ -109,8 +113,6 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 				countryReason = cbe.CountryBlockReason
 			}
 		}
-
-		spend := p.spendSnapshot(i)
 
 		// Countdown: prefer the server-authored absolute expiry over wire
 		// remainingMs. The expiry is monotonic and survives compact polls
@@ -211,7 +213,7 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			LiveTurns:               liveTurns,
 			QueuedWaiters:           queuedWaiters,
 			OldestWaiterMS:          oldestWait.Milliseconds(),
-			RequestsPerDay:          p.dayRequestCount(i),
+			RequestsPerDay:          reqsPerDay,
 			SessionStatus:           sessionStatus,
 			SessionInstanceID:       sessionInstanceID,
 			SessionQueuePosition:    sessionQueuePosition,

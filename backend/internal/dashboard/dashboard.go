@@ -6,13 +6,6 @@ package dashboard
 
 import (
 	"encoding/json"
-	"log/slog"
-	"net/http"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/logring"
 	"freebuff-proxy/backend/internal/modelcat"
@@ -20,6 +13,12 @@ import (
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/store"
 	"freebuff-proxy/backend/internal/updatecheck"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Dashboard renders the admin UI over the live pool, registry, and config.
@@ -52,10 +51,15 @@ type Dashboard struct {
 
 	// usageRing is the in-memory token-usage log backing GET /admin/api/usage
 	// (dashboard_usage.go). Per-instance like metricHist; RecordUsage appends
-	// from the chat path, usageData snapshots under usageMu. Evicts oldest
-	// past maxUsageRecords; history resets on restart by design (zero knobs).
+	// from the chat path, usageData snapshots under usageMu. A true ring:
+	// once at maxUsageRecords it overwrites the slot at usageHead and
+	// advances (O(1), zero-alloc). History resets on restart by design
+	// (zero knobs).
 	usageMu   sync.Mutex
 	usageRing []UsageRecord
+	// usageHead is the oldest record's index once the ring is full (0 while
+	// it is still filling); usageRingOrdered reads through it.
+	usageHead int
 
 	// metricHist is the rolling counter history sampled by the metrics page
 	// (UI-poll-driven, not a background goroutine). Per-instance so multiple
