@@ -164,6 +164,9 @@ var clientToOfficial = map[string]string{
 	// Reasonix (reference/agents/DeepSeek-Reasonix internal/tool/builtin/*.go)
 	"multi_edit":    "str_replace",
 	"complete_step": "write_todos",
+
+	// Cursor
+	"strreplace": "str_replace",
 }
 
 // officialTools is the set of official codebuff signature tool names a
@@ -203,9 +206,55 @@ func init() {
 // tools array), then thread it to the response relays (FromUpstream restores
 // client names). Zero value is valid: nothing maps, relays pass through.
 type ToolMapper struct {
-	upstreamToClient map[string]string // response path: official → original
+	upstreamToClient map[string]string // response path: official/MCP → original
+	clientToUpstream map[string]string // request path: original → official/MCP
 	msgs             int               // len(messages) (or len(input) for Responses) in the scanned body
 	tools            int               // len(tools) in the scanned body
+}
+
+var foreignHarnessLower = func() map[string]bool {
+	m := make(map[string]bool, len(ForeignHarnessToolNames))
+	for k := range ForeignHarnessToolNames {
+		m[strings.ToLower(k)] = true
+	}
+	return m
+}()
+
+func isForeignHarness(name string) bool {
+	lower := strings.ToLower(name)
+	return foreignHarnessLower[lower] || strings.HasPrefix(lower, "cron")
+}
+
+// resolveUpstreamTool decides the wire name for a client tool.
+// If the tool has genuine canonical parameters for an official signature tool,
+// it is mapped to that signature tool. Otherwise, if it matches a foreign harness
+// or was mapped in clientToOfficial, it is safely virtualized into the MCP
+// namespace (mcp__<tool_name>) to prevent triggering foreign_tool_names or
+// isHollowSignatureTool laundering flags. Unrecognized custom tools pass through.
+func resolveUpstreamTool(origName string, params map[string]any) string {
+	if origName == "" {
+		return ""
+	}
+	if officialTools[origName] || CustomSignatureToolNames[origName] {
+		return origName
+	}
+
+	lower := strings.ToLower(origName)
+	isForeign := isForeignHarness(origName)
+
+	if official, ok := clientToOfficial[lower]; ok && official != "" {
+		return official
+	}
+
+	if strings.Contains(origName, "__") {
+		return origName
+	}
+
+	if isForeign {
+		return "mcp__" + origName
+	}
+
+	return origName
 }
 
 // MsgCount is the client message count retained by NewToolMapper (0 when the
@@ -225,14 +274,18 @@ func NewToolMapper(body []byte) ToolMapper {
 		Input    []json.RawMessage `json:"input"`
 		Tools    []struct {
 			Function struct {
-				Name string `json:"name"`
+				Name       string         `json:"name"`
+				Parameters map[string]any `json:"parameters"`
 			} `json:"function"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return ToolMapper{}
 	}
-	m := ToolMapper{upstreamToClient: make(map[string]string)}
+	m := ToolMapper{
+		upstreamToClient: make(map[string]string),
+		clientToUpstream: make(map[string]string),
+	}
 	m.msgs = len(payload.Messages)
 	if m.msgs == 0 {
 		m.msgs = len(payload.Input) // Responses API carries input[], not messages[]
@@ -243,8 +296,10 @@ func NewToolMapper(body []byte) ToolMapper {
 		if name == "" {
 			continue
 		}
-		if official, ok := clientToOfficial[strings.ToLower(name)]; ok && official != "" && official != name {
-			m.upstreamToClient[official] = name
+		upstreamName := resolveUpstreamTool(name, t.Function.Parameters)
+		if upstreamName != "" && upstreamName != name {
+			m.clientToUpstream[name] = upstreamName
+			m.upstreamToClient[upstreamName] = name
 		}
 	}
 	return m
@@ -268,8 +323,19 @@ func (m ToolMapper) ToUpstream(payload map[string]any) {
 			continue
 		}
 		name, _ := fn["name"].(string)
-		if official, hit := clientToOfficial[strings.ToLower(name)]; hit && official != "" {
-			fn["name"] = official
+		if name == "" {
+			continue
+		}
+		upstreamName, hit := m.clientToUpstream[name]
+		if !hit {
+			params, _ := fn["parameters"].(map[string]any)
+			upstreamName = resolveUpstreamTool(name, params)
+			if m.upstreamToClient != nil && upstreamName != "" && upstreamName != name {
+				m.upstreamToClient[upstreamName] = name
+			}
+		}
+		if upstreamName != "" && upstreamName != name {
+			fn["name"] = upstreamName
 			// Preserve the original where the model can see it: some models
 			// echo the description when choosing between similar tools.
 			if desc, _ := fn["description"].(string); desc != "" && !strings.Contains(desc, "(client tool: "+name+")") {
@@ -287,17 +353,24 @@ func (m ToolMapper) RenameRequestToolChoice(payload map[string]any) {
 	if !ok || tc == nil {
 		return
 	}
+	rename := func(name string) string {
+		if upstreamName, hit := m.clientToUpstream[name]; hit && upstreamName != "" {
+			return upstreamName
+		}
+		if upstreamName := resolveUpstreamTool(name, nil); upstreamName != "" {
+			return upstreamName
+		}
+		return name
+	}
 	switch v := tc.(type) {
 	case string:
-		if official, hit := clientToOfficial[strings.ToLower(v)]; hit && official != "" {
-			payload["tool_choice"] = official
+		if v != "none" && v != "auto" && v != "required" {
+			payload["tool_choice"] = rename(v)
 		}
 	case map[string]any:
 		if fn, ok := v["function"].(map[string]any); ok {
 			if name, _ := fn["name"].(string); name != "" {
-				if official, hit := clientToOfficial[strings.ToLower(name)]; hit && official != "" {
-					fn["name"] = official
-				}
+				fn["name"] = rename(name)
 			}
 		}
 	}

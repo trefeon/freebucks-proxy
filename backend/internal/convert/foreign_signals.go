@@ -306,6 +306,7 @@ type WireToolVerdict struct {
 	Hollow         []string
 	Unrecognised   []string
 	ForeignHarness []string
+	Foreign        []string // alias for ForeignHarness
 }
 
 // ClassifyWireTools classifies one wire tools array the way upstream's
@@ -321,6 +322,7 @@ func ClassifyWireTools(tools []any) WireToolVerdict {
 		v.Names = append(v.Names, name)
 		if ForeignHarnessToolNames[name] {
 			v.ForeignHarness = append(v.ForeignHarness, name)
+			v.Foreign = append(v.Foreign, name)
 		}
 		if IsGenuineSignatureTool(name, params) {
 			v.Genuine = append(v.Genuine, name)
@@ -339,7 +341,7 @@ func ClassifyWireTools(tools []any) WireToolVerdict {
 // system-prompt and no-tools arms need the full body and live here as
 // documentation, not code.)
 func WireForeignSignal(v WireToolVerdict) ForeignSignal {
-	if len(v.ForeignHarness) > 0 {
+	if len(v.ForeignHarness) > 0 || len(v.Foreign) > 0 {
 		return ForeignToolNames
 	}
 	if len(v.Names) > 0 && len(v.Genuine) == 0 {

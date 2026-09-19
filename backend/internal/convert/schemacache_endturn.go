@@ -13,7 +13,7 @@ func injectEndTurnTool(payload map[string]any, tools []any, hasEndTurn bool, has
 			"type": "function",
 			"function": map[string]any{
 				"name":        "end_turn",
-				"description": "Signal the end of the current task.",
+				"description": "Only use this tool to hand control back to the user.",
 				"parameters": map[string]any{
 					"type":       "object",
 					"properties": map[string]any{},

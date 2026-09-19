@@ -101,8 +101,8 @@ func TestIssue630TestToolWireVerdict(t *testing.T) {
 	if len(v.Genuine) != 1 || v.Genuine[0] != "decide" {
 		t.Errorf("genuine = %v, want [decide]", v.Genuine)
 	}
-	if len(v.Hollow) != 1 || v.Hollow[0] != "end_turn" {
-		t.Errorf("hollow = %v, want [end_turn]", v.Hollow)
+	if len(v.Hollow) != 0 {
+		t.Errorf("hollow = %v, want empty", v.Hollow)
 	}
 	if len(v.Unrecognised) != 1 || v.Unrecognised[0] != "test_tool" {
 		t.Errorf("unrecognised = %v, want [test_tool]", v.Unrecognised)

@@ -264,6 +264,14 @@ func TestComprehensiveToolClassification(t *testing.T) {
 
 	for _, rc := range rows {
 		t.Run(rc.harness+"/"+rc.tool, func(t *testing.T) {
+			props := map[string]any{}
+			if rc.class == classMapped && rc.target != "" {
+				if canonicalKeys, ok := canonicalToolParameterKeys[rc.target]; ok {
+					for k := range canonicalKeys {
+						props[k] = map[string]any{"type": "string"}
+					}
+				}
+			}
 			body, _ := json.Marshal(map[string]any{
 				"model":    "m",
 				"messages": []any{map[string]any{"role": "user", "content": "hi"}},
@@ -272,7 +280,7 @@ func TestComprehensiveToolClassification(t *testing.T) {
 						"type": "function",
 						"function": map[string]any{
 							"name":       rc.tool,
-							"parameters": map[string]any{"type": "object"},
+							"parameters": map[string]any{"type": "object", "properties": props},
 						},
 					},
 				},
@@ -302,12 +310,33 @@ func TestComprehensiveToolClassification(t *testing.T) {
 				if restored := mapper.RestoreName(got); restored != rc.tool {
 					t.Errorf("RestoreName(%q) = %q, want exact client name %q", got, restored, rc.tool)
 				}
-			case classOfficial, classPassthru:
-				if got != rc.tool {
-					t.Fatalf("normalized tool name = %q, want %q unchanged (class %s)", got, rc.tool, rc.class)
+			case classOfficial:
+				if !officialTools[rc.tool] && isForeignHarness(rc.tool) {
+					want := "mcp__" + rc.tool
+					if got != want {
+						t.Fatalf("foreign tool name = %q, want virtualized %q", got, want)
+					}
+				} else {
+					if got != rc.tool {
+						t.Fatalf("normalized tool name = %q, want %q unchanged (class %s)", got, rc.tool, rc.class)
+					}
 				}
 				if restored := mapper.RestoreName(got); restored != rc.tool {
 					t.Errorf("RestoreName(%q) = %q, want identity %q", got, restored, rc.tool)
+				}
+			case classPassthru:
+				if isForeignHarness(rc.tool) {
+					want := "mcp__" + rc.tool
+					if got != want {
+						t.Fatalf("normalized foreign tool name = %q, want virtualized %q", got, want)
+					}
+				} else {
+					if got != rc.tool {
+						t.Fatalf("normalized tool name = %q, want %q unchanged (class %s)", got, rc.tool, rc.class)
+					}
+				}
+				if restored := mapper.RestoreName(got); restored != rc.tool {
+					t.Errorf("RestoreName(%q) = %q, want %q", got, restored, rc.tool)
 				}
 			}
 		})
