@@ -404,11 +404,10 @@ func TestAllHarnessToolsBidirectionalMapping(t *testing.T) {
 //   - len(v.Hollow) == 0 (zero hollow signature tools on the wire)
 //   - Downstream restoration restores every client tool name byte-for-byte.
 func TestHarnessToolsetsWireClassification(t *testing.T) {
-	type clientToolDef struct {
-		name   string
-		params map[string]any
-	}
-
+	// clientToolDef is the harness-row shape; aliased to the shared
+	// universalClientTool so TestHarnessToolsetsWireClassification runs the
+	// same ingress→classify→egress simulation as the universal matrix.
+	type clientToolDef = universalClientTool
 	harnesses := []struct {
 		name  string
 		tools []clientToolDef
@@ -508,115 +507,9 @@ func TestHarnessToolsetsWireClassification(t *testing.T) {
 			},
 		},
 	}
-
 	for _, h := range harnesses {
 		t.Run(h.name, func(t *testing.T) {
-			var toolsArr []any
-			for _, ct := range h.tools {
-				props := map[string]any{}
-				for k, v := range ct.params {
-					props[k] = map[string]any{"type": v}
-				}
-				toolsArr = append(toolsArr, map[string]any{
-					"type": "function",
-					"function": map[string]any{
-						"name":        ct.name,
-						"description": "Tool " + ct.name,
-						"parameters": map[string]any{
-							"type":       "object",
-							"properties": props,
-						},
-					},
-				})
-			}
-
-			body, err := json.Marshal(map[string]any{
-				"model":    "deepseek/deepseek-v4-flash",
-				"messages": []any{map[string]any{"role": "user", "content": "Help me with my project"}},
-				"tools":    toolsArr,
-			})
-			if err != nil {
-				t.Fatalf("marshal request: %v", err)
-			}
-
-			norm, mapper, err := NormalizeRequestMapped(body, "")
-			if err != nil {
-				t.Fatalf("NormalizeRequestMapped: %v", err)
-			}
-
-			var parsed map[string]any
-			if err := json.Unmarshal(norm, &parsed); err != nil {
-				t.Fatalf("unmarshal normalized: %v", err)
-			}
-
-			wireTools, ok := parsed["tools"].([]any)
-			if !ok || len(wireTools) == 0 {
-				t.Fatalf("wire tools empty or not an array: %v", parsed["tools"])
-			}
-
-			v := ClassifyWireTools(wireTools)
-			if sig := WireForeignSignal(v); sig != "" {
-				t.Errorf("WireForeignSignal = %q, want empty (wire tools = %v)", sig, v.Names)
-			}
-			if len(v.Foreign) != 0 {
-				t.Errorf("len(v.Foreign) = %d (%v), want 0", len(v.Foreign), v.Foreign)
-			}
-			if len(v.ForeignHarness) != 0 {
-				t.Errorf("len(v.ForeignHarness) = %d (%v), want 0", len(v.ForeignHarness), v.ForeignHarness)
-			}
-			if len(v.Genuine) == 0 {
-				t.Errorf("no genuine signature tools found on wire")
-			}
-
-			// Verify that every client tool name restores cleanly
-			for _, wt := range wireTools {
-				fn, ok := wt.(map[string]any)["function"].(map[string]any)
-				if !ok {
-					continue
-				}
-				wName := fn["name"].(string)
-				if wName == "end_turn" || wName == "decide" {
-					continue
-				}
-				restored := mapper.RestoreName(wName)
-				if strings.HasPrefix(restored, "mcp__") {
-					t.Errorf("RestoreName(%q) = %q still has mcp__ prefix", wName, restored)
-				}
-			}
-
-			// Verify streaming chunk restoration matches the single-name path.
-			// Map-first restore: only names this request leg mapped or
-			// virtualized shed the mcp__ prefix downstream. The synthetic
-			// "mcp__"+ct.name candidates below (for tools that mapped to an
-			// official name or passed through untouched) are names the upstream
-			// leg never emits for this mapper, so they pass through verbatim —
-			// the same native-MCP passthrough pinned by
-			// TestToolMapperMcpNativePassthrough. What this loop pins is that
-			// the chunk path and RestoreName agree on every candidate shape.
-			for _, ct := range h.tools {
-				for _, candidate := range []string{ct.name, "mcp__" + ct.name, "run_terminal_command"} {
-					streamChunk := map[string]any{
-						"choices": []any{map[string]any{
-							"delta": map[string]any{
-								"tool_calls": []any{
-									map[string]any{
-										"index": float64(0),
-										"function": map[string]any{
-											"name": candidate,
-										},
-									},
-								},
-							},
-						}},
-					}
-					mapper.FromUpstreamChunk(streamChunk)
-					delta := streamChunk["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)
-					resName := delta["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)["name"].(string)
-					if want := mapper.RestoreName(candidate); resName != want {
-						t.Errorf("FromUpstreamChunk candidate %q -> %q, want RestoreName %q", candidate, resName, want)
-					}
-				}
-			}
+			assertHarnessWireClean(t, h.name, h.tools)
 		})
 	}
 }
