@@ -86,6 +86,13 @@ type rawConfig struct {
 	// MaturityTargetDays is the default streak target for newly-enabled tokens
 	// (MATURITY_TARGET_DAYS; default 7, valid 1..28).
 	MaturityTargetDays *int `json:"MATURITY_TARGET_DAYS"`
+	// SmartProbeEnabled is the master switch for the smart zero-cost quota
+	// prober (SMART_PROBE_ENABLED; default true).
+	SmartProbeEnabled bool `json:"SMART_PROBE_ENABLED"`
+	// SmartProbeBackoffMax is the 429-backoff doubling ceiling string for
+	// the smart prober (SMART_PROBE_BACKOFF_MAX; default "30m",
+	// zero-tolerant → 30m).
+	SmartProbeBackoffMax string `json:"SMART_PROBE_BACKOFF_MAX"`
 	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 2, floor
 	// 0; 0 = unlimited live turns, no slot gating applies).
 	SlotsPerAccount *int `json:"SLOTS_PER_ACCOUNT"`
@@ -154,6 +161,8 @@ func defaultRawConfig() rawConfig {
 		RunsDrainTTL:           "10m",      // #55: draining-runs TTL eviction
 		QueueWait:              "30s",      // FIFO slot-queue wait bound per parked Acquire
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
+		SmartProbeEnabled:      true,       // smart zero-cost quota prober on by default; set SMART_PROBE_ENABLED=false to disable
+		SmartProbeBackoffMax:   "30m",      // 429-backoff doubling ceiling
 		SlotsPerAccount:        ptrInt(2),  // per account-model live turns (floor 1; bunker strictness is 1)
 		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
 		MaturityEnabled:        true,       // streak maintenance on by default; set MATURITY_ENABLED=false to disable

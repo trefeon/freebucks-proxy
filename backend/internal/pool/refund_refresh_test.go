@@ -55,7 +55,7 @@ func TestRefreshTokenRefundSettlesSameInstance(t *testing.T) {
 	if _, err := p.EnsureTokenSession(ctx, 0, modelB); err != nil {
 		t.Fatalf("EnsureTokenSession: %v", err)
 	}
-	if err := p.DropTokenSession(ctx, 0); err != nil {
+	if _, err := p.DropTokenSession(ctx, 0); err != nil {
 		t.Fatalf("DropTokenSession: %v", err)
 	}
 	if got := p.Snapshot()[0].PendingRefund; got != "inst-abc-123" {
@@ -136,7 +136,7 @@ func TestRefreshTokenRefundDropsOnAccountSwitch(t *testing.T) {
 	if _, err := p.EnsureTokenSession(ctx, 0, modelB); err != nil {
 		t.Fatalf("EnsureTokenSession: %v", err)
 	}
-	if err := p.DropTokenSession(ctx, 0); err != nil {
+	if _, err := p.DropTokenSession(ctx, 0); err != nil {
 		t.Fatalf("DropTokenSession: %v", err)
 	}
 
@@ -238,7 +238,7 @@ func TestRefreshTokenRefundSingleFlight(t *testing.T) {
 	if _, err := p.EnsureTokenSession(ctx, 0, modelB); err != nil {
 		t.Fatalf("EnsureTokenSession: %v", err)
 	}
-	if err := p.DropTokenSession(ctx, 0); err != nil {
+	if _, err := p.DropTokenSession(ctx, 0); err != nil {
 		t.Fatalf("DropTokenSession: %v", err)
 	}
 

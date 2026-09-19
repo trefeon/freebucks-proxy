@@ -178,6 +178,17 @@ type Config struct {
 	// 429-backoff doubling). Zero-tolerant like BURST_WINDOW: empty or
 	// non-positive values fall back to the default.
 	QuotaProbeIdleHeartbeat time.Duration
+	// SmartProbeEnabled is the master switch for the smart zero-cost quota
+	// prober (SMART_PROBE_ENABLED; default true): activity-triggered
+	// (lease grant, successful chat, 429 refusal) plus reset-instant
+	// (per-model ResetAt, remembered-429 reset, Freebucks daily refill)
+	// session-less probes. False restores pre-scheduler behavior (manual
+	// probes only).
+	SmartProbeEnabled bool
+	// SmartProbeBackoffMax caps the smart prober's 429-backoff doubling
+	// (SMART_PROBE_BACKOFF_MAX; default 30m). Zero-tolerant like
+	// BURST_WINDOW: empty or non-positive values fall back to the default.
+	SmartProbeBackoffMax time.Duration
 	// WaitingRoomChain, when enabled (WAITING_ROOM_CHAIN=false default),
 	// fires the reference ad-chain + streak requests before the next
 	// session create after an upstream 428 waiting_room_required (issue
@@ -282,11 +293,6 @@ type Config struct {
 	// sessionPollBackoffMax). Zero-tolerant. Live-apply (read per failed
 	// poll via SessionPollMaxMs()).
 	SessionPollMax time.Duration
-	// SmartProbeBackoffMaxMs caps the quota-probe 429-backoff doubling
-	// (SMART_PROBE_BACKOFF_MAX_MS; default 30m, previous hardcoded
-	// quotaProbeMaxInterval). Zero-tolerant. Live-apply (read per probe
-	// via SmartProbeBackoffMaxMs()).
-	SmartProbeBackoffMax time.Duration
 	// MaturityBackoffMs pauses the nightly maturity walk after a
 	// rate-limited touch (MATURITY_BACKOFF_MS; default 3m, previous
 	// hardcoded maturity429Backoff). Zero-tolerant. Live-apply (read per

@@ -2,7 +2,7 @@ package config
 
 // QUEUE_WAIT matrix. The knob bounds how long one pooled live-turn acquire
 // parks on a full token's FIFO queue before failing over, it is owned by the
-// pool strategy presets (Drain 300s / Balance 60s), and it is the row the
+// pool strategy presets (Drain 300s / Balance 15s), and it is the row the
 // dashboard writes on every pool-tuning edit — so its write gate has to be
 // exact in both directions: a rejectable value must never reach the settings
 // table (the 500 persist_failed the operator saw), and an accepted value must

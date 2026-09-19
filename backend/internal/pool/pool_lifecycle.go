@@ -314,6 +314,11 @@ func (p *Pool) maintainTick(ctx context.Context) {
 	// Bridge sweep: drop entries idle past the idle-eviction TTL (runs FINISHed
 	// best-effort), maintain the rest like the fixed tokens above.
 	p.bridgeMaintain(ctx, false)
+	// Smart-probe pass (smart_probe.go): predicate-gated only — due
+	// tokens (dirty or reset-instant) dispatch to the stagger worker,
+	// anything else costs just the timestamp checks. Idle passes above
+	// return before this line, so quiet pools stay quiet.
+	p.smartProbeTick(ctx)
 }
 
 // sessionPollTick runs the per-token session-liveness polls on their own

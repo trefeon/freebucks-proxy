@@ -388,11 +388,13 @@ func (p *Pool) FinishTokenRuns(ctx context.Context, token int) error {
 
 // DropTokenSession forcibly ends the active session and finishes all runs for token (dashboard action).
 // Forcibly ends the active session so the operator can change model immediately;
-// the next request re-admits fresh.
-func (p *Pool) DropTokenSession(ctx context.Context, token int) error {
+// the next request re-admits fresh. It reports whether the session was KEPT
+// instead: a precious session (precious.go) is never proactively dropped, so
+// the drop is a no-op and the next request still rides the live instance.
+func (p *Pool) DropTokenSession(ctx context.Context, token int) (bool, error) {
 	toks := p.roster.Load()
 	if token < 0 || token >= len(*toks) {
-		return fmt.Errorf("pool: token %d out of range", token)
+		return false, fmt.Errorf("pool: token %d out of range", token)
 	}
 	entry := (*toks)[token]
 	snap := entry.session.Snapshot()
@@ -401,16 +403,16 @@ func (p *Pool) DropTokenSession(ctx context.Context, token int) error {
 	// manager, so the drop would only churn a healthy upstream slot.
 	if p.keepSession(entry) {
 		p.logger.Info("pool: keeping precious session", "token", token, "model", snap.Model, "instance", snap.InstanceID)
-		return nil
+		return true, nil
 	}
 	p.logger.Info("pool: dropping session", "token", token, "model", snap.Model, "instance", snap.InstanceID)
 	entry.runs.FinishAllRuns(ctx)
 	if err := entry.session.EndSession(ctx); err != nil {
 		p.logger.Warn("pool: drop session EndSession failed", "token", token, "err", err)
-		return err
+		return false, err
 	}
 	p.logger.Info("pool: session dropped", "token", token, "model", snap.Model)
-	return nil
+	return false, nil
 }
 
 // Shutdown stops the background jobs and drains every token: FINISH all

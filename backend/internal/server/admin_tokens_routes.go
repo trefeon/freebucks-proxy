@@ -142,17 +142,27 @@ func (a *adminHandlers) handleTokenFinish(w http.ResponseWriter, r *http.Request
 
 func (a *adminHandlers) handleTokenDropSession(w http.ResponseWriter, r *http.Request) {
 	id, err := tokenActionID(r)
+	var kept bool
 	if err == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		err = a.pool.DropTokenSession(ctx, id)
+		kept, err = a.pool.DropTokenSession(ctx, id)
 	}
 	if err != nil {
 		a.dash.RenderConfigResult(w, r, false, "Drop session failed: "+err.Error())
 		return
 	}
+	// The precious-keep DECISION lives in the pool (keepSession): the
+	// handler only reports it honestly. kept=true carries the keep note
+	// verbatim; a real drop is the bare {ok:true,kept:false}
+	// acknowledgment (the toast copy lives frontend-side).
+	if kept {
+		a.logfunc().Info("dashboard token session kept (precious)", "token", id)
+		a.dash.RenderDropSessionResult(w, r, true, "Session kept (precious) — next request still rides it.")
+		return
+	}
 	a.logfunc().Info("dashboard token session dropped", "token", id)
-	a.dash.RenderConfigResult(w, r, true, "Token "+strconv.Itoa(id)+" session dropped — next request will re-admit fresh.")
+	a.dash.RenderDropSessionResult(w, r, false, "")
 }
 
 func (a *adminHandlers) handleTokenRefundRefresh(w http.ResponseWriter, r *http.Request) {

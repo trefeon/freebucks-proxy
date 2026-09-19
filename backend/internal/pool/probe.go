@@ -155,6 +155,31 @@ func (p *Pool) ProbeTokenDetailed(ctx context.Context, token int) (ProbeTokenOut
 		outcome.Detail = "upstream rate limited"
 		return outcome, st, err
 	}
+	if st != nil && (st.Status == "rate_limited" || st.Status == "spend_limited") {
+		// A parseable 429 body arrives as session status with a nil
+		// error (the body IS the quota truth). Map it to the same typed
+		// error the poll/refresh status path builds (session_poll.go
+		// statusError) so callers — scheduler backoff, cooldown memory —
+		// treat a probe refusal like any other refusal.
+		retryAfter := upstream.CooldownFromMillis(float64(st.RetryAfterMs))
+		if retryAfter <= 0 {
+			retryAfter = time.Minute
+		}
+		err = &upstream.RateLimitError{
+			Status:             st.Status,
+			Model:              st.Model,
+			RetryAfter:         retryAfter,
+			ResetAt:            st.ResetAt,
+			Limit:              st.Limit,
+			RecentCount:        st.RecentCount,
+			WindowHours:        st.WindowHours,
+			FreebucksShortfall: st.FreebucksShortfall,
+			Body:               st.Message,
+		}
+		outcome.Status = "rate_limited"
+		outcome.Detail = "upstream " + st.Status
+		return outcome, st, err
+	}
 
 	// Other network / transport errors (excluding ErrNoActiveSession)
 	if err != nil && !errors.Is(err, upstream.ErrNoActiveSession) {

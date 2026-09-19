@@ -426,6 +426,8 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"QUEUE_DEPTH":                 strconv.Itoa(cfg.QueueDepth),
 		"BRIDGE_ENABLED":              strconv.FormatBool(cfg.BridgeEnabled),
 		"BRIDGE_IDLE_EVICT":           cfg.BridgeIdleEvict.String(),
+		"SMART_PROBE_ENABLED":         strconv.FormatBool(cfg.SmartProbeEnabled),
+		"SMART_PROBE_BACKOFF_MAX":     cfg.SmartProbeBackoffMax.String(),
 	}
 }
 

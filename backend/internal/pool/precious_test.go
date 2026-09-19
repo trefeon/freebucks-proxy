@@ -100,9 +100,14 @@ func TestPreciousTwoAccountsSameModel(t *testing.T) {
 		t.Errorf("account #1 creates after precious invalidate = %d, want still 1", got)
 	}
 
-	// An operator drop on a precious session keeps it too.
-	if err := p.DropTokenSession(ctx, 1); err != nil {
+	// An operator drop on a precious session keeps it too: kept reports
+	// the no-op so the dashboard can say so instead of claiming a drop.
+	kept, err := p.DropTokenSession(ctx, 1)
+	if err != nil {
 		t.Fatalf("DropTokenSession on precious: %v", err)
+	}
+	if !kept {
+		t.Error("DropTokenSession on precious session kept = false, want true (session kept, no re-admit)")
 	}
 	reuse1, err := p.Acquire(ctx, modelA)
 	if err != nil {

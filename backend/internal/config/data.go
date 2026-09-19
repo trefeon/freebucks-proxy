@@ -155,6 +155,10 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.Itoa(c.MaturityTargetDays), false
 	case "MATURITY_TOUCH_MODEL":
 		return c.MaturityTouchModel, false
+	case "SMART_PROBE_ENABLED":
+		return strconv.FormatBool(c.SmartProbeEnabled), false
+	case "SMART_PROBE_BACKOFF_MAX":
+		return c.SmartProbeBackoffMax.String(), false
 	case "ACTING_USER_ID":
 		return c.ActingUserID, false
 	case "ADMIN_FORCE_SECURE_COOKIES":

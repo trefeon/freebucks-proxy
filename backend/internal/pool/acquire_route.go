@@ -624,6 +624,9 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 		// MASQ precious (precious.go): the account served this model, so its
 		// live session is never proactively dropped from here on.
 		p.markPrecious(tok, effectiveModel)
+		// Smart probe (smart_probe.go): the account served traffic, so its
+		// cached quota earns a refresh once the guards pass.
+		p.markProbeDirty(tok)
 		// Track the activity and end any idle-maintenance pause: the next
 		// maintain tick resumes rotation/refresh work.
 		p.lastActiveMu.Lock()

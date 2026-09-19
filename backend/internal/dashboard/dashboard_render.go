@@ -50,6 +50,25 @@ func (d *Dashboard) RenderConfigResult(w http.ResponseWriter, r *http.Request, o
 	d.RenderResult(w, status, ok, message, "")
 }
 
+// DropSessionOutcome is the drop-session wire shape: ok is always true on
+// this path (failures use the shared envelope), kept reports the
+// precious-keep no-op, and message carries the keep note only when kept —
+// a real drop is a bare acknowledgment whose toast copy lives
+// frontend-side.
+type DropSessionOutcome struct {
+	OK      bool   `json:"ok"`
+	Kept    bool   `json:"kept"`
+	Message string `json:"message,omitempty"`
+}
+
+// RenderDropSessionResult writes the drop-session outcome (200): kept=true
+// carries the precious-keep note verbatim, kept=false is the bare
+// {ok:true,kept:false} acknowledgment.
+func (d *Dashboard) RenderDropSessionResult(w http.ResponseWriter, r *http.Request, kept bool, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(DropSessionOutcome{OK: true, Kept: kept, Message: message})
+}
+
 // TokenTestOutcome is one per-token probe outcome in a test-all response.
 type TokenTestOutcome struct {
 	Token      int    `json:"token"`

@@ -30,6 +30,10 @@ func (p *Pool) CooldownTokenRateLimit(token int, rle *upstream.RateLimitError) {
 		return
 	}
 	(*toks)[token].runs.CooldownRateLimit(rle)
+	// Smart probe (smart_probe.go): a 429 refusal marks refresh interest —
+	// the remembered reset instant schedules the re-probe once the
+	// cooldown window lifts.
+	p.markProbeDirty((*toks)[token])
 	if rle.Status == "spend_limited" {
 		p.recordSpendLimited(token)
 	}

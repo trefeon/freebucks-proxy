@@ -376,6 +376,10 @@ type Pool struct {
 	// slot ledger: a restart resets every mark to zero.
 	preciousMu sync.Mutex
 	precious   map[preciousKey]struct{}
+	// Smart-probe round single-flight (smart_probe.go): a dispatched
+	// stagger worker still running suppresses the next maintain tick's
+	// dispatch. In-memory only like the slot ledger: a restart resets it.
+	smartProbeInflight atomic.Bool
 }
 
 type tokenEntry struct {
@@ -413,6 +417,19 @@ type tokenEntry struct {
 	// locked is set by LockToken/UnlockLockToken to administratively
 	// exclude a token from Acquire without clearing its cooldown state.
 	locked atomic.Bool
+	// Smart-probe schedule (smart_probe.go): probeDirty marks activity
+	// interest (lease grant, successful chat, 429 refusal); probeNextAt is
+	// the earliest eligible instant (unix nanos, 0 = none — debounce and
+	// 429-backoff gate); probeInflight is the per-token single-flight;
+	// probeLastAt is the last smart-probe fire (reset catch-up compares
+	// against it); probeBackoffStep counts consecutive probe-429 outcomes
+	// for the doubling schedule. In-memory only: a restart re-derives
+	// everything from quota memory on the next pass.
+	probeDirty       atomic.Bool
+	probeNextAt      atomic.Int64
+	probeInflight    atomic.Bool
+	probeLastAt      atomic.Int64
+	probeBackoffStep atomic.Int64
 	// pinSkips counts Acquire-time single-pin skips for this slot
 	// (PIN_MODEL): requests for models the slot is not pinned to.
 	// Surfaced per-token in snapshots, cards, and metrics.
@@ -893,6 +910,7 @@ func (p *Pool) Chat(ctx context.Context, lease *Lease, opts upstream.ChatOptions
 	if err == nil {
 		if t.entry != nil {
 			p.recordChatEntry(t.entry)
+			p.markProbeDirty(t.entry)
 		}
 		p.requestsServed.Add(1)
 	}

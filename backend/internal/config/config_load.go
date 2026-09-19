@@ -128,6 +128,8 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideBool(&raw.MaturityEnabled, "MATURITY_ENABLED")
 	overrideString(&raw.MaturityTouchModel, "MATURITY_TOUCH_MODEL")
 	overrideInt(&raw.MaturityTargetDays, "MATURITY_TARGET_DAYS")
+	overrideBool(&raw.SmartProbeEnabled, "SMART_PROBE_ENABLED")
+	overrideString(&raw.SmartProbeBackoffMax, "SMART_PROBE_BACKOFF_MAX")
 	// Convert feature-translation modes (issue #277): COMPRESS_PROMPT,
 	// CACHE_CONTROL_INJECTION and REASONING_IN_CONTENT are resolved once
 	// here (so the dashboard config form and /admin/reload swaps apply) and
@@ -219,6 +221,19 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		}
 		if modelUnavailableCacheTTL <= 0 {
 			modelUnavailableCacheTTL = time.Hour
+		}
+	}
+	// SMART_PROBE_BACKOFF_MAX is zero-tolerant like the other session
+	// knobs: "" or "0" fall back to the documented 30m default (a zero cap
+	// would pin every probe-429 retry to immediacy, defeating the backoff).
+	smartProbeBackoffMax := 30 * time.Minute
+	if v := strings.TrimSpace(raw.SmartProbeBackoffMax); v != "" {
+		smartProbeBackoffMax, err = parseDuration(v, "SMART_PROBE_BACKOFF_MAX")
+		if err != nil {
+			return Config{}, err
+		}
+		if smartProbeBackoffMax <= 0 {
+			smartProbeBackoffMax = 30 * time.Minute
 		}
 	}
 	runFinishQueueSize := 64
@@ -410,6 +425,8 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		MaturityEnabled:          raw.MaturityEnabled,
 		MaturityTouchModel:       strings.TrimSpace(raw.MaturityTouchModel),
 		MaturityTargetDays:       maturityTargetDays,
+		SmartProbeEnabled:        raw.SmartProbeEnabled,
+		SmartProbeBackoffMax:     smartProbeBackoffMax,
 		EnvFile:                  envFileUsed,
 		CompressPrompt:           parseCompressPrompt(raw.CompressPrompt),
 		CacheControlInjection:    parseCacheControlInjection(raw.CacheControlInjection),
@@ -593,6 +610,8 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideBoolFrom(&raw.MaturityEnabled, get, "MATURITY_ENABLED")
 	overrideStringFrom(&raw.MaturityTouchModel, get, "MATURITY_TOUCH_MODEL")
 	overrideIntFrom(&raw.MaturityTargetDays, get, "MATURITY_TARGET_DAYS")
+	overrideBoolFrom(&raw.SmartProbeEnabled, get, "SMART_PROBE_ENABLED")
+	overrideStringFrom(&raw.SmartProbeBackoffMax, get, "SMART_PROBE_BACKOFF_MAX")
 	// Convert feature-translation modes (issue #277), mirroring Load.
 	overrideStringFrom(&raw.CompressPrompt, get, "COMPRESS_PROMPT")
 	overrideStringFrom(&raw.CacheControlInjection, get, "CACHE_CONTROL_INJECTION")

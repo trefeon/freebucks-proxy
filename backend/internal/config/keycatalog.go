@@ -168,7 +168,7 @@ var keyCatalog = []KeyDef{
 	{
 		Key: "BRIDGE_IDLE_EVICT", Group: GroupPool, Kind: "text",
 		Default:     "72h",
-		Description: `How long a bridge entry may sit unused before its runs are FINISHed and it is evicted from the cache (sliding TTL; zero or invalid → 72h).`,
+		Description: `How long a bridge entry may sit unused before its runs are FINISHed and it is evicted from the cache (sliding TTL; empty or 0 → 72h).`,
 	},
 	{
 		Key: "IDLE_ROTATION_TIMEOUT", Group: GroupPool, Kind: "text",
@@ -274,6 +274,16 @@ var keyCatalog = []KeyDef{
 		Key: "SLOTS_PER_ACCOUNT", Group: GroupPool, Kind: "int",
 		Default:     "2",
 		Description: `Cap on concurrent live turns per account-model lane (default 2, the approved anti-ban pacing; 0 = unlimited, no slot gating at all). A lease is granted only while the account holds fewer live turns for that model; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload. BUNKER PRESET: 1 — fully sequential turns per account-model lane, zero parallel fingerprint.`,
+	},
+	{
+		Key: "SMART_PROBE_BACKOFF_MAX", Group: GroupPool, Kind: "text",
+		Default:     "30m",
+		Description: `Ceiling for the smart prober's 429-backoff doubling (Go duration; empty or non-positive values fall back to 30m). Applies live on reload.`,
+	},
+	{
+		Key: "SMART_PROBE_ENABLED", Group: GroupPool, Kind: "bool",
+		Default:     "true",
+		Description: `Master switch for the smart zero-cost quota prober (default true): activity-triggered and reset-instant session-less probes keep parked quota fresh. False restores pre-scheduler behavior (manual probes only). Applies live on reload.`,
 	},
 	{
 		Key: "WAITING_ROOM_CHAIN", Group: GroupPool, Kind: "bool", Hidden: true,
@@ -409,4 +419,5 @@ var durationSettingKeys = map[string]bool{
 	"SESSION_CALL_TIMEOUT":        true,
 	"SESSION_PROBE_CACHE_TTL":     true,
 	"SESSION_RE_ADMIT_LEAD":       true,
+	"SMART_PROBE_BACKOFF_MAX":     true,
 }
