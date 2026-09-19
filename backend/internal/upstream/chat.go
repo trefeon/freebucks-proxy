@@ -220,6 +220,17 @@ var foreignHarnessPromptMarkers = []string{
 	"Anthropic's official CLI",
 	"cc_version=",
 	"cc_entrypoint=",
+	"You are Kimi Code CLI",
+	"You are Hermes Agent, built by Nous Research",
+	"You are a general-purpose AI agent called goose",
+	"You are an expert on the AI coding tool called Aider",
+	"Gemini CLI",
+	"Generated with Crush",
+	"Assisted-by: Crush",
+	"Co-Authored-By: Crush",
+	"Co-Authored-By: Claude Code",
+	"*** Begin Patch",
+	"*** End Patch",
 }
 
 // sanitizeForeignPromptMarkers replaces foreign harness prompt markers in

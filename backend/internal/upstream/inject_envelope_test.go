@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream/login"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream/login"
 )
 
 // --- #103 / free_mode_run_fanout: client_id is PER RUN ----------------------
@@ -742,6 +741,226 @@ func TestInjectEnvelopeSanitizesForeignPromptMarkers(t *testing.T) {
 			t.Errorf("foreign marker was not stripped: %q", content)
 		}
 		if !strings.Contains(content, "running tools.") {
+			t.Errorf("instruction lost: %q", content)
+		}
+	})
+
+	t.Run("all new universal markers scrubbed from string content", func(t *testing.T) {
+		newMarkers := []string{
+			"You are Kimi Code CLI",
+			"You are Hermes Agent, built by Nous Research",
+			"You are a general-purpose AI agent called goose",
+			"You are an expert on the AI coding tool called Aider",
+			"Gemini CLI",
+			"Generated with Crush",
+			"Assisted-by: Crush",
+			"Co-Authored-By: Crush",
+			"Co-Authored-By: Claude Code",
+			"*** Begin Patch",
+			"*** End Patch",
+		}
+		var sb strings.Builder
+		sb.WriteString("Session preamble. ")
+		for _, m := range newMarkers {
+			sb.WriteString("Marker[" + m + "] ")
+		}
+		sb.WriteString("Follow user instructions carefully.")
+		body, err := json.Marshal(map[string]any{
+			"model": "openai/gpt-5",
+			"messages": []any{
+				map[string]any{"role": "system", "content": sb.String()},
+				map[string]any{"role": "user", "content": "Hello world"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		out, err := injectEnvelope(body, "free", ChatOptions{RunID: "r-4", ClientID: "cid1234567890"})
+		if err != nil {
+			t.Fatalf("injectEnvelope error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		msgs, ok := payload["messages"].([]any)
+		if !ok || len(msgs) < 2 {
+			t.Fatalf("unexpected messages: %v", payload["messages"])
+		}
+		sysMsg, ok := msgs[0].(map[string]any)
+		if !ok || sysMsg["role"] != "system" {
+			t.Fatalf("first message is not system: %v", msgs[0])
+		}
+		content, ok := sysMsg["content"].(string)
+		if !ok {
+			t.Fatalf("system content is not string: %T %v", sysMsg["content"], sysMsg["content"])
+		}
+		if !strings.HasPrefix(content, cliSystemMarkerPhrase) {
+			t.Errorf("system content %q does not start with cliSystemMarkerPhrase", content)
+		}
+		for _, marker := range foreignHarnessPromptMarkers {
+			if strings.Contains(content, marker) {
+				t.Errorf("system content %q still contains foreign marker %q", content, marker)
+			}
+		}
+		if !strings.Contains(content, "Follow user instructions carefully.") {
+			t.Errorf("user instructions were lost from system content: %q", content)
+		}
+	})
+
+	t.Run("all new universal markers scrubbed from parts-array content", func(t *testing.T) {
+		newMarkers := []string{
+			"You are Kimi Code CLI",
+			"You are Hermes Agent, built by Nous Research",
+			"You are a general-purpose AI agent called goose",
+			"You are an expert on the AI coding tool called Aider",
+			"Gemini CLI",
+			"Generated with Crush",
+			"Assisted-by: Crush",
+			"Co-Authored-By: Crush",
+			"Co-Authored-By: Claude Code",
+			"*** Begin Patch",
+			"*** End Patch",
+		}
+		parts := make([]any, 0, len(newMarkers)+1)
+		for _, m := range newMarkers {
+			parts = append(parts, map[string]any{"type": "text", "text": "Note: " + m + " applies."})
+		}
+		parts = append(parts, map[string]any{"type": "text", "text": "Keep code clean."})
+		body, err := json.Marshal(map[string]any{
+			"model": "openai/gpt-5",
+			"messages": []any{
+				map[string]any{"role": "system", "content": parts},
+				map[string]any{"role": "user", "content": "Refactor this"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		out, err := injectEnvelope(body, "free", ChatOptions{RunID: "r-5", ClientID: "cid1234567890"})
+		if err != nil {
+			t.Fatalf("injectEnvelope error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		msgs, ok := payload["messages"].([]any)
+		if !ok || len(msgs) < 2 {
+			t.Fatalf("unexpected messages: %v", payload["messages"])
+		}
+		sysMsg, ok := msgs[0].(map[string]any)
+		if !ok || sysMsg["role"] != "system" {
+			t.Fatalf("first message is not system: %v", msgs[0])
+		}
+		gotParts, ok := sysMsg["content"].([]any)
+		if !ok || len(gotParts) == 0 {
+			t.Fatalf("system content is not non-empty array: %T %v", sysMsg["content"], sysMsg["content"])
+		}
+		firstPart, ok := gotParts[0].(map[string]any)
+		if !ok {
+			t.Fatalf("first part is not map: %v", gotParts[0])
+		}
+		if firstText, _ := firstPart["text"].(string); !hasCanonicalOpening(firstText) {
+			t.Errorf("first part text %q does not have canonical opening", firstText)
+		}
+		for i, p := range gotParts {
+			pMap, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			txt, _ := pMap["text"].(string)
+			for _, marker := range foreignHarnessPromptMarkers {
+				if strings.Contains(txt, marker) {
+					t.Errorf("part %d text %q still contains foreign marker %q", i, txt, marker)
+				}
+			}
+		}
+		lastPart, _ := gotParts[len(gotParts)-1].(map[string]any)
+		if lastText, _ := lastPart["text"].(string); !strings.Contains(lastText, "Keep code clean.") {
+			t.Errorf("instructions lost from last part: %q", lastText)
+		}
+	})
+
+	t.Run("user-role content with markers left untouched", func(t *testing.T) {
+		userText := "My notes mention You are Kimi Code CLI, *** Begin Patch, Generated with Crush, and Co-Authored-By: Claude Code verbatim."
+		body, err := json.Marshal(map[string]any{
+			"model": "openai/gpt-5",
+			"messages": []any{
+				map[string]any{"role": "system", "content": "Custom instructions here."},
+				map[string]any{"role": "user", "content": userText},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		out, err := injectEnvelope(body, "free", ChatOptions{RunID: "r-6", ClientID: "cid1234567890"})
+		if err != nil {
+			t.Fatalf("injectEnvelope error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		msgs, ok := payload["messages"].([]any)
+		if !ok || len(msgs) != 2 {
+			t.Fatalf("unexpected messages: %v", payload["messages"])
+		}
+		if got := msgs[1].(map[string]any)["content"]; got != userText {
+			t.Errorf("user content rewritten: %q, want %q", got, userText)
+		}
+		sysContent, ok := msgs[0].(map[string]any)["content"].(string)
+		if !ok {
+			t.Fatalf("system content is not string: %T", msgs[0].(map[string]any)["content"])
+		}
+		if !strings.HasPrefix(sysContent, cliSystemMarkerPhrase) {
+			t.Errorf("system content %q does not start with cliSystemMarkerPhrase", sysContent)
+		}
+		if !strings.Contains(sysContent, "Custom instructions here.") {
+			t.Errorf("system instructions lost: %q", sysContent)
+		}
+	})
+
+	t.Run("canonical buffy opening skips prepend without duplication", func(t *testing.T) {
+		rawBody := `{
+			"model": "openai/gpt-5",
+			"messages": [
+				{
+					"role": "system",
+					"content": "You are Buffy, the strategic coding agent behind Codebuff.\n\nCustom persona with Gemini CLI mentioned later."
+				}
+			]
+		}`
+		out, err := injectEnvelope([]byte(rawBody), "free", ChatOptions{RunID: "r-7", ClientID: "cid1234567890"})
+		if err != nil {
+			t.Fatalf("injectEnvelope error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		msgs, ok := payload["messages"].([]any)
+		if !ok || len(msgs) != 1 {
+			t.Fatalf("messages = %v, want single system message (no unshift)", payload["messages"])
+		}
+		sysMsg, ok := msgs[0].(map[string]any)
+		if !ok || sysMsg["role"] != "system" {
+			t.Fatalf("first message is not system: %v", msgs[0])
+		}
+		content, ok := sysMsg["content"].(string)
+		if !ok {
+			t.Fatalf("system content is not string: %T", sysMsg["content"])
+		}
+		if !hasCanonicalOpening(content) {
+			t.Errorf("canonical opening missing: %q", content)
+		}
+		if n := strings.Count(content, "You are Buffy, the strategic coding agent behind Codebuff."); n != 1 {
+			t.Errorf("canonical opening appears %d times, want exactly 1 (no prepend duplication)", n)
+		}
+		if strings.Contains(content, "Gemini CLI") {
+			t.Errorf("foreign marker was not stripped: %q", content)
+		}
+		if !strings.Contains(content, "Custom persona with") {
 			t.Errorf("instruction lost: %q", content)
 		}
 	})
