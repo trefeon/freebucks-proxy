@@ -297,10 +297,17 @@ func NewToolMapper(body []byte) ToolMapper {
 		upstreamName := resolveUpstreamTool(name, t.Function.Parameters)
 		if upstreamName != "" && upstreamName != name {
 			m.clientToUpstream[name] = upstreamName
-			m.upstreamToClient[upstreamName] = name
+			// First occurrence wins the reverse slot: later client tools
+			// resolving to the same wire name virtualize in ToUpstream, so
+			// the reverse map must keep the first winner, not the last.
+			if _, taken := m.upstreamToClient[upstreamName]; !taken {
+				m.upstreamToClient[upstreamName] = name
+			}
 		}
 		if official, ok := clientToOfficial[strings.ToLower(name)]; ok && official != "" && official != name {
-			m.upstreamToClient[official] = name
+			if _, taken := m.upstreamToClient[official]; !taken {
+				m.upstreamToClient[official] = name
+			}
 		}
 	}
 	return m
@@ -308,12 +315,18 @@ func NewToolMapper(body []byte) ToolMapper {
 
 // ToUpstream renames mapped client tool entries in the request payload IN
 // PLACE (payload["tools"]) so the upstream wire carries official signature
-// names. Idempotent.
+// names. Idempotent. Name-unique: when two client tools resolve to the SAME
+// wire name (e.g. Hermes terminal + execute_code both map to
+// run_terminal_command), the first keeps the official name and later ones
+// virtualize to mcp__<original> — restore already handles the namespace.
+// Strict upstreams (DeepSeek, Muse Spark, MiMo) reject duplicate tool names
+// outright ("Tool names must be unique"), so dedupe is unconditional.
 func (m ToolMapper) ToUpstream(payload map[string]any) {
 	tools, ok := payload["tools"].([]any)
 	if !ok {
 		return
 	}
+	used := make(map[string]bool, len(tools))
 	for _, t := range tools {
 		tool, ok := t.(map[string]any)
 		if !ok {
@@ -343,6 +356,25 @@ func (m ToolMapper) ToUpstream(payload map[string]any) {
 				fn["description"] = strings.TrimSpace(desc) + " (client tool: " + name + ")"
 			}
 		}
+		finalName, _ := fn["name"].(string)
+		if finalName == "" {
+			continue
+		}
+		if used[finalName] {
+			// Duplicate wire name: virtualize this later occurrence so the
+			// wire stays name-unique. Both entries stay callable; restore
+			// maps mcp__<original> back to the client name downstream.
+			virt := "mcp__" + name
+			if m.upstreamToClient != nil {
+				m.upstreamToClient[virt] = name
+			}
+			if m.clientToUpstream != nil {
+				m.clientToUpstream[name] = virt
+			}
+			fn["name"] = virt
+			finalName = virt
+		}
+		used[finalName] = true
 	}
 }
 

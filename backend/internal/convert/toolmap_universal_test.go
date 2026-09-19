@@ -77,6 +77,22 @@ func assertHarnessWireClean(t *testing.T, name string, tools []universalClientTo
 		t.Errorf("no genuine signature tools found on wire")
 	}
 
+	// Wire names must be unique: strict upstreams (DeepSeek, Muse Spark,
+	// MiMo) reject duplicates outright ("Tool names must be unique").
+	seen := map[string]bool{}
+	for _, wt := range wireTools {
+		fn, ok := wt.(map[string]any)["function"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := fn["name"].(string); name != "" {
+			if seen[name] {
+				t.Errorf("duplicate wire tool name %q in %v", name, v.Names)
+			}
+			seen[name] = true
+		}
+	}
+
 	// Verify that every client tool name restores cleanly
 	for _, wt := range wireTools {
 		fn, ok := wt.(map[string]any)["function"].(map[string]any)
