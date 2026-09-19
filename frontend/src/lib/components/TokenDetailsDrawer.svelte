@@ -84,7 +84,7 @@
         ? ` · resets ${fmtParkedTime(token.freebucks.daily.reset_at)}`
         : "";
     if (isExhausted(token)) {
-      return `Exhausted — daily Freebucks limit reached until ${until || "—"} — spills to next account${resets}`;
+      return `Exhausted — upstream 429${kind} until ${until || "—"} — spills to next account${resets}`;
     }
     return `Parked — upstream 429${kind} until ${until || "—"} — spills to next account${resets}`;
   });
