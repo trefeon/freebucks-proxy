@@ -18,6 +18,7 @@
   import { adminApi } from "../api/paths.js";
   import { refreshTokens } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
+  import { isExhausted } from "../utils/tokenStatus.js";
   import {
     spawnIntent,
     firstTabListPriceFor,
@@ -74,12 +75,17 @@
     return `${hh}:${mm}Z`;
   }
   let parkedNote = $derived.by(() => {
-    if (!token.cooldown_active) return "";
+    if (!token.cooldown_active && !isExhausted(token)) return "";
     const until = fmtParkedTime(token.cooldown_until);
     const kind = token.cooldown_kind ? ` (${token.cooldown_kind})` : "";
     const resets = token.cooldown_resets_at
       ? ` · resets ${fmtParkedTime(token.cooldown_resets_at)}`
-      : "";
+      : token.freebucks?.daily?.reset_at
+        ? ` · resets ${fmtParkedTime(token.freebucks.daily.reset_at)}`
+        : "";
+    if (isExhausted(token)) {
+      return `Exhausted — daily Freebucks limit reached until ${until || "—"} — spills to next account${resets}`;
+    }
     return `Parked — upstream 429${kind} until ${until || "—"} — spills to next account${resets}`;
   });
   // Crossed-out list price for one model option (<option> carries text

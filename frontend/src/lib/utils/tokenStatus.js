@@ -27,11 +27,45 @@ export function banBadge(token) {
   return null;
 }
 
+/**
+ * True when an account has exhausted its daily Freebucks limit or window,
+ * rather than hitting a transient rate limit.
+ */
+export function isExhausted(token) {
+  if (!token) return false;
+  if (token.cooldown_kind === "freebucks_window") return true;
+  if (token.cooldown_resets_at && token.cooldown_active) return true;
+  const fb = token.freebucks;
+  if (fb && typeof fb === "object") {
+    const daily = fb.daily;
+    if (daily && typeof daily === "object" && daily.limit > 0) {
+      if (daily.remaining <= 0 || daily.spent >= daily.limit) {
+        return true;
+      }
+    }
+    if (fb.balance <= 0 && token.cooldown_active) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** ISO timestamp when the token's window or cooldown resets. */
+export function resetTimeFor(token) {
+  return (
+    token?.freebucks?.daily?.reset_at ||
+    token?.cooldown_resets_at ||
+    token?.cooldown_until ||
+    ""
+  );
+}
+
 /** Primary status chip for one pooled token. */
 export function statusFor(token) {
   const ban = banBadge(token);
   if (ban) return ban;
   if (token.locked) return { label: t()("locked"), tone: "warn" };
+  if (isExhausted(token)) return { label: t()("exhausted"), tone: "warn" };
   if (token.cooldown_active) return { label: t()("cooldown"), tone: "warn" };
   const s = token.session_status || "";
   if (s === "active")

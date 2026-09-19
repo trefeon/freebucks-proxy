@@ -16,7 +16,10 @@
     streakBadgeFor,
     cooldownLabel,
     sessionCountdownLabel,
+    isExhausted,
+    resetTimeFor,
   } from "../utils/tokenStatus.js";
+  import { formatLocalDate } from "../utils/format.js";
   import { tr } from "../i18n.js";
 
   /**
@@ -188,7 +191,21 @@
   <!-- Usage stats: cooldown banner, then msgs / runs+reqs in one grid.
        Freebucks live on the Plans page. -->
   <div class="flex flex-col gap-2">
-    {#if token.cooldown_active}
+    {#if isExhausted(token)}
+      {@const cd = cooldownLabel(token, now)}
+      {@const resetAt = resetTimeFor(token)}
+      <div
+        class="fp-inset px-2.5 py-1.5 text-xs text-[var(--fp-warning)] flex flex-wrap items-center justify-between gap-1"
+      >
+        <span class="font-medium">{$tr("Exhausted")}</span>
+        <span class="fp-num text-[var(--fp-muted)]">
+          {$tr("resets in {time}", { time: cd })}
+          {#if resetAt}
+            · {formatLocalDate(resetAt)}
+          {/if}
+        </span>
+      </div>
+    {:else if token.cooldown_active}
       {@const cd = cooldownLabel(token, now)}
       <div class="fp-inset px-2.5 py-1.5 text-xs text-[var(--fp-warning)]">
         {$tr("Cooldown")} —

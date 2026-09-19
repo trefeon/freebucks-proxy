@@ -23,7 +23,12 @@
   import { createQueryStore } from "../stores/query.js";
   import { tr } from "../i18n.js";
   import { recordPageVisit } from "../stores/pageState.js";
-  import { formatTime, parseLogFields } from "../utils/format.js";
+  import {
+    formatTime,
+    formatLocalDate,
+    parseLogFields,
+  } from "../utils/format.js";
+  import { isExhausted, resetTimeFor } from "../utils/tokenStatus.js";
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
@@ -186,7 +191,12 @@
   let cooldownKey = $state("");
   $effect(() => {
     const w = worstAccount;
-    const key = w ? `${w.index}-${isBanned(w) ? "banned" : "cooldown"}` : "";
+    const cond = isBanned(w)
+      ? "banned"
+      : isExhausted(w)
+        ? "exhausted"
+        : "cooldown";
+    const key = w ? `${w.index}-${cond}` : "";
     if (key === cooldownKey) return;
     if (cooldownToast) {
       dismissToast(cooldownToast);
@@ -194,10 +204,21 @@
     }
     cooldownKey = key;
     if (w) {
+      let title = $tr("Account #{index} needs attention", { index: w.index });
+      let body = w.email || w.session_status || "";
+      if (isExhausted(w)) {
+        const resetAt = resetTimeFor(w);
+        title = $tr("Account #{index} exhausted", { index: w.index });
+        body = resetAt
+          ? $tr("Daily Freebucks limit reached. Resets at {time}", {
+              time: formatLocalDate(resetAt),
+            })
+          : $tr("Daily Freebucks limit reached");
+      }
       cooldownToast = pushToast({
         tone: isBanned(w) ? "error" : "warning",
-        title: $tr("Account #{index} needs attention", { index: w.index }),
-        body: w.email || w.session_status || "",
+        title,
+        body,
       });
     }
   });
@@ -304,6 +325,7 @@
       <Alert
         tone={us.has_registry_drift ? "error" : "warning"}
         title={$tr("Upstream has updates — your build is behind")}
+        sticky={true}
       >
         <p class="mb-2">
           {#if us.version_changed}
@@ -352,7 +374,11 @@
         </a>
       </Alert>
     {:else if us.version_changed}
-      <Alert tone="info" title={$tr("Upstream vendor update available")}>
+      <Alert
+        tone="info"
+        title={$tr("Upstream vendor update available")}
+        sticky={true}
+      >
         <p class="mb-2">
           {$tr("Update available: vendor {pinned} → {live}.", {
             pinned: us.vendor_version_pinned ?? "?",
@@ -400,7 +426,19 @@
       {#if worstAccount}
         {@const w = worstAccount}
         <p class="text-xs text-[var(--fp-muted)]">
-          {$tr("Account #{index} needs attention", { index: w.index })} ·
+          {#if isExhausted(w)}
+            {@const resetAt = resetTimeFor(w)}
+            {$tr("Account #{index} exhausted", { index: w.index })}
+            {#if resetAt}
+              <span class="fp-num text-[var(--fp-warning)]">
+                · {$tr("resets at {time}", {
+                  time: formatLocalDate(resetAt),
+                })}</span
+              >
+            {/if}
+          {:else}
+            {$tr("Account #{index} needs attention", { index: w.index })}
+          {/if} ·
           <a href="#tokens" class="text-[var(--fp-accent)] hover:underline"
             >{$tr("Open Tokens")}</a
           >

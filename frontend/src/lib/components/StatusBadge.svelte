@@ -16,6 +16,7 @@
     leased: "good",
     active: "good",
     cooldown: "warn",
+    exhausted: "warn",
     locked: "warn",
     banned: "bad",
     error: "bad",
