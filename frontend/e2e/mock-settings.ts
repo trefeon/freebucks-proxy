@@ -23,11 +23,15 @@ import {
 //   with the prober removal; no card names them, so no section renders.
 // - Secrets (API_KEYS/AUTH_TOKENS/ADMIN_TOKEN/WEBHOOK_URL): never listed,
 //   managed on their own surfaces.
-// - Hidden infra keys (SESSION_STATE_FILE, ROTATION_INTERVAL, ...): shown
-//   read-only in the Hidden keys disclosure, no editors.
+// - Hidden keys (SESSION_STATE_FILE, ROTATION_INTERVAL, the pool
+//   session/cache knobs in HIDDEN_READONLY_KEYS, ...): shown read-only in
+//   the Hidden keys disclosure, no editors.
 // - Env-only keys (SESSION_PERSIST, HTTP_READ_TIMEOUT): the readers never
-//   consult the overlay, so their card rows are read-only with an env-note
-//   and POST 400s; no saveable editor, no matrix row.
+//   consult the overlay, so a direct POST 400s with the backend pointer
+//   (mocks.ts OVERLAY_ENV_ONLY) and no card offers a saveable editor. Their
+//   rows live in the hidden-keys disclosure (SESSION_PERSIST, catalog-hidden)
+//   or the Gateway card (HTTP_READ_TIMEOUT, read-only with an env-note); no
+//   matrix row either way.
 
 // Pool Strategy card (Pool page Controls tab): the four preset-written keys.
 export const STRATEGY_KEYS = [
@@ -43,13 +47,16 @@ export const POOL_CONTROLS_KEYS = [
   "BRIDGE_ENABLED",
 ] as const;
 
-// Custom advanced card (Pool page Controls tab): hand-tuned
-// admission-cache and session knobs that still exist in the catalog.
-export const CUSTOM_ADVANCED_KEYS = [
+// Catalog-hidden, editor-less pool keys: the session/cache knobs the Pool
+// page's removed "Custom advanced" card used to edit. The catalog flags all
+// six `hidden`, so the Settings page's Hidden keys disclosure is their one
+// home, read-only; every settings surface must render zero editors for them.
+export const HIDDEN_READONLY_KEYS = [
   "MODEL_UNAVAILABLE_CACHE_TTL",
   "SESSION_PROBE_CACHE_TTL",
   "SESSION_RE_ADMIT_LEAD",
   "WAITING_ROOM_CHAIN",
+  "SESSION_PERSIST",
   "ADOPT_CLI_SESSION",
 ] as const;
 
@@ -96,7 +103,6 @@ export const UPSTREAM_QUOTA_KEYS = [
 export const ALL_MATRIX_KEYS: readonly string[] = [
   ...STRATEGY_KEYS,
   ...POOL_CONTROLS_KEYS,
-  ...CUSTOM_ADVANCED_KEYS,
   ...POOL_TUNING_KEYS,
   ...GATEWAY_KEYS,
   ...LOGGING_KEYS,
@@ -112,11 +118,6 @@ export const KEY_HOME: Record<string, "pool" | "settings" | "usage"> = {
   QUEUE_DEPTH: "pool",
   RATE_LIMIT_PER_IP: "pool",
   BRIDGE_ENABLED: "pool",
-  MODEL_UNAVAILABLE_CACHE_TTL: "pool",
-  SESSION_PROBE_CACHE_TTL: "pool",
-  SESSION_RE_ADMIT_LEAD: "pool",
-  WAITING_ROOM_CHAIN: "pool",
-  ADOPT_CLI_SESSION: "pool",
   BRIDGE_IDLE_EVICT: "pool",
   IDLE_ROTATION_TIMEOUT: "pool",
   RATE_LIMIT_BURST: "pool",
@@ -166,11 +167,6 @@ export function fullMatrixDbSeed(): OverlaySeed[] {
     QUEUE_DEPTH: "32",
     RATE_LIMIT_PER_IP: "20",
     BRIDGE_ENABLED: "true",
-    MODEL_UNAVAILABLE_CACHE_TTL: "2h",
-    SESSION_PROBE_CACHE_TTL: "30s",
-    SESSION_RE_ADMIT_LEAD: "90s",
-    WAITING_ROOM_CHAIN: "true",
-    ADOPT_CLI_SESSION: "true",
     BRIDGE_IDLE_EVICT: "48h",
     IDLE_ROTATION_TIMEOUT: "1h",
     RATE_LIMIT_BURST: "40",

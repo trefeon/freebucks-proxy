@@ -163,6 +163,7 @@
     "restart_only": true,
     "secret": false,
     "essential": false,
+    "hidden": true,
     "description": "Adopt the upstream CLI's active session (from freebuff-instance-owner.json) instead of creating a new one; with empty AUTH_TOKENS the token is sourced from the CLI credentials file."
   },
   {
@@ -265,6 +266,7 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
+    "hidden": true,
     "description": "How long a model_unavailable admission refusal is remembered per model (off-window models short-circuit to the fallback within the TTL)."
   },
   {
@@ -380,6 +382,7 @@
     "restart_only": true,
     "secret": false,
     "essential": false,
+    "hidden": true,
     "description": "Persist session state AND active agent runs to disk so a restart resumes them instead of re-creating (default true). Set via container environment."
   },
   {
@@ -390,6 +393,7 @@
     "restart_only": false,
     "secret": false,
     "essential": false,
+    "hidden": true,
     "description": "Reuse the last successful quota probe (skip redundant upstream status GETs) within this window."
   },
   {
