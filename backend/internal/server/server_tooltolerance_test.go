@@ -2,11 +2,10 @@ package server_test
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestChatToolNameToleranceE2E pins the issue #140 layer end-to-end: a
@@ -81,16 +80,17 @@ func TestChatToolNameToleranceE2E(t *testing.T) {
 		}
 	}
 	joined := strings.Join(upstreamNames, ",")
-	if !strings.Contains(joined, `"read_files"`) && !strings.Contains(joined, "read_files") {
+	if !strings.Contains(joined, "read_files") {
 		t.Errorf("upstream tools missing read_files: %v", upstreamNames)
 	}
 	if !strings.Contains(joined, "run_terminal_command") {
 		t.Errorf("upstream tools missing run_terminal_command: %v", upstreamNames)
 	}
-	if strings.Contains(joined, "read_file,") || strings.Contains(joined, "execute_command") {
-		t.Errorf("client names leaked upstream: %v", upstreamNames)
+	for _, name := range upstreamNames {
+		if name == "read_file" || name == "execute_command" {
+			t.Errorf("client names leaked upstream: %v", upstreamNames)
+		}
 	}
-
 	// The client sees ITS name back in the stream.
 	if !strings.Contains(string(data), `"read_file"`) {
 		t.Errorf("response missing client name read_file: %s", data)

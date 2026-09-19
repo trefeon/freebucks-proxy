@@ -575,3 +575,174 @@ func TestAuthClientSendsNoToken(t *testing.T) {
 		t.Errorf("auth client token = %q, want empty", client.token)
 	}
 }
+
+// TestInjectEnvelopeSanitizesForeignPromptMarkers verifies that system messages
+// containing foreign harness markers (e.g. Claude Code identity and billing headers)
+// have those markers stripped/sanitized while ensuring the canonical Buffy prefix
+// opens at byte 0 and preserving custom user instructions.
+func TestInjectEnvelopeSanitizesForeignPromptMarkers(t *testing.T) {
+	t.Run("string content with claude code identity and billing headers", func(t *testing.T) {
+		rawBody := `{
+			"model": "anthropic/claude-3-7-sonnet",
+			"messages": [
+				{
+					"role": "system",
+					"content": "You are Claude Code, Anthropic's official CLI for Claude. Billing info: cc_version=1.0.0; cc_entrypoint=cli. Follow user instructions carefully."
+				},
+				{
+					"role": "user",
+					"content": "Hello world"
+				}
+			]
+		}`
+		out, err := injectEnvelope([]byte(rawBody), "free", ChatOptions{RunID: "r-1", ClientID: "cid1234567890"})
+		if err != nil {
+			t.Fatalf("injectEnvelope error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		msgs, ok := payload["messages"].([]any)
+		if !ok || len(msgs) < 2 {
+			t.Fatalf("unexpected messages: %v", payload["messages"])
+		}
+		sysMsg, ok := msgs[0].(map[string]any)
+		if !ok || sysMsg["role"] != "system" {
+			t.Fatalf("first message is not system: %v", msgs[0])
+		}
+		content, ok := sysMsg["content"].(string)
+		if !ok {
+			t.Fatalf("system content is not string: %T %v", sysMsg["content"], sysMsg["content"])
+		}
+
+		// Must open with canonical Buffy prefix at byte 0
+		if !hasCanonicalOpening(content) {
+			t.Errorf("system content %q does not have canonical opening", content)
+		}
+		if !strings.HasPrefix(content, cliSystemMarkerPhrase) {
+			t.Errorf("system content %q does not start with cliSystemMarkerPhrase", content)
+		}
+
+		// Must NOT contain any foreign prompt markers
+		for _, marker := range foreignHarnessPromptMarkers {
+			if strings.Contains(content, marker) {
+				t.Errorf("system content %q still contains foreign marker %q", content, marker)
+			}
+		}
+
+		// Remainder of user instructions must be preserved
+		if !strings.Contains(content, "Follow user instructions carefully.") {
+			t.Errorf("user instructions were lost from system content: %q", content)
+		}
+	})
+
+	t.Run("array parts content with foreign markers", func(t *testing.T) {
+		rawBody := `{
+			"model": "anthropic/claude-3-7-sonnet",
+			"messages": [
+				{
+					"role": "system",
+					"content": [
+						{
+							"type": "text",
+							"text": "You are Claude Code, Anthropic's official CLI."
+						},
+						{
+							"type": "text",
+							"text": "System config: cc_version=2.0; cc_entrypoint=agent. Keep code clean."
+						}
+					]
+				},
+				{
+					"role": "user",
+					"content": "Refactor this"
+				}
+			]
+		}`
+		out, err := injectEnvelope([]byte(rawBody), "free", ChatOptions{RunID: "r-2", ClientID: "cid1234567890"})
+		if err != nil {
+			t.Fatalf("injectEnvelope error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		msgs, ok := payload["messages"].([]any)
+		if !ok || len(msgs) < 2 {
+			t.Fatalf("unexpected messages: %v", payload["messages"])
+		}
+		sysMsg, ok := msgs[0].(map[string]any)
+		if !ok || sysMsg["role"] != "system" {
+			t.Fatalf("first message is not system: %v", msgs[0])
+		}
+		parts, ok := sysMsg["content"].([]any)
+		if !ok || len(parts) == 0 {
+			t.Fatalf("system content is not non-empty array: %T %v", sysMsg["content"], sysMsg["content"])
+		}
+
+		// First part must have canonical Buffy prefix
+		firstPart, ok := parts[0].(map[string]any)
+		if !ok {
+			t.Fatalf("first part is not map: %v", parts[0])
+		}
+		firstText, _ := firstPart["text"].(string)
+		if !hasCanonicalOpening(firstText) {
+			t.Errorf("first part text %q does not have canonical opening", firstText)
+		}
+
+		// All parts must be free of foreign markers
+		for i, p := range parts {
+			pMap, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			txt, _ := pMap["text"].(string)
+			for _, marker := range foreignHarnessPromptMarkers {
+				if strings.Contains(txt, marker) {
+					t.Errorf("part %d text %q still contains foreign marker %q", i, txt, marker)
+				}
+			}
+		}
+
+		// Instruction preserved
+		lastPart, _ := parts[len(parts)-1].(map[string]any)
+		lastText, _ := lastPart["text"].(string)
+		if !strings.Contains(lastText, "Keep code clean.") {
+			t.Errorf("instructions lost from last part: %q", lastText)
+		}
+	})
+
+	t.Run("canonical opening already present with foreign marker later in text", func(t *testing.T) {
+		rawBody := `{
+			"model": "anthropic/claude-3-7-sonnet",
+			"messages": [
+				{
+					"role": "system",
+					"content": "You are Buffy, the strategic coding agent behind Codebuff.\n\nContext: You are Claude Code running tools."
+				}
+			]
+		}`
+		out, err := injectEnvelope([]byte(rawBody), "free", ChatOptions{RunID: "r-3", ClientID: "cid1234567890"})
+		if err != nil {
+			t.Fatalf("injectEnvelope error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		msgs := payload["messages"].([]any)
+		sysMsg := msgs[0].(map[string]any)
+		content := sysMsg["content"].(string)
+
+		if !hasCanonicalOpening(content) {
+			t.Errorf("canonical opening missing: %q", content)
+		}
+		if strings.Contains(content, "You are Claude Code") {
+			t.Errorf("foreign marker was not stripped: %q", content)
+		}
+		if !strings.Contains(content, "running tools.") {
+			t.Errorf("instruction lost: %q", content)
+		}
+	})
+}

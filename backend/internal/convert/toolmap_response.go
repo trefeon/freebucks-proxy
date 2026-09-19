@@ -1,5 +1,7 @@
 package convert
 
+import "strings"
+
 // FromUpstreamChunk restores client tool names in one upstream SSE chunk or
 // completion object, IN PLACE: walks choices[].delta.tool_calls[] and
 // choices[].message.tool_calls[], rewriting function.name. Returns the chunk
@@ -17,6 +19,9 @@ func (m ToolMapper) FromUpstreamChunk(chunk map[string]any) bool {
 		}
 		if orig, ok := m.upstreamToClient[name]; ok {
 			fn["name"] = orig
+			changed = true
+		} else if strings.HasPrefix(name, "mcp__") {
+			fn["name"] = strings.TrimPrefix(name, "mcp__")
 			changed = true
 		}
 	}
@@ -63,6 +68,9 @@ func (m ToolMapper) FromUpstreamChunk(chunk map[string]any) bool {
 func (m ToolMapper) RestoreName(name string) string {
 	if orig, ok := m.upstreamToClient[name]; ok {
 		return orig
+	}
+	if strings.HasPrefix(name, "mcp__") {
+		return strings.TrimPrefix(name, "mcp__")
 	}
 	return name
 }

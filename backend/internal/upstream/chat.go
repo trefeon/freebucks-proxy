@@ -212,6 +212,56 @@ var cliSystemGateOpenings = []string{
 	"You are Buffy, a strategic assistant that orchestrates complex coding tasks through specialized sub-agents.",
 }
 
+// foreignHarnessPromptMarkers mirrors upstream FOREIGN_HARNESS_PROMPT_MARKERS
+// (foreign-client-signals.ts:183-188). Upstream inspects all system-role
+// messages for these markers and rejects matching requests as foreign.
+var foreignHarnessPromptMarkers = []string{
+	"You are Claude Code",
+	"Anthropic's official CLI",
+	"cc_version=",
+	"cc_entrypoint=",
+}
+
+// sanitizeForeignPromptMarkers replaces foreign harness prompt markers in
+// s with a neutral placeholder, preventing upstream foreign_system_prompt
+// detection while preserving surrounding instructions.
+func sanitizeForeignPromptMarkers(s string) string {
+	for _, marker := range foreignHarnessPromptMarkers {
+		if strings.Contains(s, marker) {
+			s = strings.ReplaceAll(s, marker, "")
+		}
+	}
+	return s
+}
+
+// sanitizeSystemMessageContent scrubs foreign harness markers from
+// content, handling both plain string content and array-of-parts content.
+func sanitizeSystemMessageContent(content any) any {
+	switch v := content.(type) {
+	case string:
+		return sanitizeForeignPromptMarkers(v)
+	case []any:
+		cleanedParts := make([]any, len(v))
+		for i, part := range v {
+			if partMap, ok := part.(map[string]any); ok {
+				if txt, ok := partMap["text"].(string); ok {
+					copyMap := make(map[string]any, len(partMap))
+					for k, val := range partMap {
+						copyMap[k] = val
+					}
+					copyMap["text"] = sanitizeForeignPromptMarkers(txt)
+					cleanedParts[i] = copyMap
+					continue
+				}
+			}
+			cleanedParts[i] = part
+		}
+		return cleanedParts
+	default:
+		return content
+	}
+}
+
 // systemMarkerFor picks the canonical identity matching the run's root agent
 // family: base3 roots speak base3, everything else keeps the base2 marker.
 func systemMarkerFor(agentID string) string {
@@ -250,54 +300,64 @@ func ensureCliSystemMarker(payload map[string]any, agentID string) {
 		return
 	}
 
-	for _, m := range rawMsgs {
+	// Step 1: sanitize all system messages against foreign harness prompt markers.
+	for i, m := range rawMsgs {
 		msg, ok := m.(map[string]any)
-		if !ok {
+		if !ok || msg["role"] != "system" {
 			continue
 		}
-		if msg["role"] == "system" {
-			// The server gate is a TRIMMED PREFIX test at position 0
-			// (hasFreebuffRootSystemPromptOpening, free-agents.ts:739-744),
-			// hardened against the prepend-and-cancel proxy trick: a message
-			// that merely mentions the phrase mid-string must NOT suppress
-			// the canonical prefix (#110).
-			if content, ok := msg["content"].(string); ok && hasCanonicalOpening(content) {
-				return // already canonical
-			}
-			if parts, ok := msg["content"].([]any); ok {
-				for _, p := range parts {
-					if partMap, ok := p.(map[string]any); ok {
-						if txt, ok := partMap["text"].(string); ok && hasCanonicalOpening(txt) {
-							return // already canonical
-						}
+		if content, exists := msg["content"]; exists {
+			msg["content"] = sanitizeSystemMessageContent(content)
+			rawMsgs[i] = msg
+		}
+	}
+
+	// Step 2: check if any system message already has a canonical opening.
+	for _, m := range rawMsgs {
+		msg, ok := m.(map[string]any)
+		if !ok || msg["role"] != "system" {
+			continue
+		}
+		// The server gate is a TRIMMED PREFIX test at position 0
+		// (hasFreebuffRootSystemPromptOpening, free-agents.ts:739-744),
+		// hardened against the prepend-and-cancel proxy trick: a message
+		// that merely mentions the phrase mid-string must NOT suppress
+		// the canonical prefix (#110).
+		if content, ok := msg["content"].(string); ok && hasCanonicalOpening(content) {
+			return // already canonical
+		}
+		if parts, ok := msg["content"].([]any); ok {
+			for _, p := range parts {
+				if partMap, ok := p.(map[string]any); ok {
+					if txt, ok := partMap["text"].(string); ok && hasCanonicalOpening(txt) {
+						return // already canonical
 					}
 				}
 			}
 		}
 	}
 
-	// Not present. Merge into first system message if exists, else unshift.
+	// Step 3: Not present. Merge into first system message if exists, else unshift.
 	for i, m := range rawMsgs {
 		msg, ok := m.(map[string]any)
-		if !ok {
+		if !ok || msg["role"] != "system" {
 			continue
 		}
-		if msg["role"] == "system" {
-			if str, ok := msg["content"].(string); ok {
-				if str == "" {
-					msg["content"] = marker
-				} else {
-					msg["content"] = marker + "\n\n" + str
-				}
-			} else if parts, ok := msg["content"].([]any); ok {
-				msg["content"] = append([]any{map[string]any{"type": "text", "text": marker}}, parts...)
-			} else {
+		if str, ok := msg["content"].(string); ok {
+			trimmed := strings.TrimSpace(str)
+			if trimmed == "" {
 				msg["content"] = marker
+			} else {
+				msg["content"] = marker + "\n\n" + str
 			}
-			rawMsgs[i] = msg
-			payload["messages"] = rawMsgs
-			return
+		} else if parts, ok := msg["content"].([]any); ok {
+			msg["content"] = append([]any{map[string]any{"type": "text", "text": marker}}, parts...)
+		} else {
+			msg["content"] = marker
 		}
+		rawMsgs[i] = msg
+		payload["messages"] = rawMsgs
+		return
 	}
 
 	newMsgs := append([]any{map[string]any{"role": "system", "content": marker}}, rawMsgs...)

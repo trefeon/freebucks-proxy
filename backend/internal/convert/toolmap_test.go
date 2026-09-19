@@ -65,6 +65,9 @@ func TestToolMapperRequestRename(t *testing.T) {
 	if got := mapper.RestoreName("read_files"); got != "read_file" {
 		t.Errorf("RestoreName(read_files) = %q, want read_file", got)
 	}
+	if got := mapper.RestoreName("run_terminal_command"); got != "bash" {
+		t.Errorf("RestoreName(run_terminal_command) = %q, want bash", got)
+	}
 	if got := mapper.RestoreName("end_turn"); got != "end_turn" {
 		t.Errorf("RestoreName(end_turn) = %q, want identity", got)
 	}
@@ -74,8 +77,8 @@ func TestToolMapperRequestRename(t *testing.T) {
 // shapes: streaming delta.tool_calls and non-streaming message.tool_calls.
 func TestToolMapperResponseRestore(t *testing.T) {
 	mapper := NewToolMapper([]byte(`{"tools":[
-		{"type":"function","function":{"name":"bash"}},
-		{"type":"function","function":{"name":"write_to_file"}}
+		{"type":"function","function":{"name":"bash","parameters":{"type":"object","properties":{"command":{"type":"string"}}}}},
+		{"type":"function","function":{"name":"write_to_file","parameters":{"type":"object","properties":{"path":{"type":"string"},"instructions":{"type":"string"},"content":{"type":"string"}}}}}
 	]}`))
 	if mapper.Len() != 2 {
 		t.Fatalf("mapper entries = %d, want 2", mapper.Len())
@@ -284,6 +287,12 @@ func TestAllHarnessToolsBidirectionalMapping(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.harness+"/"+tc.clientTool, func(t *testing.T) {
+			props := map[string]any{}
+			if canonicalKeys, ok := canonicalToolParameterKeys[tc.wantOfficial]; ok {
+				for k := range canonicalKeys {
+					props[k] = map[string]any{"type": "string"}
+				}
+			}
 			body, _ := json.Marshal(map[string]any{
 				"model":    "m",
 				"messages": []any{map[string]any{"role": "user", "content": "hi"}},
@@ -292,7 +301,7 @@ func TestAllHarnessToolsBidirectionalMapping(t *testing.T) {
 						"type": "function",
 						"function": map[string]any{
 							"name":       tc.clientTool,
-							"parameters": map[string]any{"type": "object"},
+							"parameters": map[string]any{"type": "object", "properties": props},
 						},
 					},
 				},
@@ -319,6 +328,224 @@ func TestAllHarnessToolsBidirectionalMapping(t *testing.T) {
 			restored := mapper.RestoreName(gotOfficial)
 			if restored != tc.clientTool {
 				t.Errorf("RestoreName(%q) = %q, want %q", gotOfficial, restored, tc.clientTool)
+			}
+		})
+	}
+}
+
+// TestHarnessToolsetsWireClassification verifies that the real-world toolsets
+// of the major AI coding agents (Claude Code, Hermes, OMP, OpenCode, Pi, Codex,
+// and Cursor) produce wire tools that classify cleanly under upstream detection:
+//
+//   - WireForeignSignal(v) == "" (no foreign signals)
+//   - len(v.Foreign) == 0 (zero foreign harness names on the wire)
+//   - len(v.Hollow) == 0 (zero hollow signature tools on the wire)
+//   - Downstream restoration restores every client tool name byte-for-byte.
+func TestHarnessToolsetsWireClassification(t *testing.T) {
+	type clientToolDef struct {
+		name   string
+		params map[string]any
+	}
+
+	harnesses := []struct {
+		name  string
+		tools []clientToolDef
+	}{
+		{
+			name: "Claude Code",
+			tools: []clientToolDef{
+				{"Bash", map[string]any{"command": "string"}},
+				{"Read", map[string]any{"file_path": "string"}},
+				{"Edit", map[string]any{"file_path": "string", "old_string": "string", "new_string": "string"}},
+				{"Write", map[string]any{"file_path": "string", "content": "string"}},
+				{"Glob", map[string]any{"pattern": "string", "path": "string"}},
+				{"Grep", map[string]any{"pattern": "string", "path": "string"}},
+				{"Agent", map[string]any{"prompt": "string"}},
+				{"AskUserQuestion", map[string]any{"question": "string"}},
+				{"Task", map[string]any{"description": "string"}},
+				{"Skill", map[string]any{"skill": "string"}},
+				{"KillShell", map[string]any{"shell_id": "string"}},
+				{"BashOutput", map[string]any{"shell_id": "string"}},
+				{"SlashCommand", map[string]any{"command": "string"}},
+				{"EnterPlanMode", map[string]any{}},
+				{"ExitPlanMode", map[string]any{}},
+				{"TodoWrite", map[string]any{"todos": "array"}},
+				{"WebFetch", map[string]any{"url": "string"}},
+				{"WebSearch", map[string]any{"query": "string"}},
+			},
+		},
+		{
+			name: "Hermes",
+			tools: []clientToolDef{
+				{"terminal", map[string]any{"command": "string"}},
+				{"web_extract", map[string]any{"url": "string"}},
+				{"patch", map[string]any{"path": "string", "patch": "string"}},
+				{"todo_list", map[string]any{"action": "string"}},
+				{"skills_list", map[string]any{}},
+				{"skill_view", map[string]any{"name": "string"}},
+				{"skill_manage", map[string]any{"action": "string"}},
+				{"clarify", map[string]any{"question": "string"}},
+			},
+		},
+		{
+			name: "OMP",
+			tools: []clientToolDef{
+				{"bash", map[string]any{"command": "string"}},
+				{"read", map[string]any{"path": "string"}},
+				{"edit", map[string]any{"path": "string", "input": "string"}},
+				{"write", map[string]any{"path": "string", "content": "string"}},
+				{"grep", map[string]any{"pattern": "string"}},
+				{"glob", map[string]any{"pattern": "string"}},
+				{"task", map[string]any{"task": "string"}},
+				{"eval", map[string]any{"code": "string"}},
+				{"hub", map[string]any{"op": "string"}},
+				{"todo", map[string]any{"action": "string"}},
+			},
+		},
+		{
+			name: "OpenCode",
+			tools: []clientToolDef{
+				{"execute_bash", map[string]any{"command": "string"}},
+				{"fuzzy_search", map[string]any{"query": "string"}},
+				{"list_dir", map[string]any{"path": "string"}},
+				{"websearch", map[string]any{"query": "string"}},
+				{"webfetch", map[string]any{"url": "string"}},
+				{"todowrite", map[string]any{"todos": "array"}},
+				{"todoread", map[string]any{}},
+			},
+		},
+		{
+			name: "Pi",
+			tools: []clientToolDef{
+				{"powershell", map[string]any{"command": "string"}},
+				{"read", map[string]any{"path": "string"}},
+				{"edit", map[string]any{"path": "string"}},
+				{"write", map[string]any{"path": "string"}},
+				{"find", map[string]any{"pattern": "string"}},
+				{"bash", map[string]any{"command": "string"}},
+			},
+		},
+		{
+			name: "Codex",
+			tools: []clientToolDef{
+				{"exec_command", map[string]any{"cmd": "string"}},
+				{"write_stdin", map[string]any{"data": "string"}},
+				{"request_user_input", map[string]any{"prompt": "string"}},
+				{"container_exec", map[string]any{"command": "string"}},
+				{"shell", map[string]any{"command": "string"}},
+			},
+		},
+		{
+			name: "Cursor",
+			tools: []clientToolDef{
+				{"Shell", map[string]any{"command": "string"}},
+				{"StrReplace", map[string]any{"path": "string", "old": "string", "new": "string"}},
+				{"AskQuestion", map[string]any{"text": "string"}},
+				{"ReadLints", map[string]any{"paths": "array"}},
+				{"Delete", map[string]any{"path": "string"}},
+			},
+		},
+	}
+
+	for _, h := range harnesses {
+		t.Run(h.name, func(t *testing.T) {
+			var toolsArr []any
+			for _, ct := range h.tools {
+				props := map[string]any{}
+				for k, v := range ct.params {
+					props[k] = map[string]any{"type": v}
+				}
+				toolsArr = append(toolsArr, map[string]any{
+					"type": "function",
+					"function": map[string]any{
+						"name":        ct.name,
+						"description": "Tool " + ct.name,
+						"parameters": map[string]any{
+							"type":       "object",
+							"properties": props,
+						},
+					},
+				})
+			}
+
+			body, err := json.Marshal(map[string]any{
+				"model":    "deepseek/deepseek-v4-flash",
+				"messages": []any{map[string]any{"role": "user", "content": "Help me with my project"}},
+				"tools":    toolsArr,
+			})
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+
+			norm, mapper, err := NormalizeRequestMapped(body, "")
+			if err != nil {
+				t.Fatalf("NormalizeRequestMapped: %v", err)
+			}
+
+			var parsed map[string]any
+			if err := json.Unmarshal(norm, &parsed); err != nil {
+				t.Fatalf("unmarshal normalized: %v", err)
+			}
+
+			wireTools, ok := parsed["tools"].([]any)
+			if !ok || len(wireTools) == 0 {
+				t.Fatalf("wire tools empty or not an array: %v", parsed["tools"])
+			}
+
+			v := ClassifyWireTools(wireTools)
+			if sig := WireForeignSignal(v); sig != "" {
+				t.Errorf("WireForeignSignal = %q, want empty (wire tools = %v)", sig, v.Names)
+			}
+			if len(v.Foreign) != 0 {
+				t.Errorf("len(v.Foreign) = %d (%v), want 0", len(v.Foreign), v.Foreign)
+			}
+			if len(v.ForeignHarness) != 0 {
+				t.Errorf("len(v.ForeignHarness) = %d (%v), want 0", len(v.ForeignHarness), v.ForeignHarness)
+			}
+			if len(v.Genuine) == 0 {
+				t.Errorf("no genuine signature tools found on wire")
+			}
+
+			// Verify that every client tool name restores cleanly
+			for _, wt := range wireTools {
+				fn, ok := wt.(map[string]any)["function"].(map[string]any)
+				if !ok {
+					continue
+				}
+				wName := fn["name"].(string)
+				if wName == "end_turn" || wName == "decide" {
+					continue
+				}
+				restored := mapper.RestoreName(wName)
+				if strings.HasPrefix(restored, "mcp__") {
+					t.Errorf("RestoreName(%q) = %q still has mcp__ prefix", wName, restored)
+				}
+			}
+
+			// Verify streaming chunk restoration
+			for _, ct := range h.tools {
+				for _, candidate := range []string{ct.name, "mcp__" + ct.name, "run_terminal_command"} {
+					streamChunk := map[string]any{
+						"choices": []any{map[string]any{
+							"delta": map[string]any{
+								"tool_calls": []any{
+									map[string]any{
+										"index": float64(0),
+										"function": map[string]any{
+											"name": candidate,
+										},
+									},
+								},
+							},
+						}},
+					}
+					mapper.FromUpstreamChunk(streamChunk)
+					delta := streamChunk["choices"].([]any)[0].(map[string]any)["delta"].(map[string]any)
+					resName := delta["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)["name"].(string)
+					if strings.HasPrefix(resName, "mcp__") {
+						t.Errorf("FromUpstreamChunk left prefix: candidate %q -> %q", candidate, resName)
+					}
+				}
 			}
 		})
 	}
