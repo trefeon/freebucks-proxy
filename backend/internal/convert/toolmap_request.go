@@ -68,6 +68,7 @@ var clientToOfficial = map[string]string{
 
 	// Codex / OpenAI harnesses
 	"shell":          "run_terminal_command",
+	"shell_command":  "run_terminal_command",
 	"local_shell":    "run_terminal_command",
 	"container_exec": "run_terminal_command",
 	"exec_command":   "run_terminal_command",
@@ -92,6 +93,9 @@ var clientToOfficial = map[string]string{
 	"developer__write":       "write_file",
 	"developer__edit":        "str_replace",
 	"computer__execute":      "run_terminal_command",
+	// Goose dot-mangled forms (model rewrites __ to . on the wire)
+	"developer.shell":       "run_terminal_command",
+	"developer.text_editor": "str_replace",
 
 	// Continue (keys are matched lowercase)
 	"readfile":             "read_files",
@@ -133,6 +137,7 @@ var clientToOfficial = map[string]string{
 	"search_file_content": "code_search",
 	// Hermes (reference/agents/hermes-agent toolsets.py + agent/* tool refs)
 	"terminal":     "run_terminal_command",
+	"execute_code": "run_terminal_command",
 	"web_extract":  "read_url",
 	"patch":        "str_replace",
 	"todo_list":    "write_todos",
@@ -142,6 +147,7 @@ var clientToOfficial = map[string]string{
 	// OpenHands agent-server (reference/harnesses/OpenHands __tests__ tool_call
 	// fixtures carry the wire function name; terminal shares the Hermes entry)
 	"invoke_skill": "skill",
+	"run_ipython":  "run_terminal_command",
 	// Crush-additions (reference/agents/crush internal/agent/tools/*.go)
 	"fetch":       "read_url",
 	"multiedit":   "str_replace",
