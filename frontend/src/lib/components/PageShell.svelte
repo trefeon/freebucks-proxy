@@ -40,8 +40,9 @@
     children,
     crumb = "",
   } = $props();
-  // Page errors surface as a sticky error toast; the inline slot keeps the
-  // EmptyState + Retry so the failure stays actionable in place.
+  // Page errors surface as an error toast (fading after 10s like the rest);
+  // the inline slot keeps the EmptyState + Retry so the failure stays
+  // actionable in place.
   let errorToast = $state(0);
   let lastErrorMsg = "";
   $effect(() => {

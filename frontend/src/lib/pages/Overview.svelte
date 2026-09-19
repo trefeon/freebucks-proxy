@@ -181,10 +181,10 @@
     }
     return null;
   });
-  // At-risk account callout surfaces as a sticky toast (error when banned,
-  // warning for cooldown); the inline slot keeps only the Open Tokens link.
-  // One toast per account+condition — the key guard stops the 15s poll from
-  // re-pushing, and clearing the condition dismisses it.
+  // At-risk account callout surfaces as a toast (error when banned, warning
+  // for cooldown); the inline slot keeps only the Open Tokens link. One toast
+  // per account+condition — the key guard stops the 15s poll from re-pushing
+  // and holds across the 10s fade, and clearing the condition dismisses it.
   let cooldownToast = $state(0);
   let cooldownKey = $state("");
   $effect(() => {
