@@ -65,8 +65,7 @@ test.describe("usage tabs (mock backend)", () => {
     // One-shot: the key is consumed, so a reload falls back to Accounts.
     await expect
       .poll(
-        () =>
-          page.evaluate(() => sessionStorage.getItem("fp-page-tab:plans")),
+        () => page.evaluate(() => sessionStorage.getItem("fp-page-tab:plans")),
         { timeout: 10_000 },
       )
       .toBe(null);
@@ -90,8 +89,7 @@ test.describe("usage tabs (mock backend)", () => {
     ).toBeVisible();
     await expect
       .poll(
-        () =>
-          page.evaluate(() => sessionStorage.getItem("fp-page-tab:plans")),
+        () => page.evaluate(() => sessionStorage.getItem("fp-page-tab:plans")),
         { timeout: 10_000 },
       )
       .toBe(null);
@@ -195,7 +193,9 @@ test.describe("usage tabs (mock backend)", () => {
     // cross-panel storm, no retry burst.)
     const before = { ...hits };
     await page.getByRole("button", { name: "Refresh all" }).click();
-    await expect.poll(() => hits.traces, { timeout: 10_000 }).toBe(before.traces + 1);
+    await expect
+      .poll(() => hits.traces, { timeout: 10_000 })
+      .toBe(before.traces + 1);
     expect(hits.logs).toBe(before.logs);
     expect(hits.metrics).toBe(before.metrics);
     expect(hits.usage).toBe(before.usage);
@@ -296,7 +296,9 @@ test.describe("usage tabs (mock backend)", () => {
     await expect(
       page.getByRole("heading", { name: "Token usage" }),
     ).toBeVisible();
-    await expect(page.getByText("Not enough samples yet.").first()).toBeVisible();
+    await expect(
+      page.getByText("Not enough samples yet.").first(),
+    ).toBeVisible();
     await expect(
       page.getByRole("img", { name: "requests served over time" }),
     ).toHaveCount(0);

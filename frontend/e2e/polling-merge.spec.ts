@@ -138,9 +138,7 @@ test.describe("dashboard polling + merge (mock backend)", () => {
     ).toBeVisible();
 
     // Fixture pool: 3 active leases (tokens 0, 1, 4).
-    const activeCount = page
-      .locator('dl[aria-label="Pool summary"] dd')
-      .nth(1);
+    const activeCount = page.locator('dl[aria-label="Pool summary"] dd').nth(1);
     await expect(activeCount).toHaveText("3");
 
     // Next poll returns token 4 idle: the merged render must follow.

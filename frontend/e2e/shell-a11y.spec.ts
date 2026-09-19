@@ -188,17 +188,13 @@ test.describe("dashboard shell a11y (mock backend)", () => {
       page.getByText("Open this URL in your browser to sign in:"),
     ).toBeVisible();
     await page.getByRole("button", { name: "Copy link" }).click();
-    await expect(
-      page.getByRole("button", { name: "Copied" }),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
     expect(
       await page.evaluate(
         () => (window as unknown as Record<string, unknown>).__copied,
       ),
     ).toBe(loginUrl);
     await page.clock.fastForward(1600);
-    await expect(
-      page.getByRole("button", { name: "Copy link" }),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy link" })).toBeVisible();
   });
 });

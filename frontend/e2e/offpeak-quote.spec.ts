@@ -27,9 +27,7 @@ test.describe("off-peak quote (mock backend)", () => {
     await expect(line).toContainText(/Off-peak/);
     // The quote resolves client-side without throwing, so the panel leaves
     // the loading state behind instead of freezing on it.
-    await expect(page.getByRole("status", { name: "Loading" })).toHaveCount(
-      0,
-    );
+    await expect(page.getByRole("status", { name: "Loading" })).toHaveCount(0);
   });
 
   test("models tab renders the Off-peak line on the quoted row", async ({
@@ -74,9 +72,7 @@ test.describe("off-peak quote (mock backend)", () => {
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
     await expect(page.getByTestId("off-peak-line")).toHaveCount(0);
-    await expect(page.getByRole("status", { name: "Loading" })).toHaveCount(
-      0,
-    );
+    await expect(page.getByRole("status", { name: "Loading" })).toHaveCount(0);
   });
 
   test("camelCase-keyed offer still renders the off-peak line", async ({
