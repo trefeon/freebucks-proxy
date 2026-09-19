@@ -240,18 +240,18 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		// clarify stays unmapped: no official ask_user target exists.
 		{"Hermes", "clarify", classPassthru, ""},
 
-	// ── Universal harness entries (design §5 genuinely-matching only;
-	//    virtualize/passthrough owns Agent/swarm/selfdev/process_manage/download) ──
-	{"Codex", "shell_command", classMapped, "run_terminal_command"},
-	{"Hermes", "execute_code", classMapped, "run_terminal_command"},
-	{"OpenHands", "run_ipython", classMapped, "run_terminal_command"},
-	{"Goose", "developer.shell", classMapped, "run_terminal_command"},
-	{"Goose", "developer.text_editor", classMapped, "str_replace"},
-	{"Jcode", "selfdev", classPassthru, ""},
-	{"Hermes", "process_manage", classPassthru, ""},
+		// ── Universal harness entries (design §5 genuinely-matching only;
+		//    virtualize/passthrough owns Agent/swarm/selfdev/process_manage/download) ──
+		{"Codex", "shell_command", classMapped, "run_terminal_command"},
+		{"Hermes", "execute_code", classMapped, "run_terminal_command"},
+		{"OpenHands", "run_ipython", classMapped, "run_terminal_command"},
+		{"Goose", "developer.shell", classMapped, "run_terminal_command"},
+		{"Goose", "developer.text_editor", classMapped, "str_replace"},
+		{"Jcode", "selfdev", classPassthru, ""},
+		{"Hermes", "process_manage", classPassthru, ""},
 
-	// ── Original corpus rows kept for classification continuity ──
-	{"Cline", "read_file", classMapped, "read_files"},
+		// ── Original corpus rows kept for classification continuity ──
+		{"Cline", "read_file", classMapped, "read_files"},
 		{"Roo-Code", "apply_diff", classMapped, "apply_patch"},
 		{"Goose", "developer__shell", classMapped, "run_terminal_command"},
 		{"Continue", "readFile", classMapped, "read_files"},
