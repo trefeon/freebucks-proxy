@@ -116,8 +116,19 @@ func TestModelsEndpoint(t *testing.T) {
 	// 5→6 on 2026-08-29: upstage/solar-pro4 served (vendor 87ef664);
 	// 6→5 on 2026-08-31: z-ai/glm-5.2 paused, reward moved to glm-5.3-flash (vendor e557373, a5980e38e).
 	// 5→6 on 2026-09-05: meta/muse-spark-1.3-contributor served (upstream b14414d59).
-	if len(out.Data) != 6 {
-		t.Errorf("models = %d, want 6", len(out.Data))
+	// 6→8 on 2026-09-20 (tier-aware gate): the surface also carries the two
+	// tier rows (google/gemini-3.8-flash, anthropic/claude-fable-5.1) with the
+	// reason the pool cannot admit them. Withdrawn rows are never listed.
+	if len(out.Data) != 8 {
+		t.Errorf("models = %d, want 8 (6 served + 2 tier rows)", len(out.Data))
+	}
+	served := map[string]bool{
+		"deepseek/deepseek-v4-flash":      true,
+		"openai/gpt-5.6-luna":             true,
+		"upstage/solar-pro4":              true,
+		"meta/muse-spark-1.2-contributor": true,
+		"z-ai/glm-5.3-flash":              true,
+		"mimo/mimo-v2.5":                  true,
 	}
 	for i, m := range out.Data {
 		if m.ID == "" || m.Object != "model" || m.OwnedBy == "" {
@@ -126,10 +137,15 @@ func TestModelsEndpoint(t *testing.T) {
 		if m.Created != out.Data[0].Created {
 			t.Errorf("model %d created = %d, want %d (pinned to server start)", i, m.Created, out.Data[0].Created)
 		}
-		// Advisory annotation: never hide a working model, so available is
-		// true and status "unknown" when no session has reported anything.
-		if !m.Available {
-			t.Errorf("model %s available = false, want true (advisory default)", m.ID)
+		// Advisory annotation: an admitted row defaults to available with
+		// status "unknown" before any session signal; the tier and withdrawn
+		// rows carry the reason instead (TestModelsTierAnnotationShape pins
+		// the per-status matrix).
+		if served[m.ID] && (!m.Available || m.Status != "unknown") {
+			t.Errorf("served model %s = available %v/status %q, want true/unknown (advisory default)", m.ID, m.Available, m.Status)
+		}
+		if !served[m.ID] && m.Available {
+			t.Errorf("gated model %s available = true, want false on a pool with no plan or offer", m.ID)
 		}
 		if m.Status == "" {
 			t.Errorf("model %s status empty, want a status string", m.ID)
@@ -213,7 +229,12 @@ func TestConformanceCodexModelsStrictModelInfo(t *testing.T) {
 			}
 		}
 	}
-	// The codex slug set must be exactly the served ids of the legacy shape.
+	// The codex slug set must be exactly the ADMITTED subset of the legacy
+	// shape: codex renders these rows as its own picker and the strict
+	// ModelInfo row has no field for "listed but not runnable" (the legacy
+	// shape annotates that with available/status/tiers), so a tier row the
+	// pool cannot admit — and every withdrawn id — must not leak in as
+	// selectable.
 	resp2, data2 := doJSON(t, http.MethodGet, ts.URL+"/v1/models", nil, nil)
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("legacy models status = %d: %s", resp2.StatusCode, data2)
@@ -230,16 +251,21 @@ func TestConformanceCodexModelsStrictModelInfo(t *testing.T) {
 	for _, m := range legacy.Data {
 		legacyIDs[m.ID] = true
 	}
-	if len(out.Models) != len(legacy.Data) {
-		t.Fatalf("codex rows = %d, legacy rows = %d, want equal", len(out.Models), len(legacy.Data))
+	// 6 served ids: the pool reports no plan and no offer, so the two tier
+	// rows are listed-but-unadmitted (and the five withdrawn ids are not
+	// listed at all).
+	if len(out.Models) != 6 {
+		t.Fatalf("codex rows = %d, want the 6 admitted ids (legacy lists %d)", len(out.Models), len(legacy.Data))
 	}
+	codexIDs := make(map[string]bool, len(out.Models))
 	for i, m := range out.Models {
 		if m.Slug == "" {
 			t.Errorf("model %d: slug empty", i)
 			continue
 		}
+		codexIDs[m.Slug] = true
 		if !legacyIDs[m.Slug] {
-			t.Errorf("model %d: slug %q not in the legacy served set", i, m.Slug)
+			t.Errorf("model %d: slug %q not in the legacy catalog set", i, m.Slug)
 		}
 		if m.DisplayName == "" {
 			t.Errorf("model %s: display_name empty", m.Slug)
@@ -277,6 +303,15 @@ func TestConformanceCodexModelsStrictModelInfo(t *testing.T) {
 			t.Errorf("model %s: input_modalities = %v, want [text image]", m.Slug, m.InputModalities)
 		}
 	}
+	for _, id := range []string{
+		"google/gemini-3.8-flash",
+		"anthropic/claude-fable-5.1",
+		"minimax/minimax-m3",
+	} {
+		if codexIDs[id] {
+			t.Errorf("codex rows carry unadmitted %q — the strict shape cannot say why it would be refused", id)
+		}
+	}
 }
 
 // TestConformanceModelsWithoutClientVersionKeepsOpenAIShape pins zero
@@ -311,7 +346,11 @@ func TestConformanceModelsWithoutClientVersionKeepsOpenAIShape(t *testing.T) {
 			t.Fatalf("%s object = %q, models = %d, want list/non-empty", url, out.Object, len(out.Data))
 		}
 		for i, m := range out.Data {
-			if m.ID == "" || m.Object != "model" || m.OwnedBy == "" || !m.Available || m.Status == "" {
+			// Availability now varies by row (a listed tier row the pool
+			// cannot admit carries available=false plus the reason); the
+			// shape assertions here are the OpenAI row fields and the pinned
+			// created stamp.
+			if m.ID == "" || m.Object != "model" || m.OwnedBy == "" || m.Status == "" {
 				t.Errorf("%s model %d malformed legacy row: %+v", url, i, m)
 			}
 			if m.Created != out.Data[0].Created {
@@ -753,8 +792,11 @@ func TestModelsAllowEmptyIsOpen(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("models is not JSON: %v: %s", err, data)
 	}
-	if len(out.Data) != 6 {
-		t.Errorf("model count = %d, want 6 (all operational models served)", len(out.Data))
+	// 8 = the catalog surface (6 served + 2 tier rows); no id is pruned by
+	// MODELS_ALLOW or MODELS_HIDE_UNAVAILABLE here, and withdrawn rows are
+	// never listed.
+	if len(out.Data) != 8 {
+		t.Errorf("model count = %d, want 8 (served + tier rows)", len(out.Data))
 	}
 	var hasModelA, hasFlash bool
 	for _, m := range out.Data {
@@ -958,7 +1000,8 @@ func TestMetricsTransientRetryCounters(t *testing.T) {
 }
 
 // TestStrictServedModelsEnforced pins issue #189 end-to-end:
-//  1. GET /v1/models returns strictly the 6 operational models.
+//  1. GET /v1/models returns the six operational models plus the two tier
+//     rows the catalog surface annotates (withdrawn rows stay unlisted).
 //  2. Any request targeting a disabled model on OpenAI chat, Anthropic messages,
 //     or OpenAI responses returns immediate fast-fail with model_unavailable.
 //  3. /healthz reports models: 6.
@@ -980,8 +1023,8 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("unmarshal /v1/models: %v", err)
 	}
-	if len(out.Data) != 6 {
-		t.Fatalf("models count = %d, want exactly 6", len(out.Data))
+	if len(out.Data) != 8 {
+		t.Fatalf("models count = %d, want 8 (6 served + 2 tier rows)", len(out.Data))
 	}
 	wantSet := map[string]bool{
 		"deepseek/deepseek-v4-flash":      true,
@@ -991,9 +1034,30 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 		"z-ai/glm-5.3-flash":              true,
 		"mimo/mimo-v2.5":                  true,
 	}
+	// The two tier rows the catalog surface carries for their STATUS: not
+	// servable on a pool with no plan or offer, listed so a picker can render
+	// the reason (counted above, so the set is fully pinned).
+	gatedSet := map[string]bool{
+		"google/gemini-3.8-flash":    true,
+		"anthropic/claude-fable-5.1": true,
+	}
+	// Withdrawn rows are recognized but never advertised: the refusal copy
+	// below names the replacement, and /v1/models must not list them.
+	withdrawnIDs := []string{
+		"minimax/minimax-m3",
+		"z-ai/glm-5.2",
+		"deepseek/deepseek-v4-pro",
+		"stealth/ox-alpha",
+		"meta/muse-spark-1.3-contributor",
+	}
 	for _, m := range out.Data {
-		if !wantSet[m.ID] {
+		if !wantSet[m.ID] && !gatedSet[m.ID] {
 			t.Errorf("/v1/models listed unexpected model %q", m.ID)
+		}
+		for _, w := range withdrawnIDs {
+			if m.ID == w {
+				t.Errorf("/v1/models listed withdrawn model %q, want it refused (not advertised)", w)
+			}
 		}
 	}
 
@@ -1004,6 +1068,13 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 		"anthropic/claude-fable-5.1",
 		"crof/kimi-k3-eco",
 		"meta/muse-spark-1.3-contributor",
+	}
+	// Per-id refusal copy: withdrawn rows keep upstream's own copy naming the
+	// replacement, the offer row gets the tier copy naming the missing trial,
+	// and every other disabled id keeps the supported-list dump.
+	wantCopy := map[string]string{
+		"meta/muse-spark-1.3-contributor": "Muse Spark 1.3 is no longer available",
+		"anthropic/claude-fable-5.1":      "capacity-limited trial that is not being offered",
 	}
 
 	for _, dm := range disabledModels {
@@ -1026,14 +1097,12 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 		if errChat.Error.Code != "model_unavailable" {
 			t.Errorf("chat %s error code = %q, want model_unavailable", dm, errChat.Error.Code)
 		}
-		if dm == "meta/muse-spark-1.3-contributor" {
-			// Paused (withdrawn 2026-09-07): the refusal names the replacement,
-			// not the supported list.
-			if !strings.Contains(errChat.Error.Message, "Muse Spark 1.3 is no longer available") {
-				t.Errorf("chat %s message = %q, want withdrawn-model notice", dm, errChat.Error.Message)
-			}
-		} else if !strings.Contains(errChat.Error.Message, "Supported models: openai") {
-			t.Errorf("chat %s message = %q, want supported models notice", dm, errChat.Error.Message)
+		want := wantCopy[dm]
+		if want == "" {
+			want = "Supported models: openai"
+		}
+		if !strings.Contains(errChat.Error.Message, want) {
+			t.Errorf("chat %s message = %q, want %q", dm, errChat.Error.Message, want)
 		}
 
 		// Anthropic messages -> 400 invalid_request_error
@@ -1056,12 +1125,8 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 		if errAnthropic.Error.Type != "invalid_request_error" {
 			t.Errorf("messages %s error type = %q, want invalid_request_error", dm, errAnthropic.Error.Type)
 		}
-		if dm == "meta/muse-spark-1.3-contributor" {
-			if !strings.Contains(errAnthropic.Error.Message, "Muse Spark 1.3 is no longer available") {
-				t.Errorf("messages %s message = %q, want withdrawn-model notice", dm, errAnthropic.Error.Message)
-			}
-		} else if !strings.Contains(errAnthropic.Error.Message, "Supported models: openai") {
-			t.Errorf("messages %s message = %q, want supported models notice", dm, errAnthropic.Error.Message)
+		if !strings.Contains(errAnthropic.Error.Message, want) {
+			t.Errorf("messages %s message = %q, want %q", dm, errAnthropic.Error.Message, want)
 		}
 
 		// OpenAI responses -> 400 model_unavailable
@@ -1315,9 +1380,10 @@ func TestMetricsFamiliesContract(t *testing.T) {
 }
 
 // TestModelsEndpointLimitedTier verifies that when upstream reports accessTier: "limited",
-// /v1/models annotates each row with current_access_tier: "limited", marks mimo/mimo-v2.5
-// available: true, and marks models outside the limited-tier allowlist available: false,
-// status: "region_limited".
+// /v1/models annotates each row with current_access_tier: "limited", marks the
+// limited-tier rows available: true, demotes the served full-tier rows to
+// region_limited, and labels the two tier rows with their own reason
+// (plan_required / offer_unavailable). Withdrawn ids are never listed.
 func TestModelsEndpointLimitedTier(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -1348,6 +1414,11 @@ func TestModelsEndpointLimitedTier(t *testing.T) {
 	if len(out.Data) == 0 {
 		t.Fatal("empty models data")
 	}
+	// 8 rows: the six served ids plus the two tier rows. Withdrawn rows are
+	// never listed, and MODELS_HIDE_UNAVAILABLE is off here.
+	if len(out.Data) != 8 {
+		t.Fatalf("models = %d, want 8 (6 served + 2 tier rows)", len(out.Data))
+	}
 	for _, m := range out.Data {
 		if m.CurrentAccessTier != "limited" {
 			t.Errorf("model %s current_access_tier = %q, want limited", m.ID, m.CurrentAccessTier)
@@ -1357,13 +1428,23 @@ func TestModelsEndpointLimitedTier(t *testing.T) {
 			if !m.Available {
 				t.Errorf("model %s available = false, want true on limited tier", m.ID)
 			}
+		case "openai/gpt-5.6-luna", "meta/muse-spark-1.2-contributor":
+			// Served, but the limited tier demotes the full-tier rows.
+			if m.Available || m.Status != "region_limited" {
+				t.Errorf("model %s = available %v/status %q, want false/region_limited", m.ID, m.Available, m.Status)
+			}
+		case "google/gemini-3.8-flash":
+			// Tier row: no plan reported, so the plan is what is missing.
+			if m.Available || m.Status != "plan_required" {
+				t.Errorf("model %s = available %v/status %q, want false/plan_required", m.ID, m.Available, m.Status)
+			}
+		case "anthropic/claude-fable-5.1":
+			// Offer row: nothing is advertising the wave.
+			if m.Available || m.Status != "offer_unavailable" {
+				t.Errorf("model %s = available %v/status %q, want false/offer_unavailable", m.ID, m.Available, m.Status)
+			}
 		default:
-			if m.Available {
-				t.Errorf("model %s available = true, want false on limited tier", m.ID)
-			}
-			if m.Status != "region_limited" {
-				t.Errorf("model %s status = %q, want region_limited", m.ID, m.Status)
-			}
+			t.Errorf("unexpected model %q listed on the limited tier", m.ID)
 		}
 	}
 }

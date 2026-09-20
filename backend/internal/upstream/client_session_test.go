@@ -63,6 +63,42 @@ func TestSessionParseAccessTier(t *testing.T) {
 	}
 }
 
+// TestSessionParseSubscriptionTierID pins the subscription.tierId
+// passthrough: a present tier survives verbatim, while an explicit null and
+// an absent block both leave the state's tier empty (never an error).
+func TestSessionParseSubscriptionTierID(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"present", `{"status":"active","instanceId":"i","subscription":{"tierId":"plan_pro_max"}}`, "plan_pro_max"},
+		{"null", `{"status":"active","instanceId":"i","subscription":null}`, ""},
+		{"absent", `{"status":"active","instanceId":"i"}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, tc.body)
+			}
+			client, err := New("tok", testConfig(mock.URL(), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := client.CreateSession(context.Background())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if st.SubscriptionTierID != tc.want {
+				t.Errorf("SubscriptionTierID = %q, want %q", st.SubscriptionTierID, tc.want)
+			}
+		})
+	}
+}
+
 // TestProbeAccount verifies the zero-cost token probe: a GET
 // /api/v1/freebuff/session with NO instance header that claims no session
 // slot, returns the live per-model quota, and classifies

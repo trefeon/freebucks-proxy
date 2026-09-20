@@ -380,12 +380,14 @@ func TestLiveCardPerDayDisplay(t *testing.T) {
 	}
 }
 
-// TestModelsDataServedGateOnly pins the served-model filter on modelsData:
-// the vendor registry also carries god-only/eval rows (luna-es since
-// snapshot 0603bc1) that must never appear in the dashboard models view.
-// One exception: the referral row (GLM 5.2, Served=false) is listed so
-// users discover the grant path. Count = served set + 1.
-func TestModelsDataServedGateOnly(t *testing.T) {
+// TestModelsDataCatalogTierFacts pins the full-catalog models view: every
+// modelcat row appears exactly once with the tier sets that admit it and its
+// withdrawal facts, so the page can show which access level can use what.
+// Served rows keep served=true; withdrawn rows carry served=false +
+// withdrawn=true + the refusal copy and no tiers; tier-only rows (paid,
+// offer) are unserved but never tierless. God-only/eval registry rows
+// (luna-es) stay out. Count is the row count.
+func TestModelsDataCatalogTierFacts(t *testing.T) {
 	cfg := &config.Config{
 		RotationInterval:   time.Hour,
 		RequestTimeout:     15 * time.Minute,
@@ -400,33 +402,126 @@ func TestModelsDataServedGateOnly(t *testing.T) {
 	}
 	d := New(func() *config.Config { return cfg }, nil, reg, nil, nil)
 	md := d.modelsData()
-	if md.Count != len(modelcat.ServedIDs())+1 {
-		t.Errorf("Count = %d, want %d (served set + referral row)", md.Count, len(modelcat.ServedIDs())+1)
+	if md.Count != len(modelcat.Catalog) || len(md.Models) != len(modelcat.Catalog) {
+		t.Fatalf("Count/rows = %d/%d, want %d (every catalog row)", md.Count, len(md.Models), len(modelcat.Catalog))
 	}
-	var sawReferral bool
+	seen := make(map[string]bool, len(md.Models))
+	var sawReferral, sawWithdrawn, sawOffer bool
 	for _, row := range md.Models {
+		if seen[row.ID] {
+			t.Errorf("model %q listed twice", row.ID)
+			continue
+		}
+		seen[row.ID] = true
+		if got, want := row.Served, modelcat.IsServed(row.ID); got != want {
+			t.Errorf("row %q Served = %v, want %v", row.ID, got, want)
+		}
+		if got, want := row.Withdrawn, modelcat.IsPaused(row.ID); got != want {
+			t.Errorf("row %q Withdrawn = %v, want %v", row.ID, got, want)
+		}
+		if got, want := row.Replacement, modelcat.PausedReplacement(row.ID); got != want {
+			t.Errorf("row %q Replacement = %q, want %q", row.ID, got, want)
+		}
+		if got, want := row.Tiers, modelcat.Tiers(row.ID); !slices.Equal(got, want) {
+			t.Errorf("row %q Tiers = %v, want modelcat %v", row.ID, got, want)
+		}
+		if got, want := row.Efforts, modelcat.Efforts(row.ID); !slices.Equal(got, want) {
+			t.Errorf("row %q Efforts = %v, want modelcat %v", row.ID, got, want)
+		}
+		switch {
+		case row.Withdrawn:
+			sawWithdrawn = true
+			if row.Served {
+				t.Errorf("withdrawn row %q has Served=true, want false", row.ID)
+			}
+			if len(row.Tiers) != 0 {
+				t.Errorf("withdrawn row %q Tiers = %v, want empty", row.ID, row.Tiers)
+			}
+			if row.Replacement == "" {
+				t.Errorf("withdrawn row %q has no replacement copy", row.ID)
+			} else if !modelcat.IsServed(row.Replacement) {
+				t.Errorf("withdrawn row %q suggests unserved replacement %q", row.ID, row.Replacement)
+			}
+		case !row.Served:
+			if len(row.Tiers) == 0 {
+				t.Errorf("unserved row %q carries no tiers, want the admitting tier", row.ID)
+			}
+		}
 		if row.ID == modelcat.Glm52ModelID {
 			sawReferral = true
 			if row.Served {
 				t.Errorf("referral row %q has Served=true, want false", row.ID)
 			}
+			if row.Pool != "referral" {
+				t.Errorf("referral row pool = %q, want referral", row.Pool)
+			}
 			if row.Quota != "referral +1/day" {
 				t.Errorf("referral row quota = %q, want %q", row.Quota, "referral +1/day")
 			}
-			continue
 		}
-		if !modelcat.IsServed(row.ID) {
-			t.Errorf("models view contains unserved model %q", row.ID)
+		if row.ID == "anthropic/claude-fable-5.1" {
+			sawOffer = true
+			if !slices.Equal(row.Tiers, []string{modelcat.TierOffer}) {
+				t.Errorf("offer row Tiers = %v, want [offer]", row.Tiers)
+			}
 		}
-		if !row.Served {
-			t.Errorf("served row %q has Served=false, want true", row.ID)
+	}
+	for _, info := range modelcat.Catalog {
+		if !seen[info.ID] {
+			t.Errorf("catalog row %q missing from the models view", info.ID)
 		}
-		if got, want := row.Efforts, modelcat.Efforts(row.ID); !slices.Equal(got, want) {
-			t.Errorf("row %q Efforts = %v, want modelcat %v", row.ID, got, want)
+	}
+	// This fixture carries no live prices, so every row is unpriced and the
+	// payload must keep catalog order (priced rows are the only ones hoisted).
+	for i, info := range modelcat.Catalog {
+		if md.Models[i].ID != info.ID {
+			t.Errorf("row %d = %q, want catalog order %q", i, md.Models[i].ID, info.ID)
 		}
 	}
 	if !sawReferral {
 		t.Error("models view missing the referral row (z-ai/glm-5.2)")
+	}
+	if !sawWithdrawn {
+		t.Error("models view missing withdrawn rows")
+	}
+	if !sawOffer {
+		t.Error("models view missing the offer row (anthropic/claude-fable-5.1)")
+	}
+}
+
+// TestModelsDataWithdrawnRow pins one withdrawn row's new fields end to end:
+// the paused row keeps its catalog display facts but reports served=false,
+// withdrawn=true, the replacement the refusal copy recommends, and no tiers
+// — the state the SPA hides or greys a row from.
+func TestModelsDataWithdrawnRow(t *testing.T) {
+	cfg := &config.Config{UpstreamBaseURL: "https://www.codebuff.com"}
+	reg := registry.New(cfg, nil)
+	reg.LoadFallback()
+	d := New(func() *config.Config { return cfg }, nil, reg, nil, nil)
+	md := d.modelsData()
+	byID := make(map[string]modelRow, len(md.Models))
+	for _, row := range md.Models {
+		byID[row.ID] = row
+	}
+	const paused = "stealth/ox-alpha"
+	row, ok := byID[paused]
+	if !ok {
+		t.Fatalf("withdrawn row %q missing from the models view", paused)
+	}
+	if !row.Withdrawn || row.Served {
+		t.Errorf("%s Withdrawn/Served = %v/%v, want true/false", paused, row.Withdrawn, row.Served)
+	}
+	if want := modelcat.PausedReplacement(paused); row.Replacement != want {
+		t.Errorf("%s Replacement = %q, want %q", paused, row.Replacement, want)
+	}
+	if len(row.Tiers) != 0 {
+		t.Errorf("%s Tiers = %v, want empty (no tier admits a withdrawn row)", paused, row.Tiers)
+	}
+	if row.Offer != nil {
+		t.Errorf("%s Offer = %+v, want nil", paused, row.Offer)
+	}
+	if row.DisplayName == "" || row.ID != paused {
+		t.Errorf("%s row identity = %q/%q, want the catalog display name", paused, row.ID, row.DisplayName)
 	}
 }
 
@@ -527,8 +622,8 @@ func TestTokensDataUnmeteredWithoutQuota(t *testing.T) {
 }
 
 // TestSortModelRowsByPrice pins issue #350 (mirrors sortModelsByPrice):
-// cheapest-first, ties on display name, unpriced rows last, stable on
-// empty prices.
+// cheapest-first, ties on display name, unpriced rows last and in catalog
+// (incoming) order.
 func TestSortModelRowsByPrice(t *testing.T) {
 	rows := []modelRow{{ID: "b"}, {ID: "a"}, {ID: "c"}, {ID: "z-ai/glm-5.2"}}
 	prices := map[string]float64{"a": 5, "b": 1, "c": 5}
@@ -546,13 +641,19 @@ func TestSortModelRowsByPrice(t *testing.T) {
 	if !middleOK {
 		t.Errorf("middle = %v, want a and c in display-name order", got[1:3])
 	}
-	// Empty prices: every row ties → display-name order (upstream
-	// sortModelsByPrice behaves the same; modelsData only calls with a
-	// non-empty map, so unmetered accounts keep catalog order).
-	plain := []modelRow{{ID: "b"}, {ID: "a"}}
+	// No priced row: the payload keeps the incoming (catalog) order —
+	// withdrawn rows included — so an unmetered account reads like the
+	// upstream picker instead of a display-name sort.
+	plain := []modelRow{{ID: "z-ai/glm-5.2"}, {ID: "stealth/ox-alpha"}, {ID: "b"}}
 	sortModelRowsByPrice(plain, map[string]float64{})
-	if plain[0].ID != "a" || plain[1].ID != "b" {
-		t.Errorf("empty prices ordered %v, want display-name order", plain)
+	if plain[0].ID != "z-ai/glm-5.2" || plain[1].ID != "stealth/ox-alpha" || plain[2].ID != "b" {
+		t.Errorf("unpriced rows ordered %v, want incoming catalog order", []string{plain[0].ID, plain[1].ID, plain[2].ID})
+	}
+	// A single priced row still hoists above the unpriced ones.
+	mixed := []modelRow{{ID: "z-ai/glm-5.2"}, {ID: "b"}, {ID: "stealth/ox-alpha"}}
+	sortModelRowsByPrice(mixed, map[string]float64{"b": 2})
+	if mixed[0].ID != "b" || mixed[1].ID != "z-ai/glm-5.2" || mixed[2].ID != "stealth/ox-alpha" {
+		t.Errorf("mixed rows ordered %v, want priced-then-catalog", []string{mixed[0].ID, mixed[1].ID, mixed[2].ID})
 	}
 }
 

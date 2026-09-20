@@ -222,6 +222,7 @@ func rowPremiumFlag(modelsSrc, extraSrc, name string) (val, found bool) {
 	}
 	return false, false
 }
+
 func TestCatalogParityWithPinnedUpstream(t *testing.T) {
 	ids := modelIDs(t)
 	modelsSrc := readTestdata(t, "freebuff-models.ts")
@@ -447,5 +448,135 @@ func TestLimitedTierModelsPinned(t *testing.T) {
 		if IsLimitedTierAllowed(id) {
 			t.Errorf("IsLimitedTierAllowed(%q) = true, want false", id)
 		}
+	}
+}
+
+// wantTiers pins the tier sets each catalog row carries, in canonical order
+// limited, full, paid, offer: limited is the free limited-access catalog
+// (LIMITED_FREEBUFF_MODEL_IDS), full is FREEBUFF_MODELS membership, paid is
+// FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS, and offer is
+// FREEBUFF_LIMITED_OFFER_MODEL_IDS. Every row is listed, including the
+// withdrawn ones, which no tier offers.
+var wantTiers = map[string][]string{
+	"stealth/ox-alpha":                nil,
+	"deepseek/deepseek-v4-pro":        nil,
+	"minimax/minimax-m3":              nil,
+	"openai/gpt-5.6-luna":             {TierFull, TierPaid},
+	"upstage/solar-pro4":              {TierLimited, TierFull},
+	"google/gemini-3.8-flash":         {TierPaid},
+	"meta/muse-spark-1.3-contributor": nil,
+	"meta/muse-spark-1.2-contributor": {TierFull},
+	"z-ai/glm-5.2":                    nil,
+	"z-ai/glm-5.3-flash":              {TierLimited, TierFull, TierPaid},
+	"deepseek/deepseek-v4-flash":      {TierLimited, TierFull, TierPaid},
+	"mimo/mimo-v2.5":                  {TierLimited, TierFull},
+	"anthropic/claude-fable-5.1":      {TierOffer},
+}
+
+// TestCatalogTiersPinned asserts every catalog row carries exactly its pinned
+// tier sets, that the vocabulary the emitted rows reference by name still has
+// the frozen spelling, and that the derived limited set agrees with the
+// hand-pinned LimitedTierModelIDs the limited-tier gate reads.
+func TestCatalogTiersPinned(t *testing.T) {
+	for i := range Catalog {
+		id := Catalog[i].ID
+		want, ok := wantTiers[id]
+		if !ok {
+			t.Errorf("catalog row %q has no pinned tier expectation", id)
+			continue
+		}
+		if got := Tiers(id); !slices.Equal(got, want) {
+			t.Errorf("Tiers(%q) = %v, want %v", id, got, want)
+		}
+	}
+	if len(wantTiers) != len(Catalog) {
+		t.Errorf("pinned tier table has %d rows, catalog has %d", len(wantTiers), len(Catalog))
+	}
+
+	// The vocabulary is a cross-package contract (the emitted rows reference
+	// the consts by name, downstream gates compare the strings).
+	for _, tc := range []struct{ got, want string }{
+		{TierLimited, "limited"},
+		{TierFull, "full"},
+		{TierPaid, "paid"},
+		{TierOffer, "offer"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("tier const = %q, want %q", tc.got, tc.want)
+		}
+	}
+
+	// Two views of the limited tier must name the same ids: the tier sets
+	// derived from LIMITED_FREEBUFF_MODEL_IDS and the pinned
+	// LimitedTierModelIDs/IsLimitedTierAllowed pair.
+	wantLimited := map[string]bool{}
+	for id, tiers := range wantTiers {
+		if slices.Contains(tiers, TierLimited) {
+			wantLimited[id] = true
+		}
+	}
+	gotLimited := map[string]bool{}
+	for _, id := range LimitedTierModelIDs {
+		gotLimited[id] = true
+		if !IsLimitedTierAllowed(id) {
+			t.Errorf("IsLimitedTierAllowed(%q) = false, want true (in LimitedTierModelIDs)", id)
+		}
+	}
+	if !maps.Equal(gotLimited, wantLimited) {
+		t.Errorf("LimitedTierModelIDs = %v, want the limited tier set %v", LimitedTierModelIDs, wantLimited)
+	}
+}
+
+// TestHasTierBoundaries pins the negative cases: unknown ids, tier strings
+// outside the vocabulary, and withdrawn rows are never members, and the
+// returned tier slice is a copy.
+func TestHasTierBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		id, tier string
+		want     bool
+	}{
+		{"z-ai/glm-5.3-flash", TierLimited, true},
+		{"z-ai/glm-5.3-flash", TierFull, true},
+		{"z-ai/glm-5.3-flash", TierPaid, true},
+		{"z-ai/glm-5.3-flash", TierOffer, false},
+		{"stealth/ox-alpha", TierLimited, false},
+		{"stealth/ox-alpha", TierFull, false},
+		{"stealth/ox-alpha", TierPaid, false},
+		{"stealth/ox-alpha", TierOffer, false},
+		{"stealth/ox-alpha", "withdrawn", false},
+		{"upstage/solar-pro4", "", false},
+		{"", TierLimited, false},
+		{"no/such-model", TierFull, false},
+		{"no/such-model", "offer", false},
+	} {
+		if got := HasTier(tc.id, tc.tier); got != tc.want {
+			t.Errorf("HasTier(%q, %q) = %v, want %v", tc.id, tc.tier, got, tc.want)
+		}
+	}
+	if got := Tiers("no/such-model"); got != nil {
+		t.Errorf("Tiers(unknown) = %v, want nil", got)
+	}
+	got := Tiers("mimo/mimo-v2.5")
+	if len(got) == 0 {
+		t.Fatal("Tiers(mimo/mimo-v2.5) is empty, want the limited/full set")
+	}
+	got[0] = "mutated"
+	if HasTier("mimo/mimo-v2.5", "mutated") {
+		t.Error("Tiers returned the catalog's own slice, want a copy")
+	}
+}
+
+// TestOfferedModelIDsPinned pins the capacity-limited offer set: Fable 5.1
+// alone, recognized by every picker surface but not served.
+func TestOfferedModelIDsPinned(t *testing.T) {
+	want := []string{"anthropic/claude-fable-5.1"}
+	if got := OfferedModelIDs(); !slices.Equal(got, want) {
+		t.Errorf("OfferedModelIDs() = %v, want %v", got, want)
+	}
+	if !HasTier("anthropic/claude-fable-5.1", TierOffer) {
+		t.Error("fable 5.1 is not TierOffer, want the capacity-limited offer row")
+	}
+	if IsServed("anthropic/claude-fable-5.1") {
+		t.Error("fable 5.1 is Served, want offer-only")
 	}
 }

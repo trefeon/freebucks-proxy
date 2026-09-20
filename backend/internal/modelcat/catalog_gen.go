@@ -18,6 +18,10 @@ type ModelInfo struct {
 	// Served gates /v1/models and the chat handlers: the ids this gateway
 	// serves or advertises. Paused models are never Served.
 	Served bool
+	// Tiers lists the upstream tier sets that admit this row, in canonical
+	// order TierLimited, TierFull, TierPaid, TierOffer. Nil when no tier
+	// offers it (withdrawn and god-only rows), never a partial order.
+	Tiers []string
 	// PausedReplacement is non-empty exactly when upstream
 	// FREEBUFF_PAUSED_FREE_MODEL_IDS lists the model: recognized but
 	// admission-refused. It names the model the refusal copy recommends.
@@ -60,14 +64,17 @@ var Catalog = []ModelInfo{
 		Tagline:       "Strong all-around",
 		Badges:        []string{"Reasoning: high", "Images"},
 		Served:        true,
+		Tiers:         []string{TierFull, TierPaid},
 		Premium:       true,
 		ContextWindow: 1000000,
 		Efforts:       []string{"low", "medium", "high", "xhigh", "max"}},
 	{ID: "upstage/solar-pro4", DisplayName: "Solar Pro 4",
 		Tagline:       "0 Freebucks",
 		Served:        true,
+		Tiers:         []string{TierLimited, TierFull},
 		ContextWindow: 500000},
 	{ID: "google/gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash",
+		Tiers:   []string{TierPaid},
 		Efforts: []string{"low", "medium", "high", "xhigh", "max"}},
 	{ID: "meta/muse-spark-1.3-contributor", DisplayName: "Muse Spark 1.3",
 		Tagline:           "Queues, then falls back",
@@ -81,6 +88,7 @@ var Catalog = []ModelInfo{
 		Badges:        []string{"Reasoning: xhigh"},
 		Notice:        "May use data for AI training",
 		Served:        true,
+		Tiers:         []string{TierFull},
 		Premium:       true,
 		ContextWindow: 1000000,
 		Efforts:       []string{"minimal", "low", "medium", "high", "xhigh"}},
@@ -93,6 +101,7 @@ var Catalog = []ModelInfo{
 		Tagline:       "Deep reasoning",
 		Badges:        []string{"Reasoning: max*", "Images", "NEW"},
 		Served:        true,
+		Tiers:         []string{TierLimited, TierFull, TierPaid},
 		ContextWindow: 1000000,
 		Efforts:       []string{"low", "high", "max"}},
 	{ID: "deepseek/deepseek-v4-flash", DisplayName: "DeepSeek V4.1 Flash",
@@ -100,14 +109,17 @@ var Catalog = []ModelInfo{
 		Badges:        []string{"Reasoning: high", "Images", "NEW"},
 		Notice:        "May use data for AI training",
 		Served:        true,
+		Tiers:         []string{TierLimited, TierFull, TierPaid},
 		ContextWindow: 1048576,
 		Efforts:       []string{"low", "high", "max"}},
 	{ID: "mimo/mimo-v2.5", DisplayName: "MiMo 2.5",
 		Tagline: "Balanced",
 		Badges:  []string{"Images"},
 		Served:  true,
+		Tiers:   []string{TierLimited, TierFull},
 		Efforts: []string{"high"}},
 	{ID: "anthropic/claude-fable-5.1", DisplayName: "Claude Fable 5.1",
+		Tiers:   []string{TierOffer},
 		Efforts: []string{"low", "medium", "high", "xhigh", "max"}},
 }
 

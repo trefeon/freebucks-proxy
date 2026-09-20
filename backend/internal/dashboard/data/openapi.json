@@ -1283,6 +1283,33 @@
                 "notice": {
                   "type": "string"
                 },
+                "offer": {
+                  "nullable": true,
+                  "properties": {
+                    "joinable": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "remaining": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "user_remaining": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "joinable",
+                    "remaining",
+                    "total",
+                    "user_remaining"
+                  ],
+                  "type": "object"
+                },
                 "pool": {
                   "type": "string"
                 },
@@ -1295,11 +1322,23 @@
                 "quota": {
                   "type": "string"
                 },
+                "replacement": {
+                  "type": "string"
+                },
                 "served": {
                   "type": "boolean"
                 },
                 "tagline": {
                   "type": "string"
+                },
+                "tiers": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "withdrawn": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1307,7 +1346,8 @@
                 "id",
                 "price",
                 "quota",
-                "served"
+                "served",
+                "withdrawn"
               ],
               "type": "object"
             },
@@ -3924,7 +3964,7 @@
                 }
               }
             },
-            "description": "Served-model catalog view model"
+            "description": "Full model catalog view model (tiers, withdrawal and live offer state)"
           }
         },
         "security": [
@@ -3932,7 +3972,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Served-model catalog view model",
+        "summary": "Full model catalog view model (tiers, withdrawal and live offer state)",
         "tags": [
           "views"
         ]

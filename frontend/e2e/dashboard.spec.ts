@@ -1697,7 +1697,9 @@ test.describe("dashboard hermetic mocks", () => {
     );
   });
 
-  test("Models lists 7 rows with referral row", async ({ page }) => {
+  test("Models lists 13 rows with tiers, withdrawals, and the live offer", async ({
+    page,
+  }) => {
     const f = loadFixtures();
     await mockDashboard(page, f);
 
@@ -1714,31 +1716,86 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
 
-    // Models fixture has 7 rows
-    await expect(page.getByRole("table")).toBeVisible();
-    await expect(
-      page.getByText("deepseek/deepseek-v4-flash").first(),
-    ).toBeVisible();
-    await expect(page.getByText("upstage/solar-pro4").first()).toBeVisible();
-    await expect(page.getByText("z-ai/glm-5.3-flash").first()).toBeVisible();
-    await expect(
-      page.getByText("meta/muse-spark-1.2-contributor").first(),
-    ).toBeVisible();
-    // Count rows: header + 7 data rows (6 served + 1 referral)
-    const rows = page.locator("table tbody tr");
-    await expect(rows).toHaveCount(7);
-    await expect(page.getByText("z-ai/glm-5.2").first()).toBeVisible();
+    // Served stat tells the truth about 13 rows: 6 served of 13 listed.
+    await expect(page.getByText("6 of 13")).toBeVisible();
+    await expect(page.getByText("13 registered · 49 agents")).toBeVisible();
+    // Tier column renders; the pool column stays gone.
+    await expect(page.getByText("Tier").first()).toBeVisible();
+    await expect(page.locator("table").getByText("Pool")).toHaveCount(0);
+    // 13 rows in the desktop table; tier cells render in both the table
+    // and the mobile cards.
+    await expect(page.locator("table tbody tr")).toHaveCount(13);
+    await expect(page.getByTestId("model-tier")).toHaveCount(26);
+    // Per-row tiers + status copy, scoped to the desktop table (one
+    // rendering per row; the mobile cards carry the same copy).
+    const table = page.getByRole("table");
+    const want: Array<[string, string[], string]> = [
+      [
+        "stealth/ox-alpha",
+        ["withdrawn", "Withdrawn — use GLM 5.3 Flash"],
+        "withdrawn",
+      ],
+      [
+        "deepseek/deepseek-v4-pro",
+        ["withdrawn", "Withdrawn — use GLM 5.3 Flash"],
+        "withdrawn",
+      ],
+      [
+        "minimax/minimax-m3",
+        ["withdrawn", "Withdrawn — use GLM 5.3 Flash"],
+        "withdrawn",
+      ],
+      [
+        "meta/muse-spark-1.3-contributor",
+        ["withdrawn", "Withdrawn — use GLM 5.3 Flash"],
+        "withdrawn",
+      ],
+      ["openai/gpt-5.6-luna", ["full", "paid plan"], "served"],
+      ["upstage/solar-pro4", ["limited", "full"], "served"],
+      ["google/gemini-3.8-flash", ["paid plan"], "unserved"],
+      ["meta/muse-spark-1.2-contributor", ["full"], "served"],
+      [
+        "z-ai/glm-5.2",
+        ["withdrawn", "Withdrawn — use GLM 5.3 Flash"],
+        "withdrawn",
+      ],
+      ["z-ai/glm-5.3-flash", ["limited", "full", "paid plan"], "served"],
+      [
+        "deepseek/deepseek-v4-flash",
+        ["limited", "full", "paid plan"],
+        "served",
+      ],
+      ["mimo/mimo-v2.5", ["limited", "full"], "served"],
+      [
+        "anthropic/claude-fable-5.1",
+        ["limited trial", "3 of 10 sessions left"],
+        "unserved",
+      ],
+    ];
+    for (const [id, chips, state] of want) {
+      const row = table.locator("tbody tr").filter({ hasText: id });
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText(state);
+      for (const chip of chips) {
+        await expect(row.getByTestId("model-tier")).toContainText(chip);
+      }
+    }
+    await expect(page.getByTestId("model-offer").first()).toContainText(
+      "3 of 10 sessions left",
+    );
+    // No "referral" badge renders anywhere on the tab: the withdrawn
+    // referral row carries the withdrawn treatment, and the tier-only rows
+    // read "unserved".
+    await expect(page.getByText("referral", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Referral grant").first()).toBeVisible();
     await expect(page.getByText("Referral only").first()).toBeVisible();
     await expect(page.getByText("low/high/max").first()).toBeVisible();
     await expect(page.getByText("Price").first()).toBeVisible();
-    await expect(page.locator("table").getByText("Pool")).toHaveCount(0);
-    await expect(page.getByText("referral", { exact: true })).toHaveCount(2);
   });
   test("Models sorts cheapest-first on the meter", async ({ page }) => {
     const f = loadFixtures();
-    // Metered account: luna at 2/hr sorts above flash at 15/hr even
-    // though the catalog lists flash first (upstream picker revamp).
+    // Metered account: luna at 2/hr sorts above flash at 15/hr; unpriced
+    // rows follow in catalog order.
     const pricedTokens = JSON.parse(JSON.stringify(f.tokens));
     pricedTokens.tokens[0].freebucks = {
       balance: 50,
@@ -1758,8 +1815,58 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Usage", exact: true }),
     ).toBeVisible();
     const rows = page.locator("table tbody tr");
-    await expect(rows).toHaveCount(7);
+    await expect(rows).toHaveCount(13);
     await expect(rows.first()).toContainText("openai/gpt-5.6-luna");
+  });
+  test("Models offer row names the spent trial", async ({ page }) => {
+    const f = loadFixtures();
+    const models = JSON.parse(JSON.stringify(f.models));
+    // Spent trial: the shared pool still has sessions, this account's
+    // slice is gone (the vendor's joinable gate mirrors user_remaining).
+    const fable = models.models.find(
+      (m: { id: string }) => m.id === "anthropic/claude-fable-5.1",
+    );
+    fable.offer.user_remaining = 0;
+    fable.offer.joinable = false;
+    fable.offer.reason = "used";
+    await mockDashboard(page, f, { models });
+
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await page.getByRole("button", { name: "Models" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Usage", exact: true }),
+    ).toBeVisible();
+    // Live counts stay exact; the trial-used phrasing joins them.
+    await expect(page.getByTestId("model-offer")).toHaveCount(2);
+    await expect(page.getByTestId("model-offer").first()).toContainText(
+      "3 of 10 sessions left · trial used",
+    );
+  });
+  test("Models offer row says so when no campaign runs", async ({ page }) => {
+    const f = loadFixtures();
+    const models = JSON.parse(JSON.stringify(f.models));
+    // No campaign: the offer row keeps its tier chip but carries no wire
+    // block, so the panel says so instead of showing zero counts.
+    const fable = models.models.find(
+      (m: { id: string }) => m.id === "anthropic/claude-fable-5.1",
+    );
+    delete fable.offer;
+    await mockDashboard(page, f, { models });
+
+    await page.goto("http://127.0.0.1:4173/admin/#plans");
+    await page.getByRole("button", { name: "Models" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Usage", exact: true }),
+    ).toBeVisible();
+    const table = page.getByRole("table");
+    const row = table
+      .locator("tbody tr")
+      .filter({ hasText: "anthropic/claude-fable-5.1" });
+    await expect(row.getByTestId("model-tier")).toContainText("limited trial");
+    await expect(page.getByTestId("model-offer")).toHaveCount(2);
+    await expect(page.getByTestId("model-offer").first()).toContainText(
+      "trial not offered right now",
+    );
   });
 
   test("Overview shows client integration and base_url", async ({ page }) => {

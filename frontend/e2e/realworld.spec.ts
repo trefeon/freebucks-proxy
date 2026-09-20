@@ -96,6 +96,22 @@ test.describe("real-world data", () => {
     await expect(page.getByText("SPEND TODAY")).toHaveCount(2);
     // Bridge cards render the Freebucks bar now (session quota bars gone).
     await expect(page.getByText("Daily").first()).toBeVisible();
+    // Window reset clock: the fixture carries BOTH the vendor display string
+    // ("15:04 Jan 2") and the absolute instant, and the absolute one renders —
+    // re-anchored to the operator's zone. Asserted on the clock span because
+    // Playwright matches text per text node, not per composed line.
+    const windowClock = page
+      .locator("span")
+      .filter({ hasText: "Resets in" })
+      .first();
+    await expect(windowClock).toContainText(
+      /Resets in\s+[\s\S]*Jan 1, \d{2}:\d{2} [AP]M \(.+\)/,
+    );
+    // Display-only window (no absolute stamp): the vendor clock renders with
+    // the zone it was formatted in and is never read as an elapsed local
+    // reset, so the refill-pending copy stays out of both windows.
+    await expect(page.getByText(/15:04 Jan 2 \(.+\)/).first()).toBeVisible();
+    await expect(page.getByText("Updating balance…")).toHaveCount(0);
     await expect(page.getByText("Banned — TEMPORARY")).toBeVisible();
     // Drawer: standing + session + pinned models for the trusted account.
     await page.locator("table tbody tr button[aria-expanded]").first().click();
@@ -211,12 +227,27 @@ test.describe("real-world data", () => {
     await mockDashboard(page, loadFixtures(RW));
     await page.goto(admin("plans"));
     await page.getByRole("button", { name: "Models" }).click();
-    await expect(page.getByText("Fast & Direct").first()).toBeVisible();
+    // Vendor-catalog copy tracks the tier catalog (the Labor-Day promo
+    // notice and Free/Premium cost badges are gone from served rows).
+    await expect(page.getByText("Smart & Fast").first()).toBeVisible();
     await expect(page.getByText("0 Freebucks/hr").first()).toBeVisible();
     await expect(page.getByText("20 Freebucks/hr").first()).toBeVisible();
     await expect(page.getByText("Referral grant").first()).toBeVisible();
     await expect(page.getByText("Referral only").first()).toBeVisible();
-    await expect(page.getByText("referral", { exact: true })).toHaveCount(2);
+    await expect(page.getByText("paid plan").first()).toBeVisible();
+    await expect(page.getByText("limited trial").first()).toBeVisible();
+    // Served stat tells the truth about 13 rows.
+    await expect(page.getByText("6 of 13")).toBeVisible();
+    await expect(page.getByText("13 registered · 49 agents")).toBeVisible();
+    // Five withdrawn rows name their replacement in both renderings.
+    await expect(page.getByTestId("model-withdrawn")).toHaveCount(10);
+    // The offer row shows the live campaign counts in both renderings.
+    await expect(page.getByTestId("model-offer")).toHaveCount(2);
+    await expect(page.getByTestId("model-offer").first()).toContainText(
+      "3 of 10 sessions left",
+    );
+    // No "referral" badge renders anywhere on the tab.
+    await expect(page.getByText("referral", { exact: true })).toHaveCount(0);
     await expect(page.getByText("low/high/max").first()).toBeVisible();
     await expect(page.getByText("Price").first()).toBeVisible();
     await page.goto(admin("activity"));

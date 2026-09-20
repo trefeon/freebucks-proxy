@@ -7,12 +7,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/tokenestimate"
 	"io"
 	"net/http"
 	"strings"
-
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/tokenestimate"
 )
 
 func (s *Server) handleMessagesCountTokens(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +62,7 @@ func (s *Server) handleMessagesCountTokens(w http.ResponseWriter, r *http.Reques
 	// surfaces refuse paused models.
 	if !s.modelAllowed(model) && !modelcat.IsPaused(model) {
 		s.writeAnthropicError(w, r, http.StatusBadRequest,
-			ModelUnavailableMessage(rawModel), "invalid_request_error", 0)
+			s.modelRefusalMessage(rawModel, model), "invalid_request_error", 0)
 		return
 	}
 	if s.tokenEstimator == nil {

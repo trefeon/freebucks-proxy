@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/convert"
 )
 
 // --- Anthropic Messages API (/v1/messages) ---
@@ -86,7 +85,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	model := s.reg.ResolveModel(rawModel)
 	if !s.modelAllowed(model) {
 		s.writeAnthropicError(w, r, http.StatusBadRequest,
-			ModelUnavailableMessage(rawModel), "invalid_request_error", 0)
+			s.modelRefusalMessage(rawModel, model), "invalid_request_error", 0)
 		return
 	}
 	stream := false

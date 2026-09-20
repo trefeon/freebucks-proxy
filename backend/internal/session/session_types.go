@@ -64,6 +64,18 @@ type SessionSnapshot struct {
 	// nil when the response omits it. Carries balance, daily/weekly/monthly
 	// windows, bindingWindow, and per-model prices.
 	Freebucks *upstream.FreebucksInfo `json:"freebucks,omitempty"`
+	// SubscriptionTierID is the raw upstream subscription.tierId from the
+	// last admission/probe (the upstream plan id behind
+	// hasPaidSubscription); "" until one reports it. Kept verbatim — never
+	// parsed into a plan name.
+	SubscriptionTierID string `json:"subscription_tier_id,omitempty"`
+	// LimitedModelOffers carries the capacity-limited models the picker may
+	// additionally offer right now (vendor FreebuffLimitedModelOffer),
+	// from the last pre-join (none) response that carried offers; nil until
+	// then. LimitedOfferReason is the vendor's opaque refusal member
+	// ("" when the last response had none).
+	LimitedModelOffers []upstream.LimitedModelOffer `json:"limited_model_offers,omitempty"`
+	LimitedOfferReason string                       `json:"limited_offer_reason,omitempty"`
 	// UpgradeHint carries the upstream promotional or upgrade broadcast
 	// hint ({url, message}) if provided by the session server; nil otherwise.
 	UpgradeHint *upstream.SessionUpgradeHint `json:"upgrade_hint,omitempty"`

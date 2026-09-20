@@ -165,6 +165,52 @@ func ServedHelpText() string {
 	return out
 }
 
+// Tier vocabulary: the upstream sets that can admit a model, in canonical
+// order. TierLimited is the free limited-access catalog
+// (LIMITED_FREEBUFF_MODEL_IDS), TierFull is full-access membership
+// (FREEBUFF_MODELS), TierPaid is the plan-metered catalog
+// (FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS), and TierOffer marks a row offered
+// only while its own shared global pool has sessions left
+// (FREEBUFF_LIMITED_OFFER_MODEL_IDS).
+const (
+	TierLimited = "limited"
+	TierFull    = "full"
+	TierPaid    = "paid"
+	TierOffer   = "offer"
+)
+
+// Tiers returns the tier sets that admit id in canonical order (nil when no
+// tier offers the row, and for unknown ids).
+func Tiers(id string) []string {
+	if m := byID(id); m != nil {
+		return slices.Clone(m.Tiers)
+	}
+	return nil
+}
+
+// HasTier reports whether id is admitted by tier. Unknown ids are never
+// members, and neither is a tier string outside the vocabulary above.
+func HasTier(id, tier string) bool {
+	m := byID(id)
+	if m == nil {
+		return false
+	}
+	return slices.Contains(m.Tiers, tier)
+}
+
+// OfferedModelIDs returns the ids metered by a capacity-limited offer
+// (TierOffer) in catalog order: admitted only while the row's shared global
+// pool has sessions left.
+func OfferedModelIDs() []string {
+	var out []string
+	for i := range Catalog {
+		if slices.Contains(Catalog[i].Tiers, TierOffer) {
+			out = append(out, Catalog[i].ID)
+		}
+	}
+	return out
+}
+
 // AutoTouchModelSentinel is the MATURITY_TOUCH_MODEL value (and the
 // per-token empty override meaning) that selects automatic resolution:
 // the cheapest served unmetered row, never a priced or honeypot row.

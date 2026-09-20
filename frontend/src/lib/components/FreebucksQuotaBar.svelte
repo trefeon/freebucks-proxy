@@ -1,28 +1,9 @@
 <script>
-  import { formatLocalDate } from "../utils/format.js";
   import { tr } from "../i18n.js";
+  import { freebucksResetLine } from "../utils/freebucks.js";
   let { freebucks = null, title = null, now = Date.now() } = $props();
 
   // ----- helpers -----
-  function fmtRel(iso, nowMs) {
-    if (!iso) return "—";
-    const t = new Date(iso).getTime();
-    if (isNaN(t)) return iso;
-    const ms = t - nowMs;
-    if (ms <= 0) return "now";
-    const mins = Math.floor(ms / 60000);
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    if (h >= 24) {
-      const d = Math.floor(h / 24);
-      const hr = h % 24;
-      return hr > 0 ? `${d}d ${hr}h` : `${d}d`;
-    }
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m`;
-    return `${Math.max(1, Math.floor(ms / 1000))}s`;
-  }
-
   function pctColor(p) {
     if (p >= 100) return "#ef4444";
     if (p >= 80) return "#f97316";
@@ -64,18 +45,37 @@
       win.remainingUsd ??
       win.RemainingUsd;
     const remaining = remRaw != null ? remRaw : limit - spent;
-    const resetAt =
-      win.reset_at ??
-      win.resetAt ??
-      win.reset_at_utc ??
-      win.resetAtUtc ??
-      win.resetAtUTC ??
-      null;
+    const { at: resetAt, zone: resetZone, absolute } = resetStamp(win);
     let pct = win.percent_used ?? win.percentUsed ?? win.percent ?? null;
     if (pct == null && limit > 0) pct = (spent / limit) * 100;
     if (pct == null) pct = 0;
     pct = Math.min(100, Math.max(0, Number(pct) || 0));
-    return { limit, spent, remaining, resetAt, pct };
+    return {
+      limit,
+      spent,
+      remaining,
+      resetAt,
+      resetZone,
+      resetAbsolute: absolute,
+      pct,
+    };
+  }
+
+  // Wire reset stamps: the absolute instant wins, because it is the only one
+  // that can be trusted (it re-anchors to the viewer's clock and can carry a
+  // countdown or an expiry). The vendor's own display string ("15:04 Jan 2")
+  // is a bare foreign wall clock, so it keeps the IANA zone it was formatted
+  // in — and is never read as the viewer's local time.
+  function resetStamp(win) {
+    const utc = win.reset_at_utc ?? win.resetAtUtc ?? win.resetAtUTC ?? null;
+    if (utc) return { at: utc, zone: null, absolute: true };
+    const display = win.reset_at ?? win.resetAt ?? null;
+    if (!display) return { at: null, zone: null, absolute: false };
+    return {
+      at: display,
+      zone: win.reset_time_zone ?? win.resetTimeZone ?? null,
+      absolute: false,
+    };
   }
 
   // ----- Freebucks derived (issue #321 wire shape: daily pool + wallet +
@@ -176,8 +176,7 @@
         {@const w = item.win}
         {@const wPct = w.pct}
         {@const wColor = pctColor(wPct)}
-        {@const wRel = fmtRel(w.resetAt, now)}
-        {@const wReset = formatLocalDate(w.resetAt) || w.resetAt || "—"}
+        {@const wReset = freebucksResetLine(w, now)}
         <div
           class="rounded border border-[var(--fp-border)]/60 bg-[var(--fp-surface)]/40 p-2.5"
         >
@@ -189,13 +188,15 @@
               >
             </div>
             <span class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
-              {#if w.resetAt && Date.parse(w.resetAt) <= now}
+              {#if wReset.shape === "pending"}
                 {$tr("Updating balance…")}
-              {:else if wRel === "now"}
-                {$tr("Reset")} {wReset}
-              {:else}
+              {:else if wReset.shape === "countdown"}
                 {$tr("Resets in")}
-                {wRel} — {wReset}
+                {wReset.rel} — {wReset.clock}
+              {:else if wReset.shape === "clock"}
+                {wReset.clock}
+              {:else}
+                —
               {/if}
             </span>
           </div>

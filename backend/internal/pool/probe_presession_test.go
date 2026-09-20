@@ -91,3 +91,43 @@ func TestProbeTokenIdlePropagatesStateWithSentinel(t *testing.T) {
 		t.Errorf("state.Freebucks = %+v, want balance 17.5", st.Freebucks)
 	}
 }
+
+// TestProbeTokenDetailedExposesTierAndOffers pins the plan-tier / offer
+// passthrough end to end: a pre-join probe's subscription.tierId,
+// limitedOfferReason, and limitedModelOffers reach pool.TokenSnapshot, and
+// the offer slice is a detached copy of pooled live state.
+func TestProbeTokenDetailedExposesTierAndOffers(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"none","subscription":{"tierId":"plan_pro"},`+
+			`"limitedOfferReason":"closed",`+
+			`"limitedModelOffers":[{"model":"anthropic/claude-fable-5.1","remaining":7,"total":10,"userRemaining":1,"userResetAt":null}]}`)
+	}
+
+	p := newTestPool(t, mock)
+
+	if _, _, err := p.ProbeTokenDetailed(context.Background(), 0); err != nil {
+		t.Fatalf("probe returned error: %v", err)
+	}
+	snap := p.Snapshot()[0]
+	if snap.SubscriptionTierID != "plan_pro" {
+		t.Errorf("Snapshot().SubscriptionTierID = %q, want plan_pro", snap.SubscriptionTierID)
+	}
+	if snap.LimitedOfferReason != "closed" {
+		t.Errorf("Snapshot().LimitedOfferReason = %q, want closed", snap.LimitedOfferReason)
+	}
+	if len(snap.LimitedModelOffers) != 1 || snap.LimitedModelOffers[0].Model != upstream.FreebuffFable51ModelID {
+		t.Fatalf("Snapshot().LimitedModelOffers = %+v, want one fable offer", snap.LimitedModelOffers)
+	}
+	if snap.LimitedModelOffers[0].UserResetAt != nil {
+		t.Errorf("UserResetAt = %q, want nil (null stays null)", *snap.LimitedModelOffers[0].UserResetAt)
+	}
+	// The snapshot hands out a copy: mutating it must not leak into the
+	// pooled session state (freebucks_clone_test.go copy-bug class).
+	snap.LimitedModelOffers[0].Model = "mutated/other"
+	if got := p.Snapshot()[0].LimitedModelOffers[0].Model; got != upstream.FreebuffFable51ModelID {
+		t.Errorf("offer slice aliases pooled state: mutation leaked (%q)", got)
+	}
+}

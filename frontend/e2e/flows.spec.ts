@@ -129,4 +129,42 @@ test.describe("user flows", () => {
       table.getByRole("button", { name: "Make Session" }),
     ).toBeDisabled();
   });
+  test("tokens: spawn picker lists only served models", async ({ page }) => {
+    // The 13-row catalog lists withdrawn and tier-only rows the gateway
+    // never serves; the spawn picker must offer exactly the served set.
+    await mockDashboard(page, loadFixtures());
+    await page.goto(admin("tokens"));
+    // The per-token Dev Session toolbar renders with DEVTOOLS_ENABLED=true.
+    await page.unroute("**/admin/api/config");
+    await page.route("**/admin/api/config", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          env_content: "PORT=3457\nAUTH_TOKENS=tok0\nDEVTOOLS_ENABLED=true\n",
+          has_env_file: true,
+        }),
+      });
+    });
+    await page.reload();
+    const table = page.locator("table.fp-table");
+    await table.locator('button[aria-label*="Expand details"]').first().click();
+    await expect(table.getByText("Dev Session:")).toBeVisible();
+    const picker = table.locator("select").first();
+    const options = await picker
+      .locator("option")
+      .evaluateAll((els) =>
+        els.map((el) => (el as HTMLOptionElement).value).filter(Boolean),
+      );
+    expect(options.sort()).toEqual(
+      [
+        "openai/gpt-5.6-luna",
+        "upstage/solar-pro4",
+        "meta/muse-spark-1.2-contributor",
+        "z-ai/glm-5.3-flash",
+        "deepseek/deepseek-v4-flash",
+        "mimo/mimo-v2.5",
+      ].sort(),
+    );
+  });
 });

@@ -126,9 +126,12 @@ test("parked account drawer names the reset instead of the bare empty state", as
   await expect(note, "parked note renders in the drawer").toBeVisible();
   await expect(note, "names the upstream 429").toContainText("upstream 429");
   await expect(note, "names the window kind").toContainText("freebucks_window");
-  await expect(note, "names the pool-level reset clock").toContainText(
-    /until \d{2}:\d{2}Z/,
-  );
+  // The reset clock is absolute UTC on the wire and renders on the operator's
+  // wall clock: local date + time plus the zone it belongs to, never "HH:MMZ".
+  await expect(
+    note,
+    "names the pool-level reset clock in the operator's zone",
+  ).toContainText(/until [A-Z][a-z]{2} \d{1,2}, \d{2}:\d{2} (AM|PM) \([^)]+\)/);
   await expect(note, "spill line stays honest").toContainText(
     "spills to next account",
   );

@@ -11,8 +11,18 @@
 // rows (crof/kimi-k3-eco, openai/gpt-5.6-luna-es) never become catalog rows,
 // no matter what prices the upstream ledger quotes them.
 //
+// Tiers come from four upstream lists and are emitted per row in canonical
+// order limited, full, paid, offer: limited is LIMITED_FREEBUFF_MODEL_IDS
+// (the free limited-access catalog), full is FREEBUFF_MODELS membership, paid
+// is FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS (a plan meters the row), and
+// offer is FREEBUFF_LIMITED_OFFER_MODEL_IDS (offered only while the row's own
+// global pool has sessions left). A row in none of them (withdrawn, god-only)
+// carries no Tiers. A list may name ids with no catalog row — crof/kimi-k3-eco
+// is plan-metered and web/god-only — which simply match no row.
+//
 // What flows from the snapshots: SUPPORTED order and row ids, Served
-// (FREEBUFF_MODELS membership), Paused (FREEBUFF_PAUSED_FREE_MODEL_IDS),
+// (FREEBUFF_MODELS membership), Tiers (the four sets above),
+// Paused (FREEBUFF_PAUSED_FREE_MODEL_IDS),
 // Premium (served rows mirror the resolved row flag; paused rows never are),
 // context windows, effort ladders, display names,
 // taglines, training notices, multimodal/isNew badges, and the default,
@@ -66,6 +76,9 @@ type catalogInputs struct {
 	strArrays   map[string][]string // effort ladders (SUPPORTED/MODELS/PAUSED kept separate)
 	rowNames    []string            // SUPPORTED_FREEBUFF_MODELS order
 	served      map[string]bool     // FREEBUFF_MODELS membership by row name
+	limitedIDs  []string            // LIMITED_FREEBUFF_MODEL_IDS wire ids
+	paidIDs     []string            // FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS wire ids
+	offerIDs    []string            // FREEBUFF_LIMITED_OFFER_MODEL_IDS wire ids
 	pausedNames []string            // FREEBUFF_PAUSED_FREE_MODEL_IDS row refs
 	fields      map[string]map[string]string
 	ctx         map[string]int // wire id -> context window
@@ -123,6 +136,12 @@ func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
 	} else {
 		return nil, fmt.Errorf("wiregen: freebuff-model-entitlements.ts: no fullAccess.premium flag at upstream commit %s", commit)
 	}
+	// LIMITED_FREEBUFF_MODEL_IDS spreads solar in behind this flag.
+	if m := regexp.MustCompile(`limitedAccess:\s*(true|false)`).FindStringSubmatch(entSrc); m != nil {
+		c.ids["FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.limitedAccess"] = m[1]
+	} else {
+		return nil, fmt.Errorf("wiregen: freebuff-model-entitlements.ts: no limitedAccess flag at upstream commit %s", commit)
+	}
 	resolve := func(ref, what string) (string, error) {
 		return resolveCatalogRef(c.ids, ref, what, commit)
 	}
@@ -156,6 +175,23 @@ func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
 			return nil, err
 		}
 		c.ids[n] = "'" + id + "'"
+	}
+	// Tier membership lists, after the row loop so row ids resolve. Full is
+	// not listed: it is FREEBUFF_MODELS membership above, and the generator
+	// reads it per row.
+	for _, l := range []struct {
+		dst  *[]string
+		name string
+	}{
+		{&c.limitedIDs, "LIMITED_FREEBUFF_MODEL_IDS"},
+		{&c.paidIDs, "FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS"},
+		{&c.offerIDs, "FREEBUFF_LIMITED_OFFER_MODEL_IDS"},
+	} {
+		v, err := parseTierList(models, c.ids, l.name, commit)
+		if err != nil {
+			return nil, err
+		}
+		*l.dst = v
 	}
 	// Context windows: [REF]: N entries.
 	ctxBody, ok := balancedBody(models, "FREEBUFF_MODEL_CONTEXT_WINDOWS", commit)
@@ -262,11 +298,21 @@ var effortsPinned = map[string][]string{
 type catalogRow struct {
 	id, display, tagline, notice string
 	badges                       []string
+	tiers                        []string
 	served, premium              bool
 	pausedReplacement            string
 	ctx                          int
 	efforts                      []string
 	hasEfforts                   bool
+}
+
+// idSet indexes a tier id list for row lookup.
+func idSet(ids []string) map[string]bool {
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
 }
 
 func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
@@ -278,6 +324,7 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 		}
 		paused[id] = true
 	}
+	limited, paid, offer := idSet(c.limitedIDs), idSet(c.paidIDs), idSet(c.offerIDs)
 	rows := make([]catalogRow, 0, len(c.rowNames))
 	for _, n := range c.rowNames {
 		f := c.fields[n]
@@ -291,6 +338,22 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 		r.served = c.served[n]
 		if paused[id] {
 			r.pausedReplacement = c.defaultID
+		}
+		// Tier sets, canonical order limited, full, paid, offer. The emitted
+		// rows reference the modelcat consts (catalog_query.go declares them),
+		// so the vocabulary has one definition. A row in no set — withdrawn
+		// or god-only — keeps a nil slice.
+		if limited[id] {
+			r.tiers = append(r.tiers, "TierLimited")
+		}
+		if r.served {
+			r.tiers = append(r.tiers, "TierFull")
+		}
+		if paid[id] {
+			r.tiers = append(r.tiers, "TierPaid")
+		}
+		if offer[id] {
+			r.tiers = append(r.tiers, "TierOffer")
 		}
 		// Premium: served rows mirror the resolved row flag, paused rows never.
 		if r.served {
@@ -700,6 +763,133 @@ func parseModelsList(src string, bools map[string]bool, commit string) ([]string
 	return out, nil
 }
 
+// parseTierList reads a tier membership list (`export const NAME = [...]`,
+// upstream wraps most of them in Object.freeze) into resolved wire ids. Items
+// are id const/member refs — including literals — or upstream's
+// `...(FLAG ? [REF] : [])` conditional spread; any other shape fails
+// explicitly rather than dropping a row from a tier.
+func parseTierList(src string, ids map[string]string, name, commit string) ([]string, error) {
+	// The name must end at the annotation or the `=`: a loose `[^\n]*?` would
+	// also match a renamed const (NAME_X, NAMING_...), quietly reading a list
+	// this generator was not told about.
+	re := regexp.MustCompile(`export const ` + name + `(?::[^\n=]*)?\s*=\s*(?:Object\.freeze\()?\[`)
+	loc := re.FindStringIndex(src)
+	if loc == nil {
+		return nil, fmt.Errorf("wiregen: freebuff-models.ts: no %s list at upstream commit %s", name, commit)
+	}
+	body, err := bracketBody(src, loc[1]-1, name, commit)
+	if err != nil {
+		return nil, err
+	}
+	spread := regexp.MustCompile(`^\.\.\.\(([\w.]+) \? \[([\w.]+)\] : \[\]\)$`)
+	var out []string
+	for _, item := range tierItems(body) {
+		if strings.HasPrefix(item, "...") {
+			m := spread.FindStringSubmatch(item)
+			if m == nil {
+				return nil, fmt.Errorf("wiregen: freebuff-models.ts: %s: unsupported spread %q at upstream commit %s", name, item, commit)
+			}
+			flag, err := resolveCatalogRef(ids, m[1], name+" spread flag", commit)
+			if err != nil {
+				return nil, err
+			}
+			switch flag {
+			case "false":
+				continue
+			case "true":
+				id, err := resolveCatalogRef(ids, m[2], name+" spread id", commit)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, id)
+			default:
+				return nil, fmt.Errorf("wiregen: freebuff-models.ts: %s: spread flag %s is %q, not a bool, at upstream commit %s", name, m[1], flag, commit)
+			}
+			continue
+		}
+		id, err := resolveCatalogRef(ids, item, name+" item", commit)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// tierItems splits a list body into items at top-level commas, with line
+// comments dropped and whitespace collapsed, so a spread broken across lines
+// reads as the single item it is.
+func tierItems(body string) []string {
+	lines := strings.Split(body, "\n")
+	for i := range lines {
+		lines[i] = stripTSComment(lines[i])
+	}
+	flat := strings.Join(lines, "\n")
+	var out []string
+	add := func(s string) {
+		if s = strings.Join(strings.Fields(s), " "); s != "" {
+			out = append(out, s)
+		}
+	}
+	depth := 0
+	var q byte
+	start := 0
+	for i := range len(flat) {
+		ch := flat[i]
+		if q != 0 {
+			if ch == q {
+				q = 0
+			}
+			continue
+		}
+		switch {
+		case ch == '\'' || ch == '"' || ch == '`':
+			q = ch
+		case ch == '[' || ch == '(' || ch == '{':
+			depth++
+		case ch == ']' || ch == ')' || ch == '}':
+			depth--
+		case ch == ',' && depth == 0:
+			add(flat[start:i])
+			start = i + 1
+		}
+	}
+	add(flat[start:])
+	return out
+}
+
+// bracketBody returns the inside of the bracket run opening at src[open]
+// (strings and // comments excluded from balance).
+func bracketBody(src string, open int, name, commit string) (string, error) {
+	depth := 0
+	var q byte
+	for i := open; i < len(src); i++ {
+		ch := src[i]
+		if q != 0 {
+			if ch == q {
+				q = 0
+			}
+			continue
+		}
+		switch {
+		case ch == '\'' || ch == '"' || ch == '`':
+			q = ch
+		case ch == '/' && i+1 < len(src) && src[i+1] == '/':
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+		case ch == '[':
+			depth++
+		case ch == ']':
+			depth--
+			if depth == 0 {
+				return src[open+1 : i], nil
+			}
+		}
+	}
+	return "", fmt.Errorf("wiregen: freebuff-models.ts: %s brackets unbalanced at upstream commit %s", name, commit)
+}
+
 // rowFieldOK names every field a SUPPORTED row object may carry. Handled
 // fields are parsed above; the rest are presence-validated only, so a
 // brand-new field fails here instead of slipping past silently.
@@ -803,6 +993,10 @@ type ModelInfo struct {
 	// Served gates /v1/models and the chat handlers: the ids this gateway
 	// serves or advertises. Paused models are never Served.
 	Served bool
+	// Tiers lists the upstream tier sets that admit this row, in canonical
+	// order TierLimited, TierFull, TierPaid, TierOffer. Nil when no tier
+	// offers it (withdrawn and god-only rows), never a partial order.
+	Tiers []string
 	// PausedReplacement is non-empty exactly when upstream
 	// FREEBUFF_PAUSED_FREE_MODEL_IDS lists the model: recognized but
 	// admission-refused. It names the model the refusal copy recommends.
@@ -843,6 +1037,9 @@ var Catalog = []ModelInfo{
 		}
 		if r.served {
 			b.WriteString(",\n\t\tServed: true")
+		}
+		if len(r.tiers) > 0 {
+			fmt.Fprintf(&b, ",\n\t\tTiers: []string{%s}", strings.Join(r.tiers, ", "))
 		}
 		if r.premium {
 			b.WriteString(",\n\t\tPremium: true")
