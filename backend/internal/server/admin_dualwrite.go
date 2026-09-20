@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 )
 
 // tokenMarkerKey is the settings-table presence marker for the AUTH_TOKENS

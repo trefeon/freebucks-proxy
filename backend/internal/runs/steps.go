@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // newTraceSessionID mints a UUIDv4 trace session id from crypto/rand,

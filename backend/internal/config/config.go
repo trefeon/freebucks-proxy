@@ -1,4 +1,4 @@
-// Package config loads and validates freebuff-proxy configuration.
+// Package config loads and validates freebucks-proxy configuration.
 //
 // Precedence: JSON config file (optional) < environment variables. Every key
 // in the JSON file mirrors its environment variable name; values set in the
@@ -354,9 +354,9 @@ func (c Config) EffectiveMode() string {
 // behavior and the README rule that cwd config is authoritative. When it
 // does not exist, the platform config dir is tried:
 //
-//	linux:   $XDG_CONFIG_HOME/freebuff-proxy/.env → ~/.config/freebuff-proxy/.env
-//	windows: %APPDATA%\freebuff-proxy\.env
-//	darwin:  ~/Library/Application Support/freebuff-proxy/.env
+//	linux:   $XDG_CONFIG_HOME/freebucks-proxy/.env → ~/.config/freebucks-proxy/.env
+//	windows: %APPDATA%\freebucks-proxy\.env
+//	darwin:  ~/Library/Application Support/freebucks-proxy/.env
 func EnvFileCandidates() []string {
 	candidates := []string{filepath.Join(".", ".env")}
 	home, err := os.UserHomeDir()
@@ -380,7 +380,7 @@ func EnvFileCandidates() []string {
 			dir = filepath.Join(home, ".config")
 		}
 	}
-	return append(candidates, filepath.Join(dir, "freebuff-proxy", ".env"))
+	return append(candidates, filepath.Join(dir, "freebucks-proxy", ".env"))
 }
 
 // ResolveEnvFile returns the first EXISTING candidate from

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
 )
 
 // TestHandleEventsStreamInitialSnapshotAndPing verifies the SSE endpoint:

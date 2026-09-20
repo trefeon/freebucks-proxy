@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // collectResponsesEvents parses a /v1/responses SSE body into the ordered

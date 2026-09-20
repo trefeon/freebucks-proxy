@@ -3,7 +3,7 @@ package upstream
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"testing"

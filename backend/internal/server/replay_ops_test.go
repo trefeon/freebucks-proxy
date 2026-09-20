@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestReplayChat429RetryAfter mirrors replay-chat-429-retry-after: an

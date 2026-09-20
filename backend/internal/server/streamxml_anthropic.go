@@ -10,7 +10,7 @@ package server
 import (
 	"time"
 
-	"freebuff-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/convert"
 )
 
 // feedAnthropicXMLToolCalls feeds one upstream content delta through the

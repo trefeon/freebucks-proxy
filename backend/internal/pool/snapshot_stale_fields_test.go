@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestSnapshotClearsStaleFieldsWithoutInstance pins the pool snapshot half:

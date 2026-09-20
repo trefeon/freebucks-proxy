@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestBridgeSingleFlight_BasicLeaderFollower verifies the fundamental flow:

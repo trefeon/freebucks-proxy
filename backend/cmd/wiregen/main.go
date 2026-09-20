@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"freebuff-proxy/backend/internal/wirefacts"
+	"freebucks-proxy/backend/internal/wirefacts"
 )
 
 func main() {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // activeSessionHandler serves the minimal active-session shape for admits

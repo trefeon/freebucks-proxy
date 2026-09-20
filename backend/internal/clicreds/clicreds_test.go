@@ -1,7 +1,7 @@
 package clicreds_test
 
 import (
-	"freebuff-proxy/backend/internal/clicreds"
+	"freebucks-proxy/backend/internal/clicreds"
 	"os"
 	"path/filepath"
 	"testing"

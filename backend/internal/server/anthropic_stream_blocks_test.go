@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/reasoningcache"
+	"freebucks-proxy/backend/internal/reasoningcache"
 )
 
 // TestAnthropicReviewFixSequentialToolBlocks pins P2-7: two tool calls

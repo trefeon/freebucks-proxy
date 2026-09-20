@@ -21,10 +21,10 @@ package pool
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/runs"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 	"time"
 )
 

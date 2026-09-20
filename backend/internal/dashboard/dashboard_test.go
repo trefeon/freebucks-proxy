@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/dashboard"
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // newTestDashboard wires a real (mock-upstream) stack behind the dashboard:
@@ -792,7 +792,7 @@ func TestConfigPageEnvAbsentTemplate(t *testing.T) {
 		t.Error("has_env_file should be false when no .env exists")
 	}
 	envContent, _ := data["env_content"].(string)
-	if !strings.Contains(envContent, "# freebuff-proxy configuration") {
+	if !strings.Contains(envContent, "# freebucks-proxy configuration") {
 		t.Error("env_content missing default template")
 	}
 }

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/server"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/server"
+	"freebucks-proxy/backend/internal/testutil"
 
 	"net/http/httptest"
 )
@@ -58,9 +58,9 @@ func TestHealthzPremiumQuotaOmitted(t *testing.T) {
 	}
 	metrics := string(body)
 	for _, want := range []string{
-		`freebuff_proxy_premium_quota_limit{token="1"} 4`,
-		`freebuff_proxy_premium_quota_used{token="1"} 2`,
-		`freebuff_proxy_premium_quota_remaining{token="1"} 2`,
+		`freebucks_proxy_premium_quota_limit{token="1"} 4`,
+		`freebucks_proxy_premium_quota_used{token="1"} 2`,
+		`freebucks_proxy_premium_quota_remaining{token="1"} 2`,
 	} {
 		if strings.Contains(metrics, want) {
 			t.Errorf("metrics contains removed premium gauge %q (ADR-0027)\nmetrics:\n%s", want, metrics)
@@ -93,7 +93,7 @@ func TestHealthzPremiumQuotaOmittedWhenNil(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("metrics status = %d", resp.StatusCode)
 	}
-	if strings.Contains(metrics, `freebuff_proxy_premium_quota_limit{token="1"}`) {
+	if strings.Contains(metrics, `freebucks_proxy_premium_quota_limit{token="1"}`) {
 		t.Errorf("metrics should not contain premium limit gauge when quota nil\n%s", metrics)
 	}
 }

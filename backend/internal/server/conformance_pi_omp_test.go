@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // Hermetic "real user usage" conformance tests for the pi / Oh My Pi (OMP)

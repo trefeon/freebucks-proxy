@@ -25,8 +25,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/upstream"
 	"sync/atomic"
 	"time"
 )

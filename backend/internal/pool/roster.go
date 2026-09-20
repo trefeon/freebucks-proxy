@@ -1,7 +1,7 @@
 package pool
 
 import (
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 	"sync"
 	"sync/atomic"
 	"time"

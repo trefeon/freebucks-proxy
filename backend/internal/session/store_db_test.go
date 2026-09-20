@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // fakeSessionBackend is an in-memory SessionBackend: it stands in for

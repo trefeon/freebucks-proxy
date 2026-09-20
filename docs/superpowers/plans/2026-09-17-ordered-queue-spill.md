@@ -4,7 +4,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the freebuff-proxy pool controls with MASQ (Minimal Account Slot Queue): strict Account #1→#N order, 2 concurrent slots per (account, model) — one account may hold 2×modelA + 2×modelB at the same time, a FIFO queue per (account, model) that spills to the next account only when the queue-wait expires, precious sessions are never dropped, PIN_MODEL strict 1 account = 1 model, and natural 429s send requests back to the queue without parking the account.
+**Goal:** Replace the freebucks-proxy pool controls with MASQ (Minimal Account Slot Queue): strict Account #1→#N order, 2 concurrent slots per (account, model) — one account may hold 2×modelA + 2×modelB at the same time, a FIFO queue per (account, model) that spills to the next account only when the queue-wait expires, precious sessions are never dropped, PIN_MODEL strict 1 account = 1 model, and natural 429s send requests back to the queue without parking the account.
 
 **Architecture:** Three sequential phases on a single branch. Phase E prunes every artificial limiter (correlative failover walk, ip_capped cooldown, global 5m unfit, bounded COOLDOWN_*, proactive probe/maturity, scorer/rotation/leader-election, chat retry-once, park/sweep) until only natural admission + queue remain. Phase I builds the new mechanism (slot ledger, ordered lanes + spill, precious open-set, PIN_MODEL, 429-requeue) on top of those remains. Phase C locks strict order, the final knobs, and the PIN UI. Each phase ends with a pool that still compiles and is covered by throwaway tests.
 
@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- Shared checkout `D:/github_repo/freebuff-proxy` contains uncommitted user work: DO NOT touch. All work in this worktree + the `plan/ordered-queue-spill` branch only.
+- Shared checkout `D:/github_repo/freebucks-proxy` contains uncommitted user work: DO NOT touch. All work in this worktree + the `plan/ordered-queue-spill` branch only.
 - No project-wide build/lint/test mid-flight. Evidence per task comes only from that task’s own throwaway test file (`go test ./backend/internal/pool/ -run TestNama -count=1`), deleted before the next phase unless promoted to a keeper.
 - Secrets: never dump email/token/session-id in logs/tests; sanitize to Account #N.
 - Code comment language: English (repo convention). UI language: follow the existing `$tr(...)` pattern.

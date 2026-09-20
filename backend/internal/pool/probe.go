@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 	"math"
 	"sync"
 	"time"

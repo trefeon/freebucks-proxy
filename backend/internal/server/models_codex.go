@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"freebuff-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/modelcat"
 )
 
 // codexClientVersion reports whether a /v1/models request comes from Codex:

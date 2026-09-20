@@ -66,23 +66,23 @@ func TestEnvFileCandidatesOrderAndShape(t *testing.T) {
 	if filepath.Clean(cands[0]) != filepath.Join(".", ".env") {
 		t.Errorf("candidate[0] = %q, want ./.env first", cands[0])
 	}
-	// The platform dir must end with freebuff-proxy/.env.
-	if filepath.Base(filepath.Dir(cands[1])) != "freebuff-proxy" || filepath.Base(cands[1]) != ".env" {
-		t.Errorf("candidate[1] = %q, want <config-dir>/freebuff-proxy/.env", cands[1])
+	// The platform dir must end with freebucks-proxy/.env.
+	if filepath.Base(filepath.Dir(cands[1])) != "freebucks-proxy" || filepath.Base(cands[1]) != ".env" {
+		t.Errorf("candidate[1] = %q, want <config-dir>/freebucks-proxy/.env", cands[1])
 	}
 	// Platform-specific base dir.
 	switch runtime.GOOS {
 	case "windows":
 		if !strings.Contains(strings.ToLower(cands[1]), "appdata") && !strings.Contains(strings.ToLower(cands[1]), "roaming") {
-			t.Errorf("windows candidate[1] = %q, want %%APPDATA%%\\freebuff-proxy\\.env", cands[1])
+			t.Errorf("windows candidate[1] = %q, want %%APPDATA%%\\freebucks-proxy\\.env", cands[1])
 		}
 	case "darwin":
 		if !strings.Contains(cands[1], "Application Support") {
-			t.Errorf("darwin candidate[1] = %q, want ~/Library/Application Support/freebuff-proxy/.env", cands[1])
+			t.Errorf("darwin candidate[1] = %q, want ~/Library/Application Support/freebucks-proxy/.env", cands[1])
 		}
 	default:
 		if !strings.Contains(cands[1], ".config") {
-			t.Errorf("linux candidate[1] = %q, want ~/.config/freebuff-proxy/.env", cands[1])
+			t.Errorf("linux candidate[1] = %q, want ~/.config/freebucks-proxy/.env", cands[1])
 		}
 	}
 }

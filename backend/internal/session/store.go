@@ -3,7 +3,7 @@ package session
 import (
 	"encoding/json"
 	"errors"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"os"
 	"strings"

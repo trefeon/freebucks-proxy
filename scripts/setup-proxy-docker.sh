@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-proxy-docker.sh — build + start the freebuff-proxy Docker container on
+# setup-proxy-docker.sh — build + start the freebucks-proxy Docker container on
 # Linux, then print the EXACT 9router configuration, including the Docker
 # gateway IP to use when 9router itself runs in a container.
 #
@@ -39,12 +39,12 @@ if [ -f "$SCRIPT_DIR/../docker-compose.yml" ]; then
   # Running from inside the repo's scripts/ dir — use the repo root.
   REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 else
-  # Running from anywhere else — default to ~/freebuff-proxy.
-  REPO_DIR="$HOME/freebuff-proxy"
+  # Running from anywhere else — default to ~/freebucks-proxy.
+  REPO_DIR="$HOME/freebucks-proxy"
 fi
 if [ ! -f "$REPO_DIR/docker-compose.yml" ]; then
-  c "Cloning freebuff-proxy into $REPO_DIR..."
-  git clone --quiet https://github.com/trefeon/freebuff-proxy.git "$REPO_DIR"
+  c "Cloning freebucks-proxy into $REPO_DIR..."
+  git clone --quiet https://github.com/trefeon/freebucks-proxy.git "$REPO_DIR"
 fi
 cd "$REPO_DIR"
 
@@ -91,14 +91,14 @@ fi
 # The host is reached from inside a container via the gateway of the network
 # that container is on. Inspect the ACTUAL proxy container instead of guessing
 # the network name: compose projects prefix networks with the project name
-# (e.g. freebuff-proxy_default), and this script may run from any directory.
+# (e.g. freebucks-proxy_default), and this script may run from any directory.
 BRIDGE_GW="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo 172.17.0.1)"
 GATEWAY=""
 # 1) the compose project we just started (correct even with a project-prefixed
 #    network name); 2) the well-known container name; 3) the image name.
 CONTAINER="$(docker compose ps -q 2>/dev/null | head -1 || true)"
-[ -z "$CONTAINER" ] && CONTAINER="$(docker ps -q --filter name=^/freebuff-proxy$ 2>/dev/null | head -1 || true)"
-[ -z "$CONTAINER" ] && CONTAINER="$(docker ps -q --filter ancestor=freebuff-proxy:latest 2>/dev/null | head -1 || true)"
+[ -z "$CONTAINER" ] && CONTAINER="$(docker ps -q --filter name=^/freebucks-proxy$ 2>/dev/null | head -1 || true)"
+[ -z "$CONTAINER" ] && CONTAINER="$(docker ps -q --filter ancestor=freebucks-proxy:latest 2>/dev/null | head -1 || true)"
 if [ -n "$CONTAINER" ]; then
   GATEWAY="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}} {{end}}' "$CONTAINER" 2>/dev/null | awk '{print $1}' || true)"
 fi
@@ -111,7 +111,7 @@ fi
 cat <<EOF
 
 ============================================================
-  9router → freebuff-proxy — fill the "Add OpenAI Compatible"
+  9router → freebucks-proxy — fill the "Add OpenAI Compatible"
   form with these values (Dashboard → Providers → Add)
 ============================================================
 

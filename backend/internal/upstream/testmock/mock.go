@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 func init() {

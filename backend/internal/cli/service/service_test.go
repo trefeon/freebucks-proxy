@@ -11,12 +11,12 @@ import (
 // on-logon task, non-elevated, the /tr wrapper cds into the executable's
 // directory so ./.env resolves (matching start-proxy.cmd), /f overwrite.
 func TestWindowsTaskCreateArgs(t *testing.T) {
-	args := windowsTaskCreateArgs(`C:\tools\freebuff-proxy.exe`, `C:\tools`)
+	args := windowsTaskCreateArgs(`C:\tools\freebucks-proxy.exe`, `C:\tools`)
 	joined := strings.Join(args, " ")
 
 	for _, want := range []string{
 		"/create",
-		"/tn freebuff-proxy",
+		"/tn freebucks-proxy",
 		"/sc onlogon",
 		"/rl limited",
 		"/f",
@@ -25,7 +25,7 @@ func TestWindowsTaskCreateArgs(t *testing.T) {
 			t.Errorf("windowsTaskCreateArgs missing %q in %q", want, joined)
 		}
 	}
-	if !strings.Contains(joined, `cmd.exe /c cd /d "C:\tools" && "C:\tools\freebuff-proxy.exe"`) {
+	if !strings.Contains(joined, `cmd.exe /c cd /d "C:\tools" && "C:\tools\freebucks-proxy.exe"`) {
 		t.Errorf("windowsTaskCreateArgs /tr wrapper wrong: %q", joined)
 	}
 }
@@ -40,8 +40,8 @@ func TestWindowsTaskStatusParsing(t *testing.T) {
 		wantRegistered bool
 		wantActive     bool
 	}{
-		{"running", "TaskName:   freebuff-proxy\nStatus:     Running\nTask To Run: cmd.exe ...\n", true, true},
-		{"ready", "TaskName:   freebuff-proxy\nStatus:     Ready\n", true, false},
+		{"running", "TaskName:   freebucks-proxy\nStatus:     Running\nTask To Run: cmd.exe ...\n", true, true},
+		{"ready", "TaskName:   freebucks-proxy\nStatus:     Ready\n", true, false},
 		{"disabled", "Status: Disabled", true, false},
 		{"missing", "ERROR: The system cannot find the file specified.", false, false},
 		{"empty", "", false, false},
@@ -61,10 +61,10 @@ func TestWindowsTaskStatusParsing(t *testing.T) {
 // point at the executable's directory and binary, and the unit is restartable
 // and enable-able (Restart + WantedBy present).
 func TestSystemdUserUnit(t *testing.T) {
-	unit := systemdUserUnit("/opt/freebuff-proxy/freebuff-proxy", "/opt/freebuff-proxy")
+	unit := systemdUserUnit("/opt/freebucks-proxy/freebucks-proxy", "/opt/freebucks-proxy")
 	for _, want := range []string{
-		"WorkingDirectory=/opt/freebuff-proxy",
-		"ExecStart=/opt/freebuff-proxy/freebuff-proxy",
+		"WorkingDirectory=/opt/freebucks-proxy",
+		"ExecStart=/opt/freebucks-proxy/freebucks-proxy",
 		"Restart=on-failure",
 		"WantedBy=default.target",
 	} {
@@ -98,10 +98,10 @@ func TestSystemdActiveParsing(t *testing.T) {
 // pointing at the binary, WorkingDirectory so ./.env resolves, and
 // RunAtLoad+KeepAlive for autostart/respawn.
 func TestLaunchdPlist(t *testing.T) {
-	plist := launchdPlist("/usr/local/bin/freebuff-proxy", "/usr/local/bin")
+	plist := launchdPlist("/usr/local/bin/freebucks-proxy", "/usr/local/bin")
 	for _, want := range []string{
-		"com.freebuff-proxy",
-		"/usr/local/bin/freebuff-proxy",
+		"com.freebucks-proxy",
+		"/usr/local/bin/freebucks-proxy",
 		"WorkingDirectory",
 		"/usr/local/bin",
 		"RunAtLoad",
@@ -117,15 +117,15 @@ func TestLaunchdPlist(t *testing.T) {
 // label and a numeric PID column means loaded; "-" PID or absent label does
 // not.
 func TestLaunchctlListParsing(t *testing.T) {
-	const label = "com.freebuff-proxy"
+	const label = "com.freebucks-proxy"
 	cases := []struct {
 		name string
 		out  string
 		want bool
 	}{
-		{"loaded", "PID\tStatus\tLabel\n1234\t0\tcom.freebuff-proxy\n", true},
-		{"loaded no header", "1234\t0\tcom.freebuff-proxy\n", true},
-		{"unloaded dash", "-\t0\tcom.freebuff-proxy\n", false},
+		{"loaded", "PID\tStatus\tLabel\n1234\t0\tcom.freebucks-proxy\n", true},
+		{"loaded no header", "1234\t0\tcom.freebucks-proxy\n", true},
+		{"unloaded dash", "-\t0\tcom.freebucks-proxy\n", false},
 		{"absent", "PID\tStatus\tLabel\n1234\t0\tcom.other\n", false},
 		{"empty", "", false},
 	}
@@ -163,22 +163,22 @@ func repoRoot(t *testing.T) string {
 // (cwd, binary path, log destinations) that MUST hold:
 //
 //   - launchdPlist's contract (WorkingDirectory, ProgramArguments, /tmp log
-//     paths, label) must equal scripts/com.freebuff-proxy.plist for the
+//     paths, label) must equal scripts/com.freebucks-proxy.plist for the
 //     sample's binary path, so a manually installed LaunchAgent resolves
 //     ./.env next to the binary instead of starting with cwd=/" (the config
 //     "vanishes" trap).
-//   - systemdUserUnit and scripts/freebuff-proxy.service are intentionally
+//   - systemdUserUnit and scripts/freebucks-proxy.service are intentionally
 //     DIFFERENT platform models and this test pins that divergence as
 //     deliberate: the builder is the --user unit (exe-dir cwd, WantedBy=
 //     default.target); the committed sample is the system unit (/var/lib/
-//     freebuff-proxy, dedicated system user, WantedBy=multi-user.target).
+//     freebucks-proxy, dedicated system user, WantedBy=multi-user.target).
 func TestCommittedServiceUnitsMatchBuilders(t *testing.T) {
 	root := repoRoot(t)
 
 	// --- launchd: exact parity with the builder ---------------------------
-	bin := "/usr/local/bin/freebuff-proxy"
+	bin := "/usr/local/bin/freebucks-proxy"
 	dir := "/usr/local/bin"
-	plistPath := filepath.Join(root, "scripts", "com.freebuff-proxy.plist")
+	plistPath := filepath.Join(root, "scripts", "com.freebucks-proxy.plist")
 	want := launchdPlist(bin, dir)
 	got, err := os.ReadFile(plistPath)
 	if err != nil {
@@ -195,16 +195,16 @@ func TestCommittedServiceUnitsMatchBuilders(t *testing.T) {
 	}
 
 	// --- systemd: intentional divergence pinned ---------------------------
-	sysUnit := readFile(t, filepath.Join(root, "scripts", "freebuff-proxy.service"))
+	sysUnit := readFile(t, filepath.Join(root, "scripts", "freebucks-proxy.service"))
 	for _, want := range []string{
-		"User=freebuff-proxy",
-		"Group=freebuff-proxy",
-		"WorkingDirectory=/var/lib/freebuff-proxy",
-		"EnvironmentFile=/etc/freebuff-proxy/env",
+		"User=freebucks-proxy",
+		"Group=freebucks-proxy",
+		"WorkingDirectory=/var/lib/freebucks-proxy",
+		"EnvironmentFile=/etc/freebucks-proxy/env",
 		"WantedBy=multi-user.target",
 	} {
 		if !strings.Contains(sysUnit, want) {
-			t.Errorf("committed freebuff-proxy.service missing %q (system-unit marker)", want)
+			t.Errorf("committed freebucks-proxy.service missing %q (system-unit marker)", want)
 		}
 	}
 
@@ -218,11 +218,11 @@ func TestCommittedServiceUnitsMatchBuilders(t *testing.T) {
 			t.Errorf("systemdUserUnit missing %q (user-unit marker)", want)
 		}
 	}
-	if strings.Contains(userUnit, "User=freebuff-proxy") {
+	if strings.Contains(userUnit, "User=freebucks-proxy") {
 		t.Errorf("systemdUserUnit must not set a dedicated system user (that is the system unit's role)")
 	}
 	// Both share the restart + description contract.
-	for _, shared := range []string{"Restart=on-failure", "After=network-online.target", "Description=FreeBuff Proxy Bridge"} {
+	for _, shared := range []string{"Restart=on-failure", "After=network-online.target", "Description=FreeBucks Proxy Bridge"} {
 		if !strings.Contains(sysUnit, shared) {
 			t.Errorf("committed system unit missing shared %q", shared)
 		}

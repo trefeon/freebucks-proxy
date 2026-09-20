@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/dashboard"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/store"
 )
 
 func seedHistory(t *testing.T) *store.Store {

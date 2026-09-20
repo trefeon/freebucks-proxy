@@ -42,7 +42,7 @@ import (
 	"testing"
 )
 
-const modulePrefix = "freebuff-proxy/backend/"
+const modulePrefix = "freebucks-proxy/backend/"
 
 // allowed maps an internal package path (relative to backend/) to the set of
 // internal packages it may import. nil or missing value means "none".

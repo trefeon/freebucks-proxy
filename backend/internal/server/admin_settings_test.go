@@ -2,10 +2,10 @@ package server_test
 
 import (
 	"encoding/json"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/server"
-	"freebuff-proxy/backend/internal/store"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/server"
+	"freebucks-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"

@@ -1,5 +1,5 @@
 /**
- * Core API fetch client for freebuff-proxy dashboard.
+ * Core API fetch client for freebucks-proxy dashboard.
  * Handles HTTP requests, headers, and error unwrapping.
  *
  * CSRF: state-changing requests echo the server's double-submit nonce

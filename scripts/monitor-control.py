@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-monitor-control.py — freebuff-proxy control-logic monitoring & verification tool.
+monitor-control.py — freebucks-proxy control-logic monitoring & verification tool.
 
-Probes and verifies the entire control plane of freebuff-proxy:
+Probes and verifies the entire control plane of freebucks-proxy:
 1. Pool Topology & Health (/healthz): token roster, active runs, cooldowns, quarantine.
 2. Strategy & Queue Posture (pool.conf): MASQ / Drain / Balance, slot ledger parameters.
 3. Model Catalog & Pricing (/v1/models): served models, availability, access tiers.
@@ -205,16 +205,16 @@ class ControlMonitor:
                 self.add_invariant("Metrics HTTP 200", False, f"HTTP {status}", "METRICS")
             return None
 
-        has_uptime = "freebuff_proxy_uptime_seconds" in body
-        has_requests = "freebuff_proxy_requests_served" in body
-        has_rate_limits = "freebuff_proxy_rate_limit_events_total" in body
+        has_uptime = "freebucks_proxy_uptime_seconds" in body
+        has_requests = "freebucks_proxy_requests_served" in body
+        has_rate_limits = "freebucks_proxy_rate_limit_events_total" in body
 
         if record_invariants:
             self.add_invariant("Metrics Exposition Contract", has_uptime, "Prometheus text format intact", "METRICS")
 
         served = 0
         for line in body.splitlines():
-            if line.startswith("freebuff_proxy_requests_served"):
+            if line.startswith("freebucks_proxy_requests_served"):
                 parts = line.split()
                 if len(parts) >= 2:
                     try:
@@ -565,7 +565,7 @@ def load_api_key(key_file, direct_key):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="freebuff-proxy control-logic monitoring tool")
+    parser = argparse.ArgumentParser(description="freebucks-proxy control-logic monitoring tool")
     parser.add_argument("--url", default=os.environ.get("FREEBUFF_HOST", "http://172.188.64.104:3457"))
     parser.add_argument("--key-file", default="api-keys_freebuff_vps-sg")
     parser.add_argument("--key", default="")

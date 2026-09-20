@@ -84,8 +84,8 @@ func TestWindowsPortPIDFromPowerShellOutput(t *testing.T) {
 }
 
 func TestTaskNameFromCSV(t *testing.T) {
-	if got := taskNameFromCSV(`"freebuff-proxy-dash.exe","44420","Console","1","50,776 K"`); got != "freebuff-proxy-dash.exe" {
-		t.Errorf("taskNameFromCSV = %q, want freebuff-proxy-dash.exe", got)
+	if got := taskNameFromCSV(`"freebucks-proxy-dash.exe","44420","Console","1","50,776 K"`); got != "freebucks-proxy-dash.exe" {
+		t.Errorf("taskNameFromCSV = %q, want freebucks-proxy-dash.exe", got)
 	}
 	if got := taskNameFromCSV("no quotes"); got != "" {
 		t.Errorf("taskNameFromCSV(no quotes) = %q, want empty", got)
@@ -128,7 +128,7 @@ func TestBusyboxPortPID(t *testing.T) {
 	out := `Active Internet connections (only servers)
 Proto Recv-Q Send-Q Local Address Foreign Address State PID/Program name
 tcp  0  0 127.0.0.1:9999 0.0.0.0:* LISTEN 4321/x
-tcp  0  0 0.0.0.0:3457 0.0.0.0:* LISTEN 1234/freebuff-proxy
+tcp  0  0 0.0.0.0:3457 0.0.0.0:* LISTEN 1234/freebucks-proxy
 tcp6 0  0 [::]:8080 [::]:* LISTEN 5678/other
 tcp  0  0 0.0.0.0:3457 0.0.0.0:* ESTABLISHED 8888
 `

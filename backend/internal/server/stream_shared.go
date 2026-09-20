@@ -16,9 +16,9 @@ import (
 	"sort"
 	"time"
 
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/reasoningcache"
+	"freebucks-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/reasoningcache"
 )
 
 // --- XML tool-call extraction: feed (map-level) ---

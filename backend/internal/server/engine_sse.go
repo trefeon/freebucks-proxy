@@ -10,7 +10,7 @@ import (
 	"io"
 	"time"
 
-	"freebuff-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/convert"
 )
 
 // relayStats accumulates per-response relay counters for logging.

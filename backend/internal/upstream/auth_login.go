@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/upstream/login"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/upstream/login"
 )
 
 // loginCallTimeout bounds each login HTTP call (code request, status poll,

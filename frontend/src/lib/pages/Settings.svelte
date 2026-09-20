@@ -88,7 +88,7 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / settings.conf"
+  crumb="freebucks-proxy / Admin / settings.conf"
   title={$tr("Settings")}
   description={$tr(
     "Access, protection, and remaining tunables. Every row saves instantly to the DB overlay; restart-marked keys apply after a container restart.",

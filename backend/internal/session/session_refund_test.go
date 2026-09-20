@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // TestStatusErrorTerminalRefusals pins the vendor af898dc taxonomy port:

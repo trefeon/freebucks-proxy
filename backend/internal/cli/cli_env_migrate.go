@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"freebuff-proxy/backend/internal/config"
-	history "freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/config"
+	history "freebucks-proxy/backend/internal/store"
 )
 
 // migrateEnvToDB is the env-to-DB migration: the first boot whose settings

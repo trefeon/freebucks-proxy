@@ -26,7 +26,7 @@ package pool
 import (
 	"container/list"
 	"context"
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 	"time"
 )
 

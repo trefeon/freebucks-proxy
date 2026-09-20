@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/telemetry"
+	"freebucks-proxy/backend/internal/telemetry"
 )
 
 // TestHoldForExitIfConsolePipedStderrNoHang guards the console hold: with
@@ -97,7 +97,7 @@ func TestModeFlagsExclusiveWarning(t *testing.T) {
 				}
 				return
 			}
-			if !strings.Contains(got, tc.want) || !strings.HasPrefix(got, "freebuff-proxy: warning:") {
+			if !strings.Contains(got, tc.want) || !strings.HasPrefix(got, "freebucks-proxy: warning:") {
 				t.Errorf("ModeFlagsExclusiveWarning = %q, want warning containing %q", got, tc.want)
 			}
 		})
@@ -168,7 +168,7 @@ func TestIgnoredExeAdjacentEnv(t *testing.T) {
 	if err := os.MkdirAll(exeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	exe := filepath.Join(exeDir, "freebuff-proxy.exe")
+	exe := filepath.Join(exeDir, "freebucks-proxy.exe")
 	envPath := filepath.Join(exeDir, ".env")
 	if err := os.WriteFile(envPath, []byte("A=1\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -287,10 +287,10 @@ func TestPrintPortInUseHintText(t *testing.T) {
 	out := string(data)
 
 	for _, want := range []string{
-		"freebuff-proxy: cannot listen on :3457",
+		"freebucks-proxy: cannot listen on :3457",
 		"Port 3457 is already in use by another process.",
 		"To close the other app, find and stop it:",
-		"Then start freebuff-proxy again.",
+		"Then start freebucks-proxy again.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hint missing %q; got:\n%s", want, out)

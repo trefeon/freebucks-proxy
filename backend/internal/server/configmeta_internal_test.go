@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 )
 
 // TestConfigCatalogRestartOnlyMatchesServer pins the catalog's restart_only

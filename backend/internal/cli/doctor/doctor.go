@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/egress"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/egress"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // egressRegionRow renders the doctor's egress region line from the direct
@@ -97,27 +97,27 @@ func doctorSummary(passed, warnings, failed int) string {
 func RunTokenTest(configPath string) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -test-token: config load failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -test-token: config load failed: %v\n", err)
 		os.Exit(1)
 	}
 	if cfg.BridgeMode() {
-		fmt.Fprintln(os.Stderr, "freebuff-proxy: -test-token: no AUTH_TOKENS configured (bridge mode); nothing to probe")
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: -test-token: no AUTH_TOKENS configured (bridge mode); nothing to probe")
 		os.Exit(1)
 	}
 	clientCfg := cfg
 	client, err := upstream.New(cfg.AuthTokens[0], &clientCfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -test-token: %v\n", err)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -test-token: %v\n", err)
 		os.Exit(1)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	if _, err := client.ProbeAccount(ctx); err != nil {
 		if errors.Is(err, upstream.ErrNoActiveSession) {
-			fmt.Println("freebuff-proxy: token OK (no active session)")
+			fmt.Println("freebucks-proxy: token OK (no active session)")
 			os.Exit(0)
 		}
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -test-token: token rejected upstream: %v\n", err)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -test-token: token rejected upstream: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Println(tokenOKLine())
@@ -128,12 +128,12 @@ func RunTokenTest(configPath string) {
 // accepted but never rendered: session-count copy retired (ADR-0027) —
 // the line carries no used/limit, period, or reset readout.
 func tokenOKLine() string {
-	return "freebuff-proxy: token OK"
+	return "freebucks-proxy: token OK"
 }
 
 // Run drives the -doctor diagnostics and exits.
 func Run(configPath string) {
-	fmt.Println("freebuff-proxy doctor diagnostic tool")
+	fmt.Println("freebucks-proxy doctor diagnostic tool")
 	fmt.Println("=====================================")
 
 	passed := 0

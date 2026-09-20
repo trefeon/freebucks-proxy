@@ -1,5 +1,5 @@
 // Package server exposes the OpenAI-compatible HTTP surface of the
-// freebuff-proxy bridge: POST /v1/chat/completions (stream + non-stream),
+// freebucks-proxy bridge: POST /v1/chat/completions (stream + non-stream),
 // GET /v1/models, and GET /healthz. Stdlib only.
 //
 // Responsibilities (PRD §6 error matrix):
@@ -19,18 +19,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/dashboard"
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/ratelimit"
-	"freebuff-proxy/backend/internal/reasoningcache"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/store"
-	"freebuff-proxy/backend/internal/tokenestimate"
-	"freebuff-proxy/backend/internal/updatecheck"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/ratelimit"
+	"freebucks-proxy/backend/internal/reasoningcache"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/tokenestimate"
+	"freebucks-proxy/backend/internal/updatecheck"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 const (
@@ -51,7 +51,7 @@ type Server struct {
 	started time.Time
 
 	// logs is the optional dashboard log viewer ring (nil = disabled); its
-	// Counts feed freebuff_proxy_log_events_total on /metrics.
+	// Counts feed freebucks_proxy_log_events_total on /metrics.
 	logs *logring.Handler
 
 	// dash is the embedded admin UI (Svelte SPA + vendored assets).

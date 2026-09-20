@@ -213,7 +213,7 @@ func boolWord(v bool) string {
 // commented-out with its default, in catalog order.
 func DefaultEnvTemplate() string {
 	var b strings.Builder
-	b.WriteString("# freebuff-proxy configuration (.env)\n")
+	b.WriteString("# freebucks-proxy configuration (.env)\n")
 	b.WriteString("# Keys mirror the environment variables; leave commented to keep the default.\n")
 	b.WriteString("# See the README and docs/guides for the full reference.\n\n")
 	for _, def := range Catalog() {

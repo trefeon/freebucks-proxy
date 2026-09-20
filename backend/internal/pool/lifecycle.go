@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/session"
 	"log/slog"
 	"strings"
 	"time"

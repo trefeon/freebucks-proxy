@@ -6,13 +6,13 @@ package dashboard
 
 import (
 	"encoding/json"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/store"
-	"freebuff-proxy/backend/internal/updatecheck"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/updatecheck"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -98,7 +98,7 @@ func New(cfg func() *config.Config, p *pool.Pool, reg *registry.Registry, logger
 }
 
 // releaseURL is where the update badge points (the releases page).
-const releaseURL = "https://github.com/trefeon/freebuff-proxy/releases"
+const releaseURL = "https://github.com/trefeon/freebucks-proxy/releases"
 
 // pickDefaultModel selects the catalog fallback (the mimo row) when present, or the first available model.
 func pickDefaultModel(models []string) string {
@@ -271,7 +271,7 @@ func isHexSHA(s string) bool {
 // the dashboard banner must always point at the current repo even if the
 // drift JSON is stale.
 func parseUpstreamSync(raw []byte) *upstreamSync {
-	const releasesURL = "https://github.com/trefeon/freebuff-proxy/releases"
+	const releasesURL = "https://github.com/trefeon/freebucks-proxy/releases"
 	sync := &upstreamSync{ReleasesURL: releasesURL}
 	if len(raw) == 0 {
 		return sync

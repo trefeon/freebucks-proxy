@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestSendPostsPayload verifies the webhook POST carries the JSON event

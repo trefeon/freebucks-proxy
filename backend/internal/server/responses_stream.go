@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/phasetiming"
 )
 
 // responsesItem is one output item being assembled during stream relay:

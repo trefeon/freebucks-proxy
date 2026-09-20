@@ -12,8 +12,8 @@ import (
 	"os"
 	"strings"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // Run drives the -validate-tokens mode for the config at configPath. override
@@ -22,7 +22,7 @@ import (
 func Run(configPath, override string) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -validate-tokens: config load failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -validate-tokens: config load failed: %v\n", err)
 		os.Exit(2)
 	}
 	tokens := cfg.AuthTokens
@@ -30,12 +30,12 @@ func Run(configPath, override string) {
 		tokens = splitTokenOverride(override)
 	}
 	if len(tokens) == 0 {
-		fmt.Fprintln(os.Stderr, "freebuff-proxy: -validate-tokens: no tokens to validate (AUTH_TOKENS empty — bridge mode); pass -validate-tokens=tok1,tok2 to validate specific tokens")
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: -validate-tokens: no tokens to validate (AUTH_TOKENS empty — bridge mode); pass -validate-tokens=tok1,tok2 to validate specific tokens")
 		os.Exit(2)
 	}
 	rows, err := upstream.ValidateTokens(context.Background(), &cfg, tokens)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -validate-tokens: %v\n", err)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -validate-tokens: %v\n", err)
 		os.Exit(2)
 	}
 	upstream.FlagSharedMailboxes(rows)

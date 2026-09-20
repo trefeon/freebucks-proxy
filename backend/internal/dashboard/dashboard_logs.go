@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/store"
 )
 
 // --- logs ---

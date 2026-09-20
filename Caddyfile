@@ -3,7 +3,7 @@
 }
 
 {$DOMAIN:localhost} {
-    reverse_proxy freebuff-proxy:3457 {
+    reverse_proxy freebucks-proxy:3457 {
         header_up X-Forwarded-Proto https
     }
 }

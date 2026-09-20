@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // refreshPollTimeout bounds the whole interactive poll (the login code
@@ -107,17 +107,17 @@ func updateEnvKeysAt(path string, updates []envUpdate) ([]byte, error) {
 func Run(configPath string, index int, autoYes bool) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "freebuff-proxy: invalid config:", err)
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: invalid config:", err)
 		os.Exit(1)
 	}
 	if index < 0 || index >= len(cfg.AuthTokens) {
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -refresh-token %d is out of range (AUTH_TOKENS has %d token(s), 0-based)\n", index, len(cfg.AuthTokens))
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -refresh-token %d is out of range (AUTH_TOKENS has %d token(s), 0-based)\n", index, len(cfg.AuthTokens))
 		os.Exit(1)
 	}
 
 	client, err := upstream.NewForAuth(&cfg)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "freebuff-proxy: build auth client:", err)
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: build auth client:", err)
 		os.Exit(1)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), refreshPollTimeout)
@@ -125,7 +125,7 @@ func Run(configPath string, index int, autoYes bool) {
 
 	code, err := client.StartCLILogin(ctx)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "freebuff-proxy: start login:", err)
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: start login:", err)
 		os.Exit(1)
 	}
 
@@ -138,7 +138,7 @@ func Run(configPath string, index int, autoYes bool) {
 			fmt.Fprintln(os.Stderr, "GITHUB_USER/GITHUB_PASSWORD/GITHUB_TOTP present — attempting the GitHub protocol login (password + TOTP)...")
 			status, perr := client.ProtocolGitHubLogin(ctx, user, pass, totp, nil)
 			if perr != nil {
-				fmt.Fprintln(os.Stderr, "freebuff-proxy: protocol login failed:", perr)
+				fmt.Fprintln(os.Stderr, "freebucks-proxy: protocol login failed:", perr)
 				fmt.Fprintln(os.Stderr, "Open this URL in a browser to complete the login manually:")
 				fmt.Fprintln(os.Stderr, "  "+code.LoginURL)
 				os.Exit(2)
@@ -159,7 +159,7 @@ func Run(configPath string, index int, autoYes bool) {
 	for {
 		status, err := client.PollCLILogin(ctx, code)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "freebuff-proxy: poll login:", err)
+			fmt.Fprintln(os.Stderr, "freebucks-proxy: poll login:", err)
 			os.Exit(1)
 		}
 		if status.Done {
@@ -170,7 +170,7 @@ func Run(configPath string, index int, autoYes bool) {
 		}
 		select {
 		case <-ctx.Done():
-			fmt.Fprintln(os.Stderr, "freebuff-proxy: login timed out")
+			fmt.Fprintln(os.Stderr, "freebucks-proxy: login timed out")
 			os.Exit(1)
 		// 5s matches the CLI's pollLoginStatus intervalMs=5000 (#125; the
 		// upstream const loginPollInterval is the same value).
@@ -191,7 +191,7 @@ func persistReplacement(cfg config.Config, index int, newToken string) {
 	}
 	updates := []envUpdate{{Key: "AUTH_TOKENS", Value: strings.Join(tokens, ",")}}
 	if _, err := updateEnvKeysAt(envPath, updates); err != nil {
-		fmt.Fprintln(os.Stderr, "freebuff-proxy: persist AUTH_TOKENS:", err)
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: persist AUTH_TOKENS:", err)
 		os.Exit(1)
 	}
 }

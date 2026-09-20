@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // The dashboard tokens payload is what the SPA renders: a freebucks-window

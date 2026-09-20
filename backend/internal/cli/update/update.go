@@ -37,7 +37,7 @@ const maxUpdateArchiveEntryBytes = maxUpdateDownloadBytes
 // defaultReleasesURL is the GitHub API endpoint checked for the latest
 // release. FREEBUFF_UPDATE_API_URL overrides it so tests (and self-hosted
 // mirrors) can point -update at a fake release server.
-const defaultReleasesURL = "https://api.github.com/repos/trefeon/freebuff-proxy/releases/latest"
+const defaultReleasesURL = "https://api.github.com/repos/trefeon/freebucks-proxy/releases/latest"
 
 type releaseAsset struct {
 	Name               string `json:"name"`
@@ -118,7 +118,7 @@ func Run(version string) {
 		reportUpdateResultMarker(execPath)
 	}
 
-	fmt.Println("freebuff-proxy self-updater")
+	fmt.Println("freebucks-proxy self-updater")
 	fmt.Println("===========================")
 	fmt.Printf("Current version: %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
 
@@ -130,7 +130,7 @@ func Run(version string) {
 		fmt.Fprintf(os.Stderr, "ERROR: build request: %v\n", err)
 		os.Exit(1)
 	}
-	req.Header.Set("User-Agent", "freebuff-proxy/"+version)
+	req.Header.Set("User-Agent", "freebucks-proxy/"+version)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	// No per-request timeout: each request is bounded by its own context
@@ -211,9 +211,9 @@ func Run(version string) {
 	fmt.Println("Checksum verified successfully [ok]")
 
 	// Extract binary
-	binaryName := "freebuff-proxy"
+	binaryName := "freebucks-proxy"
 	if runtime.GOOS == "windows" {
-		binaryName = "freebuff-proxy.exe"
+		binaryName = "freebucks-proxy.exe"
 	}
 	binaryBytes, err := extractBinaryFromArchive(assetURL, assetBytes, binaryName)
 	if err != nil {
@@ -266,8 +266,8 @@ func Run(version string) {
 		os.Exit(0)
 	}
 
-	fmt.Printf("\nSUCCESS: freebuff-proxy updated to %s!\n", rel.TagName)
-	fmt.Println("Please restart freebuff-proxy to run the new version.")
+	fmt.Printf("\nSUCCESS: freebucks-proxy updated to %s!\n", rel.TagName)
+	fmt.Println("Please restart freebucks-proxy to run the new version.")
 	os.Exit(0)
 }
 

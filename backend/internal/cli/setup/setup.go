@@ -17,7 +17,7 @@ import (
 // preserves the original -setup behavior exactly: prompts (auto-confirmed
 // with autoYes) and os.Exit codes.
 func Run(autoYes bool) {
-	fmt.Println("freebuff-proxy interactive client setup")
+	fmt.Println("freebucks-proxy interactive client setup")
 	fmt.Println("======================================")
 	fmt.Println("This helper detects installed AI tools and offers to configure them.")
 	fmt.Println("No files will be modified without your explicit permission.")
@@ -48,7 +48,7 @@ func Run(autoYes bool) {
 		if !fileExists(continueYamlPath) && fileExists(continueJsonPath) {
 			targetPath = continueJsonPath
 		}
-		if ask(fmt.Sprintf("Would you like to add freebuff-proxy to Continue (%s)?", filepath.Base(targetPath))) {
+		if ask(fmt.Sprintf("Would you like to add freebucks-proxy to Continue (%s)?", filepath.Base(targetPath))) {
 			if strings.HasSuffix(targetPath, ".yaml") || strings.HasSuffix(targetPath, ".yml") {
 				if setupContinueYamlConfig(targetPath) {
 					fmt.Printf("    [ok] Configured Continue in %s (backup saved to .bak)\n", targetPath)

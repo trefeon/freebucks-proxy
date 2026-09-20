@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// unsetConfigEnv removes every ambient freebuff-proxy config env var for the
+// unsetConfigEnv removes every ambient freebucks-proxy config env var for the
 // duration of the test and restores them afterwards (mirrors
 // testutil.UnsetConfigEnv, but driven by ConfigEnvKeys()).
 func unsetConfigEnv(t *testing.T) {

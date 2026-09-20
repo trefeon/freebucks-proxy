@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"freebuff-proxy/backend/internal/telemetry"
+	"freebucks-proxy/backend/internal/telemetry"
 )
 
 // Entry is one retained log record, pre-formatted for display.

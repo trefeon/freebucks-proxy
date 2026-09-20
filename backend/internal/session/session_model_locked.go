@@ -3,7 +3,7 @@
 // Split from session.go (CI line cap): the model_locked admission branch in
 // Manager.refresh releases the old slot and re-admits with the requested
 // model, and this counter tracks the switching cost per from → to pair so
-// /metrics can surface freebuff_proxy_model_locked_total.
+// /metrics can surface freebucks_proxy_model_locked_total.
 package session
 
 // recordModelLock tallies one model-lock release for the (from, to) model
@@ -26,7 +26,7 @@ func (m *Manager) recordModelLock(from, to string) {
 
 // ModelLocked returns a copy of the model-lock release counter keyed by
 // from → to model pair (empty map when no releases). Fed to /metrics as
-// freebuff_proxy_model_locked_total (issue #160).
+// freebucks_proxy_model_locked_total (issue #160).
 func (m *Manager) ModelLocked() map[string]map[string]int64 {
 	m.modelLockedMu.Lock()
 	defer m.modelLockedMu.Unlock()

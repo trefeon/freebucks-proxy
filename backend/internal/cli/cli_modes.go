@@ -26,12 +26,12 @@ import (
 	// resets fall back to a month-based approximation.
 	_ "time/tzdata"
 
-	"freebuff-proxy/backend/internal/cli/port"
-	"freebuff-proxy/backend/internal/clicreds"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	history "freebuff-proxy/backend/internal/store"
-	"freebuff-proxy/backend/internal/telemetry"
+	"freebucks-proxy/backend/internal/cli/port"
+	"freebucks-proxy/backend/internal/clicreds"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	history "freebucks-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/telemetry"
 )
 
 // stderrIsCharDevice reports whether stderr is a character device (an
@@ -121,7 +121,7 @@ func ModeFlagsExclusiveWarning(flags ...bool) string {
 	if n <= 1 {
 		return ""
 	}
-	return "freebuff-proxy: warning: -doctor, -update, -setup, -test-token, -validate-tokens, -install-service, -uninstall-service and -service-status are mutually exclusive; only the first will run"
+	return "freebucks-proxy: warning: -doctor, -update, -setup, -test-token, -validate-tokens, -install-service, -uninstall-service and -service-status are mutually exclusive; only the first will run"
 }
 
 // resolveLogLevel applies the effective log-level precedence: a set
@@ -218,7 +218,7 @@ func cliOwnerFilePath() (string, error) {
 func printPortInUseHint(addr string, err error) {
 	p := port.PortOf(addr)
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "freebuff-proxy: cannot listen on", addr)
+	fmt.Fprintln(os.Stderr, "freebucks-proxy: cannot listen on", addr)
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "  Port "+p+" is already in use by another process.")
 	if owner := port.PortOwner(p); owner != "" {
@@ -234,7 +234,7 @@ func printPortInUseHint(addr string, err error) {
 		fmt.Fprintln(os.Stderr, "    kill <pid>")
 	}
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  Then start freebuff-proxy again.")
+	fmt.Fprintln(os.Stderr, "  Then start freebucks-proxy again.")
 	fmt.Fprintln(os.Stderr)
 	// Shared with the other fatal startup errors: hold the window open on an
 	// interactive console, no-op when stderr is piped.

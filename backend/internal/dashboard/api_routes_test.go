@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/dashboard"
 )
 
 // --- AdminRoutes table shape ---

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/reasoningcache"
+	"freebucks-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/reasoningcache"
 )
 
 // Round-trip regression for the P2-5 canonical tool-calls binding: the

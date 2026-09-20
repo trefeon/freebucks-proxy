@@ -6,10 +6,10 @@ import (
 	"io"
 	"net/http"
 
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the

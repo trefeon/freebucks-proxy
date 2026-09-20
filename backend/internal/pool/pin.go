@@ -2,8 +2,8 @@ package pool
 
 import (
 	"fmt"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/registry"
 )
 
 // Single-pin routing (PIN_MODEL): each pool slot may be pinned to exactly

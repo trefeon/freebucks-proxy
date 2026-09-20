@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/runs"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // bridgeEntry is one lazily-created client-token slot in bridge mode: the

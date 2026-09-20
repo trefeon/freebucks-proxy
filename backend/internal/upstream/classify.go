@@ -74,7 +74,7 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// immediately. Retryable transport-level condition handled under the
 		// TRANSIENT_RETRIES budget in ChatCompletions against the SAME
 		// lease/session — never a token cooldown, never a session
-		// invalidation (reference/freebuff-proxy-hengxin proxy.js:652-668).
+		// invalidation (reference/freebucks-proxy-hengxin proxy.js:652-668).
 		return &CapacityDeferredError{Status: status, Body: truncate(body, 500), RetryAfter: retryAfter}
 	case containsAny(lower, string(WireCodeTurnSpendLimit)):
 		// turn_spend_limit is a distinctive loop-protection literal and it is

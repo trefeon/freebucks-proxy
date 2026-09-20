@@ -26,7 +26,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // clineResponsesBody builds a cline-shaped /v1/responses body: input_text

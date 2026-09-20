@@ -12,8 +12,8 @@ package pool
 import (
 	"bytes"
 	"context"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"strings"
 	"testing"

@@ -22,12 +22,12 @@
 #   scripts/verify-state.sh [--base URL] [--manifest FILE] [--container NAME]
 #   ADMIN_TOKEN must be in the environment (read once for the login cookie,
 #   never printed or logged).
-# Defaults: base http://127.0.0.1:3457, container freebuff-proxy, manifest =
+# Defaults: base http://127.0.0.1:3457, container freebucks-proxy, manifest =
 # newest ./state-recovery/*/manifest.txt.
 set -euo pipefail
 
 BASE="http://127.0.0.1:3457"
-CONTAINER="freebuff-proxy"
+CONTAINER="freebucks-proxy"
 MANIFEST=""
 while [ $# -gt 0 ]; do
   case "$1" in

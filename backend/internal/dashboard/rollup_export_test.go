@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/dashboard"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/store"
 )
 
 func seedRollupStore(t *testing.T) *store.Store {

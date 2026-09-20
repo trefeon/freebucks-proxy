@@ -1,5 +1,5 @@
 // Package convert implements pure OpenAI request/response normalization for
-// the freebuff-proxy bridge.
+// the freebucks-proxy bridge.
 //
 // It performs no I/O: every function is a pure transformation over JSON
 // decoded from a request body or SSE frame. The primary entry points (the
@@ -54,13 +54,13 @@ func randHex(n int) string {
 
 const (
 	// compressMarkerPrefix/Suffix form the summary marker inserted where the
-	// truncation begins: "[truncated by freebuff-proxy compression; N earlier
+	// truncation begins: "[truncated by freebucks-proxy compression; N earlier
 	// messages omitted]".
-	compressMarkerPrefix = "[truncated by freebuff-proxy compression; "
+	compressMarkerPrefix = "[truncated by freebucks-proxy compression; "
 	compressMarkerSuffix = " earlier messages omitted]"
 	// compressContentMarker is appended to a kept message whose content was
 	// capped.
-	compressContentMarker = "[truncated by freebuff-proxy compression]"
+	compressContentMarker = "[truncated by freebucks-proxy compression]"
 )
 
 // compressMessages compresses a message list in place: middle user/assistant

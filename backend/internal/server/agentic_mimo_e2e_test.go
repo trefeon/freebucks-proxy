@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 const mimoModelID = "mimo/mimo-v2.5"

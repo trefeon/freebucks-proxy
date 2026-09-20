@@ -94,6 +94,34 @@ boots `fresh=true` while it carries the bind DB — confirm the
 `carried legacy state` log line against the manifest, restart once, then
 the gate goes green.
 
+### One-time: the `freebucks-proxy` rename
+
+The project was renamed from `freebuff-proxy` (repository, binary, compose
+service, container, image). Two things need care exactly once:
+
+```sh
+git remote set-url origin https://github.com/trefeon/freebucks-proxy.git
+docker compose down --remove-orphans   # clears the pre-rename container
+```
+
+- `--remove-orphans` matters: the service was renamed, so the old container is
+  no longer part of the stack — leaving it running means two gateways sharing
+  one account pool, which burns quota twice and supersedes sessions.
+- The image path follows the repository name (`ghcr.io/trefeon/freebucks-proxy`),
+  so it exists only once a release is published after the rename. Until then,
+  pin `VERSION` to a tag from the previous image path or wait for that release.
+- The DB filename and session-state filename are deliberately unchanged
+  (`DB_PATH`, `SESSION_STATE_FILE`): the live volume keeps its store, and
+  pointing either at a new name on an existing volume would open an empty DB.
+- Installed as a background service? Its unit/task name and install paths
+  changed too. Uninstall the old one before installing the new: run the old
+  binary with `-uninstall-service` (pre-rename systemd unit
+  `freebuff-proxy.service`, launchd `com.freebuff-proxy`, or the
+  `freebuff-proxy` scheduled task), then move your `.env` from the old config
+  directory to the new one — the renamed installer writes `freebucks-proxy`
+  paths, so the old service would otherwise keep serving from the same account
+  pool while the new one starts empty.
+
 ## Layout
 
 - `backend/` — gateway source.

@@ -3,7 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"freebuff-proxy/backend/internal/telemetry"
+	"freebucks-proxy/backend/internal/telemetry"
 	"net/http"
 	"strings"
 	"time"
@@ -148,6 +148,13 @@ func escapeLabelValue(v string) string {
 	return sb.String()
 }
 
+// legacyMetricNamespace is the pre-rename Prometheus namespace, re-emitted
+// only by the deprecated alias section at the end of handleMetrics. It is
+// derived from the live namespace rather than duplicated, so the two cannot
+// drift apart.
+// TODO(remove after one release)
+var legacyMetricNamespace = strings.Replace("freebucks_proxy_", "freebucks", "freebuff", 1)
+
 // handleMetrics exports Prometheus metrics (#24).
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -156,78 +163,78 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	ps := s.pool.PoolSnapshot()
 	snaps := ps.Tokens
 
-	sb.WriteString("# HELP freebuff_proxy_uptime_seconds Process uptime in seconds\n")
-	sb.WriteString("# TYPE freebuff_proxy_uptime_seconds gauge\n")
-	fmt.Fprintf(&sb, "freebuff_proxy_uptime_seconds %.2f\n\n", uptime)
+	sb.WriteString("# HELP freebucks_proxy_uptime_seconds Process uptime in seconds\n")
+	sb.WriteString("# TYPE freebucks_proxy_uptime_seconds gauge\n")
+	fmt.Fprintf(&sb, "freebucks_proxy_uptime_seconds %.2f\n\n", uptime)
 
-	sb.WriteString("# HELP freebuff_proxy_models_total Count of models available in registry\n")
-	sb.WriteString("# TYPE freebuff_proxy_models_total gauge\n")
-	fmt.Fprintf(&sb, "freebuff_proxy_models_total %d\n\n", s.servedModelCount())
+	sb.WriteString("# HELP freebucks_proxy_models_total Count of models available in registry\n")
+	sb.WriteString("# TYPE freebucks_proxy_models_total gauge\n")
+	fmt.Fprintf(&sb, "freebucks_proxy_models_total %d\n\n", s.servedModelCount())
 
-	sb.WriteString("# HELP freebuff_proxy_tokens_total Count of configured tokens in pool\n")
-	sb.WriteString("# TYPE freebuff_proxy_tokens_total gauge\n")
-	fmt.Fprintf(&sb, "freebuff_proxy_tokens_total %d\n\n", len(snaps))
+	sb.WriteString("# HELP freebucks_proxy_tokens_total Count of configured tokens in pool\n")
+	sb.WriteString("# TYPE freebucks_proxy_tokens_total gauge\n")
+	fmt.Fprintf(&sb, "freebucks_proxy_tokens_total %d\n\n", len(snaps))
 
-	sb.WriteString("# HELP freebuff_proxy_rate_limit_rejected_total Total client requests rejected by local rate limiter\n")
-	sb.WriteString("# TYPE freebuff_proxy_rate_limit_rejected_total counter\n")
-	fmt.Fprintf(&sb, "freebuff_proxy_rate_limit_rejected_total %d\n\n", s.rateLimitRejections.Load())
-	sb.WriteString("# HELP freebuff_proxy_model_unavailable_skips_total Session admissions skipped via the model_unavailable window cache (issue #158)\n")
-	sb.WriteString("# TYPE freebuff_proxy_model_unavailable_skips_total counter\n")
-	fmt.Fprintf(&sb, "freebuff_proxy_model_unavailable_skips_total %d\n\n", telemetry.ModelUnavailableSkips.Load())
-	sb.WriteString("# HELP freebuff_proxy_token_messages_24h Rolling 24h message count per token\n")
-	sb.WriteString("# TYPE freebuff_proxy_token_messages_24h gauge\n")
+	sb.WriteString("# HELP freebucks_proxy_rate_limit_rejected_total Total client requests rejected by local rate limiter\n")
+	sb.WriteString("# TYPE freebucks_proxy_rate_limit_rejected_total counter\n")
+	fmt.Fprintf(&sb, "freebucks_proxy_rate_limit_rejected_total %d\n\n", s.rateLimitRejections.Load())
+	sb.WriteString("# HELP freebucks_proxy_model_unavailable_skips_total Session admissions skipped via the model_unavailable window cache (issue #158)\n")
+	sb.WriteString("# TYPE freebucks_proxy_model_unavailable_skips_total counter\n")
+	fmt.Fprintf(&sb, "freebucks_proxy_model_unavailable_skips_total %d\n\n", telemetry.ModelUnavailableSkips.Load())
+	sb.WriteString("# HELP freebucks_proxy_token_messages_24h Rolling 24h message count per token\n")
+	sb.WriteString("# TYPE freebucks_proxy_token_messages_24h gauge\n")
 	for _, snap := range snaps {
-		fmt.Fprintf(&sb, "freebuff_proxy_token_messages_24h{token=\"%d\"} %d\n", snap.Token+1, snap.Messages24h)
+		fmt.Fprintf(&sb, "freebucks_proxy_token_messages_24h{token=\"%d\"} %d\n", snap.Token+1, snap.Messages24h)
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_token_requests_total Total requests served per token\n")
-	sb.WriteString("# TYPE freebuff_proxy_token_requests_total counter\n")
+	sb.WriteString("# HELP freebucks_proxy_token_requests_total Total requests served per token\n")
+	sb.WriteString("# TYPE freebucks_proxy_token_requests_total counter\n")
 	for _, snap := range snaps {
-		fmt.Fprintf(&sb, "freebuff_proxy_token_requests_total{token=\"%d\"} %d\n", snap.Token+1, snap.Requests)
+		fmt.Fprintf(&sb, "freebucks_proxy_token_requests_total{token=\"%d\"} %d\n", snap.Token+1, snap.Requests)
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_token_active_runs Active agent runs per token\n")
-	sb.WriteString("# TYPE freebuff_proxy_token_active_runs gauge\n")
+	sb.WriteString("# HELP freebucks_proxy_token_active_runs Active agent runs per token\n")
+	sb.WriteString("# TYPE freebucks_proxy_token_active_runs gauge\n")
 	for _, snap := range snaps {
-		fmt.Fprintf(&sb, "freebuff_proxy_token_active_runs{token=\"%d\"} %d\n", snap.Token+1, snap.ActiveRuns)
+		fmt.Fprintf(&sb, "freebucks_proxy_token_active_runs{token=\"%d\"} %d\n", snap.Token+1, snap.ActiveRuns)
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_token_cooldown_active Is token currently cooling down (1=yes, 0=no)\n")
-	sb.WriteString("# TYPE freebuff_proxy_token_cooldown_active gauge\n")
+	sb.WriteString("# HELP freebucks_proxy_token_cooldown_active Is token currently cooling down (1=yes, 0=no)\n")
+	sb.WriteString("# TYPE freebucks_proxy_token_cooldown_active gauge\n")
 	now := time.Now()
 	for _, snap := range snaps {
 		cd := 0
 		if !snap.CooldownUntil.IsZero() && now.Before(snap.CooldownUntil) {
 			cd = 1
 		}
-		fmt.Fprintf(&sb, "freebuff_proxy_token_cooldown_active{token=\"%d\"} %d\n", snap.Token+1, cd)
+		fmt.Fprintf(&sb, "freebucks_proxy_token_cooldown_active{token=\"%d\"} %d\n", snap.Token+1, cd)
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_quota_recent Current usage toward the per-model quota window\n")
-	sb.WriteString("# TYPE freebuff_proxy_quota_recent gauge\n")
+	sb.WriteString("# HELP freebucks_proxy_quota_recent Current usage toward the per-model quota window\n")
+	sb.WriteString("# TYPE freebucks_proxy_quota_recent gauge\n")
 	for _, snap := range snaps {
 		for model, q := range snap.QuotaByModel {
-			fmt.Fprintf(&sb, "freebuff_proxy_quota_recent{token=\"%d\",model=\"%s\",period=\"%s\"} %g\n",
+			fmt.Fprintf(&sb, "freebucks_proxy_quota_recent{token=\"%d\",model=\"%s\",period=\"%s\"} %g\n",
 				snap.Token+1, escapeLabelValue(model), escapeLabelValue(q.Period), q.RecentCount)
 		}
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_quota_limit Per-model quota limit for the window\n")
-	sb.WriteString("# TYPE freebuff_proxy_quota_limit gauge\n")
+	sb.WriteString("# HELP freebucks_proxy_quota_limit Per-model quota limit for the window\n")
+	sb.WriteString("# TYPE freebucks_proxy_quota_limit gauge\n")
 	for _, snap := range snaps {
 		for model, q := range snap.QuotaByModel {
-			fmt.Fprintf(&sb, "freebuff_proxy_quota_limit{token=\"%d\",model=\"%s\",period=\"%s\"} %g\n",
+			fmt.Fprintf(&sb, "freebucks_proxy_quota_limit{token=\"%d\",model=\"%s\",period=\"%s\"} %g\n",
 				snap.Token+1, escapeLabelValue(model), escapeLabelValue(q.Period), q.Limit)
 		}
 	}
 
-	sb.WriteString("# HELP freebuff_proxy_quota_remaining Remaining allowance toward the per-model quota window\n")
-	sb.WriteString("# TYPE freebuff_proxy_quota_remaining gauge\n")
+	sb.WriteString("# HELP freebucks_proxy_quota_remaining Remaining allowance toward the per-model quota window\n")
+	sb.WriteString("# TYPE freebucks_proxy_quota_remaining gauge\n")
 	for _, snap := range snaps {
 		for model, q := range snap.QuotaByModel {
 			rem := float64(0)
@@ -237,70 +244,70 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 					rem = 0
 				}
 			}
-			fmt.Fprintf(&sb, "freebuff_proxy_quota_remaining{token=\"%d\",model=\"%s\",period=\"%s\"} %g\n",
+			fmt.Fprintf(&sb, "freebucks_proxy_quota_remaining{token=\"%d\",model=\"%s\",period=\"%s\"} %g\n",
 				snap.Token+1, escapeLabelValue(model), escapeLabelValue(q.Period), rem)
 		}
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_session_remaining_seconds Remaining time in seconds for the active session\n")
-	sb.WriteString("# TYPE freebuff_proxy_session_remaining_seconds gauge\n")
+	sb.WriteString("# HELP freebucks_proxy_session_remaining_seconds Remaining time in seconds for the active session\n")
+	sb.WriteString("# TYPE freebucks_proxy_session_remaining_seconds gauge\n")
 	for _, snap := range snaps {
 		if snap.SessionModel != "" && snap.SessionRemainingSeconds > 0 {
-			fmt.Fprintf(&sb, "freebuff_proxy_session_remaining_seconds{token=\"%d\",model=\"%s\"} %d\n",
+			fmt.Fprintf(&sb, "freebucks_proxy_session_remaining_seconds{token=\"%d\",model=\"%s\"} %d\n",
 				snap.Token+1, escapeLabelValue(snap.SessionModel), snap.SessionRemainingSeconds)
 		}
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_transient_retries_total Transient transport failures retried per token\n")
-	sb.WriteString("# TYPE freebuff_proxy_transient_retries_total counter\n")
+	sb.WriteString("# HELP freebucks_proxy_transient_retries_total Transient transport failures retried per token\n")
+	sb.WriteString("# TYPE freebucks_proxy_transient_retries_total counter\n")
 	for _, snap := range snaps {
 		if snap.TransientRetries > 0 {
-			fmt.Fprintf(&sb, "freebuff_proxy_transient_retries_total{token=\"%d\"} %d\n", snap.Token+1, snap.TransientRetries)
+			fmt.Fprintf(&sb, "freebucks_proxy_transient_retries_total{token=\"%d\"} %d\n", snap.Token+1, snap.TransientRetries)
 		}
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_fingerprint_rotations_total TLS fingerprint rotations per token\n")
-	sb.WriteString("# TYPE freebuff_proxy_fingerprint_rotations_total counter\n")
+	sb.WriteString("# HELP freebucks_proxy_fingerprint_rotations_total TLS fingerprint rotations per token\n")
+	sb.WriteString("# TYPE freebucks_proxy_fingerprint_rotations_total counter\n")
 	for _, snap := range snaps {
 		if snap.FingerprintRotations > 0 {
-			fmt.Fprintf(&sb, "freebuff_proxy_fingerprint_rotations_total{token=\"%d\"} %d\n", snap.Token+1, snap.FingerprintRotations)
+			fmt.Fprintf(&sb, "freebucks_proxy_fingerprint_rotations_total{token=\"%d\"} %d\n", snap.Token+1, snap.FingerprintRotations)
 		}
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_rate_limit_events_total Upstream rate-limit classifications per token and code\n")
-	sb.WriteString("# TYPE freebuff_proxy_rate_limit_events_total counter\n")
+	sb.WriteString("# HELP freebucks_proxy_rate_limit_events_total Upstream rate-limit classifications per token and code\n")
+	sb.WriteString("# TYPE freebucks_proxy_rate_limit_events_total counter\n")
 	for _, snap := range snaps {
 		for code, n := range snap.RateLimitEvents {
 			if n > 0 {
-				fmt.Fprintf(&sb, "freebuff_proxy_rate_limit_events_total{token=\"%d\",code=\"%s\"} %d\n",
+				fmt.Fprintf(&sb, "freebucks_proxy_rate_limit_events_total{token=\"%d\",code=\"%s\"} %d\n",
 					snap.Token+1, escapeLabelValue(code), n)
 			}
 		}
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("# HELP freebuff_proxy_model_locked_total Session releases on model lock, by model switch (from to)\n")
-	sb.WriteString("# TYPE freebuff_proxy_model_locked_total counter\n")
+	sb.WriteString("# HELP freebucks_proxy_model_locked_total Session releases on model lock, by model switch (from to)\n")
+	sb.WriteString("# TYPE freebucks_proxy_model_locked_total counter\n")
 	for _, snap := range snaps {
 		for from, tos := range snap.ModelLocked {
 			for to, n := range tos {
 				if n > 0 {
-					fmt.Fprintf(&sb, "freebuff_proxy_model_locked_total{token=\"%d\",from=\"%s\",to=\"%s\"} %d\n",
+					fmt.Fprintf(&sb, "freebucks_proxy_model_locked_total{token=\"%d\",from=\"%s\",to=\"%s\"} %d\n",
 						snap.Token+1, escapeLabelValue(from), escapeLabelValue(to), n)
 				}
 			}
 		}
 	}
 	sb.WriteString("\n")
-	sb.WriteString("# HELP freebuff_proxy_pin_skips_total Acquire-time single-pin skips per token (PIN_MODEL)\n")
-	sb.WriteString("# TYPE freebuff_proxy_pin_skips_total counter\n")
+	sb.WriteString("# HELP freebucks_proxy_pin_skips_total Acquire-time single-pin skips per token (PIN_MODEL)\n")
+	sb.WriteString("# TYPE freebucks_proxy_pin_skips_total counter\n")
 	for _, snap := range snaps {
 		if snap.PinSkips > 0 {
-			fmt.Fprintf(&sb, "freebuff_proxy_pin_skips_total{token=\"%d\"} %d\n",
+			fmt.Fprintf(&sb, "freebucks_proxy_pin_skips_total{token=\"%d\"} %d\n",
 				snap.Token+1, snap.PinSkips)
 		}
 	}
@@ -310,18 +317,26 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		// is logring's "level|msg" (level lowercased). msg is a free-form
 		// operator message, so the label is escaped like every upstream-
 		// derived label.
-		sb.WriteString("# HELP freebuff_proxy_log_events_total Log records handled per level and message\n")
-		sb.WriteString("# TYPE freebuff_proxy_log_events_total counter\n")
+		sb.WriteString("# HELP freebucks_proxy_log_events_total Log records handled per level and message\n")
+		sb.WriteString("# TYPE freebucks_proxy_log_events_total counter\n")
 		for key, n := range s.logs.Counts() {
 			level, msg, ok := strings.Cut(key, "|")
 			if !ok {
 				continue
 			}
-			fmt.Fprintf(&sb, "freebuff_proxy_log_events_total{level=\"%s\",msg=\"%s\"} %d\n",
+			fmt.Fprintf(&sb, "freebucks_proxy_log_events_total{level=\"%s\",msg=\"%s\"} %d\n",
 				escapeLabelValue(level), escapeLabelValue(msg), n)
 		}
 		sb.WriteString("\n")
 	}
+
+	// Deprecated: every family above is re-emitted below under the pre-rename
+	// product prefix, so existing scrapers and dashboards keep resolving
+	// during the transition. Same bodies — one emit path, no second copy to
+	// keep in sync.
+	// TODO(remove after one release): delete this alias section.
+	sb.WriteString("# Deprecated: aliases of the current namespace under the pre-rename product prefix; TODO(remove after one release)\n")
+	sb.WriteString(strings.ReplaceAll(sb.String(), "freebucks_proxy_", legacyMetricNamespace))
 
 	_, _ = w.Write([]byte(sb.String()))
 }

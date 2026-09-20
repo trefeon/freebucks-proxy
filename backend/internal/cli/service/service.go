@@ -29,7 +29,7 @@ import (
 	"strings"
 )
 
-const serviceTaskName = "freebuff-proxy"
+const serviceTaskName = "freebucks-proxy"
 
 // serviceWorkDir returns the directory the registered service runs from: the
 // executable's directory, so ./.env resolves next to the binary (mirrors
@@ -120,12 +120,12 @@ func systemdUserUnitPath() string {
 // systemdUserUnit renders the systemd --user unit: WorkingDirectory set to
 // the executable's directory so ./.env resolves, Restart=on-failure so the
 // proxy comes back after crashes, WantedBy=default.target for enable --now.
-// This is the per-user variant; scripts/freebuff-proxy.service is the system
-// unit (dedicated user, /var/lib/freebuff-proxy) and is intentionally
+// This is the per-user variant; scripts/freebucks-proxy.service is the system
+// unit (dedicated user, /var/lib/freebucks-proxy) and is intentionally
 // different (see TestCommittedServiceUnitsMatchBuilders).
 func systemdUserUnit(bin, dir string) string {
 	return fmt.Sprintf(`[Unit]
-Description=FreeBuff Proxy Bridge
+Description=FreeBucks Proxy Bridge
 After=network-online.target
 Wants=network-online.target
 
@@ -150,7 +150,7 @@ func launchdPlistPath() string {
 
 // launchdPlist renders the LaunchAgent plist: RunAtLoad + KeepAlive for
 // autostart and crash respawn, WorkingDirectory so ./.env resolves, and
-// stdout/stderr captured to /tmp logs (mirrors scripts/com.freebuff-proxy.plist).
+// stdout/stderr captured to /tmp logs (mirrors scripts/com.freebucks-proxy.plist).
 func launchdPlist(bin, dir string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -224,7 +224,7 @@ func writeFile0600(path, data string) error {
 func Install() {
 	bin, err := serviceBinPath()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: cannot locate executable: %v\n", err)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: cannot locate executable: %v\n", err)
 		os.Exit(1)
 	}
 	dir := serviceWorkDir()
@@ -232,38 +232,38 @@ func Install() {
 	switch runtime.GOOS {
 	case "windows":
 		if out, err := runCmd("schtasks", windowsTaskCreateArgs(bin, dir)...); err != nil {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: schtasks failed: %v\n%s\n", err, out)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: schtasks failed: %v\n%s\n", err, out)
 			os.Exit(1)
 		}
 		fmt.Printf("Installed: Task Scheduler task %q starts %s at logon (auto-start on boot/restart).\n", serviceTaskName, bin)
 	case "linux":
 		unitPath := systemdUserUnitPath()
 		if err := writeFile0600(unitPath, systemdUserUnit(bin, dir)); err != nil {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: write unit %s: %v\n", unitPath, err)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: write unit %s: %v\n", unitPath, err)
 			os.Exit(1)
 		}
 		if out, err := runCmd("systemctl", "--user", "daemon-reload"); err != nil {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: systemctl daemon-reload: %v\n%s\n", err, out)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: systemctl daemon-reload: %v\n%s\n", err, out)
 			os.Exit(1)
 		}
 		if out, err := runCmd("systemctl", "--user", "enable", "--now", serviceTaskName); err != nil {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: systemctl enable --now: %v\n%s\n", err, out)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: systemctl enable --now: %v\n%s\n", err, out)
 			os.Exit(1)
 		}
 		fmt.Printf("Installed: systemd user unit %s started %s (enable --now).\n", unitPath, bin)
 	case "darwin":
 		plistPath := launchdPlistPath()
 		if err := writeFile0600(plistPath, launchdPlist(bin, dir)); err != nil {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: write plist %s: %v\n", plistPath, err)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: write plist %s: %v\n", plistPath, err)
 			os.Exit(1)
 		}
 		if out, err := runCmd("launchctl", "load", "-w", plistPath); err != nil {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: launchctl load: %v\n%s\n", err, out)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: launchctl load: %v\n%s\n", err, out)
 			os.Exit(1)
 		}
 		fmt.Printf("Installed: LaunchAgent %s loaded %s (RunAtLoad + KeepAlive).\n", plistPath, bin)
 	default:
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -install-service: unsupported platform %q (use the scripts/ start-proxy.* launchers)\n", runtime.GOOS)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -install-service: unsupported platform %q (use the scripts/ start-proxy.* launchers)\n", runtime.GOOS)
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -279,7 +279,7 @@ func Uninstall() {
 				fmt.Printf("Uninstalled: Task Scheduler task %q was not registered (nothing to do).\n", serviceTaskName)
 				os.Exit(0)
 			}
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -uninstall-service: schtasks failed: %v\n%s\n", err, out)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -uninstall-service: schtasks failed: %v\n%s\n", err, out)
 			os.Exit(1)
 		}
 		fmt.Printf("Uninstalled: Task Scheduler task %q deleted.\n", serviceTaskName)
@@ -287,7 +287,7 @@ func Uninstall() {
 		unitPath := systemdUserUnitPath()
 		// disable --now stops and disables; a missing unit is not an error.
 		if out, err := runCmd("systemctl", "--user", "disable", "--now", serviceTaskName); err != nil && !strings.Contains(out, "not loaded") && !strings.Contains(out, "not found") {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -uninstall-service: systemctl disable --now: %v\n%s\n", err, out)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -uninstall-service: systemctl disable --now: %v\n%s\n", err, out)
 			os.Exit(1)
 		}
 		_ = os.Remove(unitPath)
@@ -296,13 +296,13 @@ func Uninstall() {
 	case "darwin":
 		plistPath := launchdPlistPath()
 		if _, err := runCmd("launchctl", "unload", "-w", plistPath); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such") {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: -uninstall-service: launchctl unload: %v\n", err)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: -uninstall-service: launchctl unload: %v\n", err)
 			os.Exit(1)
 		}
 		_ = os.Remove(plistPath)
 		fmt.Printf("Uninstalled: LaunchAgent %s removed.\n", plistPath)
 	default:
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -uninstall-service: unsupported platform %q\n", runtime.GOOS)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -uninstall-service: unsupported platform %q\n", runtime.GOOS)
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -331,19 +331,19 @@ func Status() {
 			active = parseLaunchctlList(out, "com."+serviceTaskName)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "freebuff-proxy: -service-status: unsupported platform %q\n", runtime.GOOS)
+		fmt.Fprintf(os.Stderr, "freebucks-proxy: -service-status: unsupported platform %q\n", runtime.GOOS)
 		os.Exit(1)
 	}
 
 	switch {
 	case registered && active:
-		fmt.Printf("freebuff-proxy service: registered, running\n")
+		fmt.Printf("freebucks-proxy service: registered, running\n")
 		os.Exit(0)
 	case registered:
-		fmt.Printf("freebuff-proxy service: registered, not running\n")
+		fmt.Printf("freebucks-proxy service: registered, not running\n")
 		os.Exit(0)
 	default:
-		fmt.Printf("freebuff-proxy service: not registered\n")
+		fmt.Printf("freebucks-proxy service: not registered\n")
 		os.Exit(1)
 	}
 }

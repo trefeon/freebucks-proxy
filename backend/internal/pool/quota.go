@@ -2,9 +2,9 @@ package pool
 
 import (
 	"fmt"
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 	"sort"
 	"time"
 )

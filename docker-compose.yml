@@ -1,7 +1,7 @@
-# freebuff-proxy deployment configuration
+# freebucks-proxy deployment configuration
 
 services:
-  freebuff-proxy:
+  freebucks-proxy:
     build:
       context: .
       # Build with host networking: `RUN go mod download` in the Dockerfile
@@ -14,11 +14,11 @@ services:
       args:
         VERSION: ${VERSION:-dev}
     # GHCR default pull path, local build override: `docker compose pull` fetches
-    # ghcr.io/trefeon/freebuff-proxy; `docker compose build` uses the local context below.
+    # ghcr.io/trefeon/freebucks-proxy; `docker compose build` uses the local context below.
     # `VERSION=x docker compose up -d --build` rebuilds locally from context;
     # `docker compose pull && VERSION=x docker compose up -d` runs GHCR without building.
-    image: ghcr.io/trefeon/freebuff-proxy:${VERSION:-latest}
-    container_name: freebuff-proxy
+    image: ghcr.io/trefeon/freebucks-proxy:${VERSION:-latest}
+    container_name: freebucks-proxy
     environment:
       # Live store path (update-proof): the db_data volume below mounts at
       # /app/data, so the live DB at /app/data/freebuff.db survives recreates
@@ -127,7 +127,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - freebuff-proxy
+      - freebucks-proxy
 
 # Gateway state lives on the db_data named volume (/app/data, the live
 # store) plus the .:/app/state bind mount (env, logs, legacy migration

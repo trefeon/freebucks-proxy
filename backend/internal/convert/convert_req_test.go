@@ -673,7 +673,7 @@ func TestCompressMessages(t *testing.T) {
 		if marker["role"] != "system" {
 			t.Errorf("marker role = %v, want system", marker["role"])
 		}
-		if marker["content"] != "[truncated by freebuff-proxy compression; 3 earlier messages omitted]" {
+		if marker["content"] != "[truncated by freebucks-proxy compression; 3 earlier messages omitted]" {
 			t.Errorf("marker content = %v", marker["content"])
 		}
 		// The trailing window (last 4 messages) is preserved verbatim.

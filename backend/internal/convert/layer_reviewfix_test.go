@@ -21,9 +21,9 @@ import (
 // are pre-approved for the reasoning-restore and token-count paths so a
 // future legitimate import does not trip the guard (issue #279).
 var allowedInternal = map[string]bool{
-	"freebuff-proxy/backend/internal/modelcat":       true,
-	"freebuff-proxy/backend/internal/reasoningcache": true,
-	"freebuff-proxy/backend/internal/tokenestimate":  true,
+	"freebucks-proxy/backend/internal/modelcat":       true,
+	"freebucks-proxy/backend/internal/reasoningcache": true,
+	"freebucks-proxy/backend/internal/tokenestimate":  true,
 }
 
 // TestConvertDoesNotImportPackageBoundary scans the package's non-test
@@ -46,7 +46,7 @@ func TestConvertDoesNotImportPackageBoundary(t *testing.T) {
 		}
 		for _, imp := range f.Imports {
 			path := strings.Trim(imp.Path.Value, `"`)
-			if strings.HasPrefix(path, "freebuff-proxy/backend/internal/") && !allowedInternal[path] {
+			if strings.HasPrefix(path, "freebucks-proxy/backend/internal/") && !allowedInternal[path] {
 				t.Errorf("%s imports %s; convert must not import internal packages beyond modelcat/reasoningcache/tokenestimate", name, path)
 			}
 		}

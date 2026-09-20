@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestUpdateEnvKeysAt pins the atomic .env key rewriter (issue #66):

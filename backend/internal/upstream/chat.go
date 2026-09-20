@@ -94,7 +94,7 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 	// deepseek-v4-flash). It is retried IN PLACE against the same lease and
 	// session (opts are unchanged, so the instance id is reused), bounded by
 	// the TRANSIENT_RETRIES budget — never a token cooldown, never a session
-	// invalidation (reference/freebuff-proxy-hengxin proxy.js:652-668).
+	// invalidation (reference/freebucks-proxy-hengxin proxy.js:652-668).
 	// capacityDeferredAttempts is the per-request budget: a fresh call starts
 	// at zero, so every request gets its own TRANSIENT_RETRIES allowance
 	// (the client-lifetime atomic only tracks the metric).

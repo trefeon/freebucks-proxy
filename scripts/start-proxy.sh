@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# start-proxy.sh - Launch freebuff-proxy from the extracted folder or repo.
+# start-proxy.sh - Launch freebucks-proxy from the extracted folder or repo.
 # Right-click this folder -> "Open in Terminal" -> ./start-proxy.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ ! -f "$ROOT/freebuff-proxy" ] && [ -f "$ROOT/../freebuff-proxy" ]; then
+if [ ! -f "$ROOT/freebucks-proxy" ] && [ -f "$ROOT/../freebucks-proxy" ]; then
   ROOT="$(cd "$ROOT/.." && pwd)"
 fi
 cd "$ROOT"
 
-if [ ! -f "$ROOT/freebuff-proxy" ]; then
-  echo "freebuff-proxy not found next to this script." >&2
+if [ ! -f "$ROOT/freebucks-proxy" ]; then
+  echo "freebucks-proxy not found next to this script." >&2
   exit 1
 fi
 
@@ -55,10 +55,10 @@ if [ -f "$ENV_FILE" ]; then
   [ -n "$LINE" ] && ADDR="$LINE"
 fi
 echo ""
-echo "Starting freebuff-proxy from $ROOT"
+echo "Starting freebucks-proxy from $ROOT"
 echo "  OpenAI API:  http://$ADDR/v1"
 echo "  Health:      http://$ADDR/healthz"
 echo "  Stop:        Ctrl+C"
 echo ""
 
-exec "$ROOT/freebuff-proxy"
+exec "$ROOT/freebucks-proxy"

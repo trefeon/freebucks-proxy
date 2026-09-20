@@ -296,7 +296,7 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / overview.conf"
+  crumb="freebucks-proxy / Admin / overview.conf"
   title={$tr("Overview")}
   description={$tr("Live proxy status and token pool telemetry")}
   {loading}

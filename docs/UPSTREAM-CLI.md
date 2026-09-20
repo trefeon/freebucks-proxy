@@ -2,7 +2,7 @@
 
 Complete reference for the official **upstream CLI** (npm package `freebuff`), the
 reference client for everything the proxy mirrors on the wire. Audience:
-freebuff-proxy maintainers (session/wire parity, registry rows, error taxonomy)
+freebucks-proxy maintainers (session/wire parity, registry rows, error taxonomy)
 and users driving the CLI through the gateway.
 
 - **Audited pin**: the gitignored upstream vendor clone @ `2b165f749` (= npm

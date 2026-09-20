@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 )
 
 // TestDashboardConfigMetaEndpoint pins GET /admin/api/config/meta: with a

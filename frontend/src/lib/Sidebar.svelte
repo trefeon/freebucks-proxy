@@ -199,7 +199,7 @@
     <a
       href={adminRoot}
       class="flex items-center gap-3 px-2 group"
-      aria-label="freebuff-proxy dashboard home"
+      aria-label="freebucks-proxy dashboard home"
     >
       <svg viewBox="0 0 32 32" class="w-7 h-7 shrink-0" aria-hidden="true">
         <rect width="32" height="32" rx="7" fill="var(--fp-accent)" />
@@ -207,7 +207,7 @@
       </svg>
       <span class="flex flex-col leading-tight">
         <span class="text-sm font-semibold text-[var(--fp-text)] tracking-tight"
-          >freebuff-proxy</span
+          >freebucks-proxy</span
         >
         <span
           class="text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--fp-dim)]"
@@ -278,7 +278,7 @@
           class="flex items-center gap-1.5 uppercase tracking-[0.12em] min-w-0"
         >
           <span class="led led-idle shrink-0" aria-hidden="true"></span>
-          <span class="truncate">freebuff-proxy</span>
+          <span class="truncate">freebucks-proxy</span>
           <span
             title={fullVersion}
             class="fp-num normal-case tracking-normal text-[var(--fp-muted)] ml-auto shrink-0"
@@ -288,7 +288,7 @@
         <div class="flex items-center justify-end">
           <a
             href={versionInfo?.update_url ??
-              "https://github.com/trefeon/freebuff-proxy/releases"}
+              "https://github.com/trefeon/freebucks-proxy/releases"}
             target="_blank"
             rel="noopener noreferrer"
             class="text-[var(--fp-dim)] hover:text-[var(--fp-muted)] transition-colors normal-case tracking-normal text-[10px]"
@@ -324,7 +324,7 @@
     <a
       href={adminRoot}
       class="flex items-center gap-2.5 group"
-      aria-label="freebuff-proxy dashboard home"
+      aria-label="freebucks-proxy dashboard home"
     >
       <svg viewBox="0 0 32 32" class="w-7 h-7 shrink-0" aria-hidden="true">
         <rect width="32" height="32" rx="7" fill="var(--fp-accent)" />
@@ -332,7 +332,7 @@
       </svg>
       <span class="flex flex-col leading-tight">
         <span class="text-sm font-semibold text-[var(--fp-text)] tracking-tight"
-          >freebuff-proxy</span
+          >freebucks-proxy</span
         >
         <span
           class="text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--fp-dim)]"
@@ -363,7 +363,7 @@
       <a
         href={adminRoot}
         class="flex items-center gap-3 px-2 mb-8"
-        aria-label="freebuff-proxy dashboard home"
+        aria-label="freebucks-proxy dashboard home"
       >
         <svg viewBox="0 0 32 32" class="w-7 h-7 shrink-0" aria-hidden="true">
           <rect width="32" height="32" rx="7" fill="var(--fp-accent)" />
@@ -372,7 +372,7 @@
         <span class="flex flex-col leading-tight">
           <span
             class="text-sm font-semibold text-[var(--fp-text)] tracking-tight"
-            >freebuff-proxy</span
+            >freebucks-proxy</span
           >
           <span
             class="text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--fp-dim)]"
@@ -424,7 +424,7 @@
           class="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--fp-dim)] min-w-0"
         >
           <span class="led led-idle shrink-0" aria-hidden="true"></span>
-          <span class="truncate">freebuff-proxy</span>
+          <span class="truncate">freebucks-proxy</span>
           <span
             title={fullVersion}
             class="fp-num ml-auto shrink-0 normal-case tracking-normal text-[var(--fp-muted)]"

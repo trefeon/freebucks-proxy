@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/telemetry"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/telemetry"
 )
 
 // TestParseLevelGrammar pins the LOG_LEVEL grammar at its canonical home.
@@ -84,7 +84,7 @@ func TestConfigDoesNotImportTelemetry(t *testing.T) {
 		}
 		for _, imp := range f.Imports {
 			path := strings.Trim(imp.Path.Value, `"`)
-			if strings.HasPrefix(path, "freebuff-proxy/backend/internal/") {
+			if strings.HasPrefix(path, "freebucks-proxy/backend/internal/") {
 				t.Errorf("%s imports %s; config is a bottom-layer package and must not import internal packages", name, path)
 			}
 		}

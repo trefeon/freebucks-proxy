@@ -64,8 +64,8 @@ out/
 bin/
 tmp/
 uicheck/
-freebuff-proxy
-freebuff-proxy.exe
+freebucks-proxy
+freebucks-proxy.exe
 *.test
 *.out
 coverage.out

@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/dashboard"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/server"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/server"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // dashboardURL returns the base URL of a test server with AdminToken set.
@@ -120,7 +120,7 @@ func TestDashboardOpenWithoutAdminToken(t *testing.T) {
 		t.Fatalf("status = %d, want 200 (open dashboard)", resp.StatusCode)
 	}
 	body := bodyOf(t, resp)
-	if !strings.Contains(body, "freebuff-proxy") && !strings.Contains(body, "admin") {
+	if !strings.Contains(body, "freebucks-proxy") && !strings.Contains(body, "admin") {
 		t.Error("dashboard page missing SPA content")
 	}
 }
@@ -192,7 +192,7 @@ func TestDashboardLoginFlow(t *testing.T) {
 	if authed.StatusCode != http.StatusOK {
 		t.Fatalf("authed status = %d, want 200", authed.StatusCode)
 	}
-	if !strings.Contains(bodyOf(t, authed), "freebuff-proxy") {
+	if !strings.Contains(bodyOf(t, authed), "freebucks-proxy") {
 		t.Error("authed dashboard missing SPA content")
 	}
 }

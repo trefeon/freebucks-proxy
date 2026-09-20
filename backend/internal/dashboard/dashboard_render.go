@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/pool"
 )
 
 // resultEnvelope is the single admin wire shape: every admin endpoint ships

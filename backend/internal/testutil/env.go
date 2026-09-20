@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 )
 
 // configEnvKeys is every environment variable backend/internal/config reads,
@@ -15,7 +15,7 @@ import (
 // token persistence (issue #281).
 var configEnvKeys = config.ConfigEnvKeys()
 
-// UnsetConfigEnv removes every ambient freebuff-proxy config env var for the
+// UnsetConfigEnv removes every ambient freebucks-proxy config env var for the
 // duration of the test and restores them afterwards. Call it from tests that
 // exercise config.Load (directly or via server handlers) so a developer's
 // exported proxy environment cannot silently flip bridge mode, admin auth,

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/egress"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/egress"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestDoctorEgressProbeParsesTrace guards the doctor's region probe: a
@@ -151,7 +151,7 @@ func TestSharedSubnetworkAdvisory(t *testing.T) {
 // recorded in ADR-0027.
 func TestQuotaSuffix(t *testing.T) {
 	got := tokenOKLine()
-	if want := "freebuff-proxy: token OK"; got != want {
+	if want := "freebucks-proxy: token OK"; got != want {
 		t.Errorf("tokenOKLine() = %q, want %q", got, want)
 	}
 	for _, banned := range []string{"quota:", "pacific_day", "pacific_week", "resets", "/5", "/3"} {

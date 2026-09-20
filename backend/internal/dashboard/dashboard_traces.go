@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/store"
 )
 
 // --- traces ---

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"sort"
 
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // asRateLimit extracts a RateLimitError from err (nil when absent).

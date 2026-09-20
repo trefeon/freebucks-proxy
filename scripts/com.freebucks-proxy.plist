@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.freebuff-proxy</string>
+    <string>com.freebucks-proxy</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/freebuff-proxy</string>
+        <string>/usr/local/bin/freebucks-proxy</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/usr/local/bin</string>
@@ -15,8 +15,8 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/freebuff-proxy.log</string>
+    <string>/tmp/freebucks-proxy.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/freebuff-proxy.err</string>
+    <string>/tmp/freebucks-proxy.err</string>
 </dict>
 </plist>

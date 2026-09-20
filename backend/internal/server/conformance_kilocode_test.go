@@ -36,7 +36,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // kiloFramesOf parses every SSE data: line of a kilocode /v1/messages body

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"freebuff-proxy/backend/internal/tokenestimate"
+	"freebucks-proxy/backend/internal/tokenestimate"
 	"github.com/tiktoken-go/tokenizer"
 )
 

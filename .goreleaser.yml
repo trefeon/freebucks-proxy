@@ -4,12 +4,12 @@
 # Docs: https://goreleaser.com
 version: 2
 
-project_name: freebuff-proxy
+project_name: freebucks-proxy
 
 builds:
-  - id: freebuff-proxy
-    main: ./backend/cmd/freebuff-proxy
-    binary: freebuff-proxy
+  - id: freebucks-proxy
+    main: ./backend/cmd/freebucks-proxy
+    binary: freebucks-proxy
     env:
       - CGO_ENABLED=0
     goos:
@@ -56,4 +56,4 @@ release:
   draft: false
   github:
     owner: trefeon
-    name: freebuff-proxy
+    name: freebucks-proxy

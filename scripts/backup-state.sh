@@ -20,7 +20,7 @@
 #
 # Usage:
 #   scripts/backup-state.sh [--container NAME] [--out-dir DIR] [--live]
-CONTAINER="freebuff-proxy"
+CONTAINER="freebucks-proxy"
 OUT_DIR=""
 LIVE_OK=0
 while [ $# -gt 0 ]; do
@@ -124,7 +124,7 @@ SETTINGS_TOTAL="$(tcount settings)"
 SETTINGS_CONFIG="$(sqlite_count "$DB" "SELECT COUNT(*) FROM settings WHERE key LIKE 'config:%';")"
 MANIFEST="$OUT_DIR/manifest.txt"
 {
-  echo "# freebuff-proxy state backup manifest (counts only — never values)"
+  echo "# freebucks-proxy state backup manifest (counts only — never values)"
   echo "container=$CONTAINER"
   echo "db_path=$DB_PATH"
   echo "stamp_utc=$STAMP"

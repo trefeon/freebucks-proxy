@@ -43,7 +43,7 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / usage.conf"
+  crumb="freebucks-proxy / Admin / usage.conf"
   title={$tr("Usage")}
   description={$tr("Serving accounts and served models.")}
 >

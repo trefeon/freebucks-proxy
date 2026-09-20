@@ -25,7 +25,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 const nineRouterMessagesBody = `{"model":"deepseek/deepseek-v4-flash","max_tokens":256,"messages":[{"role":"user","content":"ping"}],"stream":true}`

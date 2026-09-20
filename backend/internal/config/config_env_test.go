@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/clicreds"
+	"freebucks-proxy/backend/internal/clicreds"
 )
 
 func TestDotenv(t *testing.T) {

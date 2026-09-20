@@ -1,8 +1,8 @@
-# start-proxy.ps1 - Launch freebuff-proxy from the install root or repo.
+# start-proxy.ps1 - Launch freebucks-proxy from the install root or repo.
 # Right-click this folder -> "Open in Terminal" -> .\start-proxy.cmd
 # (or double-click start-proxy.cmd - it bypasses the execution policy)
 param(
-  [string]$EnvFile = ""   # explicit .env path (advanced; default: %APPDATA%\freebuff-proxy\.env, then .env next to the exe)
+  [string]$EnvFile = ""   # explicit .env path (advanced; default: %APPDATA%\freebucks-proxy\.env, then .env next to the exe)
 )
 $ErrorActionPreference = "Stop"
 
@@ -15,13 +15,13 @@ $appData = $env:APPDATA
 if (-not $appData) { $appData = Join-Path $env:USERPROFILE "AppData\Roaming" }
 
 # --- 1. locate the binary ----------------------------------------------------
-# Installed per-user location first (%LOCALAPPDATA%\Programs\freebuff-proxy),
+# Installed per-user location first (%LOCALAPPDATA%\Programs\freebucks-proxy),
 # then next to this script (dev checkout / extracted release folder).
-$exe = Join-Path (Join-Path $localAppData "Programs\freebuff-proxy") "freebuff-proxy.exe"
+$exe = Join-Path (Join-Path $localAppData "Programs\freebucks-proxy") "freebucks-proxy.exe"
 if (-not (Test-Path -LiteralPath $exe)) {
-    $exe = Join-Path $root "freebuff-proxy.exe"
+    $exe = Join-Path $root "freebucks-proxy.exe"
     if (-not (Test-Path -LiteralPath $exe)) {
-        $parentExe = Join-Path (Split-Path -Parent $root) "freebuff-proxy.exe"
+        $parentExe = Join-Path (Split-Path -Parent $root) "freebucks-proxy.exe"
         if (Test-Path -LiteralPath $parentExe) {
             $root = Split-Path -Parent $root
             $exe = $parentExe
@@ -30,22 +30,22 @@ if (-not (Test-Path -LiteralPath $exe)) {
 }
 
 if (-not (Test-Path -LiteralPath $exe)) {
-    Write-Host "freebuff-proxy.exe not found." -ForegroundColor Red
-    Write-Host "  Expected:  $localAppData\Programs\freebuff-proxy\freebuff-proxy.exe (run the installer: scripts\install.ps1 or install.cmd)" -ForegroundColor Yellow
+    Write-Host "freebucks-proxy.exe not found." -ForegroundColor Red
+    Write-Host "  Expected:  $localAppData\Programs\freebucks-proxy\freebucks-proxy.exe (run the installer: scripts\install.ps1 or install.cmd)" -ForegroundColor Yellow
     Write-Host "  or next to this script (dev checkout)." -ForegroundColor Yellow
     exit 1
 }
 $exeDir = Split-Path -Parent $exe
 
 # --- 2. locate the config file ----------------------------------------------
-# The runtime resolves .env per-platform: %APPDATA%\freebuff-proxy\.env (or
+# The runtime resolves .env per-platform: %APPDATA%\freebucks-proxy\.env (or
 # ./.env in the working directory, which wins). We never create or copy .env
 # here - install.ps1 owns that. Just resolve the path for the token check, the
 # banner, and the token-generator offer. Fall back to .env next to the exe
 # (legacy/dev layout).
 $envFile = $EnvFile
 if (-not $envFile) {
-    $platformEnv = Join-Path (Join-Path $appData "freebuff-proxy") ".env"
+    $platformEnv = Join-Path (Join-Path $appData "freebucks-proxy") ".env"
     if (Test-Path -LiteralPath $platformEnv) {
         $envFile = $platformEnv
     } else {
@@ -54,7 +54,7 @@ if (-not $envFile) {
     }
 }
 if (-not $envFile) {
-    Write-Host "No .env config found (expected $appData\freebuff-proxy\.env or a .env next to the exe)." -ForegroundColor Yellow
+    Write-Host "No .env config found (expected $appData\freebucks-proxy\.env or a .env next to the exe)." -ForegroundColor Yellow
     Write-Host "Run scripts\install.ps1 to set up the proxy, or pass -EnvFile <path> to this script." -ForegroundColor Yellow
     Write-Host "Starting with runtime defaults (bridge mode, LISTEN_ADDR=127.0.0.1:3457)." -ForegroundColor Yellow
 } elseif ($EnvFile -and -not (Test-Path -LiteralPath $EnvFile)) {
@@ -102,7 +102,7 @@ if ($envFile -and (Test-Path -LiteralPath $envFile)) {
 }
 $base = "http://$addr"
 Write-Host ""
-Write-Host "Starting freebuff-proxy from $exeDir" -ForegroundColor Cyan
+Write-Host "Starting freebucks-proxy from $exeDir" -ForegroundColor Cyan
 if ($envFile) { Write-Host "  Config:       $envFile" -ForegroundColor DarkGray }
 Write-Host "  OpenAI API:  $base/v1" -ForegroundColor Green
 Write-Host "  Health:      $base/healthz" -ForegroundColor Green
@@ -112,6 +112,6 @@ Write-Host ""
 & $exe
 $code = $LASTEXITCODE
 if ($code -ne 0) {
-    Write-Host "freebuff-proxy exited with code $code" -ForegroundColor Red
+    Write-Host "freebucks-proxy exited with code $code" -ForegroundColor Red
     exit $code
 }

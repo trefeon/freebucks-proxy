@@ -43,7 +43,7 @@ func PortOf(addr string) string {
 }
 
 // PortOwner returns a human label for the process listening on port, e.g.
-// "PID 44420  freebuff-proxy-dash.exe". Best-effort: empty when detection
+// "PID 44420  freebucks-proxy-dash.exe". Best-effort: empty when detection
 // fails or the tool is missing.
 func PortOwner(port string) string {
 	var pid string
@@ -220,7 +220,7 @@ func processName(pid string) string {
 }
 
 // taskNameFromCSV extracts the quoted image name from a tasklist CSV line
-// like "freebuff-proxy-dash.exe","44420","Console","1","50,776 K".
+// like "freebucks-proxy-dash.exe","44420","Console","1","50,776 K".
 func taskNameFromCSV(line string) string {
 	line = strings.TrimSpace(line)
 	if !strings.HasPrefix(line, `"`) {

@@ -30,7 +30,7 @@ tasks:
   build:proxy:
     desc: Compile the Go proxy binary
     cmds:
-      - go build -o bin/freebuff-proxy{{exeExt}} ./backend/cmd/freebuff-proxy
+      - go build -o bin/freebucks-proxy{{exeExt}} ./backend/cmd/freebucks-proxy
 
   test:fast:
     desc: Fast tier — all backend pkgs except pool+server+cmd entrypoints (seconds-scale lane default)
@@ -71,7 +71,7 @@ tasks:
   dev:
     desc: Run proxy server
     cmds:
-      - go run ./backend/cmd/freebuff-proxy
+      - go run ./backend/cmd/freebucks-proxy
 
   verify:quick:
     desc: Seconds-scale gate (format + vet + frontend check)

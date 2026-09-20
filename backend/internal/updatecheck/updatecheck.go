@@ -22,7 +22,7 @@ import (
 )
 
 // DefaultRepo is the upstream repo whose releases the indicator checks.
-const DefaultRepo = "trefeon/freebuff-proxy"
+const DefaultRepo = "trefeon/freebucks-proxy"
 
 // CacheTTL is how long a fetched latest-release tag is reused (issue #50:
 // "cached 6h").
@@ -145,7 +145,7 @@ func (c *Checker) fetchLatest(ctx context.Context) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "freebuff-proxy-updatecheck/1.0")
+	req.Header.Set("User-Agent", "freebucks-proxy-updatecheck/1.0")
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", err

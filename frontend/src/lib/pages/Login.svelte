@@ -95,7 +95,7 @@
           <Zap size={16} />
         </span>
         <span class="text-lg font-semibold text-[var(--fp-text)]"
-          >freebuff-proxy</span
+          >freebucks-proxy</span
         >
       </div>
       <span

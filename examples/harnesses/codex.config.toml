@@ -6,7 +6,7 @@ model_provider = "freebuff"
 model          = "deepseek/deepseek-v4-flash"
 
 [model_providers.freebuff]
-name     = "freebuff-proxy"
+name     = "freebucks-proxy"
 base_url = "http://127.0.0.1:3457/v1"
 env_key  = "FREEBUFF_API_KEY"
 

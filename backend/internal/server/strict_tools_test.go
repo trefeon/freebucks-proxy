@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestStrictTools_LooseHermesTerminalPasses pins the loose Hermes path:

@@ -1,5 +1,5 @@
 // Package telemetry provides the leveled color/file logger, redacted header
-// copies, and optional request dumps for the freebuff-proxy bridge
+// copies, and optional request dumps for the freebucks-proxy bridge
 // (PRD §3: structured logging — color terminal + file, debug dump mode).
 package telemetry
 
@@ -8,7 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 	"io"
 	"log/slog"
 	"math"
@@ -85,7 +85,7 @@ func New(level slog.Level, logFile string, format string) *slog.Logger {
 		}
 		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "freebuff-proxy: warning: cannot open log file %s: %v\n", logFile, err)
+			fmt.Fprintf(os.Stderr, "freebucks-proxy: warning: cannot open log file %s: %v\n", logFile, err)
 		} else {
 			file = f
 			w = io.MultiWriter(os.Stderr, f)

@@ -5,7 +5,7 @@
   // so a custom apiBase always routes to /chat/completions.
   "models": [
     {
-      "title": "DeepSeek V4 Flash (freebuff-proxy)",
+      "title": "DeepSeek V4 Flash (freebucks-proxy)",
       "provider": "openai",
       "model": "deepseek/deepseek-v4-flash",
       "apiBase": "http://127.0.0.1:3457/v1",

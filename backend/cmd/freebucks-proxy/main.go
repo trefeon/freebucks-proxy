@@ -1,4 +1,4 @@
-// Command freebuff-proxy is the FreeBuff proxy bridge entrypoint. It parses
+// Command freebucks-proxy is the freebucks-proxy bridge entrypoint. It parses
 // the CLI flags, then dispatches to whichever mode is selected: the per-mode
 // logic lives in backend/internal/cli subpackages (setup/update/service/
 // doctor/port/refreshtoken/validate), and the default serve mode lives in the
@@ -9,15 +9,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"freebucks-proxy/backend/internal/cli"
+	"freebucks-proxy/backend/internal/cli/doctor"
+	"freebucks-proxy/backend/internal/cli/refreshtoken"
+	"freebucks-proxy/backend/internal/cli/service"
+	"freebucks-proxy/backend/internal/cli/setup"
+	"freebucks-proxy/backend/internal/cli/update"
+	"freebucks-proxy/backend/internal/cli/validate"
 	"os"
-
-	"freebuff-proxy/backend/internal/cli"
-	"freebuff-proxy/backend/internal/cli/doctor"
-	"freebuff-proxy/backend/internal/cli/refreshtoken"
-	"freebuff-proxy/backend/internal/cli/service"
-	"freebuff-proxy/backend/internal/cli/setup"
-	"freebuff-proxy/backend/internal/cli/update"
-	"freebuff-proxy/backend/internal/cli/validate"
 )
 
 // version is injected at build time by GoReleaser (-ldflags -X main.version=...).
@@ -50,7 +49,7 @@ func (f *tokenListFlag) IsBoolFlag() bool { return true }
 // exit codes are unchanged; only the grouping and the dashboard pointers are
 // new (issue #359, docs plus help strings only).
 func printGroupedHelp() {
-	fmt.Fprintln(os.Stderr, "Usage: freebuff-proxy [flags]")
+	fmt.Fprintln(os.Stderr, "Usage: freebucks-proxy [flags]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Daily management lives in the dashboard (/admin). The flags below stay fully")
 	fmt.Fprintln(os.Stderr, "working as the headless and bootstrap path; nothing was removed or renamed.")
@@ -118,7 +117,7 @@ func main() {
 	}
 
 	if *showVersion {
-		fmt.Println("freebuff-proxy", version)
+		fmt.Println("freebucks-proxy", version)
 		os.Exit(0)
 	}
 	if *testToken {

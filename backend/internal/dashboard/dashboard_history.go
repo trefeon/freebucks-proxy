@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/store"
 )
 
 // History spill path (ADR-0016): the logring fan-out tap feeds a buffered

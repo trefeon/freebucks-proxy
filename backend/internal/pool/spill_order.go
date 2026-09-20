@@ -18,7 +18,7 @@
 package pool
 
 import (
-	"freebuff-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/session"
 )
 
 // spillOrder computes the strict index order for one Acquire pass over the

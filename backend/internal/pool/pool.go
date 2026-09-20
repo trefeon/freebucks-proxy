@@ -23,12 +23,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/notify"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/notify"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/runs"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"sync"
@@ -219,7 +219,7 @@ type TokenSnapshot struct {
 	// ModelLocked tallies model-lock session releases keyed by from → to
 	// model pair (issue #160): each model_locked admission releases the
 	// old slot and re-admits with the requested model. Surfaced per-token
-	// in /metrics as freebuff_proxy_model_locked_total.
+	// in /metrics as freebucks_proxy_model_locked_total.
 	ModelLocked map[string]map[string]int64
 	// Locked is set when the token has been administratively locked by the
 	// operator; Acquire never selects a locked token.

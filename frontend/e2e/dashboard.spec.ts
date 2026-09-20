@@ -1915,7 +1915,7 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page
         .getByRole("heading", { name: "Admin" })
-        .or(page.getByText("freebuff-proxy")),
+        .or(page.getByText("freebucks-proxy")),
     ).toBeVisible();
 
     const tokenInput = page.locator("#token");

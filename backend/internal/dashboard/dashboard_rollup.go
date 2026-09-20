@@ -20,7 +20,7 @@ package dashboard
 
 import (
 	"encoding/json"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/store"
 	"io"
 	"net/http"
 	"strconv"

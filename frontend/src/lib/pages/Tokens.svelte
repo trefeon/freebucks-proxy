@@ -487,7 +487,7 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / pool.conf"
+  crumb="freebucks-proxy / Admin / pool.conf"
   title={$tr("Pool")}
   description={$tr(
     "Upstream credentials, device login, and streak enrollment — allowances live on Usage",

@@ -11,7 +11,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"net/http"
 	"strings"

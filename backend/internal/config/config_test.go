@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/clicreds"
+	"freebucks-proxy/backend/internal/clicreds"
 )
 
 // envKeys lists every environment variable the package reads. Tests clear
@@ -17,7 +17,7 @@ import (
 // so it cannot drift from the loader (issue #281).
 var envKeys = ConfigEnvKeys()
 
-// TestMain strips ambient freebuff-proxy config env vars for the whole test
+// TestMain strips ambient freebucks-proxy config env vars for the whole test
 // binary (testutil.UnsetConfigEnvForTestMain). clearEnv in each test covers
 // the per-test isolation, but a developer's exported SESSION_PERSIST /
 // MODELS_HIDE_UNAVAILABLE / SESSION_STATE_FILE would

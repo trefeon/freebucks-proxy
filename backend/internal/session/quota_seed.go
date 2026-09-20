@@ -3,7 +3,7 @@ package session
 import (
 	"time"
 
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // SeedQuota installs one persisted quota row (ADR-0024 boot seed) as

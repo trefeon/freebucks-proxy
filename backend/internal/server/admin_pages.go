@@ -19,7 +19,7 @@ import (
 	"net/http"
 	"strings"
 
-	"freebuff-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/dashboard"
 )
 
 const maxPageStateBytes = 64 << 10

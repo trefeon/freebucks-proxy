@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // acquireResult carries one AcquireBridge outcome from a test goroutine

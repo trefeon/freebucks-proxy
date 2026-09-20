@@ -205,7 +205,7 @@ func TestProbeAll(t *testing.T) {
 
 // TestCache guards the in-package TTL cache: get/set round-trip, expiry,
 // re-Set refresh, TTL=0 semantics (always expired), and missing keys. This
-// coverage previously lived only in backend/cmd/freebuff-proxy, so the egress
+// coverage previously lived only in backend/cmd/freebucks-proxy, so the egress
 // package itself counted 0 for it.
 func TestCache(t *testing.T) {
 	t.Run("missing key", func(t *testing.T) {

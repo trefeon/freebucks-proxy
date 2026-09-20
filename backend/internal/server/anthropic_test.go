@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 const testModelA = "deepseek/deepseek-v4-flash"

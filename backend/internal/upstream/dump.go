@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/telemetry"
+	"freebucks-proxy/backend/internal/telemetry"
 )
 
 // dump writes a debug record to dump/ when enabled.

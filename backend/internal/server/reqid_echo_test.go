@@ -5,7 +5,7 @@ package server_test
 // line carries the serving token's label for abusive-key triage.
 
 import (
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 	"net/http"
 	"regexp"
 	"strings"

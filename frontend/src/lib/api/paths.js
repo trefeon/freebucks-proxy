@@ -1,5 +1,5 @@
 /**
- * Central endpoint map for the freebuff-proxy dashboard SPA.
+ * Central endpoint map for the freebucks-proxy dashboard SPA.
  *
  * Every admin route this app talks to is declared here once. Components
  * import from this file instead of hardcoding paths, so a path or method

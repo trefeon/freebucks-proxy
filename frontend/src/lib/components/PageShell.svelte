@@ -26,7 +26,7 @@
    * @slot actions — PageHeader right-side actions
    * @slot default — page content (rendered only when loaded, no error, not empty)
    * @prop {string} [crumb=''] — mono path line above the header
-   *   (decorative, aria-hidden); e.g. "freebuff-proxy / Admin / tokens.conf".
+   *   (decorative, aria-hidden); e.g. "freebucks-proxy / Admin / tokens.conf".
    */
   let {
     title,

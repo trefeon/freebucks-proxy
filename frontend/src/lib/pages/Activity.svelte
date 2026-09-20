@@ -59,7 +59,7 @@
 </script>
 
 <PageShell
-  crumb="freebuff-proxy / Admin / logs.conf"
+  crumb="freebucks-proxy / Admin / logs.conf"
   title={$tr("Logs")}
   description={$tr("Live traffic, metrics, team usage, and traces.")}
 >

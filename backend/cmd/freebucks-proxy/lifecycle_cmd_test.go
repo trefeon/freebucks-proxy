@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/cli/setup"
-	"freebuff-proxy/backend/internal/egress"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/cli/setup"
+	"freebucks-proxy/backend/internal/egress"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // lifecycleSemver is the semver shape an ldflags-injected release version
@@ -32,7 +32,7 @@ var lifecycleSemver = regexp.MustCompile(`^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)
 //
 // The assertions document the actual, observable CLI behavior:
 //
-//	-version prints "freebuff-proxy <semver>" — an ldflags-injected version
+//	-version prints "freebucks-proxy <semver>" — an ldflags-injected version
 //	round-trips through the real flag branch (a non-injected build prints
 //	"dev").
 //	-setup configures detected client tools (Continue / opencode / aider);
@@ -48,8 +48,8 @@ func TestLifecycleSetupDoctorVersion(t *testing.T) {
 		// Simulate goreleaser `-ldflags -X main.version=1.4.0`: an injected
 		// version must pass through the real -version flag branch untouched.
 		version = "1.4.0"
-		flag.CommandLine = flag.NewFlagSet("freebuff-proxy", flag.ExitOnError)
-		os.Args = []string{"freebuff-proxy", "-version"}
+		flag.CommandLine = flag.NewFlagSet("freebucks-proxy", flag.ExitOnError)
+		os.Args = []string{"freebucks-proxy", "-version"}
 		main()
 		return
 
@@ -87,8 +87,8 @@ func TestLifecycleSetupDoctorVersion(t *testing.T) {
 		// UPSTREAM_BASE_URL on a closed loopback port: DNS resolves, TLS
 		// refused → deterministic offline reachability failure.
 		_ = os.Setenv("UPSTREAM_BASE_URL", "https://127.0.0.1:1/v1")
-		flag.CommandLine = flag.NewFlagSet("freebuff-proxy", flag.ExitOnError)
-		os.Args = []string{"freebuff-proxy", "-doctor"}
+		flag.CommandLine = flag.NewFlagSet("freebucks-proxy", flag.ExitOnError)
+		os.Args = []string{"freebucks-proxy", "-doctor"}
 		main()
 		return
 	}
@@ -101,7 +101,7 @@ func TestLifecycleSetupDoctorVersion(t *testing.T) {
 			t.Fatalf("-version helper exited with error: %v\n%s", err, out)
 		}
 		got := strings.TrimSpace(string(out))
-		if want := "freebuff-proxy 1.4.0"; got != want {
+		if want := "freebucks-proxy 1.4.0"; got != want {
 			t.Fatalf("-version output = %q, want %q", got, want)
 		}
 		fields := strings.Fields(got)
@@ -126,7 +126,7 @@ func TestLifecycleSetupDoctorVersion(t *testing.T) {
 		}
 		s := string(out)
 		for _, want := range []string{
-			"freebuff-proxy interactive client setup",
+			"freebucks-proxy interactive client setup",
 			"Setup complete! Configured 0 client tool(s).",
 			"Base URL: http://localhost:3457/v1",
 		} {
@@ -160,7 +160,7 @@ func TestLifecycleSetupDoctorVersion(t *testing.T) {
 		}
 		s := string(out)
 		for _, want := range []string{
-			"freebuff-proxy doctor diagnostic tool",
+			"freebucks-proxy doctor diagnostic tool",
 			"[ok] Configuration loaded & validated successfully",
 			"AUTH_TOKENS is empty (bridge mode active)",
 			"[ok] Listen address 127.0.0.1:", // port is a dynamically-freed ephemeral

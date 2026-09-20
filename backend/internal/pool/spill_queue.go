@@ -20,8 +20,8 @@
 package pool
 
 import (
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/upstream"
 	"time"
 )
 

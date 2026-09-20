@@ -133,7 +133,7 @@ func (s *Sender) post(event Event) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "freebuff-proxy-webhook/1.0")
+	req.Header.Set("User-Agent", "freebucks-proxy-webhook/1.0")
 	resp, err := s.client.Do(req)
 	if err != nil {
 		s.logger.Warn("webhook send failed", "err", redactTransportErr(err), "target", RedactURL(s.url))

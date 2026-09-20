@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestOpenAIStreamFirstChunkRoleInjected pins the first-chunk role

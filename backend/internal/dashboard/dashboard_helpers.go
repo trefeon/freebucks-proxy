@@ -2,8 +2,8 @@ package dashboard
 
 import (
 	"fmt"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/upstream"
 	"sort"
 	"strconv"
 	"strings"

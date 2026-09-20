@@ -1,8 +1,8 @@
 {
-  "name": "freebuff-proxy-dashboard",
+  "name": "freebucks-proxy-dashboard",
   "private": true,
   "version": "1.8.5",
-  "description": "Modern Svelte 5 + Tailwind CSS v4 SPA control panel for freebuff-proxy",
+  "description": "Modern Svelte 5 + Tailwind CSS v4 SPA control panel for freebucks-proxy",
   "type": "module",
   "scripts": {
     "dev": "vite",

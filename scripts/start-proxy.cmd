@@ -6,6 +6,6 @@ if "%ERRORLEVEL%"=="3221225786" exit /b 0
 if "%ERRORLEVEL%"=="-1073741510" exit /b 0
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo [ERROR] freebuff-proxy stopped with exit code %ERRORLEVEL%.
+    echo [ERROR] freebucks-proxy stopped with exit code %ERRORLEVEL%.
     pause
 )

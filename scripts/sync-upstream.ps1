@@ -4,7 +4,7 @@
     (backend/internal/registry/testdata/upstream/), verifies hash parity, and runs tests.
 
 .DESCRIPTION
-    Automates synchronizing the freebuff-proxy repository with upstream FreeBuff CLI
+    Automates synchronizing the freebucks-proxy repository with upstream FreeBuff CLI
     model registry definitions and vendor changes.
 
 .PARAMETER Ref

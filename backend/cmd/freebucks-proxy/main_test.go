@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/egress"
+	"freebucks-proxy/backend/internal/egress"
 )
 
 // TestEgressCacheGetSet guards the per-egress result cache: Set stores the
@@ -60,13 +60,13 @@ func TestEgressCacheTTL(t *testing.T) {
 
 // TestVersionFlagPrintsVersion re-executes the test binary with -version
 // (main() os.Exit's, so it cannot run in-process) and pins the output:
-// "freebuff-proxy <version>" on stdout, exit 0.
+// "freebucks-proxy <version>" on stdout, exit 0.
 func TestVersionFlagPrintsVersion(t *testing.T) {
 	if os.Getenv("GO_WANT_VERSION_HELPER") == "1" {
 		// Re-executed: the test framework already consumed -test.* flags on
 		// the global flag set, so swap in a fresh set before running main.
-		flag.CommandLine = flag.NewFlagSet("freebuff-proxy", flag.ExitOnError)
-		os.Args = []string{"freebuff-proxy", "-version"}
+		flag.CommandLine = flag.NewFlagSet("freebucks-proxy", flag.ExitOnError)
+		os.Args = []string{"freebucks-proxy", "-version"}
 		main()
 		return // unreachable: main os.Exit(0)s
 	}
@@ -76,7 +76,7 @@ func TestVersionFlagPrintsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helper exited with error: %v\n%s", err, out)
 	}
-	if want := "freebuff-proxy " + version; !strings.Contains(string(out), want) {
+	if want := "freebucks-proxy " + version; !strings.Contains(string(out), want) {
 		t.Errorf("output %q missing %q", out, want)
 	}
 }

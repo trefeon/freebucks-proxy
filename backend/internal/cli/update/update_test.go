@@ -23,8 +23,8 @@ import (
 
 func TestInstallUnixAtomicSwap(t *testing.T) {
 	dir := t.TempDir()
-	execPath := filepath.Join(dir, "freebuff-proxy")
-	newPath := filepath.Join(dir, "freebuff-proxy.new")
+	execPath := filepath.Join(dir, "freebucks-proxy")
+	newPath := filepath.Join(dir, "freebucks-proxy.new")
 	if err := os.WriteFile(execPath, []byte("old-binary"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +53,8 @@ func TestInstallUnixAtomicSwap(t *testing.T) {
 
 func TestInstallUnixFailsWhenOldBinaryGone(t *testing.T) {
 	dir := t.TempDir()
-	execPath := filepath.Join(dir, "freebuff-proxy")
-	newPath := filepath.Join(dir, "freebuff-proxy.new")
+	execPath := filepath.Join(dir, "freebucks-proxy")
+	newPath := filepath.Join(dir, "freebucks-proxy.new")
 	if err := os.WriteFile(newPath, []byte("new-binary"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +70,8 @@ func TestInstallUnixFailsWhenOldBinaryGone(t *testing.T) {
 }
 
 func TestWindowsUpdateScript(t *testing.T) {
-	exe := `C:\tools\freebuff proxy\freebuff-proxy.exe`
-	tmp := `C:\tools\freebuff proxy\freebuff-proxy.exe.tmp-123`
+	exe := `C:\tools\freebucks proxy\freebucks-proxy.exe`
+	tmp := `C:\tools\freebucks proxy\freebucks-proxy.exe.tmp-123`
 	script := windowsUpdateScript(exe, tmp, 4242)
 
 	for _, want := range []string{
@@ -104,8 +104,8 @@ func TestWindowsUpdateScriptRunsAndSwaps(t *testing.T) {
 		t.Skip("Windows-only deferred swap")
 	}
 	dir := t.TempDir()
-	execPath := filepath.Join(dir, "freebuff-proxy.exe")
-	tmpPath := filepath.Join(dir, "freebuff-proxy.exe.tmp-123")
+	execPath := filepath.Join(dir, "freebucks-proxy.exe")
+	tmpPath := filepath.Join(dir, "freebucks-proxy.exe.tmp-123")
 	if err := os.WriteFile(execPath, []byte("old-binary"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +165,8 @@ func TestWindowsUpdateScriptDefersSwapUntilParentExits(t *testing.T) {
 		t.Skip("Windows-only deferred swap")
 	}
 	dir := t.TempDir()
-	execPath := filepath.Join(dir, "freebuff-proxy.exe")
-	tmpPath := filepath.Join(dir, "freebuff-proxy.exe.tmp-123")
+	execPath := filepath.Join(dir, "freebucks-proxy.exe")
+	tmpPath := filepath.Join(dir, "freebucks-proxy.exe.tmp-123")
 	if err := os.WriteFile(execPath, []byte("old-binary"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestVerifyChecksumFetchFailureAborts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := verifyChecksum(context.Background(), &http.Client{Timeout: 5 * time.Second}, srv.URL+"/checksums.txt", "freebuff-proxy_linux_amd64.tar.gz", []byte("asset-bytes"))
+	err := verifyChecksum(context.Background(), &http.Client{Timeout: 5 * time.Second}, srv.URL+"/checksums.txt", "freebucks-proxy_linux_amd64.tar.gz", []byte("asset-bytes"))
 	if err == nil {
 		t.Fatal("verifyChecksum succeeded, want error when checksums.txt fetch fails")
 		return
@@ -271,7 +271,7 @@ func TestVerifyChecksumFetchFailureAborts(t *testing.T) {
 func TestVerifyChecksumMatchAndMismatch(t *testing.T) {
 	assetBytes := []byte("asset-bytes")
 	sum := sha256.Sum256(assetBytes)
-	checksums := hex.EncodeToString(sum[:]) + "  freebuff-proxy_linux_amd64.tar.gz\n"
+	checksums := hex.EncodeToString(sum[:]) + "  freebucks-proxy_linux_amd64.tar.gz\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(checksums))
 	}))
@@ -279,7 +279,7 @@ func TestVerifyChecksumMatchAndMismatch(t *testing.T) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	url := srv.URL + "/checksums.txt"
-	assetFilename := "freebuff-proxy_linux_amd64.tar.gz"
+	assetFilename := "freebucks-proxy_linux_amd64.tar.gz"
 
 	if err := verifyChecksum(context.Background(), client, url, assetFilename, assetBytes); err != nil {
 		t.Fatalf("verifyChecksum(matching) = %v, want nil", err)
@@ -296,7 +296,7 @@ func TestVerifyChecksumMatchAndMismatch(t *testing.T) {
 // swap is reported exactly once on the next -update invocation.
 func TestReportUpdateResultMarkerReportsAndDeletes(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "freebuff-proxy.exe")
+	exe := filepath.Join(dir, "freebucks-proxy.exe")
 	marker := updateResultMarker(exe)
 
 	// FAILED case: the previous deferred swap did not complete.
@@ -444,7 +444,7 @@ func releaseArchiveBytes(t *testing.T, ext, entryName string, content []byte) []
 
 func TestExtractBinaryFromArchive(t *testing.T) {
 	want := []byte("binary-bytes-v9.9.9")
-	const binaryName = "freebuff-proxy"
+	const binaryName = "freebucks-proxy"
 	tests := []struct {
 		name      string
 		ext       string
@@ -466,10 +466,10 @@ func TestExtractBinaryFromArchive(t *testing.T) {
 		},
 		{
 			// Goreleaser archives nest the binary under a versioned dir:
-			// freebuff-proxy_9.9.9_linux_amd64/freebuff-proxy
+			// freebucks-proxy_9.9.9_linux_amd64/freebucks-proxy
 			name:      "goreleaser nested layout",
 			ext:       ".tar.gz",
-			entryName: "freebuff-proxy_9.9.9_linux_amd64/" + binaryName,
+			entryName: "freebucks-proxy_9.9.9_linux_amd64/" + binaryName,
 			wantBytes: want,
 		},
 		{
@@ -516,7 +516,7 @@ func TestExtractBinaryFromArchive(t *testing.T) {
 // production path for both archive formats with a cap+1 entry of zeros
 // (highly compressible, so the archives stay small).
 func TestExtractBinaryFromArchiveOversizedEntry(t *testing.T) {
-	const binaryName = "freebuff-proxy"
+	const binaryName = "freebucks-proxy"
 	for _, ext := range []string{".zip", ".tar.gz"} {
 		t.Run(ext, func(t *testing.T) {
 			archive := releaseArchiveBytes(t, ext, binaryName, make([]byte, maxUpdateArchiveEntryBytes+1))
@@ -539,9 +539,9 @@ func TestReleaseJSONDecodeAndAssetMatch(t *testing.T) {
 	releaseJSON := `{
 		"tag_name": "v9.9.9",
 		"assets": [
-			{"name": "freebuff-proxy_9.9.9_linux_amd64.tar.gz", "browser_download_url": "https://cdn.example/fp_linux_amd64.tar.gz"},
-			{"name": "freebuff-proxy_9.9.9_linux_arm64.tar.gz", "browser_download_url": "https://cdn.example/fp_linux_arm64.tar.gz"},
-			{"name": "freebuff-proxy_9.9.9_windows_amd64.zip", "browser_download_url": "https://cdn.example/fp_windows_amd64.zip"},
+			{"name": "freebucks-proxy_9.9.9_linux_amd64.tar.gz", "browser_download_url": "https://cdn.example/fp_linux_amd64.tar.gz"},
+			{"name": "freebucks-proxy_9.9.9_linux_arm64.tar.gz", "browser_download_url": "https://cdn.example/fp_linux_arm64.tar.gz"},
+			{"name": "freebucks-proxy_9.9.9_windows_amd64.zip", "browser_download_url": "https://cdn.example/fp_windows_amd64.zip"},
 			{"name": "checksums.txt", "browser_download_url": "https://cdn.example/checksums.txt"}
 		]
 	}`
@@ -558,7 +558,7 @@ func TestReleaseJSONDecodeAndAssetMatch(t *testing.T) {
 	if !ok {
 		t.Fatal("matchReleaseAssets(linux/amd64) ok = false, want true")
 	}
-	if assetName != "freebuff-proxy_9.9.9_linux_amd64.tar.gz" {
+	if assetName != "freebucks-proxy_9.9.9_linux_amd64.tar.gz" {
 		t.Errorf("assetName = %q, want the linux amd64 tar.gz", assetName)
 	}
 	if !strings.HasSuffix(assetURL, ".tar.gz") {
@@ -573,7 +573,7 @@ func TestReleaseJSONDecodeAndAssetMatch(t *testing.T) {
 	if !ok {
 		t.Fatal("matchReleaseAssets(windows/amd64) ok = false, want true")
 	}
-	if assetName != "freebuff-proxy_9.9.9_windows_amd64.zip" {
+	if assetName != "freebucks-proxy_9.9.9_windows_amd64.zip" {
 		t.Errorf("assetName = %q, want the windows amd64 zip", assetName)
 	}
 	if !strings.HasSuffix(assetURL, ".zip") {
@@ -632,7 +632,7 @@ func TestRequireChecksumsFailsClosed(t *testing.T) {
 
 func TestMatchReleaseAssetsMissingChecksums(t *testing.T) {
 	assets := []releaseAsset{
-		{Name: "freebuff-proxy_9.9.9_linux_amd64.tar.gz", BrowserDownloadURL: "https://cdn.example/a.tar.gz"},
+		{Name: "freebucks-proxy_9.9.9_linux_amd64.tar.gz", BrowserDownloadURL: "https://cdn.example/a.tar.gz"},
 	}
 	_, _, checksumURL, ok := matchReleaseAssets(assets, "linux", "amd64")
 	if !ok {
@@ -658,37 +658,37 @@ func TestVerifyChecksumFilenameBinding(t *testing.T) {
 	}{
 		{
 			name:          "hash and filename match",
-			checksums:     goodHash + "  freebuff-proxy_linux_amd64.tar.gz\n",
-			assetFilename: "freebuff-proxy_linux_amd64.tar.gz",
+			checksums:     goodHash + "  freebucks-proxy_linux_amd64.tar.gz\n",
+			assetFilename: "freebucks-proxy_linux_amd64.tar.gz",
 		},
 		{
 			name:          "goreleaser two-space format",
-			checksums:     goodHash + "  freebuff-proxy_9.9.9_linux_amd64.tar.gz\n",
-			assetFilename: "freebuff-proxy_9.9.9_linux_amd64.tar.gz",
+			checksums:     goodHash + "  freebucks-proxy_9.9.9_linux_amd64.tar.gz\n",
+			assetFilename: "freebucks-proxy_9.9.9_linux_amd64.tar.gz",
 		},
 		{
 			name:          "sha256sum star prefix tolerated",
-			checksums:     goodHash + " *freebuff-proxy_linux_amd64.tar.gz\n",
-			assetFilename: "freebuff-proxy_linux_amd64.tar.gz",
+			checksums:     goodHash + " *freebucks-proxy_linux_amd64.tar.gz\n",
+			assetFilename: "freebucks-proxy_linux_amd64.tar.gz",
 		},
 		{
 			// S6 regression: the SAME hash bound to a DIFFERENT file must
 			// not vouch for this asset.
 			name:          "same hash different filename rejected",
-			checksums:     goodHash + "  freebuff-proxy_linux_arm64.tar.gz\n",
-			assetFilename: "freebuff-proxy_linux_amd64.tar.gz",
+			checksums:     goodHash + "  freebucks-proxy_linux_arm64.tar.gz\n",
+			assetFilename: "freebucks-proxy_linux_amd64.tar.gz",
 			wantErr:       true,
 		},
 		{
 			name:          "hash only in a different-filename line still fails",
-			checksums:     "0000000000000000000000000000000000000000000000000000000000000000  freebuff-proxy_linux_amd64.tar.gz\n" + goodHash + "  other-file.bin\n",
-			assetFilename: "freebuff-proxy_linux_amd64.tar.gz",
+			checksums:     "0000000000000000000000000000000000000000000000000000000000000000  freebucks-proxy_linux_amd64.tar.gz\n" + goodHash + "  other-file.bin\n",
+			assetFilename: "freebucks-proxy_linux_amd64.tar.gz",
 			wantErr:       true,
 		},
 		{
 			name:          "wrong hash with right filename",
-			checksums:     "0000000000000000000000000000000000000000000000000000000000000000  freebuff-proxy_linux_amd64.tar.gz\n",
-			assetFilename: "freebuff-proxy_linux_amd64.tar.gz",
+			checksums:     "0000000000000000000000000000000000000000000000000000000000000000  freebucks-proxy_linux_amd64.tar.gz\n",
+			assetFilename: "freebucks-proxy_linux_amd64.tar.gz",
 			wantErr:       true,
 		},
 	}
@@ -720,12 +720,12 @@ func TestWinBase(t *testing.T) {
 	tests := []struct {
 		in, want string
 	}{
-		{`C:\tools\freebuff-proxy.exe`, "freebuff-proxy.exe"},
-		{`C:\tools\freebuff proxy\freebuff-proxy.exe.tmp-123`, "freebuff-proxy.exe.tmp-123"},
-		{"freebuff-proxy.exe", "freebuff-proxy.exe"},
-		{"tools/freebuff-proxy", "freebuff-proxy"},
-		{`C:\Users\张三\freebuff-proxy.exe`, "freebuff-proxy.exe"},
-		{"/usr/local/bin/freebuff-proxy", "freebuff-proxy"},
+		{`C:\tools\freebucks-proxy.exe`, "freebucks-proxy.exe"},
+		{`C:\tools\freebucks proxy\freebucks-proxy.exe.tmp-123`, "freebucks-proxy.exe.tmp-123"},
+		{"freebucks-proxy.exe", "freebucks-proxy.exe"},
+		{"tools/freebucks-proxy", "freebucks-proxy"},
+		{`C:\Users\张三\freebucks-proxy.exe`, "freebucks-proxy.exe"},
+		{"/usr/local/bin/freebucks-proxy", "freebucks-proxy"},
 	}
 	for _, tt := range tests {
 		if got := winBase(tt.in); got != tt.want {
@@ -742,10 +742,10 @@ func TestWinBase(t *testing.T) {
 // the executable missing.
 func TestInstallUnixRollback(t *testing.T) {
 	dir := t.TempDir()
-	execPath := filepath.Join(dir, "freebuff-proxy")
+	execPath := filepath.Join(dir, "freebucks-proxy")
 	// The temp file does NOT exist: the first rename (exec → .old) succeeds,
 	// the second (missing temp → exec) fails, triggering the rollback.
-	missingTemp := filepath.Join(dir, "freebuff-proxy.tmp-999")
+	missingTemp := filepath.Join(dir, "freebucks-proxy.tmp-999")
 	if err := os.WriteFile(execPath, []byte("old-binary"), 0644); err != nil {
 		t.Fatal(err)
 	}

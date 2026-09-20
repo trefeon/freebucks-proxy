@@ -3,8 +3,8 @@ package pool
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 	"testing"
 )
 

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/store"
 )
 
 func testHistoryDashboard(t *testing.T, logs *logring.Handler, st *store.Store) *Dashboard {

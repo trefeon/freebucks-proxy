@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 	"net/http"
 	"strings"
 )

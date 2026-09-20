@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# install.sh - interactive easy-mode installer for freebuff-proxy.
+# install.sh - interactive easy-mode installer for freebucks-proxy.
 #
 # Flow (curl | bash compatible): reads prompts from the controlling terminal
 # (/dev/tty), so it works even when piped:
-#     curl -sSL https://raw.githubusercontent.com/trefeon/freebuff-proxy/main/scripts/install.sh | bash
+#     curl -sSL https://raw.githubusercontent.com/trefeon/freebucks-proxy/main/scripts/install.sh | bash
 #
 # Menu: (1) Easy install (recommended)  (2) Manual binary  (3) Docker Compose
 #       (4) Bridge mode (clients bring their own FreeBuff token)
@@ -19,18 +19,18 @@
 #      LISTEN_ADDR for containers, and the account-safety knobs.
 #
 # Layout (default install; no --dir / --prefix flags):
-#   binary   Linux & git-bash: ~/.local/bin/freebuff-proxy
-#            macOS: /usr/local/bin/freebuff-proxy (sudo only when needed,
+#   binary   Linux & git-bash: ~/.local/bin/freebucks-proxy
+#            macOS: /usr/local/bin/freebucks-proxy (sudo only when needed,
 #            prompted, never silent; falls back to ~/.local/bin)
-#   config   Linux: $XDG_CONFIG_HOME/freebuff-proxy/.env (~/.config/...)
-#            macOS: ~/Library/Application Support/freebuff-proxy/.env
-#            Windows: %APPDATA%\freebuff-proxy\.env
+#   config   Linux: $XDG_CONFIG_HOME/freebucks-proxy/.env (~/.config/...)
+#            macOS: ~/Library/Application Support/freebucks-proxy/.env
+#            Windows: %APPDATA%\freebucks-proxy\.env
 #   template .env.example ships in the template dir (Linux
-#            $XDG_DATA_HOME/freebuff-proxy, usually ~/.local/share/...;
-#            macOS /usr/local/share/freebuff-proxy; Windows next to the
+#            $XDG_DATA_HOME/freebucks-proxy, usually ~/.local/share/...;
+#            macOS /usr/local/share/freebucks-proxy; Windows next to the
 #            binary). The .env is created from it - never the other way round.
 #   The proxy resolves the config dir automatically, so you can start it from
-#   anywhere: just run freebuff-proxy (no cd, no cwd .env needed).
+#   anywhere: just run freebucks-proxy (no cd, no cwd .env needed).
 #
 # Non-interactive flags (scripted use):
 #   --dir=<path> / --dir <path>   target directory. Keeps the legacy cwd-based
@@ -54,7 +54,7 @@
 # writing it into the config-dir .env (0600, never committed).
 set -euo pipefail
 
-REPO="trefeon/freebuff-proxy"
+REPO="trefeon/freebucks-proxy"
 RAW_BASE="https://raw.githubusercontent.com/$REPO/main"
 DIR=""
 DIR_GIVEN=0
@@ -182,7 +182,7 @@ echo "" >&2
 
 # --- 1. deployment method ----------------------------------------------------
 if [ -z "$METHOD" ]; then
-  menu METHOD "How do you want to install freebuff-proxy?" \
+  menu METHOD "How do you want to install freebucks-proxy?" \
     1 "Easy install (recommended) - binary + token + safety defaults, one flow" \
     2 "Manual binary - download the latest release, fine-grained choices" \
     3 "Docker Compose - run in a container on this host" \
@@ -406,11 +406,11 @@ if [ "$METHOD" = "docker" ]; then
     REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
     ok "Using the repo checkout at $REPO_DIR"
   else
-    REPO_DIR="$DIR/freebuff-proxy"
+    REPO_DIR="$DIR/freebucks-proxy"
     [ -f "$DIR/docker-compose.yml" ] && REPO_DIR="$DIR"
   fi
   if [ ! -f "$REPO_DIR/docker-compose.yml" ]; then
-    c "Cloning freebuff-proxy into $REPO_DIR..."
+    c "Cloning freebucks-proxy into $REPO_DIR..."
     git clone --quiet "https://github.com/$REPO.git" "$REPO_DIR" \
       || die "git clone failed. If github.com is blocked here, copy the repo manually and re-run with --dir <repo>."
   fi
@@ -438,10 +438,10 @@ else
     *) die "unsupported arch: $ARCH" ;;
   esac
   if [ "$GOOS" = "windows" ]; then
-    ASSET="freebuff-proxy_${VERSION}_${GOOS}_${GOARCH}.zip"
+    ASSET="freebucks-proxy_${VERSION}_${GOOS}_${GOARCH}.zip"
     command -v unzip >/dev/null 2>&1 || die "unzip not found - install it or use the PowerShell installer."
   else
-    ASSET="freebuff-proxy_${VERSION}_${GOOS}_${GOARCH}.tar.gz"
+    ASSET="freebucks-proxy_${VERSION}_${GOOS}_${GOARCH}.tar.gz"
   fi
   ok "Asset: $ASSET"
 
@@ -465,19 +465,19 @@ else
     case "$PLAT" in
       linux)
         BIN_DIR="$HOME/.local/bin"
-        CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/freebuff-proxy"
-        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/freebuff-proxy" ;;
+        CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/freebucks-proxy"
+        DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/freebucks-proxy" ;;
       darwin)
         BIN_DIR="/usr/local/bin"
-        CONFIG_DIR="$HOME/Library/Application Support/freebuff-proxy"
-        DATA_DIR="/usr/local/share/freebuff-proxy" ;;
+        CONFIG_DIR="$HOME/Library/Application Support/freebucks-proxy"
+        DATA_DIR="/usr/local/share/freebucks-proxy" ;;
       *)
         # git-bash / MSYS: mirror the Windows installer layout.
-        BIN_DIR="${LOCALAPPDATA:-$HOME/AppData/Local}/Programs/freebuff-proxy"
+        BIN_DIR="${LOCALAPPDATA:-$HOME/AppData/Local}/Programs/freebucks-proxy"
         BIN_DIR="${BIN_DIR//\\//\/}"
-        CONFIG_DIR="${XDG_CONFIG_HOME:-${APPDATA:-$HOME/AppData/Roaming}}/freebuff-proxy"
+        CONFIG_DIR="${XDG_CONFIG_HOME:-${APPDATA:-$HOME/AppData/Roaming}}/freebucks-proxy"
         CONFIG_DIR="${CONFIG_DIR//\\//\/}"
-        if [ -n "${XDG_DATA_HOME:-}" ]; then DATA_DIR="${XDG_DATA_HOME}/freebuff-proxy"
+        if [ -n "${XDG_DATA_HOME:-}" ]; then DATA_DIR="${XDG_DATA_HOME}/freebucks-proxy"
         else DATA_DIR="$BIN_DIR"; fi ;;
     esac
     [ -n "$PREFIX" ] && BIN_DIR="$PREFIX"
@@ -515,14 +515,14 @@ else
 
   EXISTING_BIN=""
   if [ "$DEV_MODE" = "1" ]; then
-    EXISTING_BIN="$(find "$DIR" -maxdepth 2 -type f -name 'freebuff-proxy*' 2>/dev/null | head -1)"
+    EXISTING_BIN="$(find "$DIR" -maxdepth 2 -type f -name 'freebucks-proxy*' 2>/dev/null | head -1)"
   elif [ "$GOOS" = "windows" ]; then
-    [ -f "$BIN_DIR/freebuff-proxy.exe" ] && EXISTING_BIN="$BIN_DIR/freebuff-proxy.exe"
+    [ -f "$BIN_DIR/freebucks-proxy.exe" ] && EXISTING_BIN="$BIN_DIR/freebucks-proxy.exe"
   else
-    [ -x "$BIN_DIR/freebuff-proxy" ] && EXISTING_BIN="$BIN_DIR/freebuff-proxy"
+    [ -x "$BIN_DIR/freebucks-proxy" ] && EXISTING_BIN="$BIN_DIR/freebucks-proxy"
   fi
   if [ -n "$EXISTING_BIN" ] && [ "$FORCE" = "0" ]; then
-    warn "freebuff-proxy already exists: $EXISTING_BIN"
+    warn "freebucks-proxy already exists: $EXISTING_BIN"
     warn "Skipping the download (re-run with --force to update)."
     BIN="$EXISTING_BIN"
   else
@@ -550,36 +550,36 @@ else
       # legacy: extract into the --dir target, run from there.
       if [ "$GOOS" = "windows" ]; then
         unzip -o -q "$TMP/$ASSET" -d "$DIR"
-        BIN="$DIR/freebuff-proxy.exe"
-        [ -f "$BIN" ] || BIN="$(find "$DIR" -maxdepth 2 -type f -name 'freebuff-proxy*.exe' | head -1)"
+        BIN="$DIR/freebucks-proxy.exe"
+        [ -f "$BIN" ] || BIN="$(find "$DIR" -maxdepth 2 -type f -name 'freebucks-proxy*.exe' | head -1)"
       else
         tar xzf "$TMP/$ASSET" -C "$DIR"
-        BIN="$DIR/freebuff-proxy"
-        [ -x "$BIN" ] || BIN="$(find "$DIR" -maxdepth 2 -type f -name freebuff-proxy | head -1)"
+        BIN="$DIR/freebucks-proxy"
+        [ -x "$BIN" ] || BIN="$(find "$DIR" -maxdepth 2 -type f -name freebucks-proxy | head -1)"
         [ -n "$BIN" ] && chmod +x "$BIN"
       fi
     else
       # platform layout: install into the resolved binary dir.
       if [ "$GOOS" = "windows" ]; then
         unzip -o -q "$TMP/$ASSET" -d "$TMP"
-        SRC="$TMP/freebuff-proxy.exe"
-        [ -f "$SRC" ] || SRC="$(find "$TMP" -maxdepth 2 -type f -name 'freebuff-proxy*.exe' | head -1)"
-        [ -n "$SRC" ] || die "release does not contain freebuff-proxy.exe"
+        SRC="$TMP/freebucks-proxy.exe"
+        [ -f "$SRC" ] || SRC="$(find "$TMP" -maxdepth 2 -type f -name 'freebucks-proxy*.exe' | head -1)"
+        [ -n "$SRC" ] || die "release does not contain freebucks-proxy.exe"
         cp "$SRC" "$BIN_DIR/"
         BIN="$BIN_DIR/$(basename "$SRC")"
       else
         tar xzf "$TMP/$ASSET" -C "$TMP"
-        SRC="$TMP/freebuff-proxy"
-        [ -x "$SRC" ] || SRC="$(find "$TMP" -maxdepth 2 -type f -name freebuff-proxy | head -1)"
-        [ -n "$SRC" ] || die "release does not contain the freebuff-proxy binary"
+        SRC="$TMP/freebucks-proxy"
+        [ -x "$SRC" ] || SRC="$(find "$TMP" -maxdepth 2 -type f -name freebucks-proxy | head -1)"
+        [ -n "$SRC" ] || die "release does not contain the freebucks-proxy binary"
         if [ -n "$SUDO" ]; then
-          $SUDO cp "$SRC" "$BIN_DIR/freebuff-proxy"
-          $SUDO chmod 0755 "$BIN_DIR/freebuff-proxy"
+          $SUDO cp "$SRC" "$BIN_DIR/freebucks-proxy"
+          $SUDO chmod 0755 "$BIN_DIR/freebucks-proxy"
         else
-          cp "$SRC" "$BIN_DIR/freebuff-proxy"
-          chmod 0755 "$BIN_DIR/freebuff-proxy"
+          cp "$SRC" "$BIN_DIR/freebucks-proxy"
+          chmod 0755 "$BIN_DIR/freebucks-proxy"
         fi
-        BIN="$BIN_DIR/freebuff-proxy"
+        BIN="$BIN_DIR/freebucks-proxy"
       fi
     fi
     c "Binary: $BIN"
@@ -628,7 +628,7 @@ ensure_template() {
   fi
   rm -f "$tdir/.env.example.tmp" 2>/dev/null || true
   cat > "$tdir/.env.example" <<'MINIENV'
-# freebuff-proxy config (minimal fallback - see the README for every key)
+# freebucks-proxy config (minimal fallback - see the README for every key)
 AUTH_TOKENS=
 LISTEN_ADDR=127.0.0.1:3457
 COST_MODE=free
@@ -655,7 +655,7 @@ ensure_env_file() {
       ok ".env created from $TEMPLATE_DIR/.env.example"
     else
       cat > "$ENVPATH" <<'MINIENV'
-# freebuff-proxy config (minimal fallback - see the README for every key)
+# freebucks-proxy config (minimal fallback - see the README for every key)
 AUTH_TOKENS=
 LISTEN_ADDR=127.0.0.1:3457
 COST_MODE=free
@@ -765,7 +765,7 @@ if [ "$METHOD" = "docker" ]; then
 
   echo ""
   echo "============================================================"
-  echo "  9router -> freebuff-proxy - fill the 'Add OpenAI Compatible'"
+  echo "  9router -> freebucks-proxy - fill the 'Add OpenAI Compatible'"
   echo "  form with these values (Dashboard -> Providers -> Add)"
   echo "============================================================"
   echo ""
@@ -811,7 +811,7 @@ if [ "$METHOD" = "docker" ]; then
 else
   echo "  1. 1-Click Client Setup:   $BIN -setup   (config resolves automatically, no cd needed)"
   echo "  2. Start the proxy server: $BIN          (config resolves automatically, no cd needed)"
-  echo "  3. start: freebuff-proxy (config resolves automatically)"
+  echo "  3. start: freebucks-proxy (config resolves automatically)"
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) echo ""

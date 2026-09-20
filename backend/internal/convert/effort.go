@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"freebuff-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/modelcat"
 )
 
 // ExtractReasoningEffort extracts the requested thinking/reasoning effort from

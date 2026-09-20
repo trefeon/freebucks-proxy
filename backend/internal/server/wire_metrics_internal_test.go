@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // requestFailedFields returns the Fields of the newest `request failed`

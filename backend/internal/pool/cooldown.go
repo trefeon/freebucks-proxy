@@ -3,9 +3,9 @@ package pool
 import (
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/notify"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/notify"
+	"freebucks-proxy/backend/internal/runs"
+	"freebucks-proxy/backend/internal/upstream"
 	"time"
 )
 

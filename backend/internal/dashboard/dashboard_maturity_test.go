@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"freebuff-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/pool"
 	"testing"
 	"time"
 )

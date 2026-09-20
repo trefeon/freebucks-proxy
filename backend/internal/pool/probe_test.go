@@ -2,7 +2,7 @@ package pool
 
 import (
 	"context"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"testing"

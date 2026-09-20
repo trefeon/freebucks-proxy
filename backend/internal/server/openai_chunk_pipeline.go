@@ -11,7 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"freebuff-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/convert"
 )
 
 // chunkRewriter owns the per-stream chunk state and the ordered rewrite

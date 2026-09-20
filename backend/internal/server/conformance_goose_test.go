@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 func TestConformanceGooseNoToolChoiceUsageTail(t *testing.T) {

@@ -1,9 +1,9 @@
-# install.ps1 - download the latest freebuff-proxy release for
+# install.ps1 - download the latest freebucks-proxy release for
 # this machine, verify it, set up .env, and print the next steps.
 #
 # Default per-user layout (no admin rights required):
-#   binary + template:  %LOCALAPPDATA%\Programs\freebuff-proxy\freebuff-proxy.exe
-#   live .env:          %APPDATA%\freebuff-proxy\.env (created from .env.example;
+#   binary + template:  %LOCALAPPDATA%\Programs\freebucks-proxy\freebucks-proxy.exe
+#   live .env:          %APPDATA%\freebucks-proxy\.env (created from .env.example;
 #                       the runtime resolves it there when no ./.env is in the
 #                       working directory)
 # Pass -Dir <path> to install elsewhere and keep the legacy layout: the binary
@@ -14,7 +14,7 @@
 # Zero-knowledge user flow:
 #   1. Open PowerShell (Windows Terminal / pwsh or powershell.exe)
 #   2. Run:
-#        irm https://raw.githubusercontent.com/trefeon/freebuff-proxy/main/scripts/install.ps1 | iex
+#        irm https://raw.githubusercontent.com/trefeon/freebucks-proxy/main/scripts/install.ps1 | iex
 #   3. Read what it prints. It reuses existing FreeBuff CLI credentials when
 #      found, otherwise opens an isolated headless-browser OAuth login (zero extra
 #      dependencies), downloads the binary, creates .env from the example,
@@ -24,7 +24,7 @@
 # token except writing it into the per-user config .env.
 
 param(
-  [string]$Dir = "",          # install directory; default: %LOCALAPPDATA%\Programs\freebuff-proxy (pass -Dir for the legacy cwd-based layout)
+  [string]$Dir = "",          # install directory; default: %LOCALAPPDATA%\Programs\freebucks-proxy (pass -Dir for the legacy cwd-based layout)
   [switch]$SkipToken,         # do not look for a token (set AUTH_TOKENS later)
   [switch]$NoEnv,             # do not create .env (advanced)
   [switch]$Force,             # re-download even if the binary already exists (default layout: never overwrites an existing live .env)
@@ -32,7 +32,7 @@ param(
   [string]$EnvFile = ""       # explicit .env target (advanced)
 )
 $ErrorActionPreference = "Stop"
-$Repo = "trefeon/freebuff-proxy"
+$Repo = "trefeon/freebucks-proxy"
 $CliUserAgent = "ai-sdk/openai-compatible/1.0.0/codebuff"
 # Per-user paths; fall back to home-based paths when the env vars are unset
 # (the same fallback the runtime uses in backend/internal/config).
@@ -77,7 +77,7 @@ function Get-AuthToken([string]$path) {
 }
 
 Write-Host ""
-Write-Host "Installing freebuff-proxy (latest release)..." -ForegroundColor Cyan
+Write-Host "Installing freebucks-proxy (latest release)..." -ForegroundColor Cyan
 Write-Host ""
 
 # --- 0. warning -------------------------------------------------------------
@@ -89,18 +89,18 @@ Write-Host "account to be banned eventually. You accept this risk by continuing.
 Write-Host ""
 
 # --- 1. target directory -----------------------------------------------------
-# Default: the per-user program directory (%LOCALAPPDATA%\Programs\freebuff-proxy)
+# Default: the per-user program directory (%LOCALAPPDATA%\Programs\freebucks-proxy)
 # so no admin rights are needed. An explicit -Dir keeps the legacy layout: the
 # binary and the .env both live in $Dir (dev checkouts, custom locations).
 $UseLegacyLayout = [bool]$Dir
-if (-not $Dir) { $Dir = Join-Path $localAppData "Programs\freebuff-proxy" }
+if (-not $Dir) { $Dir = Join-Path $localAppData "Programs\freebucks-proxy" }
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 
-# Live config path. Default layout: %APPDATA%\freebuff-proxy\.env (the runtime's
+# Live config path. Default layout: %APPDATA%\freebucks-proxy\.env (the runtime's
 # Windows config dir). Legacy (-Dir) and -EnvFile keep the historic behavior.
 $envPath = $EnvFile
 if (-not $envPath) {
-  if ($UseLegacyLayout) { $envPath = Join-Path $Dir ".env" } else { $envPath = Join-Path $appData "freebuff-proxy\.env" }
+  if ($UseLegacyLayout) { $envPath = Join-Path $Dir ".env" } else { $envPath = Join-Path $appData "freebucks-proxy\.env" }
 }
 
 # --- 2. TOKEN PREREQUISITE (before downloading the proxy) --------------------
@@ -252,22 +252,22 @@ if ($token -and $token.Length -gt 12) {
 }
 
 # --- 3. proxy installer dependencies ----------------------------------------
-Write-Host "Step 2/3: installing freebuff-proxy" -ForegroundColor Cyan
+Write-Host "Step 2/3: installing freebucks-proxy" -ForegroundColor Cyan
 # --- 3. resolve the latest release ------------------------------------------
-$release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "freebuff-proxy-installer" }
+$release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "freebucks-proxy-installer" }
 $version = $release.tag_name -replace '^v', ''  # assets use 0.1.1, tag is v0.1.1
 Write-Host "Latest release: v$version" -ForegroundColor Green
 
 $arch = $env:PROCESSOR_ARCHITECTURE
 if ($arch -match "ARM64") { $goarch = "arm64" } elseif ($arch -match "AMD64|x86_64") { $goarch = "amd64" } else { $goarch = "amd64" }
-$want = "freebuff-proxy_${version}_windows_${goarch}.zip"
+$want = "freebucks-proxy_${version}_windows_${goarch}.zip"
 Write-Host "Asset: $want" -ForegroundColor Green
 
 # --- 4. already installed? ---------------------------------------------------
-$exe = Join-Path $Dir "freebuff-proxy.exe"
+$exe = Join-Path $Dir "freebucks-proxy.exe"
 if (Test-Path -LiteralPath $exe) {
   if (-not $Force) {
-    Write-Host "freebuff-proxy already exists: $exe" -ForegroundColor Yellow
+    Write-Host "freebucks-proxy already exists: $exe" -ForegroundColor Yellow
     Write-Host "Skipping the download (re-run with -Force to update)." -ForegroundColor Yellow
   } else {
     Write-Host "Re-downloading (forced)..." -ForegroundColor Cyan
@@ -280,7 +280,7 @@ if (-not (Test-Path -LiteralPath $exe) -or $Force) {
   if (-not $checksumAsset) { Write-Host "ERROR: release has no checksums.txt - refusing to install" -ForegroundColor Red; exit 1 }
 
   # --- 5. download + verify ----------------------------------------------------
-  $tmp = Join-Path $env:TEMP "freebuff-proxy-install"
+  $tmp = Join-Path $env:TEMP "freebucks-proxy-install"
   New-Item -ItemType Directory -Force -Path $tmp | Out-Null
   $zip = Join-Path $tmp $want
   $sums = Join-Path $tmp "checksums.txt"
@@ -313,13 +313,13 @@ if (-not (Test-Path -LiteralPath $exe) -or $Force) {
   # --- 6. extract --------------------------------------------------------------
   Expand-Archive -LiteralPath $zip -DestinationPath $Dir -Force
   if (-not (Test-Path -LiteralPath $exe)) {
-    Write-Host "WARNING: freebuff-proxy.exe not found at $exe after extraction." -ForegroundColor Yellow
-    Get-ChildItem -LiteralPath $Dir -Recurse -Filter "freebuff-proxy.exe" | ForEach-Object { Write-Host "  found: $($_.FullName)" -ForegroundColor Yellow }
+    Write-Host "WARNING: freebucks-proxy.exe not found at $exe after extraction." -ForegroundColor Yellow
+    Get-ChildItem -LiteralPath $Dir -Recurse -Filter "freebucks-proxy.exe" | ForEach-Object { Write-Host "  found: $($_.FullName)" -ForegroundColor Yellow }
   }
 }
 
 # --- 7. .env - created from the shipped example in the config dir ------------
-# Default layout: the live .env goes to %APPDATA%\freebuff-proxy\.env (the
+# Default layout: the live .env goes to %APPDATA%\freebucks-proxy\.env (the
 # runtime's Windows config dir) while .env.example stays in the install root as
 # a template. -Force re-runs the download but never overwrites an existing live
 # .env. Legacy (-Dir) mode keeps the historic behavior (recreate with -Force).
@@ -404,9 +404,9 @@ if (Test-Path -LiteralPath $exe) {
 
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  Open the dashboard first: http://localhost:3457/admin - finish tokens plus config there"
-Write-Host "  1. 1-Click Client Setup:   cd `"$Dir`"; .\freebuff-proxy.exe -setup"
+Write-Host "  1. 1-Click Client Setup:   cd `"$Dir`"; .\freebucks-proxy.exe -setup"
 Write-Host "  2. Start the proxy server: cd `"$Dir`"; .\start-proxy.cmd"
-Write-Host "     (or run freebuff-proxy.exe directly; the runtime finds its config in %APPDATA%\freebuff-proxy)"
+Write-Host "     (or run freebucks-proxy.exe directly; the runtime finds its config in %APPDATA%\freebucks-proxy)"
 Write-Host ""
 Write-Host "Test the proxy:" -ForegroundColor Cyan
 Write-Host "  curl http://localhost:3457/healthz"

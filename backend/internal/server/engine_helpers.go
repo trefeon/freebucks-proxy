@@ -3,9 +3,9 @@ package server
 import (
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/store"
 	"strconv"
 	"strings"
 	"time"

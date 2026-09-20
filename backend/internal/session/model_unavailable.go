@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"time"
 
-	"freebuff-proxy/backend/internal/telemetry"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/telemetry"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // liveFallbackMeter extracts the live Freebucks meter (prices + exemption)
@@ -105,7 +105,7 @@ func (m *Manager) modelUnavailableUntil(model string, now time.Time) (time.Time,
 // with zero upstream calls). Without reuse the cached row is dropped
 // (mirroring the 409 path) so the fallback admission runs fresh.
 // Every skip is counted on /metrics as
-// freebuff_proxy_model_unavailable_skips_total. Logs at DEBUG — the
+// freebucks_proxy_model_unavailable_skips_total. Logs at DEBUG — the
 // frequent path; a real 409 is now rare (once per TTL per model).
 func (m *Manager) modelUnavailableShortCircuit(target *string) bool {
 	skipUntil, ok := m.modelUnavailableUntil(*target, m.now())

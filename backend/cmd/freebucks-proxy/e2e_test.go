@@ -1,4 +1,4 @@
-// E2E subprocess suite for the freebuff-proxy CLI. The proxy is built as a
+// E2E subprocess suite for the freebucks-proxy CLI. The proxy is built as a
 // REAL binary (go build, never `go test -c`) and exercised end to end:
 // serve + graceful drain, mode subcommands (-version, -doctor, -test-token,
 // -setup, -update), port conflicts, and JSON config. Every subprocess pins
@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // --- shared E2E helpers ---
@@ -41,7 +41,7 @@ var (
 )
 
 // moduleRoot walks up from the test working directory to the module root
-// (the directory containing go.mod), so `go build ./backend/cmd/freebuff-proxy`
+// (the directory containing go.mod), so `go build ./backend/cmd/freebucks-proxy`
 // resolves regardless of where the test binary was launched from.
 func moduleRoot(t *testing.T) string {
 	t.Helper()
@@ -61,7 +61,7 @@ func moduleRoot(t *testing.T) string {
 	}
 }
 
-// proxyBinary builds the real freebuff-proxy binary once per test run and
+// proxyBinary builds the real freebucks-proxy binary once per test run and
 // returns its path. The shared build is never mutated; tests that exercise
 // the self-update swap copy it first (proxyInDir).
 func proxyBinary(t *testing.T) string {
@@ -76,7 +76,7 @@ func proxyBinary(t *testing.T) string {
 		// the module root (*.exe is gitignored).
 		parent := ""
 		if cache, err := os.UserCacheDir(); err == nil && cache != "" {
-			candidate := filepath.Join(cache, "freebuff-proxy-e2e")
+			candidate := filepath.Join(cache, "freebucks-proxy-e2e")
 			if err := os.MkdirAll(candidate, 0o755); err == nil {
 				parent = candidate
 			}
@@ -88,17 +88,17 @@ func proxyBinary(t *testing.T) string {
 				return
 			}
 		}
-		dir, err := os.MkdirTemp(parent, "freebuff-proxy-e2e-build-*")
+		dir, err := os.MkdirTemp(parent, "freebucks-proxy-e2e-build-*")
 		if err != nil {
 			buildErr = err
 			return
 		}
-		name := "freebuff-proxy"
+		name := "freebucks-proxy"
 		if runtime.GOOS == "windows" {
 			name += ".exe"
 		}
 		bin := filepath.Join(dir, name)
-		cmd := exec.Command("go", "build", "-o", bin, "./backend/cmd/freebuff-proxy")
+		cmd := exec.Command("go", "build", "-o", bin, "./backend/cmd/freebucks-proxy")
 		cmd.Dir = moduleRoot(t)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			buildErr = fmt.Errorf("go build: %v\n%s", err, out)
@@ -121,7 +121,7 @@ func proxyInDir(t *testing.T, dir string) string {
 	// leaving a locked stray that breaks TempDir's RemoveAll. Registered
 	// here, the drain runs first (LIFO) while dir still exists.
 	testutil.DrainStrayTempFiles(t, dir)
-	name := "freebuff-proxy"
+	name := "freebucks-proxy"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
@@ -137,7 +137,7 @@ func proxyInDir(t *testing.T, dir string) string {
 }
 
 // e2eEnv returns the environment for a subprocess: the parent's environment
-// minus every freebuff-proxy config variable (a developer's exported
+// minus every freebucks-proxy config variable (a developer's exported
 // AUTH_TOKENS/ADMIN_TOKEN/... must not leak into the child), plus the given
 // KEY=VALUE overrides. For duplicate keys the later entry wins.
 func e2eEnv(t *testing.T, overrides ...string) []string {
@@ -406,7 +406,7 @@ func TestE2EServeAndDrain(t *testing.T) {
 	stderrText := stderr.String()
 	stdoutText := stdout.String()
 	// Log ordering: startup summary → shutting down → shutdown complete.
-	iStart := strings.Index(stderrText, `msg="freebuff-proxy starting"`)
+	iStart := strings.Index(stderrText, `msg="freebucks-proxy starting"`)
 	iShut := strings.Index(stderrText, `msg="shutting down"`)
 	iDone := strings.Index(stderrText, `msg="shutdown complete"`)
 	if iStart < 0 || iShut < 0 || iDone < 0 || iStart >= iShut || iShut >= iDone {
@@ -458,8 +458,8 @@ func TestE2EVersionFlag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("-version exit = %d, want 0; stderr: %s", code, stderr)
 	}
-	if got := strings.TrimSpace(stdout); got != "freebuff-proxy dev" {
-		t.Errorf("-version output = %q, want %q", got, "freebuff-proxy dev")
+	if got := strings.TrimSpace(stdout); got != "freebucks-proxy dev" {
+		t.Errorf("-version output = %q, want %q", got, "freebucks-proxy dev")
 	}
 }
 
@@ -845,9 +845,9 @@ func buildReleaseArchive(t *testing.T, assetName, binaryName string, content []b
 // asset name, and the binary content the release archive carries.
 func fakeReleaseServer(t *testing.T, withChecksums bool) (*httptest.Server, string, []byte) {
 	t.Helper()
-	content := []byte("fake-freebuff-proxy-binary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH)
-	assetName := fmt.Sprintf("freebuff-proxy_9.9.9_%s_%s", runtime.GOOS, runtime.GOARCH)
-	binaryName := "freebuff-proxy"
+	content := []byte("fake-freebucks-proxy-binary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH)
+	assetName := fmt.Sprintf("freebucks-proxy_9.9.9_%s_%s", runtime.GOOS, runtime.GOARCH)
+	binaryName := "freebucks-proxy"
 	if runtime.GOOS == "windows" {
 		assetName += ".zip"
 		binaryName += ".exe"
@@ -948,7 +948,7 @@ func TestE2EUpdateFakeRelease(t *testing.T) {
 	}
 
 	// Temp file consumed by the swap.
-	matches, err := filepath.Glob(filepath.Join(dir, "freebuff-proxy*.tmp-*"))
+	matches, err := filepath.Glob(filepath.Join(dir, "freebucks-proxy*.tmp-*"))
 	if err != nil {
 		t.Fatal(err)
 	}

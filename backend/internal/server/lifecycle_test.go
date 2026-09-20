@@ -27,9 +27,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/testutil"
 	"net/http"
 	"os"
 	"strings"
@@ -309,17 +309,17 @@ func TestLifecycleFullJourney(t *testing.T) {
 		// After add-token, 4 requests should have gone to the new token "1" (drain rotation picks least-used)
 		// but if they went to "0" we accept either as long as total is 4
 		for _, want := range []string{
-			"freebuff_proxy_models_total 6",
-			"freebuff_proxy_tokens_total 2",
+			"freebucks_proxy_models_total 6",
+			"freebucks_proxy_tokens_total 2",
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("metrics missing %s in:\n%s", want, body)
 			}
 		}
-		if !strings.Contains(body, "freebuff_proxy_token_requests_total{token=\"1\"} 4") && !strings.Contains(body, "freebuff_proxy_token_requests_total{token=\"0\"} 4") {
+		if !strings.Contains(body, "freebucks_proxy_token_requests_total{token=\"1\"} 4") && !strings.Contains(body, "freebucks_proxy_token_requests_total{token=\"0\"} 4") {
 			t.Errorf("metrics missing token_requests 4 for either token in:\n%s", body)
 		}
-		if !strings.Contains(body, "freebuff_proxy_token_messages_24h{token=\"1\"} 4") && !strings.Contains(body, "freebuff_proxy_token_messages_24h{token=\"0\"} 4") {
+		if !strings.Contains(body, "freebucks_proxy_token_messages_24h{token=\"1\"} 4") && !strings.Contains(body, "freebucks_proxy_token_messages_24h{token=\"0\"} 4") {
 			t.Errorf("metrics missing token_messages_24h 4 for either token in:\n%s", body)
 		}
 	})
@@ -502,9 +502,9 @@ func TestLifecycleFullJourney(t *testing.T) {
 		}
 		metrics := string(data)
 		for _, want := range []string{
-			"freebuff_proxy_models_total 6",
-			"freebuff_proxy_tokens_total 1",
-			"freebuff_proxy_token_requests_total{token=\"1\"} 0",
+			"freebucks_proxy_models_total 6",
+			"freebucks_proxy_tokens_total 1",
+			"freebucks_proxy_token_requests_total{token=\"1\"} 0",
 		} {
 			if !strings.Contains(metrics, want) {
 				t.Errorf("metrics missing %s in:\n%s", want, metrics)

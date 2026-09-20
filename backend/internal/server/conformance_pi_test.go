@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // piToolCallIDAndType returns the id and type of the first tool_calls

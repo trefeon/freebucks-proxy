@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // openAIErrorType maps an internal error code to the OpenAI error `type`
@@ -35,7 +35,7 @@ func defaultHintForCode(code, message string) string {
 	lowerMsg := strings.ToLower(message)
 	switch {
 	case code == "free_mode_cli_required" || strings.Contains(lowerMsg, "free_mode_cli_required"):
-		return "Upstream free tier gate requires official CLI traffic envelope. See FAQ: https://github.com/trefeon/freebuff-proxy#faq"
+		return "Upstream free tier gate requires official CLI traffic envelope. See FAQ: https://github.com/trefeon/freebucks-proxy#faq"
 	case code == "free_mode_invalid_agent_hierarchy" || strings.Contains(lowerMsg, "free_mode_invalid_agent_hierarchy"):
 		return "Upstream hierarchy gate rejected the subagent (not in its root's allowlist). Retry with a root agent id from the registry."
 	case code == "free_mode_unavailable" || strings.Contains(lowerMsg, "free_mode_unavailable"):

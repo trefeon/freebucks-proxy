@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"testing"
 
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 func TestChatErrClass(t *testing.T) {

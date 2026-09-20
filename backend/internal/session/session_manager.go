@@ -8,7 +8,7 @@ package session
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"sync"
 	"time"

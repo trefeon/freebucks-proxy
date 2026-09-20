@@ -8,11 +8,11 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/binary"
 	"errors"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/runs"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"time"
 )
@@ -71,7 +71,7 @@ func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.Run
 	runsMgr.Maintain(mCtx)
 	// Same in-flight gate as the poll loop: skip the queued-session GET while
 	// a chat is in flight so it cannot kick the active session
-	// (reference/freebuff-proxy-hengxin session-manager.js:37-49, 259-260).
+	// (reference/freebucks-proxy-hengxin session-manager.js:37-49, 259-260).
 	// Active-session liveness polls run on the jittered poll schedule
 	// (sessionPollTick / bridgeSessionPollTick) instead.
 	if runsMgr.InflightCount() == 0 {

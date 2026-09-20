@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestStrictOrderDrainsAccountOneFirst is the MASQ C1 keeper: strict

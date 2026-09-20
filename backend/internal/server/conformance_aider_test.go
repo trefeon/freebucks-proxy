@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 func TestConformanceAiderForcedFunction(t *testing.T) {

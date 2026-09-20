@@ -18,7 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"freebuff-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"time"

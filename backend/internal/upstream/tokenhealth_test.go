@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"freebuff-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/config"
 )
 
 // newTokenHealthServer starts an httptest server with two counters: the

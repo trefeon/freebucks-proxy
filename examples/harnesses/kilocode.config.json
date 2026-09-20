@@ -7,7 +7,7 @@
   "providers": {
     "freebuff": {
       "id": "freebuff",
-      "name": "freebuff-proxy",
+      "name": "freebucks-proxy",
       "baseURL": "http://127.0.0.1:3457/v1",
       "api": "openai-compatible-chat",
       "apiKey": "YOUR_KEY",

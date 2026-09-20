@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"freebuff-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/dashboard"
 )
 
 // registerAdminRoutes mounts every dashboard.AdminRoutes row on the mux.

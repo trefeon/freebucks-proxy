@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
-// metricValue extracts the integer value of a freebuff_proxy_* metrics line.
+// metricValue extracts the integer value of a freebucks_proxy_* metrics line.
 func metricValue(t *testing.T, body, name string) int64 {
 	t.Helper()
 	for _, line := range strings.Split(body, "\n") {
@@ -32,7 +32,7 @@ func metricValue(t *testing.T, body, name string) int64 {
 // request for an off-window model pays the 409 admission roundtrip and falls
 // back; the second request is served from the cached fallback session with
 // zero upstream admission churn, counted on /metrics as
-// freebuff_proxy_model_unavailable_skips_total.
+// freebucks_proxy_model_unavailable_skips_total.
 func TestModelUnavailableSkipMetric(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -54,7 +54,7 @@ func TestModelUnavailableSkipMetric(t *testing.T) {
 	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) { c.ModelUnavailableCacheTTL = time.Hour }, mock)
 
 	_, m0 := doJSON(t, http.MethodGet, ts.URL+"/metrics", nil, nil)
-	before := metricValue(t, string(m0), "freebuff_proxy_model_unavailable_skips_total")
+	before := metricValue(t, string(m0), "freebucks_proxy_model_unavailable_skips_total")
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody("openai/gpt-5.6-luna"), nil)
 	if resp.StatusCode != http.StatusOK {
@@ -66,7 +66,7 @@ func TestModelUnavailableSkipMetric(t *testing.T) {
 	}
 
 	_, m1 := doJSON(t, http.MethodGet, ts.URL+"/metrics", nil, nil)
-	after := metricValue(t, string(m1), "freebuff_proxy_model_unavailable_skips_total")
+	after := metricValue(t, string(m1), "freebucks_proxy_model_unavailable_skips_total")
 	if after != before+1 {
 		t.Errorf("skip counter = %d, want %d (one skip for the cached second admission)", after, before+1)
 	}

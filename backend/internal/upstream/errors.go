@@ -52,7 +52,7 @@ var (
 	// empirically common on deepseek-v4-flash. A transient, SAME-session
 	// condition: retried against the same lease/session under the
 	// TRANSIENT_RETRIES budget, never a token cooldown and never a session
-	// invalidation (reference/freebuff-proxy-hengxin proxy.js:652-668 —
+	// invalidation (reference/freebucks-proxy-hengxin proxy.js:652-668 —
 	// noCooldown same-session retry).
 	ErrCapacityDeferred = errors.New("upstream free capacity deferred")
 	// ErrIpCapped: 429 ip_capped — too many DISTINCT users hold an active

@@ -5,7 +5,7 @@
   "provider": {
     "freebuff": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "freebuff-proxy",
+      "name": "freebucks-proxy",
       "options": {
         // base URL must include /v1; opencode appends the endpoint path
         "baseURL": "http://127.0.0.1:3457/v1",

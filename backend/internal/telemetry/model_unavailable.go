@@ -7,7 +7,7 @@ import "sync/atomic"
 // model known to be outside its upstream availability window are routed
 // straight to the fallback model without the 409 admission roundtrip.
 // Package-level (not per-token) like the logger/ring counters; surfaced on
-// /metrics as freebuff_proxy_model_unavailable_skips_total.
+// /metrics as freebucks_proxy_model_unavailable_skips_total.
 var ModelUnavailableSkips atomic.Int64
 
 // RecordModelUnavailableSkip increments the skip counter.
