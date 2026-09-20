@@ -565,8 +565,10 @@ func (p *Pool) parkOnFullLane(ws *walkState, pos, cap, depth int, wait time.Dura
 		return p.walkTail(ws)
 	case laneRetry:
 		return p.smartRetry(ws, res.carry, cap, depth, wait)
-	default: // laneNext: fail over past the handoff lane, same discipline.
-		return p.scaleoutFrom(ws, posInOrder(ws, idx)+1, cap, depth, wait, nil, true)
+	default: // laneNext: fail over past the handoff lane WITHOUT parking
+		// again (park=false) — the waiter already paid its park to earn this
+		// grant; a fresh full wait would stack two QUEUE_WAITs.
+		return p.scaleoutFrom(ws, posInOrder(ws, idx)+1, cap, depth, wait, nil, false)
 	}
 }
 
