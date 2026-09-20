@@ -531,9 +531,8 @@ func TestSlotLedgerTwoSlotsThirdParks(t *testing.T) {
 // TestSlotLedgerPerModelIsolation is the MASQ R2 isolation keeper: lanes
 // are keyed per (account, model), so 2 turns of modelA plus 2 turns of
 // modelB run together on account #1 (4 live turns) while account #2 sees
-// no contact at all. Each model's first touch parks once for cold
-// admission (modelA arrives warm here; modelB's first parks); hot
-// sessions reuse with zero parks.
+// no contact at all. Cold per-model admission is work-conserving (modelB's
+// first touch admits instantly, zero park); hot sessions reuse the same.
 func TestSlotLedgerPerModelIsolation(t *testing.T) {
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
@@ -579,8 +578,8 @@ func TestSlotLedgerPerModelIsolation(t *testing.T) {
 				t.Fatalf("lease %d parked (%v), want zero parks (lane warm for modelA)", i, l.QueueWait)
 			}
 		case i == 2:
-			if l.QueueWait <= 0 {
-				t.Fatalf("lease %d never parked, want >0 (cold per-model admission parks once)", i)
+			if l.QueueWait != 0 {
+				t.Fatalf("lease %d parked (%v), want 0 (cold per-model admits instantly)", i, l.QueueWait)
 			}
 		default:
 			if l.QueueWait != 0 {

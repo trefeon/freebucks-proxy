@@ -185,10 +185,10 @@ func TestSmartFIFOAcrossLanes(t *testing.T) {
 	}
 }
 
-// TestSmartColdScaleOutAfterWait proves a cold pool scales out only after
-// QUEUE_WAIT: the first arrival sees zero upstream contact while parked,
-// then admits lane #1; the next arrival (lane #1 full) spills to lane #2
-// the same way.
+// TestSmartColdScaleOutAfterWait proves a cold pool is work-conserving:
+// the first arrival admits lane #1 instantly (session created inline,
+// zero park — no QUEUE_WAIT paid before scale-out); the next arrival
+// (lane #1 full) parks, then spills to lane #2 after QUEUE_WAIT.
 func TestSmartColdScaleOutAfterWait(t *testing.T) {
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
@@ -201,39 +201,31 @@ func TestSmartColdScaleOutAfterWait(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	hCh := make(chan acquireResult, 1)
-	go func() {
-		l, err := p.Acquire(ctx, modelA)
-		hCh <- acquireResult{l, err}
-	}()
-	eventually(t, "first arrival parks cold", func() bool { return p.modelQueueDepth(modelA) == 1 })
-	time.Sleep(150 * time.Millisecond)
-	if n := mock0.RequestsSnapshot() + mock1.RequestsSnapshot(); n != 0 {
-		t.Fatalf("upstream requests while parked = %d, want 0 (no eager admission before QUEUE_WAIT)", n)
-	}
-	var h1 *Lease
-	select {
-	case r := <-hCh:
-		if r.err != nil {
-			t.Fatalf("first acquire err = %v", r.err)
-		}
-		h1 = r.lease
-	case <-time.After(5 * time.Second):
-		t.Fatal("first acquire never scaled out after QUEUE_WAIT")
+	// Cold arrival grants instantly: no park, session created inline.
+	h1, err := p.Acquire(ctx, modelA)
+	if err != nil {
+		t.Fatalf("first acquire err = %v", err)
 	}
 	defer p.LeaseRelease(h1)
 	if h1.Token != 0 {
 		t.Errorf("first lease token = %d, want 0 (scale-out admits in index order)", h1.Token)
 	}
-	if h1.QueueWait <= 0 {
-		t.Errorf("first lease QueueWait = %v, want >0 (waited out the queue)", h1.QueueWait)
+	if h1.QueueWait != 0 {
+		t.Errorf("first lease QueueWait = %v, want 0 (cold admits instantly, no park)", h1.QueueWait)
 	}
+	if got := mock0.SessionCreatesSnapshot(); got != 1 {
+		t.Errorf("account #1 creates = %d, want 1 (one session created inline)", got)
+	}
+
+	// Lane #1 full: the next arrival parks, then spills to lane #2 after
+	// QUEUE_WAIT.
 
 	wCh := make(chan acquireResult, 1)
 	go func() {
 		l, err := p.Acquire(ctx, modelA)
 		wCh <- acquireResult{l, err}
 	}()
+	eventually(t, "second arrival parks on full lane #1", func() bool { return p.modelQueueDepth(modelA) == 1 })
 	select {
 	case r := <-wCh:
 		if r.err != nil {
@@ -329,9 +321,9 @@ func TestSmartI5HeadPriority(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	// The jailed arrival runs async: parks cold, scale-out admits lane
-	// #1, the 250ms jail is waited out on the lane, and the retry
-	// retakes it.
+	// The jailed arrival runs async: cold admits lane #1 instantly, the
+	// 250ms jail is waited out on the lane (slot held), and the retry
+	// consumes the held permit.
 	aCh := make(chan acquireResult, 1)
 	go func() {
 		l, err := p.Acquire(ctx, modelA)
@@ -372,8 +364,8 @@ func TestSmartI5HeadPriority(t *testing.T) {
 	if jailed.Token != 0 {
 		t.Errorf("jailed lease token = %d, want 0 (same-lane requeue, no failover)", jailed.Token)
 	}
-	if jailed.QueueWait < 500*time.Millisecond {
-		t.Errorf("jailed lease QueueWait = %v, want >= 500ms (cold park + jail both ride telemetry)", jailed.QueueWait)
+	if jailed.QueueWait < 250*time.Millisecond {
+		t.Errorf("jailed lease QueueWait = %v, want >= 250ms (jail rides telemetry; cold admits instantly, no park)", jailed.QueueWait)
 	}
 	if n := mock1.RequestsSnapshot(); n != 0 {
 		t.Errorf("account #2 requests = %d, want 0 (no failover walk)", n)

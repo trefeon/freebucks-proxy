@@ -1354,9 +1354,10 @@ func TestAffinityExpired(t *testing.T) {
 // The storm converges to 2/2/2 live turns on accounts 1-3 with exactly
 // one session create per serving lane (concurrent cold admissions
 // collapse via the session manager's single-flight), accounts 4-5 see
-// zero contact, and every lease reports QueueWait>0 (all six parked;
-// nothing fast-grants cold). No arrival order is pinned — the counts
-// hold under any interleaving.
+// zero contact, the two lane-#1 leases grant instantly (QueueWait==0 —
+// work-conserving: free slots admit without parking), and the other four
+// park behind full lane #1 before scaling out. No arrival order is pinned
+// — the counts hold under any interleaving.
 func TestConcurrencyLadderAdmissionStorm(t *testing.T) {
 	p, mocks := newLadderPool(t, 5, "drain", 400*time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1386,8 +1387,12 @@ func TestConcurrencyLadderAdmissionStorm(t *testing.T) {
 		}
 		held = append(held, r.lease)
 		counts[r.lease.Token]++
-		if r.lease.QueueWait <= 0 {
-			t.Errorf("storm lease on token %d QueueWait=%v, want >0 (cold arrivals all park)", r.lease.Token, r.lease.QueueWait)
+		if r.lease.Token == 0 {
+			if r.lease.QueueWait != 0 {
+				t.Errorf("storm lease on token 0 QueueWait=%v, want 0 (lane #1 slots admit instantly)", r.lease.QueueWait)
+			}
+		} else if r.lease.QueueWait <= 0 {
+			t.Errorf("storm lease on token %d QueueWait=%v, want >0 (overflow parks, then scales out)", r.lease.Token, r.lease.QueueWait)
 		}
 	}
 	if counts[0] != 2 || counts[1] != 2 || counts[2] != 2 || counts[3] != 0 || counts[4] != 0 {
@@ -1409,5 +1414,5 @@ func TestConcurrencyLadderAdmissionStorm(t *testing.T) {
 	}
 	releaseHeld(p, held)
 	assertLadQuiescent(t, p, "admission-storm")
-	t.Logf("LADDER admission-storm: split=%v creates=1/1/1/0/0 queue-waits>0 errors=0", counts)
+	t.Logf("LADDER admission-storm: split=%v creates=1/1/1/0/0 lane-#1 instant, overflow parked errors=0", counts)
 }

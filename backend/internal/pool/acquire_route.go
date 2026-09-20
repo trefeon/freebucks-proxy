@@ -1,19 +1,21 @@
 // acquire_route.go - pooled acquire route: Acquire (strict index order via
-// spillOrder) plus the smart model-queue walk (arrival scan, global FIFO
-// park, scale-out) with the legacy unlimited walk preserved for
-// SLOTS_PER_ACCOUNT=0.
+// spillOrder) plus the smart model-queue walk (arrival scan, work-conserving
+// walk, global FIFO park on the first full lane, scale-out) with the legacy
+// unlimited walk preserved for SLOTS_PER_ACCOUNT=0.
 //
 // A pooled Acquire resolves the model's agent, builds the strict index
-// order, and takes the smart path: the arrival scan grants instantly on the
-// first lane (index order) with a free slot AND an already-usable session
-// for the model; otherwise the request parks on the model's global FIFO
-// queue until a lane's Release hands it a slot, its single QUEUE_WAIT
-// deadline elapses (then it scales out exactly like today's spill — cold
-// lanes in index order within the spill budget), or its ctx expires. A
-// same-lane quota requeue (I5) sleeps the jail, retries the immediate-grant
-// scan, and otherwise rejoins the model queue at the head. The end-of-chain
-// precedence (ban > rate-limit > waiting-room > spill-exhausted > generic)
-// is unchanged.
+// order, and takes the smart path: the arrival scan grants instantly on a
+// lane with a free slot AND an already-usable session for the model;
+// otherwise the walk admits instantly on the first free lane in index
+// order (a cold lane creates its session inline — concurrent admissions on
+// one lane collapse via single-flight) and parks on the first full lane's
+// global FIFO until a Release hands it a slot, its single QUEUE_WAIT
+// deadline elapses (then it scales out past the parking lane without
+// parking again), or its ctx expires. A same-lane quota requeue (I5)
+// sleeps the jail, retries on the held permit, and otherwise rejoins the
+// model queue at the head. The end-of-chain precedence (ban > rate-limit >
+// waiting-room > spill-exhausted > generic) is unchanged.
+
 package pool
 
 import (
@@ -397,12 +399,12 @@ func copyQueueSignal(src *slotQueueExhaustedError, idx, cap, live int) *slotQueu
 	return &slotQueueExhaustedError{Reason: reason, Token: idx + 1, Cap: cap, Live: live, Wait: wait}
 }
 
-// smartAcquire is the pooled smart path: arrival scan, else one global FIFO
-// park with a single QUEUE_WAIT deadline, else spill-style scale-out.
+// smartAcquire is the pooled smart path: arrival scan, else an index-order
+// walk that admits instantly on the first free lane (warm or cold) and
+// parks on the first full one, else spill-style scale-out after the park.
 func (p *Pool) smartAcquire(ws *walkState, cap, depth int, wait time.Duration) (*Lease, error) {
-	// Arrival scan (rule 2): a free slot plus an already-usable session
-	// grants instantly — a burst across M accounts no longer queues
-	// behind lane 0's QUEUE_WAIT when other lanes stand open.
+	// Arrival scan: a free slot plus an already-usable session grants
+	// instantly without even running the walk gates.
 	if tok, idx, permit := p.scanWarmFree(ws, cap); permit != nil {
 		switch res := p.admitOnLane(ws, idx, tok, permit); res.outcome {
 		case laneGranted:
@@ -413,11 +415,122 @@ func (p *Pool) smartAcquire(ws *walkState, cap, depth int, wait time.Duration) (
 			return p.walkTail(ws)
 		case laneRetry:
 			return p.smartRetry(ws, res.carry, cap, depth, wait)
-		default: // laneNext: fail over past the scan lane.
-			return p.scaleoutFrom(ws, posInOrder(ws, idx)+1, cap, depth, wait, nil)
+		default: // laneNext: fail over past the scan lane, same discipline.
+			return p.scaleoutFrom(ws, posInOrder(ws, idx)+1, cap, depth, wait, nil, true)
 		}
 	}
-	// Miss: enqueue at the tail (depth cap fails over at once, unchanged).
+	// Miss: walk in index order — the first free lane admits instantly (a
+	// cold lane creates its session inline; concurrent admissions on one
+	// lane collapse via single-flight), the first full lane parks the
+	// caller on the global FIFO. Walkers stick to the admitting lane
+	// instead of spreading, so a burst converges onto one lane and extra
+	// accounts stay cold; an all-gated walk surfaces at the tail without
+	// parking.
+	return p.scaleoutFrom(ws, 0, cap, depth, wait, nil, true)
+}
+
+// smartRetry runs an I5 requeue carry: the permit is already held, so the
+// lane's gates re-run fresh (the jail may have changed state) and the
+// admission runs without another take. A gate that now fails fails over
+// past the lane.
+func (p *Pool) smartRetry(ws *walkState, carry *laneCarry, cap, depth int, wait time.Duration) (*Lease, error) {
+	if carry == nil || carry.tok == nil || carry.permit == nil {
+		return p.scaleoutFrom(ws, 0, cap, depth, wait, nil, true)
+	}
+	if err := ws.ctx.Err(); err != nil {
+		carry.permit.Release()
+		return nil, err
+	}
+	if cur := p.roster.Load(); carry.idx < 0 || carry.idx >= len(*cur) || (*cur)[carry.idx] != carry.tok {
+		carry.permit.Release()
+		return p.scaleoutFrom(ws, 0, cap, depth, wait, nil, true)
+	}
+	if p.walkGates(ws, carry.idx, carry.tok) {
+		carry.permit.Release()
+		return p.scaleoutFrom(ws, posInOrder(ws, carry.idx)+1, cap, depth, wait, nil, true)
+	}
+	switch res := p.admitOnLane(ws, carry.idx, carry.tok, carry.permit); res.outcome {
+	case laneGranted:
+		return res.lease, nil
+	case laneFail:
+		return nil, res.err
+	case laneBreak:
+		return p.walkTail(ws)
+	case laneRetry:
+		return p.smartRetry(ws, res.carry, cap, depth, wait)
+	default: // laneNext: fail over past the carry lane, same discipline.
+		return p.scaleoutFrom(ws, posInOrder(ws, carry.idx)+1, cap, depth, wait, nil, true)
+	}
+}
+
+// scaleoutFrom walks lanes in index order from start attempting slot-try +
+// EnsureSessionForModel + run. park selects the full-lane discipline: a
+// fresh attempt (arrival miss, scan-lane failover, post-jail retry) PARKS
+// on the first full lane — walkers stick to the admitting lane instead of
+// spreading, so a burst converges onto one lane's single-flight admission
+// and extra accounts stay cold. A waiter that already paid a full
+// QUEUE_WAIT park (park=false) spills past full lanes and surfaces at the
+// tail instead of waiting twice. entryQerr is the park entry signal whose
+// reason the budget copies preserve (nil on a fresh failover, where full
+// lanes note a synthetic timeout like a lane that stayed full past its own
+// wait). Refusals land in the request's buckets; the tail precedence
+// surfaces them. Concurrent admissions on one lane collapse via the session
+// manager's existing single-flight.
+func (p *Pool) scaleoutFrom(ws *walkState, start, cap, depth int, wait time.Duration, entryQerr *slotQueueExhaustedError, park bool) (*Lease, error) {
+	for pos := start; pos < len(ws.order); pos++ {
+		idx := ws.order[pos]
+		if err := ws.ctx.Err(); err != nil {
+			return nil, err
+		}
+		// Defensive bounds check: spillOrder builds its order against the
+		// SAME snapshot loaded above, but a removal racing this call must
+		// never index past the slice it computed the order from. Skip
+		// indices that are no longer present instead of panicking.
+		if idx < 0 || idx >= len(*ws.toks) {
+			continue
+		}
+		tok := (*ws.toks)[idx]
+		if p.walkGates(ws, idx, tok) {
+			continue
+		}
+		permit, live, ok := p.slotTry(slotKey{entry: tok, model: ws.model}, cap)
+		if !ok {
+			if park {
+				return p.parkOnFullLane(ws, pos, cap, depth, wait)
+			}
+			// A full lane is not an upstream refusal, so it writes no
+			// bucket and no error string — the spill stays silent. The
+			// budget copy keeps the entry reason for the end-of-chain
+			// surface.
+			if !ws.spill.note(copyQueueSignal(entryQerr, idx, cap, live), cap) {
+				return p.walkTail(ws)
+			}
+			continue
+		}
+		switch res := p.admitOnLane(ws, idx, tok, permit); res.outcome {
+		case laneGranted:
+			return res.lease, nil
+		case laneFail:
+			return nil, res.err
+		case laneBreak:
+			return p.walkTail(ws)
+		case laneRetry:
+			return p.smartRetry(ws, res.carry, cap, depth, wait)
+		default: // laneNext: fail over past this lane, same park discipline.
+			return p.scaleoutFrom(ws, pos+1, cap, depth, wait, nil, park)
+		}
+	}
+	return p.walkTail(ws)
+}
+
+// parkOnFullLane parks the caller on the model's global FIFO at the first
+// full lane the walk meets (tail join; the depth cap fails over at once,
+// unchanged). A handoff grant admits on the granting lane; a failover past
+// it resumes the walk with the same park discipline. A park timeout (or an
+// exhausted spill budget) scales out past the parking lane WITHOUT
+// parking again (park=false) — the single QUEUE_WAIT deadline is never
+// paid twice — and all-gated walks never reach here.
+func (p *Pool) parkOnFullLane(ws *walkState, pos, cap, depth int, wait time.Duration) (*Lease, error) {
 	parkStart := time.Now()
 	permit, lane, idx, parked, err := p.modelPark(ws.ctx, ws.model, cap, depth, wait, false)
 	if err != nil {
@@ -429,7 +542,7 @@ func (p *Pool) smartAcquire(ws *walkState, cap, depth int, wait time.Duration) (
 				ws.queueWait += qerr.Wait
 			}
 			if ws.spill.note(qerr, cap) {
-				return p.scaleoutFrom(ws, 0, cap, depth, wait, qerr)
+				return p.scaleoutFrom(ws, pos+1, cap, depth, wait, qerr, false)
 			}
 			return p.walkTail(ws)
 		}
@@ -452,97 +565,9 @@ func (p *Pool) smartAcquire(ws *walkState, cap, depth int, wait time.Duration) (
 		return p.walkTail(ws)
 	case laneRetry:
 		return p.smartRetry(ws, res.carry, cap, depth, wait)
-	default: // laneNext: fail over past the handoff lane.
-		return p.scaleoutFrom(ws, posInOrder(ws, idx)+1, cap, depth, wait, nil)
+	default: // laneNext: fail over past the handoff lane, same discipline.
+		return p.scaleoutFrom(ws, posInOrder(ws, idx)+1, cap, depth, wait, nil, true)
 	}
-}
-
-// smartRetry runs an I5 requeue carry: the permit is already held, so the
-// lane's gates re-run fresh (the jail may have changed state) and the
-// admission runs without another take. A gate that now fails fails over
-// past the lane.
-func (p *Pool) smartRetry(ws *walkState, carry *laneCarry, cap, depth int, wait time.Duration) (*Lease, error) {
-	if carry == nil || carry.tok == nil || carry.permit == nil {
-		return p.scaleoutFrom(ws, 0, cap, depth, wait, nil)
-	}
-	if err := ws.ctx.Err(); err != nil {
-		carry.permit.Release()
-		return nil, err
-	}
-	if cur := p.roster.Load(); carry.idx < 0 || carry.idx >= len(*cur) || (*cur)[carry.idx] != carry.tok {
-		carry.permit.Release()
-		return p.scaleoutFrom(ws, 0, cap, depth, wait, nil)
-	}
-	if p.walkGates(ws, carry.idx, carry.tok) {
-		carry.permit.Release()
-		return p.scaleoutFrom(ws, posInOrder(ws, carry.idx)+1, cap, depth, wait, nil)
-	}
-	switch res := p.admitOnLane(ws, carry.idx, carry.tok, carry.permit); res.outcome {
-	case laneGranted:
-		return res.lease, nil
-	case laneFail:
-		return nil, res.err
-	case laneBreak:
-		return p.walkTail(ws)
-	case laneRetry:
-		return p.smartRetry(ws, res.carry, cap, depth, wait)
-	default: // laneNext: fail over past the carry lane.
-		return p.scaleoutFrom(ws, posInOrder(ws, carry.idx)+1, cap, depth, wait, nil)
-	}
-}
-
-// scaleoutFrom walks cold lanes in index order from start attempting
-// slot-try + EnsureSessionForModel + run — exactly like today's spill, but
-// from the model queue instead of a lane queue. entryQerr is the park entry
-// signal whose reason the budget copies preserve (nil on a scan-hit
-// failover, where full lanes note a synthetic timeout like a lane that
-// stayed full past its own wait). Refusals land in the request's buckets;
-// the tail precedence surfaces them. Concurrent admissions on one lane
-// collapse via the session manager's existing single-flight.
-func (p *Pool) scaleoutFrom(ws *walkState, start, cap, depth int, wait time.Duration, entryQerr *slotQueueExhaustedError) (*Lease, error) {
-	_ = depth
-	_ = wait
-	for pos := start; pos < len(ws.order); pos++ {
-		idx := ws.order[pos]
-		if err := ws.ctx.Err(); err != nil {
-			return nil, err
-		}
-		// Defensive bounds check: spillOrder builds its order against the
-		// SAME snapshot loaded above, but a removal racing this call must
-		// never index past the slice it computed the order from. Skip
-		// indices that are no longer present instead of panicking.
-		if idx < 0 || idx >= len(*ws.toks) {
-			continue
-		}
-		tok := (*ws.toks)[idx]
-		if p.walkGates(ws, idx, tok) {
-			continue
-		}
-		permit, live, ok := p.slotTry(slotKey{entry: tok, model: ws.model}, cap)
-		if !ok {
-			// A full lane is not an upstream refusal, so it writes no
-			// bucket and no error string — the spill stays silent. The
-			// budget copy keeps the entry reason for the end-of-chain
-			// surface.
-			if !ws.spill.note(copyQueueSignal(entryQerr, idx, cap, live), cap) {
-				return p.walkTail(ws)
-			}
-			continue
-		}
-		switch res := p.admitOnLane(ws, idx, tok, permit); res.outcome {
-		case laneGranted:
-			return res.lease, nil
-		case laneFail:
-			return nil, res.err
-		case laneBreak:
-			return p.walkTail(ws)
-		case laneRetry:
-			return p.smartRetry(ws, res.carry, cap, depth, wait)
-		default: // laneNext.
-			continue
-		}
-	}
-	return p.walkTail(ws)
 }
 
 // modelRequeue parks the caller for a same-lane quota requeue (I5): it
