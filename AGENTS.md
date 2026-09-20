@@ -112,6 +112,9 @@ dotenv → static → live → SSE hash → store refresh.
    (`-D` when squash-merged, the tip is never an ancestor).
 2. Conventional Commits (`feat|fix|chore|docs|…(scope): subject`).
 3. Never stage/commit unless asked. Never commit secrets, `reference/`, or devdocs.
+   The dev trail (internal plans, machine-local overrides, protection/ruleset
+   snapshots, pre-rewrite history bundle) lives in the **private sibling repo
+   `trefeon/freebucks-proxy-dev`** — put dev-only artifacts there, never here.
 4. No local docker. Preview on a review host from a `/tmp` worktree (never the shared
    checkout — it carries uncommitted user work):
    `docker build --network=host` + compose up, then `GET /healthz` → 200.
