@@ -1,14 +1,20 @@
 # CLI → Proxy Limitations (CLI-Limitations)
 
 Static audit of the upstream CLI behaviors in scope vs the proxy port.
-Vendor pin: the gitignored upstream vendor clone @ `e2b911eca` (= live npm
-`0.0.178`, zero drift); path + pin verified by `scripts/check-upstream.sh`.
-Proxy: `main` @ `e9427683`.
+Audit pin: the citations below were written against `e2b911eca` (= live npm
+`0.0.178` at the time). Proxy: `main` @ `e9427683`.
 
-> Pin note (2026-09-20): upstream has since moved to `2b165f749` (= npm
-> `freebuff@0.0.180`). This audit was not re-run; the delta — including which
-> files audited below actually changed and whether any verdict is invalidated —
-> is recorded in `UPSTREAM-CLI.md` §14 (`Version delta 0.0.178 → 0.0.180`).
+> Pin note (2026-09-21): the current recorded pins are
+> `backend/internal/wirefacts/testdata/wire/snapshots.json:2-3`
+> (`upstream_sha 2b165f749…`, `vendor_version 0.0.180`) and
+> `scripts/vendor-version.txt:1` (`0.0.180`). The local vendor clone has moved
+> 15 commits past that pin to `8ed5d3e5e` while the npm wrapper still reads
+> `0.0.180` at both ends, so the tag no longer identifies a revision — cite the
+> SHA. **Drift exists**: the manifest's `freebuff-model-selector.tsx` hash no
+> longer matches the clone tip. This audit has **not** been re-run; the delta,
+> and which files audited below actually changed, is recorded in
+> `UPSTREAM-CLI.md` §14 (`Version delta 0.0.178 → 0.0.180`) and §14.6 (the 15
+> commits after it).
 
 - Verdicts: **PORTED** / **GAP-P0** (breaks interop — harness retry-spin or
   wrong-operator billing) / **GAP-P1** (parity gap, degraded UX, no spin) /
@@ -165,8 +171,10 @@ error envelopes.
 ## P2 — minor
 
 - **P2-1 — upstream-credits (`freebucks*`) countdown/presentation copy**:
-  reset countdown (`freebucks.ts:194-207`), header line (`:123-146`), intro
-  (`:176-185`), picker notice (`:188`) — Web/Desktop/CLI picker UX. Proxy
+  reset countdown (`freebucks.ts:190-203`), header line (`:122-145`), intro
+  (`:175-184`) — Web/Desktop/CLI picker UX. (The picker notice this row cited
+  before was deleted upstream at `2b165f749` — `UPSTREAM-CLI.md` §14.5; no such
+  notice exists in the current `freebucks.ts`.) Proxy
   correctly derives everything off the wire (no hardcoded prices,
   `freebucks.ts:14-21` constraint honored via `session_parse.go`); only the
   human countdown/copy rendering is absent. Impact: dashboard shows raw
@@ -203,7 +211,7 @@ error envelopes.
 | 6 | `model_locked` GET→DELETE→POST auto-repick | `use-freebuff-session.ts:676-720` | `classify.go:171-175` → `errors.go:309-324` | **GAP-P1** | ALL (wedged turn after model switch) |
 | 7 | Country-block best-effort DELETE | `use-freebuff-session.ts:411-431` | `errors.go:368-370` (no DELETE) | **GAP-P1** | ALL mild (lingering server row) |
 | 8 | Sponsored-run settle timers | `sponsored-run.ts:437,1281-1285`, `exit-cleanly.ts:60-63` | — | **GAP-P1** (→WONT if CLI-only) | none today |
-| 9 | Freebucks countdown/copy | `freebucks.ts:123-207` | `session_parse.go:76-82,224-228` (data only) | P2 | cosmetic |
+| 9 | Freebucks countdown/copy | `freebucks.ts:122-203` | `session_parse.go:76-82,224-228` (data only) | P2 | cosmetic |
 | 10 | Backoff exact constants | `polling-backoff.ts:15-59` | `pool_lifecycle.go:26-40` | P2 | none |
 | 11 | `turn_spend_limit` terminal 429, no Retry-After | `error-handling.ts:125-139`, `freebuff-errors.ts:11-14` | `classify.go:72-80`, `errors.go:175-190` | PORTED | — |
 | 12 | Session envelope: POST model header, GET/DELETE instance header, compact, timezone, first-tab-discount | `freebuff-session-api.ts:117-133` | `session.go:264-273`, `client.go:124-128` | PORTED | — |

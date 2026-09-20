@@ -5,13 +5,26 @@ reference client for everything the proxy mirrors on the wire. Audience:
 freebucks-proxy maintainers (session/wire parity, registry rows, error taxonomy)
 and users driving the CLI through the gateway.
 
-- **Audited pin**: the gitignored upstream vendor clone @ `2b165f749` (= npm
-  `freebuff@0.0.180`).
-  Previous audit pin: `e2b911eca` (= `0.0.178`) — see §14 for the delta.
+- **Audited pin**: `8ed5d3e5e` — the gitignored upstream vendor clone's tip, and
+  the tree the citations corrected in this revision were verified against.
+  Previous audit pins: `2b165f749` (npm `0.0.180`, §14) and before it
+  `e2b911eca` (= npm `0.0.178`).
+- **Recorded wiregen pin**: `backend/internal/wirefacts/testdata/wire/snapshots.json:2-3`
+  records `upstream_sha 2b165f749…` with `vendor_version 0.0.180`, and
+  `scripts/vendor-version.txt:1` reads `0.0.180`. That manifest's
+  `cli/src/components/freebuff-model-selector.tsx` hash (`snapshots.json:30-31`,
+  `5ecfb9ff…`) no longer matches the tip (`7fc1341d…`) — the selector is a
+  wire-tracked file (`scripts/check-upstream.sh:126`), so **drift exists** and
+  the manifest pin is stale by 15 commits (§14.6).
+  The vendor clone *path* lives in `scripts/check-upstream.sh` (`:90-98`); that
+  script holds no pin — its ref defaults to the floating `main` (`:81`) and a
+  full-SHA ref is only *gated* against `snapshots.json` (`:229-244`).
 - **Citations**: every `path:line` is relative to the gitignored upstream vendor
-  clone (its path and pin live in `scripts/check-upstream.sh`).
+  clone at `8ed5d3e5e`.
   `freebuff/cli/release/package.json` version lags the npm tag in some
-  revisions — treat the npm tag as the version of record.
+  revisions — and since `2b165f749` the npm tag no longer distinguishes
+  revisions at all (the wrapper reads `0.0.180` at both the pin and the tip),
+  so use the git SHA.
 - **Build scope**: everything below describes the upstream build
   (`FREEBUFF_MODE=true` compile-time define → `IS_FREEBUFF`,
   `cli/src/utils/constants.ts:11`), i.e. the shipped `freebuff` binary.
@@ -266,8 +279,8 @@ Union at `common/src/types/freebuff-session.ts:809-1153`; the line refs in this 
 - Unmount / HMR fires a best-effort DELETE only when `holdsLiveFreebuffSlot` is true (`cli/src/hooks/use-freebuff-session.ts:1008-1022`).
 - Cleanup ordering (`cli/src/utils/exit-cleanly.ts:55-121`): sponsored-run settlement **started first, awaited last**; then `cleanupLocal()`; then `stopEngagementTracking()`; then the remote tasks `flushAnalytics`, `drainClientLogs`, the sponsored notice and — upstream only — `endFreebuffSession` (= `releaseSlot()`) under `Promise.allSettled` with a 1000 ms `EXIT_CLEANUP_TIMEOUT_MS`; then `process.exit(code)`. A single-flight `exitPromise` makes competing triggers idempotent.
 - Sponsored-run settlement: `settleInterruptedSponsoredRun()` → `run.interrupt('signal')` → abort the turn, report `failed` with a diagnostic reason (one attempt; no sweep exists for local rows), **keep the worktree**, and return a notice naming path, branch and `/ads:remove-worktree` (`cli/src/utils/sponsored-run-exit.ts:40-46`; `cli/src/utils/sponsored-run.ts:882-913`).
-- Ctrl+C: stdin is raw in the TUI so SIGINT never fires — the key is routed from OpenTUI to `exitCliCleanly()`; the non-fullscreen handler needs a double Ctrl+C within 2 s (`cli/src/hooks/use-freebuff-ctrl-c-exit.ts:8-25`; `cli/src/hooks/use-exit-handler.ts:52-59`).
-- SIGTERM/SIGHUP/SIGINT/`beforeExit`/`exit`/`uncaughtException`/`unhandledRejection` all route to `exitCliCleanly()`; with `CODEBUFF_LAUNCHER_PID` set and differing from our pid, a 500 ms poll exits when the launcher dies (Windows `tasklist` probe) (`cli/src/utils/renderer-cleanup.ts:182-260`).
+- Ctrl+C: stdin is raw in the TUI so SIGINT never fires — the key is routed from OpenTUI to `exitCliCleanly()`; the non-fullscreen handler needs a double Ctrl+C within 2 s (`cli/src/hooks/use-freebuff-ctrl-c-exit.ts:8-23`; `cli/src/hooks/use-exit-handler.ts:52-59`).
+- Only `SIGTERM`/`SIGHUP`/`SIGINT` are routed to `exitCliCleanly()` (one shared handler); `beforeExit` calls the renderer `cleanup()` directly (`:210-212`), `exit` calls `cleanup()` and then `stopTerminalWatchdog()` when it succeeded (`:215-222`), and `uncaughtException`/`unhandledRejection` go to `exitCliWithFatalError()` (`:225-227`, `:229-232`). With `CODEBUFF_LAUNCHER_PID` set and differing from our pid, a 500 ms poll (`tasklist /FI PID` on win32, `kill(pid, 0)` elsewhere) calls the same exit handler when the launcher dies (`cli/src/utils/renderer-cleanup.ts:173-233`).
 - A resume hint is printed from a synchronous `process.on('exit')` handler: `freebuff --continue <chatId>` (`cli/src/hooks/use-exit-handler.ts:19-34`).
 - Chat requests carry the session identity as run metadata, not a header: `extraCodebuffMetadata = { freebuff_instance_id, freebuff_reasoning_effort? }`, set only when `IS_FREEBUFF && !byok && instanceId` (`cli/src/hooks/use-send-message.ts:664-676`).
 
@@ -408,16 +421,16 @@ The TUI is a second rendering surface on top of the session wire: model names, t
 
 ### 8.3 Model selector
 
-`cli/src/components/freebuff-model-selector.tsx`. Opens **collapsed** to a single hero card — no `RECOMMENDED` badge, ordering is the only steer (`:101-136`); `canCollapse` requires ≥ 2 other models (`:726`).
+`cli/src/components/freebuff-model-selector.tsx`. Opens **collapsed** to a single hero card — no `RECOMMENDED` badge, ordering is the only steer (`:95-99`, `:707-712`); `canCollapse` requires ≥ 2 other models (`:694-697`).
 
-- Toggle label: `↓  See all {N} models` / `↑  Show fewer` (`:1549-1551`).
-- Sections (`:792-855`): expanded full access → `PREMIUM` (header carries the shared pool inline) + `UNLIMITED`; metered → one flat list; limited tier → unlabeled list; offer rows lead in both states under `LIMITED TRIAL` (`:842-855`). Empty sections are filtered out.
-- **Row line 1**: `›` focus indicator, name padded to the widest `displayName`, tagline, then suffix chips appended in order — ` · Reasoning: {effort}` with `*` when user-chosen (`:924-937`), ` · Images` when `model.multimodal` (`:1374`), ` · NEW`, ` · TEST` (`:1422-1434`). Narrow terminals fall back to `name · tagline` (`:1049-1058`).
-- **Row line 2**: centred, joined by `DETAIL_SEPARATOR = ' · '`, built by `rowDetails` (`:436-519`). Price leads: `{N} Freebucks/hr` (warn-coloured when balance < price, accent on a first-tab discount); then off-peak detail copy; `Limited-time first-tab discount`; `model.warning` (AI-training notice / `Anonymous provider retains prompts`); the peak-pricing tooltip; `deploymentAvailabilityLabel` (`until {time}` / `opens {time}`) or the closed label `Back at {time} {zone}` (`common/src/constants/freebuff-models.ts:4029-4051`); and a per-row own-pool quota `{poolLabel}: {used} of {limit} used|starts` (`common/src/util/freebuff-session-pools.ts:91-97`).
-- Optional third lines: the meter's ask line (paywall/confirm wording, `:654-696`), upgrade CTA `{cta} →` (`:712-718`), superseded notice (none set in the current catalog).
-- Below the list (`:1628-1682`): `Freebucks balance temporarily unavailable.`; meter header `{remaining}/{limit} Freebucks daily · resets in {countdown} · {wallet} in wallet` (`cli/src/utils/freebucks.ts:122-145`, wallet segment omitted at balance 0); off-meter `FREE · {windows}` or `{TIER} PLAN · {windows}`; the blocked-limit line.
-- Metered list order: cheapest first (`:311-321`). Unknown advertised model ids are dropped (`:332-338`).
-- Keys: Tab / Shift+Tab / arrows only move focus; Enter or Space commits (`:1225-1287`). First Enter on a paywall/confirm row asks, a repeat commits; an unaffordable row still presses and its Enter opens `https://freebuff.com/plans` (`:1189-1196`).
+- Toggle label: `↓  See all {N} models` / `↑  Show fewer` (`:1520-1522`).
+- Sections (`:763-799`): expanded full access → `PREMIUM` (header carries the shared pool inline) + `UNLIMITED`; metered → one flat list; limited tier → unlabeled list; offer rows lead in both states under `LIMITED TRIAL` (`:813-826`). Empty sections are filtered out.
+- **Row line 1**: `›` focus indicator, name padded to the widest `displayName`, tagline, then suffix chips appended in order — ` · Reasoning: {effort}` with `*` when user-chosen (`:895-908`), ` · Images` when `model.multimodal` (`:1345`), ` · NEW`, ` · TEST` (`:1393-1405`). Narrow terminals fall back to `name · tagline` (`:1384-1392`).
+- **Row line 2**: centred, joined by `DETAIL_SEPARATOR = ' · '`, built by `rowDetails` (`:431-499`). Price leads: `{N} Freebucks/hr` (warn-coloured when balance < price; accent + bold when a first-tab list price exists — the only first-tab signal left on the row, `:453-457`); then `model.warning` (AI-training notice / `Anonymous provider retains prompts`, `:459`); `deploymentAvailabilityLabel` (`until {time}` / `opens {time}`) or the closed label `Back at {time} {zone}` (`:460-467`, `common/src/constants/freebuff-models.ts:4029-4051`); and, off the meter only, a per-row own-pool quota `{poolLabel}: {used} of {limit} used|starts` (`:479-489`, `common/src/util/freebuff-session-pools.ts:91-97`). Three chips this line drew before `8ed5d3e5e` are gone — the off-peak detail copy, `Limited-time first-tab discount` and the peak-pricing tooltip (§14.6). `taglineFor` (`:351-358`) now forces the catalog tagline for `FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID` as well, so that row's server `priceNotices` tagline is suppressed.
+- Optional third lines: the meter's ask line (paywall/confirm wording, `:625-667`), upgrade CTA `{cta} →` (`:683-689`), superseded notice (none set in the current catalog).
+- Below the list (`:1599-1653`): `Freebucks balance temporarily unavailable.`; meter header `{remaining}/{limit} Freebucks daily · resets in {countdown} · {wallet} in wallet` (`cli/src/utils/freebucks.ts:122-145`, wallet segment omitted at balance 0); off-meter `FREE · {windows}` or `{TIER} PLAN · {windows}`; the blocked-limit line.
+- Metered list order: cheapest first (`:306-315`). Unknown advertised model ids are dropped (`:326-332`).
+- Keys: Tab / Shift+Tab / arrows only move focus; Enter or Space commits (`:1196-1258`). First Enter on a paywall/confirm row asks, a repeat commits; an unaffordable row still presses and its Enter opens `https://freebuff.com/plans` (`:1150-1167`).
 
 ### 8.4 Terminal-state banners and screens
 
@@ -547,10 +560,10 @@ Cites in this subsection are `common/src/constants/freebuff-models.ts`.
 
 ### 9.7 Quota labels and where prices come from
 
-- Row-level pool chip: `formatFreebuffRowQuota` renders `poolLabel: N of M used` — or `N of M starts` when the pool counts admissions — e.g. `DeepSeek: 1 of 1 used`, `Frontier: 2 of 2 used` (`common/src/util/freebuff-session-pools.ts:91-97`, `cli/src/components/__tests__/deepseek-quota-row.test.tsx:76-77,135-136`). The CLI only draws it for rows carrying a stricter pool than their section (`cli/src/components/freebuff-model-selector.tsx:496-517`).
-- Section header: `getFreebuffSectionQuotas(...).header` supplies the shared count, server-sent and never a locally guessed denominator (`cli/src/components/freebuff-model-selector.tsx:394-406`); the session-ended banner reuses it as `N of M used today` (`cli/src/components/session-ended-banner.tsx:71-73`).
-- First-tab discount: applied client-side over the quote, not a new price — `applyFirstTabDiscount` / `firstTabListPriceFor` keep `listPrices` beside `prices` (`common/src/util/freebuff-first-tab-discount.ts:14,40`); the CLI draws the moved price in the accent colour next to the `'Limited-time first-tab discount'` chip (`cli/src/components/freebuff-model-selector.tsx:462-470`).
-- Price sourcing: no catalog price, so `freebucksPriceFor(freebucks, modelId)` reads `freebucks.prices[modelId]` off the session, and that map **is** the allowlist — an absent row falls through to whatever metered it before (`cli/src/utils/freebucks.ts:59-72`). Prices present as `N/hr` (`cli/src/components/freebuff-model-selector.tsx:448-451`), with off-peak copy warning that "the price at session start is locked for the full hour" (`common/src/util/freebuff-off-peak-price.ts:46-52`).
+- Row-level pool chip: `formatFreebuffRowQuota` renders `poolLabel: N of M used` — or `N of M starts` when the pool counts admissions — e.g. `DeepSeek: 1 of 1 used`, `Frontier: 2 of 2 used` (`common/src/util/freebuff-session-pools.ts:91-97`, `cli/src/components/__tests__/deepseek-quota-row.test.tsx:76-77,135-136`). The CLI only draws it for rows carrying a stricter pool than their section (`cli/src/components/freebuff-model-selector.tsx:468-489`).
+- Section header: `getFreebuffSectionQuotas(...).header` supplies the shared count, server-sent and never a locally guessed denominator (`cli/src/components/freebuff-model-selector.tsx:389-403`); the session-ended banner reuses it as `N of M used today` (`cli/src/components/session-ended-banner.tsx:71-73`).
+- First-tab discount: applied client-side over the quote, not a new price — `applyFirstTabDiscount` / `firstTabListPriceFor` keep `listPrices` beside `prices` (`common/src/util/freebuff-first-tab-discount.ts:14,40`); the CLI draws the moved price in the accent colour, and since `8ed5d3e5e` that accent is the row's **only** first-tab signal — the adjacent `'Limited-time first-tab discount'` chip was deleted (§14.6) (`cli/src/components/freebuff-model-selector.tsx:453-457`).
+- Price sourcing: no catalog price, so `freebucksPriceFor(freebucks, modelId)` reads `freebucks.prices[modelId]` off the session, and that map **is** the allowlist — an absent row falls through to whatever metered it before (`cli/src/utils/freebucks.ts:59-72`). Prices present as `N/hr` (`cli/src/components/freebuff-model-selector.tsx:448-451`); the shared off-peak helper now emits only `Off-peak: {price} Freebucks/hour, daily {hours}.` (`common/src/util/freebuff-off-peak-price.ts:39-43`) and since `8ed5d3e5e` no CLI surface renders it — the picker's off-peak detail chip was deleted, leaving the helper with no CLI caller (§14.6).
 - The authoritative price table lives in `common/src/constants/freebuff-freebucks.ts`, which is **deleted from the public export** (`scripts/public-export-manifest.txt` carries `!common/src/constants/freebuff-freebucks.ts`) because it records measured per-session provider costs; `cli/` *is* exported, so the CLI cannot import it and takes the currency label as a literal instead (`cli/src/utils/freebucks.ts:1-12`, `common/src/constants/freebuff-earn.ts:8-13`, `common/src/util/freebuff-peak-price.ts:4-8`). The wire carries upgrade copy for the same reason (`common/src/types/freebuff-session.ts:312-316`). Per-model prices therefore cannot be enumerated from the public clone beyond the fixtures cited above.
 
 ## 10. Limits & error states (wire → UI)
@@ -621,7 +634,7 @@ Freebucks is the CLI's meter for metered accounts: a per-hour price is quoted on
 | Header line | `{remaining}/{limit} Freebucks daily · resets in 4h 12m · 20 in wallet` — countdown only with a clock, wallet only when `> 0`, dollar allowance omitted when the server sent none (never `$0`) | `freebucks.ts:106-145` |
 | Refill / countdown | past `resetAt` → `Updating balance…` (`FREEBUCKS_REFILL_PENDING_LABEL`); else `4h 12m` / `38m` / `2d 5h`, `now` once passed | `common/src/util/freebucks-reset.ts:8,15-18`; `freebucks.ts:186-203` |
 | Intro card (once) | `Meet Freebucks` / `Sessions are now bought with Freebucks instead of counted against weekly and monthly limits.` + 3 points + `Shown once. Press any key to continue.` | `freebucks.ts:170-184` |
-| Unaffordable row | `Not enough Freebucks — {price}/hr against {balance} left. Enter opens plans.` | `cli/src/components/freebuff-model-selector.tsx:671-673` |
+| Unaffordable row | `Not enough Freebucks — {price}/hr against {balance} left. Enter opens plans.` | `cli/src/components/freebuff-model-selector.tsx:642-645` |
 
 ### Peak / off-peak (`common/src/constants/freebuff-peak-hours.ts`)
 
@@ -630,10 +643,10 @@ Freebucks is the CLI's meter for metered accounts: a per-hour price is quoted on
 | `DEEPSEEK_PEAK_HOUR_RANGES_UTC` | `[[1,4],[6,10]]` (half-open, Mon–Fri Beijing) | two disjoint windows; weekends always off-peak; `:23-35,44-51` |
 | `DEEPSEEK_EXPENSIVE_WINDOW_LEAD_HOURS` | `1` | an hour-long session admitted just before peak still runs into it; `:57-65` |
 | `DEEPSEEK_EXPENSIVE_WINDOW_UTC` | `[0,10]` (derived `min(start)−1`, `max(end)`) | one window; swallows the 04–06 gap deliberately; `:67-84,86-93` |
-| Multipliers | none encoded in public code | DeepSeek's 2× is *described*, not stored; the client-visible number is the server's `surcharge` (`types:335-342`; `common/src/util/freebuff-peak-price.ts:57-63`) |
+| Multipliers | none encoded in public code | DeepSeek's 2× is *described*, not stored; the client-visible number is the server's `surcharge` (`types:335-342`; `common/src/util/freebuff-peak-price.ts:57-63`). Since `8ed5d3e5e` no CLI surface renders `freebucksPeakCopy` — the picker's peak-pricing chip was deleted (§14.6) — so a peaked row shows the surcharge only inside its quoted `{N} Freebucks/hr` price, with the catalog tagline beside it (`taglineFor`, `:351-358`), not an explanation. |
 | `FREEBUFF_BETA_RATE_LOCK_MULTIPLIER` | `3` | beta rate-lock copy, unrelated to peak pricing; `freebuff-subscriptions.ts:514` |
 
-Off-peak badges come from the wire block (`info.offPeak[modelId]`), e.g. tooltip `Off-peak: {price} Freebucks/hour, daily {hours}. Regular price: {regularPrice} Freebucks/hour. The price at session start is locked for the full hour.` (`common/src/util/freebuff-off-peak-price.ts:11-53`). Dated `priceChanges` + recurring `offPeak` apply **to new-session quotes only** — never to balances or an in-flight session's charge (`common/src/util/freebuff-price-changes.ts:31-33`). Deployment-hours rows are open while `America/New_York ≥ 09:00` **and** `America/Los_Angeles < 17:00`, label `'9am ET-5pm PT every day'`, row labels `until {t}` / `opens {t}`; `off_peak_only` rows render `Back at {t} {zone}` closed and `Open {window}` at all hours (`freebuff-models.ts:1095-1096,4029-4077,4151-4171`).
+Off-peak badges come from the wire block (`info.offPeak[modelId]`), e.g. tooltip `Off-peak: {price} Freebucks/hour, daily {hours}.` (`common/src/util/freebuff-off-peak-price.ts:11-44`) — since `8ed5d3e5e` that helper has **no CLI caller** (the picker's off-peak detail chip was removed, §14.6), so the copy reaches no surface and the badge/tooltip fields are dead weight in the public snapshot. Dated `priceChanges` + recurring `offPeak` apply **to new-session quotes only** — never to balances or an in-flight session's charge (`common/src/util/freebuff-price-changes.ts:31-33`). Deployment-hours rows are open while `America/New_York ≥ 09:00` **and** `America/Los_Angeles < 17:00`, label `'9am ET-5pm PT every day'`, row labels `until {t}` / `opens {t}`; `off_peak_only` rows render `Back at {t} {zone}` closed and `Open {window}` at all hours (`freebuff-models.ts:1095-1096,4029-4077,4151-4171`).
 
 ### Spend ceilings & signup block
 
@@ -668,7 +681,7 @@ Resolution order: restricted set → budget set → `freebucks_plan` → capacit
 
 ### First-tab discount
 
-Opted into per request via `x-freebuff-first-tab-discount`; discounts come off **list** prices so re-applying never stacks, and `listPrices` keeps the crossed-out original (`common/src/util/freebuff-first-tab-discount.ts:4,11-30`). Copy: available → `Limited-time first-tab discount: up to {amount} Freebucks off one session at a time, shared across Web, Desktop and CLI. Prices shown include the discount; the crossed-out price is the regular one.`; in use → `Your first-tab discount is in use. Parallel sessions pay the regular price. The discount becomes available when that session ends.` (`:79-87`). A changed offer drops to landing with `Your first-tab discount changed. Review the model menu and choose again. No Freebucks were charged.` (`:5-6`).
+Opted into per request via `x-freebuff-first-tab-discount`; discounts come off **list** prices so re-applying never stacks, and `listPrices` keeps the crossed-out original (`common/src/util/freebuff-first-tab-discount.ts:4,11-30`). Copy: available → `Limited-time first-tab discount: up to {amount} Freebucks off one session at a time, shared across Web, Desktop and CLI. Prices shown include the discount; the crossed-out price is the regular one.`; in use → `Your first-tab discount is in use. Parallel sessions pay the regular price. The discount becomes available when that session ends.` (`:79-87`) — since `8ed5d3e5e` that copy has **no CLI caller**: the picker's chip and the ask-line fallback that returned `firstTabDiscountCopy(freebucks)` were both deleted, so only the wire header and `firstTabListPriceFor`'s accent colour survive on this surface (§14.6). A changed offer drops to landing with `Your first-tab discount changed. Review the model menu and choose again. No Freebucks were charged.` (`:5-6`).
 
 ### Per-model / per-pool quota labels
 
@@ -686,7 +699,7 @@ All durable CLI state lives in one config directory; the launcher keeps a separa
 
 ### Config-dir resolution
 - `getConfigDir()` returns `FREEBUFF_CONFIG_DIR` when set, else `join(os.homedir(), '.config', 'manicode' + (NEXT_PUBLIC_CB_ENVIRONMENT !== 'prod' ? '-' + env : ''))` (`cli/src/utils/config-dir.ts:16-36`).
-- `FREEBUFF_CONFIG_DIR` MUST be absolute; a relative value throws `FREEBUFF_CONFIG_DIR must be an absolute path so CLI settings cannot be written relative to the current project.` (`cli/src/utils/config-dir.ts:17-25`; pinned by `cli/src/__tests__/utils/config-dir.test.ts:30-36`).
+- `FREEBUFF_CONFIG_DIR` MUST be absolute; a relative value throws `FREEBUFF_CONFIG_DIR must be an absolute path so CLI settings cannot be written relative to the current project.` (`cli/src/utils/config-dir.ts:17-25`; pinned by `cli/src/utils/__tests__/config-dir.test.ts:30-36`).
 - Windows resolves identically — `%USERPROFILE%\.config\manicode` — via `os.homedir()` alone; `APPDATA`, `LOCALAPPDATA` and `XDG_CONFIG_HOME` are never part of the config-dir path (`APPDATA`/`XDG_CONFIG_HOME` are read only for editor *theme* discovery, `cli/src/utils/theme-system.ts:220-230, 255, 302-304`).
 - The `-<env>` suffix is compile-time frozen (`NEXT_PUBLIC_CB_ENVIRONMENT` is a `--define`): a shipped binary is always `~/.config/manicode`, while dev runs use `manicode-dev`/`manicode-test` (`cli/src/__tests__/integration/credentials-storage.test.ts:169-203`).
 - The dir is created mode `0o700` (`cli/src/utils/auth.ts:45, 204`).
@@ -823,8 +836,8 @@ The npm `freebuff` package is a thin Node wrapper (`freebuff/cli/release/index.j
 | scale | 60 files, ≈ +5,641 / −1,424 |
 | version file | `freebuff/cli/release/package.json:3` `0.0.177` → `0.0.180` |
 
-- **Version-file-lags-npm caveat:** at `e2b911eca` the release file still read `0.0.177`, one behind its own npm tag `0.0.178`. Never derive the vendor revision from `freebuff/cli/release/package.json` — use the npm tag/git SHA.
-- The proxy pin file `scripts/vendor-version.txt` still reads `0.0.178` while the local gitignored upstream vendor clone is already at `2b165f749`; this audit describes the tree ahead of the pin.
+- **Version-file-lags-npm caveat:** at `e2b911eca` the release file still read `0.0.177`, one behind its own npm tag `0.0.178`. Never derive the vendor revision from `freebuff/cli/release/package.json` — use the npm tag/git SHA; and since `2b165f749` the npm tag no longer distinguishes revisions at all (it reads `0.0.180` at both the pin and the clone tip), so past that point the git SHA is the only identifier.
+- The proxy pin file `scripts/vendor-version.txt` reads `0.0.180` and `snapshots.json:2-3` records the same (`upstream_sha 2b165f749…`, `vendor_version 0.0.180`); the local gitignored upstream vendor clone has since moved to `8ed5d3e5e`, so this audit describes a tree 15 commits behind the checkout (§14.6).
 
 ### 14.2 File inventory (condensed by class)
 
@@ -855,7 +868,7 @@ Class key: **B** CLI behavior · **W** wire/registry · **A** ads/sponsored · *
 - **`common/src/types/freebuff-session.ts` — W.** `FreebuffSubscriptionTierOffer.yearlyPrepaidPurchasable?` (`:104`); `FreebuffSubscriptionInfo.source` widened to `'stripe' | 'grant' | 'prepaid'` (`:369`), prepaid ⇒ `cancelAtPeriodEnd: true` with `renewsAt` = paid-through, and `prepaidRenewableAt?: string` (`:374`). Gate-code/status literals (the `wirecodes_gen` extraction source) are **unchanged**.
 - **`common/src/util/runtime-app-url.ts` — B/W.** New shared `RUNTIME_APP_URL_ENV_VARS = ['NEXT_PUBLIC_CODEBUFF_APP_URL','CODEBUFF_APP_URL']` (`:21-24`); `sdk/src/env.ts` imports it instead of a local copy (`sdk/src/env.ts:12-15,89`), and `smoke-binary.ts` uses it to strip the vars for the isolation probe.
 - **`packages/agent-runtime/src/compact-history.ts` — B (SDK).** New `compactHistoryNow()` (`:1196`): the mechanical pass of `maybeCompactHistory` with the trigger decision removed; returns `null` when a pass would not shrink history, throws the runtime's user-presentable sentence when the live request alone is over budget, emits `context_compaction_completed` telemetry with `trigger_reason: 'manual'` (`:1219`).
-- **`sdk/src/compact-run-state.ts` (new) + `sdk/src/index.ts` — B (SDK API).** `compactRunState({runState, maxContextLength, logger})` (`:50`) compacts a **persisted** `RunState`: clones session state, rewrites `messageHistory`, recomputes `contextTokenCount` = history + checkpointed systemPrompt/toolDefinitions, returns `{runState, previousTokens, nextTokens} | null`, never mutates input. Re-exported from `sdk/src/index.ts:39-40`.
+- **`sdk/src/compact-run-state.ts` (new) + `sdk/src/index.ts` — B (SDK API).** `compactRunState({runState, maxContextLength, logger})` (`:50`) compacts a **persisted** `RunState`: clones session state, rewrites `messageHistory`, recomputes `contextTokenCount` = history + checkpointed systemPrompt/toolDefinitions, returns `{runState, previousTokens, nextTokens} | null`, never mutates input. Re-exported from `sdk/src/index.ts:39-43` (`:39-40` at this pin; the tip's `truncateRunStateAtUserTurn` addition grew the block, §14.6).
 - **Comment-only / build rows:** `common/src/constants/freebuff-subscriptions.ts` and `spend-providers.ts` are comment edits; `sdk/src/env.ts` is the import refactor above; `bun.lock`/`release/package.json` are build plumbing.
 
 ### 14.4 Ads / sponsored
@@ -867,7 +880,7 @@ Class key: **B** CLI behavior · **W** wire/registry · **A** ads/sponsored · *
 ### 14.5 Effect on `docs/CLI-Limitations.md`
 
 Invalidates:
-- The vendor-pin line in `docs/CLI-Limitations.md` (`e2b911eca`, recorded there as "live npm 0.0.178, zero drift") — stale; the checked-out tree is `2b165f749` (npm `0.0.180`), and "zero drift" no longer holds against the local clone.
+- The vendor-pin line in `docs/CLI-Limitations.md` (`e2b911eca`, recorded there as "live npm 0.0.178, zero drift") — rewritten: "zero drift" did not hold past this batch, and by §14.6 the local clone (`8ed5d3e5e`) is 15 commits past the recorded wiregen pin `2b165f749` while the npm wrapper reads `0.0.180` at both, so the SHA — not the tag — identifies the revision.
 - Row **P2-1**'s picker-notice cite (`freebucks.ts:188`) — `FREEBUCKS_PICKER_NOTICE` no longer exists, so that half of the item is moot (the cosmetic-countdown verdict stands).
 - Line-number cites only (verdicts hold): row 12's `freebuff-session-api.ts:117-133` is now the network-error helper block — the `compact` / `firstTabDiscount` / `walletSpendLimit` call site moved to `:151-162`; W1's `freebuff-landing-screen.tsx:791-801` and `freebuff-model-selector.tsx` cites shift with the two edits. Row 14's `:48-73` range is unchanged.
 
@@ -878,6 +891,47 @@ Does not invalidate:
 - Row 25 (strict gates) and the proxy-only rows — unaffected by anything in this batch.
 
 Doc gaps to add (not invalidations): the new server error code `free_mode_cost_mode_required` (`common/src/constants/freebuff-cost-mode.ts:63-66`) appears in no limitation row, and the new prepaid subscription fields (`freebuff-session.ts:104,369,374`) are unmapped in the session-envelope rows.
+
+### 14.6 Delta `0.0.180` → `8ed5d3e5e` (15 commits past the wiregen pin)
+
+The citations corrected in this revision were verified against `8ed5d3e5e`, not
+against the recorded pin. What changed between the pin and the tip:
+
+| item | value |
+|---|---|
+| from | `2b165f749` — the recorded wiregen pin (`snapshots.json:2-3`), npm `freebuff@0.0.180`, `2026-09-19 17:58:17 +0000` |
+| to | `8ed5d3e5e` — vendor clone tip, `2026-09-20 07:32:06 +0000` |
+| commits | 15, every one `Sync public snapshot from freebuff-private` |
+| scale | 16 files, ≈ +563 / −167 |
+| version file | `freebuff/cli/release/package.json` reads `0.0.180` at **both** ends — the npm tag no longer identifies a revision, cite the SHA |
+| pin / drift | `snapshots.json:30-31` pins `cli/src/components/freebuff-model-selector.tsx` at `5ecfb9ff…`; the tip hashes `7fc1341d…`. That file is wire-tracked (`scripts/check-upstream.sh:126`), so the recorded pin is **stale** — "zero drift" is false |
+
+**File inventory** (`git diff --numstat 2b165f749..8ed5d3e5e`, class key as in §14.2):
+
+| class | files (+/−) |
+|---|---|
+| **B** (picker) | `cli/src/components/freebuff-model-selector.tsx` 6/35 |
+| **B** (pricing copy) | `common/src/util/freebuff-off-peak-price.ts` 2/12 |
+| **B** (SDK) | `sdk/src/compact-run-state.ts` 72/0 · `sdk/src/index.ts` 4/1 |
+| **A** (acquisition / CAPI) | `common/src/meta-capi.ts` 16/5 · `common/src/paid-social-capi.ts` 41/16 · `common/src/util/meta-conversions.ts` 23/0 · `common/src/util/paid-social-conversions.ts` 26/11 · `common/src/matching-hash.ts` 14/0 (new) · `common/src/util/acquisition-matching.ts` 23/0 (new) |
+| **T** | `sdk/src/__tests__/truncate-run-state.test.ts` 121/0 (new) · `cli/src/components/__tests__/freebuff-model-selector.test.tsx` 78/12 · `common/src/__tests__/meta-capi.test.ts` 46/10 · `common/src/__tests__/paid-social-capi.test.ts` 37/8 · `common/src/util/__tests__/freebuff-off-peak-price.test.ts` 8/3 |
+| **C** | `bun.lock` 46/54 |
+
+**Picker chips removed (B).** `rowDetails` loses all three pricing chips — the off-peak detail copy, `'Limited-time first-tab discount'`, and the peak-pricing tooltip (with its `freebucksPeakCopy` import) — leaving the accent `highlight` on the price detail (`:453-457`) as the row's only first-tab signal. Dead exports left behind, each with no non-test CLI caller in the public snapshot:
+
+- `freebucksOffPeakCopy` (`common/src/util/freebuff-off-peak-price.ts:11-44`) — also lost its `detail` field in the same commit, so it now returns `{active, badge, tooltip}` with the shortened tooltip.
+- `freebucksPeakCopy` (`common/src/util/freebuff-peak-price.ts:44-64`) — a peaked row shows the surcharge only inside the quoted price and keeps the catalog tagline, so no surface explains the peak window any more.
+- `firstTabDiscountCopy` (`common/src/util/freebuff-first-tab-discount.ts:79-87`) — its last CLI caller was the selector's ask-line fallback, which is now a literal `return undefined`.
+
+`taglineFor` (`:351-358`) gained `FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID`, so that row's server `priceNotices` tagline is suppressed in favour of the catalog tagline.
+
+**Pricing / lookalike-CAPI (A), no CLI surface.** `common/src/matching-hash.ts:8-14` adds the one `hashMatchingEmail` normalizer (trim, lowercase, unsalted SHA-256) shared by Meta `em`, TikTok `email` and X `hashed_email`; `hashPaidSocialEmail` becomes an alias of it. `common/src/util/acquisition-matching.ts:8-12,20-23` adds `validHashedEmailHex` / `validMatchingIpAddress` shape checks. Meta bodies now carry `em` and `client_ip_address` and send `client_user_agent` on native events too; `meta-conversions.ts` adds `META_CLICK_COOKIE` / `validMetaClickId` / `metaClickCookieValue` (`fb.1.<ms>.<fbclid>`) so a click survives a blocked pixel. TikTok gains a per-`surface` activation page, `ttp`, hashed email and IP, with the registration/activation split now an explicit error.
+
+**SDK additions (SDK-only).** `truncateRunStateAtUserTurn({runState, keepUserTurns})` (`sdk/src/compact-run-state.ts:127-161`) truncates a persisted `RunState` at a user-turn boundary, returning `null` when the boundary cannot be honestly placed, never mutating its input; re-exported at `sdk/src/index.ts:39-43`. **SDK-only** — no `cli/` caller exists.
+
+**No chat-wire file changed in this delta.** `cli/src/utils/error-handling.ts`, `cli/src/hooks/helpers/send-message.ts`, `cli/src/hooks/use-freebuff-session.ts`, `common/src/constants/freebuff-errors.ts` and `cli/src/utils/polling-backoff.ts` are all untouched, so §10's limit/error matrix and the P0/P1 verdicts in `CLI-Limitations.md` stand unchanged by this batch.
+
+**Docs corrected against this delta:** §8.3's row-detail order and line cites, §9.7's first-tab and off-peak lines, §11's peak/off-peak notes, §12's config-dir test path, and the pin blocks at the top of this document and of `CLI-Limitations.md`.
 
 ## 15. Proxy cross-reference
 
@@ -898,9 +952,10 @@ are load-bearing for wire parity.
 
 Notes:
 
-- The port audit (`CLI-Limitations.md`) is written against the `0.0.178` pin;
-  §14 lists which of its audited files changed in `0.0.180` and whether any
-  verdict is invalidated.
+- The port audit (`CLI-Limitations.md`) is written against the `0.0.178`
+  (`e2b911eca`) pin; §14 lists which of its audited files changed in `0.0.180`
+  and §14.6 the 15 commits since, so the recorded pin no longer holds against
+  the checkout (`8ed5d3e5e`, wrapper still `0.0.180`).
 - Presentation surfaces (TUI screens, ads rendering, copy) are intentionally
   client-only — see the WONT rows in `CLI-Limitations.md`.
 - When upstream moves: `bash scripts/check-upstream.sh` classifies wire vs
