@@ -108,6 +108,6 @@ already gone): `QuotaAutoProbe`, `QuotaProbeActiveInterval`,
 
 ## Rollout
 
-Land behind the default-on switch; verify on acerblue review (restart with
-stale tokens → cards fill within minutes, zero log spam), then VPS SG.
+Land behind the default-on switch; verify on a review host (restart with
+stale tokens → cards fill within minutes, zero log spam), then production.
 Rollback = `SMART_PROBE_ENABLED=false` (no rebuild dance) or env unset.

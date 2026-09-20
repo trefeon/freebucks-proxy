@@ -22,8 +22,8 @@ services:
     environment:
       # Live store path (update-proof): the db_data volume below mounts at
       # /app/data, so the live DB at /app/data/freebuff.db survives recreates
-      # even when the working directory is wrong (the vps-sg 20-account
-      # outage: cwd=/app resolved the relative default to an ephemeral
+      # even when the working directory is wrong (a past production outage
+      # stranded 20 accounts: cwd=/app resolved the relative default to an
       # /app/data). DB_PATH is the ONLY knob that moves the live store off
       # the bind checkout — an overlay row can never repoint the open file
       # (it resolves from process env before any overlay loads), and .env

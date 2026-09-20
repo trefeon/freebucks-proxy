@@ -134,7 +134,14 @@ skills-lock.json
 # Windows build backups (rename-aside of locked exe)
 *.exe~
 
-# ── credentials, API keys & VPS secrets ──
+# ── credentials, API keys & machine-local secrets ──
+# NOTE: backend/internal/dashboard/dist is COMMITTED by design (the binary
+# serves the bundle via go:embed; dist-freshness CI diffs it). That exception
+# lives at the top of this file next to dist/ — do not "fix" it by ignoring.
+# Machine-local ops overrides: deployment host + key-file path live here, never
+# in a tracked script (see scripts/monitor-control.py for the reader).
+scripts/monitor-control.local.env
+*.local.env
 API_Keys*
 API_KEYS*
 api-keys*
@@ -143,11 +150,21 @@ api_keys*
 *api_key*
 *vps*key*
 *vps*keys*
-*vps-sg*
 tokens.txt
 credentials.json
 creds.json
 auth.json
+# SSH material (bare key filenames are covered below too)
+.ssh/
+known_hosts
+authorized_keys
+*.pub
+# Agent transcripts / session state (never public)
+*transcript*
+*conversation*.json
+message-history.json
+freebuff-chat-*.md
+.history/
 
 # ── local docker compose overrides ──
 docker-compose.override.yml

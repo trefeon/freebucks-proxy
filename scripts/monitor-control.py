@@ -14,8 +14,11 @@ Usage:
   python3 scripts/monitor-control.py [options]
 
 Options:
-  --url URL           Base URL (default: http://172.188.64.104:3457 or $FREEBUFF_HOST)
-  --key-file PATH     Path to API key file (default: api-keys_freebuff_vps-sg)
+  --url URL           Base URL (default: $MONITOR_URL, $FREEBUFF_HOST, else
+                      http://127.0.0.1:3457)
+  --key-file PATH     Path to API key file (default: $MONITOR_KEY_FILE, else
+                      api-keys.local; a relative path resolves against the repo
+                      root, so the tool works from any working directory)
   --key TOKEN         Direct Bearer token (overrides key-file)
   --model MODEL       Model to test (default: upstage/solar-pro4,z-ai/glm-5.3-flash)
   --skip-chat         Skip live chat completion requests
@@ -24,6 +27,15 @@ Options:
   --interval SECS     Watch interval in seconds (default: 5)
   --json              Output full result as JSON
   --verbose           Print raw request/response payloads
+
+  Machine-local values — the deployment host and the key-file path — belong in
+  the gitignored scripts/monitor-control.local.env, never in this file:
+
+    MONITOR_URL=http://<host>:3457
+    MONITOR_KEY_FILE=api-keys.local
+
+  That file is loaded only when present, and a real environment variable always
+  wins over it, so the same command works on a laptop and against a remote host.
 """
 
 import argparse
@@ -548,6 +560,48 @@ class ControlMonitor:
         print("=" * 76 + "\n")
 
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOCAL_ENV_PATH = os.path.join(REPO_ROOT, "scripts", "monitor-control.local.env")
+
+
+def load_local_env(path=None):
+    """Load machine-local KEY=VALUE overrides (gitignored, optional).
+
+    Deployment hosts and key-file paths are per-machine facts, so they live in
+    the local file rather than in this tracked script. Values already present in
+    the environment win, keeping CLI/env overrides authoritative.
+    """
+    path = LOCAL_ENV_PATH if path is None else path
+    if not path or not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def resolve_key_file(path):
+    """Resolve a relative key-file path against the repo root.
+
+    Keeps a bare filename (api-keys.local) workable from any working directory,
+    which is what the gitignored local env file stores.
+    """
+    if not path or os.path.isabs(path) or os.path.isfile(path):
+        return path
+    candidate = os.path.join(REPO_ROOT, path)
+    return candidate if os.path.isfile(candidate) else path
+
+
 def load_api_key(key_file, direct_key):
     if direct_key:
         return direct_key.strip()
@@ -565,9 +619,15 @@ def load_api_key(key_file, direct_key):
 
 
 def main():
+    load_local_env()
+    default_url = (
+        os.environ.get("MONITOR_URL")
+        or os.environ.get("FREEBUFF_HOST")
+        or "http://127.0.0.1:3457"
+    )
     parser = argparse.ArgumentParser(description="freebucks-proxy control-logic monitoring tool")
-    parser.add_argument("--url", default=os.environ.get("FREEBUFF_HOST", "http://172.188.64.104:3457"))
-    parser.add_argument("--key-file", default="api-keys_freebuff_vps-sg")
+    parser.add_argument("--url", default=default_url)
+    parser.add_argument("--key-file", default=os.environ.get("MONITOR_KEY_FILE", "api-keys.local"))
     parser.add_argument("--key", default="")
     parser.add_argument("--model", default="upstage/solar-pro4,z-ai/glm-5.3-flash")
     parser.add_argument("--skip-chat", action="store_true")
@@ -578,7 +638,7 @@ def main():
     parser.add_argument("--verbose", action="store_true")
 
     args = parser.parse_args()
-    api_key = load_api_key(args.key_file, args.key)
+    api_key = load_api_key(resolve_key_file(args.key_file), args.key)
     models = [m.strip() for m in args.model.split(",") if m.strip()]
 
     monitor = ControlMonitor(args.url, api_key, verbose=args.verbose)

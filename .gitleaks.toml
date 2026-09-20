@@ -1,0 +1,25 @@
+# gitleaks config: default rules + allowlists for verified-synthetic fixtures.
+# Scan: gitleaks git -v --redact .  (history) + gitleaks dir -v --redact .  (tree)
+# Baseline 2026-09-20: 7 generic-api-key findings, ALL verified false positives
+# (sequential-hex e2e fixture keys, SENTINEL-* test sentinels, two historical
+# README lines long since rewritten — current README is clean). Trufflehog:
+# 6 URI hits on test files with example hosts, 0 verified. No rotation needed.
+
+[extend]
+useDefault = true
+
+# e2e fixture keys are sequential hex ("a1b2c3...", "f6e5d4c..."), never real.
+[[allowlists]]
+description = "synthetic e2e fixture keys"
+regexes = [
+  '''a1b2c3d4e5f60718293a4b5c6''',
+  '''f6e5d4c3b2a10928374655647''',
+]
+
+# Deliberate test sentinels (settings-hidden-keys.spec.ts) + hooks.invalid.
+[[allowlists]]
+description = "deliberate test sentinel values"
+regexes = [
+  '''SENTINEL-[A-Z-]+-9f13''',
+  '''hooks\.invalid''',
+]

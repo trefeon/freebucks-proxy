@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"time"
+	_ "time/tzdata"
 
 	// Embed the IANA tzdata so NextPacificMidnight keeps exact DST math on
 	// minimal images (alpine:3.20 has no /usr/share/zoneinfo) and Windows
@@ -30,7 +31,6 @@ import (
 	"freebucks-proxy/backend/internal/telemetry"
 	"freebucks-proxy/backend/internal/updatecheck"
 	"freebucks-proxy/backend/internal/upstream"
-	_ "time/tzdata"
 
 	history "freebucks-proxy/backend/internal/store"
 )
@@ -121,7 +121,7 @@ func Serve(configPath string, verbose bool, version string) int {
 			}
 		}
 	}
-	// One-time persisted-state carry (the vps-sg update lesson), BEFORE the
+	// One-time persisted-state carry (the production update lesson), BEFORE the
 	// env-to-DB import below: the same legacy candidates fold their operator
 	// state — settings overlay (config: rows, credentials included),
 	// pages_state, sessions_persist, tokens, pool_state — into a fresh live
