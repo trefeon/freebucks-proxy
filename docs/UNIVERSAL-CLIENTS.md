@@ -1,6 +1,6 @@
 # Universal Clients — custom-provider recipes
 
-Point any open-source agentic CLI/harness at freebuff-proxy as a custom
+Point any open-source agentic CLI/harness at freebucks-proxy as a custom
 provider and it reaches the upstream service looking like the official
 upstream CLI.
 The proxy renames foreign tool names to the official signature equivalents

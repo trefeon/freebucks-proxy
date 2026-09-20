@@ -1,8 +1,9 @@
-# freebuff-proxy
+# freebucks-proxy
 
-Go wire gateway in front of the upstream service: pooled multi-account
-OpenAI-compatible and Anthropic-compatible endpoints, an embedded Svelte
-dashboard, optional browser-like TLS stealth, and automatic session lifecycle.
+freebucks-proxy is a Go wire gateway in front of the upstream service: pooled
+multi-account OpenAI-compatible and Anthropic-compatible endpoints, an embedded
+Svelte dashboard, optional browser-like TLS stealth, and automatic session
+lifecycle.
 
 ## What it is
 
@@ -22,25 +23,28 @@ dashboard, optional browser-like TLS stealth, and automatic session lifecycle.
 
 ```sh
 cp .env.example .env   # then edit: AUTH_TOKENS, ADMIN_TOKEN, ...
-go build ./backend/...
-go run ./backend/cmd/freebuff-proxy
+task build             # frontend bundle + gateway binary (output in bin/)
+task dev               # run the gateway from source
 ```
+
+Both tasks are defined in `Taskfile.yml`. With plain Go instead of a Task
+runner, `go build ./backend/...` compiles everything and the gateway's main
+package lives under `backend/cmd/`.
 
 Run from GHCR (release image, no local build):
 
 ```sh
 cp .env.example .env   # then edit: AUTH_TOKENS, ADMIN_TOKEN, ...
-export VERSION="$(gh release view --repo trefeon/freebuff-proxy --json tagName -q .tagName)"
+export VERSION="$(gh release view --json tagName -q .tagName)"
 docker compose pull
 docker compose up -d
 ```
 
 That resolves the newest release tag (prereleases excluded); pin `VERSION` to it
 for a reproducible deploy, or leave `VERSION` unset to follow the `latest` image.
-Verify `GET /healthz` → 200, and note `/admin` sits behind the login gate
-(redirects to `/admin/login`). Without `gh`, the same value comes from
-`curl -fsSL https://api.github.com/repos/trefeon/freebuff-proxy/releases/latest`
-(field `tag_name`).
+`gh` resolves the repository from the checkout — pass `--repo <owner>/<name>` if
+you run it elsewhere. Verify `GET /healthz` → 200, and note `/admin` sits behind
+the login gate (redirects to `/admin/login`).
 
 Then:
 
@@ -53,8 +57,8 @@ Defaults that matter (`.env.example`): `SAFE_MODE=true` (anti-ban preset),
 
 Configuration persistence: the first boot imports the effective config
 (process env wins over `.env` over defaults) into the dashboard DB
-(`data/freebuff.db`, mode `0600`) as `config:` overlay rows plus a
-`config:migrated_env_v1` marker — later boots are no-ops via the marker.
+(`DB_PATH`, a SQLite file under `data/`, mode `0600`) as `config:` overlay rows
+plus a `config:migrated_env_v1` marker — later boots are no-ops via the marker.
 The DB is then the persisted home the dashboard saves write to, secrets
 included (`AUTH_TOKENS`, `ADMIN_TOKEN`, `API_KEYS`, `WEBHOOK_URL` rows);
 keep its `0600` mode on copies/backups. Explicit process env still wins at
@@ -62,21 +66,21 @@ runtime, so a migrated row never overrides the environment.
 
 ## Update safety (read before every recreate)
 
-Two-path layout: the live store is `/app/data/freebuff.db` on the `db_data`
-named volume (`DB_PATH`, compose-level — an overlay row can never repoint
+Two-path layout: the live store is the `DB_PATH` file on the `db_data` named
+volume (compose pins it under `/app/data` — an overlay row can never repoint
 the open file), while the host checkout bind (`.:/app/state`, the working
-directory) holds `.env`, logs, and the pre-volume bind DB at
-`./data/freebuff.db`. A fresh volume auto-imports that bind DB on first
-boot — display history plus the full operator state (settings overlay with
-secrets, pages, sessions, tokens, pool blobs), per-table, idempotent,
-secrets as opaque DB values — then later boots are strict no-ops. Legacy
-files are never deleted. Never copy a live DB with plain `cp` of the
-`.db`/`-wal`/`-shm` trio; stop first or use the backup script.
+directory) holds `.env`, logs, and the pre-volume bind DB under `./data/`.
+A fresh volume auto-imports that bind DB on first boot — display history plus
+the full operator state (settings overlay with secrets, pages, sessions,
+tokens, pool blobs), per-table, idempotent, secrets as opaque DB values — then
+later boots are strict no-ops. Legacy files are never deleted. Never copy a
+live DB with plain `cp` of the `.db`/`-wal`/`-shm` trio; stop first or use the
+backup script.
 
 Every update runs three commands (any trip = roll back, never cut traffic):
 
 ```sh
-docker compose stop freebuff-proxy
+docker compose stop                           # whole stack, incl. the optional https front
 scripts/backup-state.sh                      # snapshot + count manifest
 docker compose up -d --build                  # recreate on the same volume
 ADMIN_TOKEN="$ADMIN_TOKEN" scripts/verify-state.sh   # healthz + 401 probe + migrate.noop + manifest counts
