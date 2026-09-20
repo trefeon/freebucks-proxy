@@ -746,6 +746,112 @@ func TestSessionSnapshotAccessTier(t *testing.T) {
 	}
 }
 
+// TestSessionSnapshotSubscriptionTierAndOffers pins the plan-tier / offer
+// passthrough on the admission path: subscription.tierId,
+// limitedOfferReason, and limitedModelOffers parsed by upstream land on the
+// session snapshot unchanged.
+func TestSessionSnapshotSubscriptionTierAndOffers(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-tier","expiresAt":"2030-01-01T00:00:00Z",`+
+			`"subscription":{"tierId":"plan_pro_max"},`+
+			`"limitedOfferReason":"closed",`+
+			`"limitedModelOffers":[{"model":"anthropic/claude-fable-5.1","remaining":7,"total":10,"userRemaining":1,"userResetAt":null}]}`)
+	}
+	mgr := newTestManager(t, mock)
+
+	if _, err := mgr.EnsureSessionForModel(context.Background(), "mimo/mimo-v2.5"); err != nil {
+		t.Fatal(err)
+	}
+	snap := mgr.Snapshot()
+	if snap.SubscriptionTierID != "plan_pro_max" {
+		t.Errorf("SubscriptionTierID = %q, want plan_pro_max", snap.SubscriptionTierID)
+	}
+	if snap.LimitedOfferReason != "closed" {
+		t.Errorf("LimitedOfferReason = %q, want closed", snap.LimitedOfferReason)
+	}
+	if len(snap.LimitedModelOffers) != 1 || snap.LimitedModelOffers[0].Model != upstream.FreebuffFable51ModelID {
+		t.Fatalf("LimitedModelOffers = %+v, want one fable offer", snap.LimitedModelOffers)
+	}
+	if snap.LimitedModelOffers[0].UserResetAt != nil {
+		t.Errorf("UserResetAt = %q, want nil (null stays null)", *snap.LimitedModelOffers[0].UserResetAt)
+	}
+}
+
+// TestSessionSnapshotTierAndOffersSurviveOmittedResponse pins the
+// no-clobber contract: a later admission response that omits
+// subscription/offers must not wipe the values learned earlier.
+func TestSessionSnapshotTierAndOffersSurviveOmittedResponse(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	var posts atomic.Int32
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && posts.Add(1) == 1 {
+			_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-tier","expiresAt":"2030-01-01T00:00:00Z",`+
+				`"subscription":{"tierId":"plan_pro"},`+
+				`"limitedOfferReason":"closed",`+
+				`"limitedModelOffers":[{"model":"anthropic/claude-fable-5.1","remaining":7,"total":10,"userRemaining":1}]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-plain","expiresAt":"2030-01-01T00:00:00Z"}`)
+	}
+	mgr := newTestManager(t, mock)
+
+	if _, err := mgr.EnsureSessionForModel(context.Background(), "mimo/mimo-v2.5"); err != nil {
+		t.Fatal(err)
+	}
+	mgr.Invalidate()
+	if _, err := mgr.EnsureSessionForModel(context.Background(), "mimo/mimo-v2.5"); err != nil {
+		t.Fatal(err)
+	}
+	snap := mgr.Snapshot()
+	if snap.SubscriptionTierID != "plan_pro" {
+		t.Errorf("SubscriptionTierID = %q after omitted response, want plan_pro kept", snap.SubscriptionTierID)
+	}
+	if snap.LimitedOfferReason != "closed" {
+		t.Errorf("LimitedOfferReason = %q after omitted response, want closed kept", snap.LimitedOfferReason)
+	}
+	if len(snap.LimitedModelOffers) != 1 {
+		t.Fatalf("LimitedModelOffers = %+v after omitted response, want the learned offer kept", snap.LimitedModelOffers)
+	}
+}
+
+// TestSessionSnapshotProbePopulatesTierAndOffers pins the probe populate
+// path: a zero-cost probe's tier/offer block is stashed into the saved
+// snapshot (no session slot), and a later probe omitting it does not wipe
+// the learned values.
+func TestSessionSnapshotProbePopulatesTierAndOffers(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr := newTestManager(t, mock)
+
+	mgr.UpdateQuotaFromProbe(&upstream.SessionState{
+		SubscriptionTierID: "plan_pro",
+		LimitedOfferReason: "closed",
+		LimitedModelOffers: []upstream.LimitedModelOffer{
+			{Model: upstream.FreebuffFable51ModelID, Remaining: 7, Total: 10, UserRemaining: 1},
+		},
+	})
+	// A later probe carrying only quota must not clear the learned fields.
+	mgr.UpdateQuotaFromProbe(&upstream.SessionState{
+		RateLimitsByModel: map[string]upstream.ModelQuota{"m": {Model: "m", Limit: 6}},
+	})
+
+	snap := mgr.Snapshot()
+	if snap.SubscriptionTierID != "plan_pro" {
+		t.Errorf("SubscriptionTierID = %q, want plan_pro", snap.SubscriptionTierID)
+	}
+	if snap.LimitedOfferReason != "closed" {
+		t.Errorf("LimitedOfferReason = %q, want closed", snap.LimitedOfferReason)
+	}
+	if len(snap.LimitedModelOffers) != 1 || snap.LimitedModelOffers[0].Model != upstream.FreebuffFable51ModelID {
+		t.Errorf("LimitedModelOffers = %+v, want the learned fable offer kept", snap.LimitedModelOffers)
+	}
+}
+
 // TestActiveSessionWithoutModelServesAnyModel pins the leniency: a
 // session created via the default-model path (cached model "") is reused for
 // ANY requested model — the cache-hit check treats "" as a wildcard. The

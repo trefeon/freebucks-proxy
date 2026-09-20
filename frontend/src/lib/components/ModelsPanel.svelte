@@ -60,16 +60,44 @@
       : 0;
   }
 
-  // Row state: grant-gated referral rows carry an agent binding but
-  // served=false — they render "referral", not "served". Rows without a
-  // binding (and legacy payloads without the served flag) stay "unbound".
+  // Row state: withdrawn rows (admission-refused, replacement named) render
+  // "withdrawn". Unserved rows that a tier still admits (paid plan, limited
+  // trial) render "unserved" — never "referral", which is the grant-gated
+  // referral pool only. Rows without a binding (and legacy payloads without
+  // the served flag) stay "unbound".
   function modelState(m) {
+    if (m.withdrawn) return "withdrawn";
     if (!m.agent) return "unbound";
-    if (m.served === false) return "referral";
-    return "served";
+    if (m.served !== false) return "served";
+    if ((m.pool ?? "") === "referral") return "referral";
+    return "unserved";
   }
   function modelTone(state) {
-    return state === "served" ? "good" : state === "referral" ? "info" : "idle";
+    if (state === "served") return "good";
+    if (state === "referral" || state === "unserved") return "info";
+    return "idle";
+  }
+  // Tier chips render the wire tier ids as operator-readable labels: paid
+  // is the plan-metered catalog, offer the capacity-limited trial.
+  function tierLabel(t) {
+    if (t === "paid") return "paid plan";
+    if (t === "offer") return "limited trial";
+    return t;
+  }
+  // Replacement display name for withdrawn rows (raw id when the
+  // replacement is not in this payload).
+  function replacementName(id) {
+    const rows = data?.models ?? [];
+    return rows.find((m) => m.id === id)?.display_name || id;
+  }
+  // Live campaign copy for the offer row: the shared pool counts straight
+  // from the wire block, plus trial-used when this account's slice is
+  // spent; rows outside the campaign say so instead of showing zeroes.
+  function offerLine(m) {
+    const o = m.offer;
+    if (!o) return "trial not offered right now";
+    const left = `${o.remaining} of ${o.total} sessions left`;
+    return o.user_remaining <= 0 ? `${left} · trial used` : left;
   }
   async function load() {
     loading = true;
@@ -177,7 +205,7 @@
 {:else if data}
   <Stat
     label={$tr("Served Models")}
-    value={servedCount}
+    value={`${servedCount} of ${data.models.length}`}
     hint={$tr("{count} registered · {agents} agents", {
       count: data.count,
       agents: data.agents,
@@ -202,6 +230,7 @@
             <th scope="col" class="text-right w-[1%] whitespace-nowrap"
               >{$tr("Price")}</th
             >
+            <th scope="col" class="w-[1%] whitespace-nowrap">{$tr("Tier")}</th>
           </tr>
         </thead><tbody>
           {#each orderedModels as m (m.id)}
@@ -211,7 +240,7 @@
             {@const strike = strikeLabel(m.id)}
             {@const offPeak = offPeakLine(m.id)}
             {@const stale = priceIsStale(m.id)}
-            <tr>
+            <tr class={m.withdrawn ? "opacity-60" : ""}>
               <td>
                 <div class="flex flex-col gap-0.5 min-w-0">
                   <div class="flex items-center gap-1.5 flex-wrap">
@@ -298,8 +327,41 @@
                       >{offPeak}</span
                     >
                   {/if}
-                </span></td
-              >
+                </span>
+              </td>
+              <td class="w-[1%] whitespace-nowrap" data-testid="model-tier">
+                {#if m.withdrawn}
+                  <span
+                    class="px-1 py-0.2 rounded text-[9px] uppercase tracking-wider border text-[var(--fp-dim)] bg-[var(--fp-surface)] border-[var(--fp-border)]"
+                  >
+                    withdrawn
+                  </span>
+                  <p
+                    data-testid="model-withdrawn"
+                    class="mt-1 text-[11px] whitespace-normal text-[var(--fp-muted)]"
+                  >
+                    Withdrawn — use {replacementName(m.replacement)}
+                  </p>
+                {:else}
+                  <span class="inline-flex flex-wrap gap-1">
+                    {#each m.tiers ?? [] as t (t)}
+                      <span
+                        class="px-1 py-0.2 rounded text-[9px] uppercase tracking-wider border text-[var(--fp-muted)] bg-[var(--fp-surface)] border-[var(--fp-border)]"
+                      >
+                        {tierLabel(t)}
+                      </span>
+                    {/each}
+                  </span>
+                  {#if m.tiers?.includes("offer")}
+                    <p
+                      data-testid="model-offer"
+                      class="mt-1 fp-num text-[11px] whitespace-normal text-[var(--fp-muted)]"
+                    >
+                      {offerLine(m)}
+                    </p>
+                  {/if}
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
@@ -317,7 +379,11 @@
         {@const strike = strikeLabel(m.id)}
         {@const offPeak = offPeakLine(m.id)}
         {@const stale = priceIsStale(m.id)}
-        <li class="fp-inset rounded p-3 flex flex-col gap-2 min-w-0">
+        <li
+          class="fp-inset rounded p-3 flex flex-col gap-2 min-w-0 {m.withdrawn
+            ? 'opacity-60'
+            : ''}"
+        >
           <div class="flex items-start justify-between gap-2 min-w-0">
             <div class="min-w-0">
               <strong
@@ -394,6 +460,41 @@
               {/if}
             </span>
           </div>
+          <div
+            class="flex flex-wrap items-center gap-1 pt-1 border-t border-[var(--fp-border)]/60"
+            data-testid="model-tier"
+          >
+            {#if m.withdrawn}
+              <span
+                class="px-1.5 py-0.2 rounded text-[10px] uppercase tracking-wider border text-[var(--fp-dim)] bg-[var(--fp-surface)] border-[var(--fp-border)]"
+              >
+                withdrawn
+              </span>
+            {:else}
+              {#each m.tiers ?? [] as t (t)}
+                <span
+                  class="px-1.5 py-0.2 rounded text-[10px] uppercase tracking-wider border text-[var(--fp-muted)] bg-[var(--fp-surface)] border-[var(--fp-border)]"
+                >
+                  {tierLabel(t)}
+                </span>
+              {/each}
+            {/if}
+          </div>
+          {#if m.withdrawn}
+            <p
+              data-testid="model-withdrawn"
+              class="text-xs text-[var(--fp-muted)]"
+            >
+              Withdrawn — use {replacementName(m.replacement)}
+            </p>
+          {:else if m.tiers?.includes("offer")}
+            <p
+              data-testid="model-offer"
+              class="fp-num text-xs text-[var(--fp-muted)]"
+            >
+              {offerLine(m)}
+            </p>
+          {/if}
           <div class="flex items-center justify-between gap-2 text-xs min-w-0">
             <span class="text-[var(--fp-dim)] shrink-0">{$tr("Agent")}</span>
             {#if bound}

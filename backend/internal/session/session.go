@@ -153,10 +153,18 @@ type snapshotState struct {
 	// response is the only state that renders a picker, so it is the one
 	// place standing is guaranteed present — without this the dashboard
 	// standing card stays empty until the first admission.
-	savedStanding      *upstream.SessionStanding
-	invalidationEvents []invalidationEvent
-	reAdmitTriggers    []time.Time
-	lastStormAt        time.Time
+	savedStanding *upstream.SessionStanding
+	// savedSubscriptionTierID / savedLimitedModelOffers /
+	// savedLimitedOfferReason are the same stash for the plan tier id and
+	// the capacity-limited offer block: pre-join responses carry them
+	// intermittently, so the last-seen values survive a response that
+	// omits them.
+	savedSubscriptionTierID string
+	savedLimitedModelOffers []upstream.LimitedModelOffer
+	savedLimitedOfferReason string
+	invalidationEvents      []invalidationEvent
+	reAdmitTriggers         []time.Time
+	lastStormAt             time.Time
 }
 
 // invalidationEvent is one terminal session event in the re-admit storm
@@ -207,6 +215,14 @@ type cachedState struct {
 	freebucks     *upstream.FreebucksInfo
 	upgradeHint   *upstream.SessionUpgradeHint
 	serverMessage string
+	// subscriptionTierID is the raw upstream subscription.tierId from the
+	// last admission/poll (vendor subscription.tierId); "" until reported.
+	subscriptionTierID string
+	// limitedModelOffers / limitedOfferReason carry the capacity-limited
+	// offer block (vendor e2b911eca) from the last response that had one;
+	// nil/"" until then.
+	limitedModelOffers []upstream.LimitedModelOffer
+	limitedOfferReason string
 }
 
 // sessionUsable reports whether the cached state can serve a chat right now:
@@ -266,6 +282,15 @@ func (m *Manager) commit(cs *cachedState) {
 		if m.state.freebucks != nil {
 			m.snap.savedFreebucks = m.state.freebucks
 		}
+		if m.state.subscriptionTierID != "" {
+			m.snap.savedSubscriptionTierID = m.state.subscriptionTierID
+		}
+		if len(m.state.limitedModelOffers) > 0 {
+			m.snap.savedLimitedModelOffers = m.state.limitedModelOffers
+		}
+		if m.state.limitedOfferReason != "" {
+			m.snap.savedLimitedOfferReason = m.state.limitedOfferReason
+		}
 	}
 	// Freshness for the stale-mark clear below: captured BEFORE the
 	// restore, so a re-applied saved map does not pose as fresh quota.
@@ -294,6 +319,17 @@ func (m *Manager) commit(cs *cachedState) {
 	}
 	if cs != nil && cs.freebucks == nil && m.snap.savedFreebucks != nil {
 		cs.freebucks = m.snap.savedFreebucks
+	}
+	// The tier id and offer block arrive intermittently (pre-join only):
+	// a later response that omits them must not wipe the learned values.
+	if cs != nil && cs.subscriptionTierID == "" && m.snap.savedSubscriptionTierID != "" {
+		cs.subscriptionTierID = m.snap.savedSubscriptionTierID
+	}
+	if cs != nil && len(cs.limitedModelOffers) == 0 && len(m.snap.savedLimitedModelOffers) > 0 {
+		cs.limitedModelOffers = m.snap.savedLimitedModelOffers
+	}
+	if cs != nil && cs.limitedOfferReason == "" && m.snap.savedLimitedOfferReason != "" {
+		cs.limitedOfferReason = m.snap.savedLimitedOfferReason
 	}
 	m.state = cs
 	// Fresh quota-carrying state clears the restart-restored stale mark;
@@ -399,18 +435,21 @@ func (m *Manager) Snapshot() SessionSnapshot {
 			}
 		}
 		return SessionSnapshot{
-			Refreshing:    m.refreshing,
-			QuotaByModel:  quota,
-			QuotaStale:    m.snap.savedQuotaStale && len(quota) > 0,
-			QuotaSavedAt:  m.snap.savedQuotaAt,
-			GlmPromo:      m.snap.savedGlmPromo,
-			Standing:      m.snap.savedStanding,
-			RemainingMs:   m.snap.savedRemainingMs,
-			Referral:      m.snap.savedReferral,
-			AccessTier:    m.snap.savedAccessTier,
-			Freebucks:     m.snap.savedFreebucks,
-			LastRefund:    m.lastRefund,
-			PendingRefund: m.pendingRefund,
+			Refreshing:         m.refreshing,
+			QuotaByModel:       quota,
+			QuotaStale:         m.snap.savedQuotaStale && len(quota) > 0,
+			QuotaSavedAt:       m.snap.savedQuotaAt,
+			GlmPromo:           m.snap.savedGlmPromo,
+			Standing:           m.snap.savedStanding,
+			RemainingMs:        m.snap.savedRemainingMs,
+			Referral:           m.snap.savedReferral,
+			AccessTier:         m.snap.savedAccessTier,
+			Freebucks:          m.snap.savedFreebucks,
+			LastRefund:         m.lastRefund,
+			PendingRefund:      m.pendingRefund,
+			SubscriptionTierID: m.snap.savedSubscriptionTierID,
+			LimitedModelOffers: m.snap.savedLimitedModelOffers,
+			LimitedOfferReason: m.snap.savedLimitedOfferReason,
 		}
 	}
 	quota := make(map[string]QuotaSnapshot, len(m.state.quotaByModel))
@@ -450,17 +489,20 @@ func (m *Manager) Snapshot() SessionSnapshot {
 		// A quota-less compact commit re-applies the saved map (issue
 		// #146): when that map is restart-restored, it stays marked until
 		// genuinely fresh quota lands.
-		QuotaStale:    m.snap.savedQuotaStale && len(quota) > 0,
-		QuotaSavedAt:  m.snap.savedQuotaAt,
-		GlmPromo:      m.state.glmPromo,
-		Standing:      m.state.standing,
-		RemainingMs:   m.state.remainingMs,
-		Referral:      m.state.referral,
-		Freebucks:     m.state.freebucks,
-		UpgradeHint:   m.state.upgradeHint,
-		ServerMessage: m.state.serverMessage,
-		LastRefund:    m.lastRefund,
-		PendingRefund: m.pendingRefund,
+		QuotaStale:         m.snap.savedQuotaStale && len(quota) > 0,
+		QuotaSavedAt:       m.snap.savedQuotaAt,
+		GlmPromo:           m.state.glmPromo,
+		Standing:           m.state.standing,
+		RemainingMs:        m.state.remainingMs,
+		Referral:           m.state.referral,
+		Freebucks:          m.state.freebucks,
+		UpgradeHint:        m.state.upgradeHint,
+		ServerMessage:      m.state.serverMessage,
+		LastRefund:         m.lastRefund,
+		PendingRefund:      m.pendingRefund,
+		SubscriptionTierID: m.state.subscriptionTierID,
+		LimitedModelOffers: m.state.limitedModelOffers,
+		LimitedOfferReason: m.state.limitedOfferReason,
 	}
 }
 
@@ -513,7 +555,8 @@ func (m *Manager) hasGlmEntitlementLocked() bool {
 }
 
 // UpdateQuotaFromProbe records the quota map, glmPromo block, standing,
-// referral, access tier, and Freebucks from a zero-cost session probe into
+// referral, access tier, subscription tier id, limited-offer block, and
+// Freebucks from a zero-cost session probe into
 // the manager's saved state (issue #183; pre-session populate: the pre-join
 // "none" response carries the full meter without holding a slot).
 func (m *Manager) UpdateQuotaFromProbe(st *upstream.SessionState) {
@@ -570,6 +613,24 @@ func (m *Manager) UpdateQuotaFromProbe(st *upstream.SessionState) {
 		m.snap.savedStanding = st.Standing
 		if m.state != nil {
 			m.state.standing = st.Standing
+		}
+	}
+	if st.SubscriptionTierID != "" {
+		m.snap.savedSubscriptionTierID = st.SubscriptionTierID
+		if m.state != nil {
+			m.state.subscriptionTierID = st.SubscriptionTierID
+		}
+	}
+	if len(st.LimitedModelOffers) > 0 {
+		m.snap.savedLimitedModelOffers = st.LimitedModelOffers
+		if m.state != nil {
+			m.state.limitedModelOffers = st.LimitedModelOffers
+		}
+	}
+	if st.LimitedOfferReason != "" {
+		m.snap.savedLimitedOfferReason = st.LimitedOfferReason
+		if m.state != nil {
+			m.state.limitedOfferReason = st.LimitedOfferReason
 		}
 	}
 }

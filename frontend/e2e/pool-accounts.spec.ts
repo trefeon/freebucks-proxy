@@ -226,8 +226,10 @@ test.describe("pool accounts (mock roster)", () => {
     await row.locator('button[aria-label*="Expand details"]').click();
     // Scope to the desktop table: the mobile card twin renders the same
     // drawer off-screen (drop-session-gate pins the card path separately).
+    // Pin a served row: withdrawn/tier-only catalog rows are listed on the
+    // Models tab but never served, so the pin picker does not offer them.
     const pinSelect = table.getByLabel("Pin a model to this token");
-    await pinSelect.selectOption(MODEL_B);
+    await pinSelect.selectOption(MODEL_A);
 
     // Await the POST *response*: the overlay mock records `posted` inside its
     // route handler, which runs after the request waiter fires.
@@ -243,17 +245,17 @@ test.describe("pool accounts (mock roster)", () => {
     await table.getByRole("button", { name: "Pin" }).click();
     expect(await (await postResp).request().postDataJSON()).toEqual({
       key: "PIN_MODEL",
-      value: `8:${MODEL_B}`,
+      value: `8:${MODEL_A}`,
     });
-    expect(posted).toEqual([{ key: "PIN_MODEL", value: `8:${MODEL_B}` }]);
+    expect(posted).toEqual([{ key: "PIN_MODEL", value: `8:${MODEL_A}` }]);
     // Converge the fake backend before the drawer's refetch lands.
-    state.tokens[8].pinned_model = MODEL_B;
+    state.tokens[8].pinned_model = MODEL_A;
     await refetch;
     await expect(
       table.getByRole("button", { name: "Clear pin" }),
     ).toBeVisible();
     await expect(
-      table.locator("code").filter({ hasText: MODEL_B }),
+      table.locator("code").filter({ hasText: MODEL_A }),
     ).toHaveCount(1);
 
     const unpinResp = page.waitForResponse(

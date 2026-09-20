@@ -773,7 +773,33 @@ type modelRow struct {
 	Agent       string   `json:"agent"`
 	Quota       string   `json:"quota"`
 	Served      bool     `json:"served"`
-	Efforts     []string `json:"efforts,omitempty"`
+	// Tiers lists the access levels that can admit the row (limited/full/
+	// paid/offer in canonical order); empty for withdrawn and god-only
+	// rows, so the SPA renders "no tier" instead of inventing one.
+	Tiers []string `json:"tiers,omitempty"`
+	// Withdrawn marks an upstream-recognized but admission-refused row
+	// (FREEBUFF_PAUSED_FREE_MODEL_IDS); Replacement names what the refusal
+	// copy recommends instead.
+	Withdrawn   bool   `json:"withdrawn"`
+	Replacement string `json:"replacement,omitempty"`
+	// Offer carries the live capacity-limited campaign state when a token
+	// snapshot reports the row (only rows admitted by TierOffer).
+	Offer   *modelOfferRow `json:"offer,omitempty"`
+	Efforts []string       `json:"efforts,omitempty"`
+}
+
+// modelOfferRow is the live capacity-limited campaign state for one model
+// row (vendor FreebuffLimitedModelOffer): remaining/total are the shared
+// global pool, user_remaining is this account's own slice, joinable mirrors
+// the vendor's userRemaining > 0 gate, and reason is the opaque
+// model_unavailable member (used|closed|exhausted, "" when the response
+// carried none).
+type modelOfferRow struct {
+	Remaining     int    `json:"remaining"`
+	Total         int    `json:"total"`
+	UserRemaining int    `json:"user_remaining"`
+	Joinable      bool   `json:"joinable"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 // servedModels returns the registry ids that pass the strict ServedModels
@@ -888,26 +914,63 @@ func formatSessionUnits(v float64) string {
 	return strconv.FormatFloat(v, 'f', 1, 64)
 }
 
-func (d *Dashboard) modelsData() modelsData {
-	md := modelsData{Count: d.reg.ModelCount(), Agents: len(d.reg.AgentIDs())}
-	// Served gate: the dashboard shows the models this proxy actually
-	// serves (issue #189 strict set), not the raw upstream registry — the
-	// vendor catalog now carries god-only/eval rows (e.g. luna-es) that
-	// must never be presented as servable. One exception: the referral
-	// row (GLM 5.2) is listed with Served=false so users discover the
-	// grant path; the quota label ("referral +1/day") carries the terms.
-	livePrices := d.firstFreebucksPrices()
-	liveNotices := d.firstFreebucksPriceNotices()
-	effectivePrices := make(map[string]float64)
-	for _, id := range d.reg.Models() {
-		served := modelcat.IsServed(id)
-		if !served && id != modelcat.Glm52ModelID {
+// offerByModel returns the live capacity-limited offer state per model id
+// from the pool snapshots. The first snapshot that reports a row wins (every
+// token reads the same vendor-global campaign pool, so the first number is
+// the one a picker would show) and carries that snapshot's opaque reason.
+// nil when no token reports offers, so the payload keeps the pre-offer shape
+// on accounts without a campaign.
+func (d *Dashboard) offerByModel() map[string]modelOfferRow {
+	if d.pool == nil {
+		return nil
+	}
+	var out map[string]modelOfferRow
+	for _, t := range d.pool.Snapshot() {
+		if len(t.LimitedModelOffers) == 0 {
 			continue
 		}
+		if out == nil {
+			out = make(map[string]modelOfferRow, len(t.LimitedModelOffers))
+		}
+		for _, o := range t.LimitedModelOffers {
+			if _, seen := out[o.Model]; seen {
+				continue
+			}
+			out[o.Model] = modelOfferRow{
+				Remaining:     o.Remaining,
+				Total:         o.Total,
+				UserRemaining: o.UserRemaining,
+				Joinable:      o.Joinable(),
+				Reason:        t.LimitedOfferReason,
+			}
+		}
+	}
+	return out
+}
+
+func (d *Dashboard) modelsData() modelsData {
+	// Full catalog: the models page lists every modelcat row — served,
+	// withdrawn, eval and offer — with the tier sets that admit it, so
+	// operators can see which access level can use what. Iterating the
+	// catalog (not the registry) pins the rows to upstream picker order and
+	// keeps god-only/eval registry rows (luna-es) out of the view. Tier and
+	// withdrawal facts ride the row; the SPA decides what to render from
+	// them, this endpoint invents nothing.
+	livePrices := d.firstFreebucksPrices()
+	liveNotices := d.firstFreebucksPriceNotices()
+	offers := d.offerByModel()
+	effectivePrices := make(map[string]float64)
+	md := modelsData{Agents: len(d.reg.AgentIDs())}
+	md.Models = make([]modelRow, 0, len(modelcat.Catalog))
+	for _, info := range modelcat.Catalog {
+		id := info.ID
 		row := modelRow{
-			ID:      id,
-			Served:  served,
-			Efforts: modelcat.Efforts(id),
+			ID:          id,
+			Served:      info.Served,
+			Withdrawn:   info.PausedReplacement != "",
+			Replacement: info.PausedReplacement,
+			Tiers:       modelcat.Tiers(id),
+			Efforts:     modelcat.Efforts(id),
 		}
 		row.DisplayName = modelcat.DisplayName(id)
 		row.Tagline = modelcat.Tagline(id)
@@ -929,23 +992,33 @@ func (d *Dashboard) modelsData() modelsData {
 		} else {
 			row.Pool = "unlimited"
 		}
+		// Rows the registry does not map (withdrawn/eval ids) keep an empty
+		// agent — never an invented one.
 		if agent, err := d.reg.AgentForModel(id); err == nil {
 			row.Agent = agent
 		}
 		row.Quota = d.quotaFor(id)
+		if o, ok := offers[id]; ok {
+			offer := o
+			row.Offer = &offer
+		}
 		md.Models = append(md.Models, row)
 	}
 	// Metered price order (issue #350 — mirrors sortModelsByPrice in
-	// cli/src/utils/freebucks.ts): rows sort cheapest-first so the menu's
-	// subject (cost) leads; ties break on display name, unpriced/referral
-	// rows sort last.
+	// cli/src/utils/freebucks.ts): priced rows sort cheapest-first so the
+	// menu's subject (cost) leads; ties break on display name, and every row
+	// without a metered price (withdrawn rows, the offer row) follows in
+	// catalog order.
 	sortModelRowsByPrice(md.Models, effectivePrices)
 	md.Count = len(md.Models)
 	return md
 }
 
-// sortModelRowsByPrice orders catalog rows cheapest-first by the metered
-// price map (pure form of the modelsData sort, kept separate for testing).
+// sortModelRowsByPrice orders the metered rows cheapest-first by the price
+// map (pure form of the modelsData sort, kept separate for testing) and
+// leaves every unpriced row in the order it arrived — catalog order for
+// modelsData. Ties on price break on display name, mirroring
+// sortModelsByPrice in cli/src/utils/freebucks.ts.
 func sortModelRowsByPrice(rows []modelRow, prices map[string]float64) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		pi, iok := prices[rows[i].ID]
@@ -953,7 +1026,11 @@ func sortModelRowsByPrice(rows []modelRow, prices map[string]float64) {
 		if iok != jok {
 			return iok
 		}
-		if iok && pi != pj {
+		if !iok {
+			// Unpriced pair: stable sort keeps the incoming order.
+			return false
+		}
+		if pi != pj {
 			return pi < pj
 		}
 		return modelcat.DisplayName(rows[i].ID) < modelcat.DisplayName(rows[j].ID)

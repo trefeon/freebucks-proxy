@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"
-
-	"freebuff-proxy/backend/internal/convert"
 )
 
 // completions, Responses, embeddings, model catalog) onto the mux. The
@@ -64,7 +63,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	model := s.reg.ResolveModel(rawModel)
 	if !s.modelAllowed(model) {
 		s.writeJSONError(w, http.StatusBadRequest,
-			ModelUnavailableMessage(rawModel), "invalid_request_error", "model_unavailable", 0)
+			s.modelRefusalMessage(rawModel, model), "invalid_request_error", "model_unavailable", 0)
 		return
 	}
 	if msg := validateChatUnsupportedParams(raw); msg != "" {
@@ -192,16 +191,5 @@ func (s *Server) handleModelRetrieve(w http.ResponseWriter, r *http.Request) {
 	snaps := s.pool.Snapshot()
 	available, status := modelAvailability(model, snaps)
 	w.Header().Set("Content-Type", "application/json")
-	row := map[string]any{
-		"id":        modelName,
-		"object":    "model",
-		"created":   created,
-		"owned_by":  "freebuff",
-		"available": available,
-		"status":    status,
-	}
-	if tier := currentAccessTier(snaps); tier != "" {
-		row["current_access_tier"] = tier
-	}
-	_ = json.NewEncoder(w).Encode(row)
+	_ = json.NewEncoder(w).Encode(modelRow(modelName, model, created, available, status, currentAccessTier(snaps), snaps))
 }

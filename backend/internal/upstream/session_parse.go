@@ -38,6 +38,11 @@ type SessionState struct {
 	RetryAfterMs       int64
 	AvailableHours     string
 	Message            string
+	// SubscriptionTierID is the raw upstream subscription.tierId from the
+	// session response (the upstream plan id behind hasPaidSubscription).
+	// Kept verbatim — never parsed into a plan name — and left "" when the
+	// subscription block is absent or null.
+	SubscriptionTierID string
 	// WireBody is the raw upstream body the state was parsed from. ProbeAccount
 	// uses it to build BanError/CountryBlockedError through the shared
 	// banFromBody/countryBlockFromBody constructors (issue #306), so its typed
@@ -130,6 +135,14 @@ type SessionState struct {
 type WalletConsent struct {
 	Price       float64 `json:"price"`
 	WalletSpend float64 `json:"walletSpend"`
+}
+
+// rawSubscription mirrors the upstream subscription block's plan tier id
+// (vendor subscription.tierId; hasPaidSubscription derives from this
+// block's presence). Only tierId is consumed; an absent or null block
+// leaves the state's tier "".
+type rawSubscription struct {
+	TierID string `json:"tierId"`
 }
 
 // rawWalletConsent mirrors FreebuffWalletConsent (vendor af898dc).
@@ -238,6 +251,7 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 		Standing               *rawStanding             `json:"standing"`
 		Referral               *rawReferral             `json:"referral"`
 		Freebucks              *rawFreebucks            `json:"freebucks"`
+		Subscription           *rawSubscription         `json:"subscription"`
 		UpgradeHint            *struct {
 			URL     string `json:"url"`
 			Message string `json:"message"`
@@ -308,6 +322,11 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 			}
 		}
 		state.HTTPStatus = resp.StatusCode
+		// subscription.tierId is a plain passthrough: present keeps the raw
+		// id, absent/null leaves it "" (never an error, never a plan name).
+		if raw.Subscription != nil {
+			state.SubscriptionTierID = raw.Subscription.TierID
+		}
 		state.FreebucksRefund = raw.FreebucksRefund
 		state.FreebucksRefundPending = raw.FreebucksRefundPending
 		if raw.WalletConsent != nil {

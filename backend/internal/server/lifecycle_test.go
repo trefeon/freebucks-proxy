@@ -27,13 +27,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // lifecycleToken is a valid-shaped cb_ FreeBuff token (the config validator
@@ -114,8 +114,11 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal(data, &ml); err != nil {
 			t.Fatalf("/v1/models not JSON: %v: %s", err, data)
 		}
-		if len(ml.Data) != 6 {
-			t.Fatalf("/v1/models count = %d, want 6", len(ml.Data))
+		// 8 = the catalog surface (6 served + 2 tier rows) since the tier-aware
+		// gate; withdrawn rows stay unlisted and healthz still counts the 6
+		// served ids.
+		if len(ml.Data) != 8 {
+			t.Fatalf("/v1/models count = %d, want 8 (served + tier rows)", len(ml.Data))
 		}
 		found := false
 		for _, m := range ml.Data {
@@ -223,8 +226,10 @@ func TestLifecycleFullJourney(t *testing.T) {
 			t.Fatalf("anthropic stream status = %d, want 200: %s", resp.StatusCode, data)
 		}
 		types, stopReasons := anthropicEventTypes(t, string(data))
-		want := []string{"message_start", "content_block_start", "content_block_delta",
-			"content_block_stop", "message_delta", "message_stop"}
+		want := []string{
+			"message_start", "content_block_start", "content_block_delta",
+			"content_block_stop", "message_delta", "message_stop",
+		}
 		lastPos := -1
 		for _, typ := range want {
 			pos := -1
@@ -406,8 +411,8 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal([]byte(bodyOf(t, mdResp)), &md); err != nil {
 			t.Fatalf("models API not JSON: %v", err)
 		}
-		if md.Count != 7 || len(md.Models) != 7 {
-			t.Fatalf("models API count = %d/%d, want 7", md.Count, len(md.Models))
+		if md.Count != len(modelcat.Catalog) || len(md.Models) != len(modelcat.Catalog) {
+			t.Fatalf("models API count = %d/%d, want %d (the whole catalog)", md.Count, len(md.Models), len(modelcat.Catalog))
 		}
 		allowed := map[string]bool{"": true, "referral +1/day": true}
 		for _, m := range md.Models {

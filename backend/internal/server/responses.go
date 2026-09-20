@@ -7,13 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"freebuff-proxy/backend/internal/convert"
 )
 
 // randCounter backs randHexString's crypto/rand failure fallback.
@@ -86,7 +85,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.modelAllowed(model) {
 		s.writeJSONError(w, http.StatusBadRequest,
-			ModelUnavailableMessage(rawModel), "invalid_request_error", "model_unavailable", 0)
+			s.modelRefusalMessage(rawModel, model), "invalid_request_error", "model_unavailable", 0)
 		return
 	}
 	// Strict tool-calling closer on the flat Responses function tools,

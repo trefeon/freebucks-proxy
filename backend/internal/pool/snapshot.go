@@ -81,6 +81,20 @@ type MaturitySnapshot struct {
 	AutoTouchReason string `json:"auto_touch_reason,omitempty"`
 }
 
+// cloneLimitedModelOffers detaches the offer slice from the session
+// snapshot: TokenSnapshot is consumed outside the pool (dashboard/healthz)
+// and must never alias pooled live state, the same copy-bug class
+// cloneFreebucksInfo guards for the persisted snapshot. Nil stays nil —
+// never zero-allocated.
+func cloneLimitedModelOffers(in []upstream.LimitedModelOffer) []upstream.LimitedModelOffer {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]upstream.LimitedModelOffer, len(in))
+	copy(out, in)
+	return out
+}
+
 // Snapshot returns the per-token healthz view.
 func (p *Pool) Snapshot() []TokenSnapshot {
 	toks := p.roster.Load()
@@ -224,6 +238,9 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			CountryCode:             countryCode,
 			CountryBlockReason:      countryReason,
 			AccessTier:              ss.AccessTier,
+			SubscriptionTierID:      ss.SubscriptionTierID,
+			LimitedModelOffers:      cloneLimitedModelOffers(ss.LimitedModelOffers),
+			LimitedOfferReason:      ss.LimitedOfferReason,
 			SessionActiveUsersForIP: ss.ActiveUsersForIP,
 			QuotaByModel:            ss.QuotaByModel,
 			QuotaStale:              ss.QuotaStale,

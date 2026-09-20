@@ -324,7 +324,7 @@ func AdminAPIPaths() []AdminAPIPath {
 
 		{Method: "GET", Path: "/admin/api/overview", OperationID: "getOverview", Summary: "Overview view model (pool, models, quota, upstream sync)", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: overviewData{}, Query: liveView},
 		{Method: "GET", Path: "/admin/api/tokens", OperationID: "getTokens", Summary: "Token cards view model", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: tokensData{}, Query: liveView},
-		{Method: "GET", Path: "/admin/api/models", OperationID: "getModels", Summary: "Served-model catalog view model", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: modelsData{}},
+		{Method: "GET", Path: "/admin/api/models", OperationID: "getModels", Summary: "Full model catalog view model (tiers, withdrawal and live offer state)", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: modelsData{}},
 		{Method: "GET", Path: "/admin/api/traces", OperationID: "getTraces", Summary: "Recent chat traces", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: tracesData{}},
 		{Method: "GET", Path: "/admin/api/setup", OperationID: "getSetup", Summary: "Setup wizard view model", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: setupData{}},
 		{Method: "GET", Path: "/admin/api/config", OperationID: "getConfig", Summary: "Effective config (sensitive: raw .env read)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: configData{}},
