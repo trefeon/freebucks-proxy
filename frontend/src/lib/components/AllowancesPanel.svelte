@@ -23,6 +23,7 @@
     freebucksResetCountdown,
     offPeakCopy,
   } from "../utils/freebucks.js";
+  import { formatLocalDateTime } from "../utils/format.js";
 
   let data = $state(null);
   let loading = $state(true);
@@ -120,6 +121,10 @@
   const resetCountdown = $derived(
     resetAt ? freebucksResetCountdown(resetAt, now) : "",
   );
+  // The strip's wall clock in the operator's own zone: reset_at is an
+  // absolute UTC stamp (Pacific midnight by default) and must never be
+  // printed raw — "resets in 4h 12m" alone hides which day it lands on.
+  const resetLocal = $derived(resetAt ? formatLocalDateTime(resetAt) : "");
 
   // Daily window math mirrors FreebucksQuotaBar: spent defaults to
   // limit − remaining when the server only sends the remainder.
@@ -288,9 +293,10 @@
         class="text-xs text-[var(--fp-muted)] font-mono"
         data-testid="reset-strip"
       >
-        {$tr("Daily pools reset at")}
-        {resetAt} · {$tr("resets in")}
-        {resetCountdown} · {$tr("shared for all accounts")}
+        {$tr(
+          "Daily pools reset at {time} · resets in {countdown} · shared for all accounts",
+          { time: resetLocal, countdown: resetCountdown },
+        )}
       </p>
     {/if}
   {/if}

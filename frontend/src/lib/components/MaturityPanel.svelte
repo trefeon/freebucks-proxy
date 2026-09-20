@@ -24,6 +24,7 @@
     touchLabel,
   } from "../utils/touchModels.js";
   import { tr } from "../i18n.js";
+  import { formatLocalDateTime } from "../utils/format.js";
 
   /**
    * Streak Maintenance board: universal automatic, one switch plus the
@@ -139,10 +140,11 @@
       savingGlobal = false;
     }
   }
+  // Run + touch stamps are absolute UTC on the wire: render them on the
+  // operator's wall clock with its zone. The Pacific day key printed beside
+  // them is the streak day, not this clock, so it stays Pacific.
   function fmtTime(iso) {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    return isNaN(d) ? "—" : d.toLocaleString();
+    return iso ? formatLocalDateTime(iso) : "—";
   }
 
   function fmtCountdown(ms) {

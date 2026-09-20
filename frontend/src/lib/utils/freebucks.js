@@ -10,6 +10,8 @@
  * - allow — everything else, including every row on an unmetered account.
  */
 
+import { formatLocalDateTime, zoneLabel } from "./format.js";
+
 export function freebucksOf(token) {
   return token?.freebucks ?? null;
 }
@@ -112,6 +114,52 @@ export function freebucksResetCountdown(resetAt, nowMs) {
   if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
+}
+
+// "2d 5h", "5h 32m", "38m", "12s" — until one Freebucks window refills;
+// "now" once the instant has passed, and an unparseable stamp is echoed back
+// rather than guessed at.
+export function freebucksWindowRel(at, nowMs) {
+  if (!at) return "—";
+  const t = new Date(at).getTime();
+  if (isNaN(t)) return at;
+  const ms = t - nowMs;
+  if (ms <= 0) return "now";
+  const mins = Math.floor(ms / 60000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    const hr = h % 24;
+    return hr > 0 ? `${d}d ${hr}h` : `${d}d`;
+  }
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${Math.max(1, Math.floor(ms / 1000))}s`;
+}
+
+/**
+ * The reset line one Freebucks window renders, from its wire stamps. Only the
+ * absolute instant can carry a countdown or an expiry claim; the vendor's own
+ * display string ("15:04 Jan 2") is a foreign wall clock with no year, so it
+ * renders as-is with the zone it was formatted in and never claims a reset
+ * already happened. Returns plain data — the component owns the wording.
+ * @param {{ resetAt?: string|null, resetZone?: string|null, resetAbsolute?: boolean }} win
+ * @param {number} nowMs
+ * @returns {{ shape: "none"|"pending"|"countdown"|"clock", rel: string, clock: string }}
+ */
+export function freebucksResetLine(win, nowMs) {
+  const at = win?.resetAt ?? "";
+  if (!at) return { shape: "none", rel: "", clock: "" };
+  const zone = win?.resetZone ?? null;
+  const clock = zone
+    ? `${at} (${zoneLabel(at, { timeZone: zone })})`
+    : formatLocalDateTime(at) || "—";
+  if (!win?.resetAbsolute) return { shape: "clock", rel: "", clock };
+  const ms = Date.parse(at);
+  if (Number.isFinite(ms) && ms <= nowMs)
+    return { shape: "pending", rel: "", clock };
+  return { shape: "countdown", rel: freebucksWindowRel(at, nowMs), clock };
 }
 
 // "$25", "$4.20", "$0" — whole dollars until the figure is small enough

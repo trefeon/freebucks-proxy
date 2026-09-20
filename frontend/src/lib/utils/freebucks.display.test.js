@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   formatFreebucks,
   firstTabListPriceFor,
+  freebucksResetLine,
   offPeakCopy,
   streakBonusNote,
 } from "./freebucks.js";
@@ -160,6 +161,76 @@ describe("formatFreebucks grouping", () => {
     assert.equal(formatFreebucks(1.5), "2");
     assert.equal(formatFreebucks(7.5), "8");
     assert.equal(formatFreebucks(2.5), "3");
+  });
+});
+
+describe("freebucksResetLine (absolute instant vs vendor display string)", () => {
+  const NOW = Date.parse("2026-09-20T07:00:00Z");
+  const win = (extra) => ({
+    resetAt: "",
+    resetZone: null,
+    resetAbsolute: false,
+    ...extra,
+  });
+
+  it("display-only: labels the vendor clock, never claims a reset happened", () => {
+    // "15:04 Jan 2" is a past LOCAL instant to V8's lenient parser; without an
+    // absolute stamp it must still render as the refill zone's wall clock.
+    const line = freebucksResetLine(
+      win({ resetAt: "15:04 Jan 2", resetZone: "UTC" }),
+      NOW,
+    );
+    assert.equal(line.shape, "clock");
+    assert.equal(line.clock, "15:04 Jan 2 (UTC)");
+  });
+
+  it("display-only: names the zone it was formatted in, whatever it is", () => {
+    const line = freebucksResetLine(
+      win({ resetAt: "15:04 Jan 2", resetZone: "Asia/Jakarta" }),
+      NOW,
+    );
+    assert.equal(line.shape, "clock");
+    assert.match(line.clock, /^15:04 Jan 2 \(.+\)$/);
+  });
+
+  it("display-only without a zone still shows the stamp, never a countdown", () => {
+    const line = freebucksResetLine(win({ resetAt: "15:04 Jan 2" }), NOW);
+    assert.equal(line.shape, "clock");
+    assert.equal(line.rel, "");
+  });
+
+  it("only an absolute instant that passed reads as pending", () => {
+    assert.equal(
+      freebucksResetLine(
+        win({ resetAt: "2026-09-20T06:00:00Z", resetAbsolute: true }),
+        NOW,
+      ).shape,
+      "pending",
+    );
+  });
+
+  it("absolute ahead: counts down and re-anchors the clock", () => {
+    const twoDays = freebucksResetLine(
+      win({ resetAt: "2026-09-22T07:00:00Z", resetAbsolute: true }),
+      NOW,
+    );
+    assert.equal(twoDays.shape, "countdown");
+    assert.equal(twoDays.rel, "2d");
+    assert.match(twoDays.clock, /^Sep 22, \d{2}:\d{2} [AP]M \(.+\)$/);
+
+    const fiveHours = freebucksResetLine(
+      win({ resetAt: "2026-09-20T12:32:00Z", resetAbsolute: true }),
+      NOW,
+    );
+    assert.equal(fiveHours.rel, "5h 32m");
+  });
+
+  it("no stamp at all renders nothing", () => {
+    assert.deepEqual(freebucksResetLine(win({}), NOW), {
+      shape: "none",
+      rel: "",
+      clock: "",
+    });
   });
 });
 
