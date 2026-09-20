@@ -1,17 +1,20 @@
-// slot_ledger.go — MASQ slot ledger: live-turn slot semaphore with a FIFO
-// waiter queue, keyed per (account, model).
+// slot_ledger.go — MASQ slot ledger: live-turn slot semaphore, keyed per
+// (account, model).
 //
 // SLOTS_PER_ACCOUNT (default 2; 0 = unlimited) is a hard wall per
 // (account, model) on live turns: a lease is granted only while the token
 // holds fewer live turns for that model than the cap; LeaseRelease/
-// LeaseAbandon returns the slot and wakes the FIFO head. One account may
-// hold 2 turns of model A and 2 turns of model B at the same time — lanes
-// for different models never share counters or queues. QUEUE_WAIT
-// (default 30s) deadline and the QUEUE_DEPTH (default 16) cap. Overflow
-// and timeout return the typed queue-exhausted signal below, which the
-// spill loop consumes — never a new client error code.
+// LeaseAbandon returns the slot. One account may hold 2 turns of model A
+// and 2 turns of model B at the same time — lanes for different models
+// never share counters. QUEUE_WAIT (default 30s) deadline and the
+// QUEUE_DEPTH (default 16) cap. Overflow and timeout return the typed
+// queue-exhausted signal below, which the spill loop consumes — never a new
+// client error code.
 // Bridge mode gets the SAME hard wall: one slot state per (bridge entry,
-// model) exactly as a pooled lane is keyed per (token entry, model).
+// model) exactly as a pooled lane is keyed per (token entry, model), with
+// the per-lane FIFO waiter park below. Pooled waiters park on the global
+// per-model queue instead (model_queue.go); pooled lane-local queues stay
+// empty, and a pooled Release hands the freed slot to the model queue head.
 //
 // Slot/queue state is in-memory only and resets to zero on restart: it
 // rides no pool_state rows and invents no SQL.
@@ -118,8 +121,12 @@ type slotPermit struct {
 	released atomic.Bool
 }
 
-// Release returns the live-turn slot, waking the FIFO head when waiters
-// park. Nil-safe and idempotent.
+// Release returns the live-turn slot: with lane-local waiters parked the
+// slot transfers directly to the FIFO head (the live count is unchanged —
+// a third live turn never exists); otherwise the live count decrements and
+// a pooled lane hands the freed slot to its model queue head
+// (model_queue.go — work-conserving handoff across lanes). Nil-safe and
+// idempotent.
 func (s *slotPermit) Release() {
 	if s == nil || s.pool == nil || !s.released.CompareAndSwap(false, true) {
 		return
@@ -141,7 +148,8 @@ func (s *slotPermit) Release() {
 	if st.live > 0 {
 		st.live--
 	}
-	if st.live == 0 {
+	p.handoffModelQueueLocked(s.key, st)
+	if st.live == 0 && st.waiters.Len() == 0 {
 		delete(p.routeSlots, s.key)
 	}
 }
@@ -181,7 +189,7 @@ func (p *Pool) slotAcquire(ctx context.Context, key slotKey, displayIdx int, cap
 	}
 	p.routeMu.Lock()
 	st := p.slotStateLocked(key)
-	if st.live < cap {
+	if st.live < cap && st.waiters.Len() == 0 {
 		st.live++
 		p.routeMu.Unlock()
 		return &slotPermit{pool: p, key: key}, false, nil
@@ -250,10 +258,13 @@ func (p *Pool) slotQueued(key slotKey) int {
 	return 0
 }
 
-// slotEntryStats aggregates every model lane of one entry (pooled token or
-// bridge) into a single live/queued/oldest triple for the per-account
-// snapshot: live and queued sum across models, oldest is the longest-parked
-// waiter of any lane.
+// slotEntryStats aggregates one entry (pooled token or bridge) into a
+// live/queued/oldest triple for the per-account snapshot: live sums every
+// model lane, lane-local queued sums every lane queue (bridge parks there;
+// pooled lane-local queues stay empty), and each model's global queue
+// depth/head age reports on the FIRST admissible lane in roster index order
+// (the head lane), 0 on the others — this keeps the existing saturation
+// signal and the pinned-lane expectation.
 func (p *Pool) slotEntryStats(entry any) (live, queued int, oldestWait time.Duration) {
 	p.routeMu.Lock()
 	defer p.routeMu.Unlock()
@@ -271,6 +282,32 @@ func (p *Pool) slotEntryStats(entry any) (live, queued int, oldestWait time.Dura
 					}
 				}
 			}
+		}
+	}
+	toks := p.roster.Load()
+	cfg := p.cfg.Load()
+	now := time.Now()
+	for model, q := range p.routeQueues {
+		if q == nil || q.waiters == nil || q.waiters.Len() == 0 {
+			continue
+		}
+		for i := range *toks {
+			tok := (*toks)[i]
+			if tok == nil {
+				continue
+			}
+			if !p.laneAdmissible(tok, i, model, cfg, now, false) {
+				continue
+			}
+			if any(tok) == entry {
+				queued += q.waiters.Len()
+				if head, ok := q.waiters.Front().Value.(*modelWaiter); ok && !head.at.IsZero() {
+					if d := time.Since(head.at); d > oldestWait {
+						oldestWait = d
+					}
+				}
+			}
+			break
 		}
 	}
 	return live, queued, oldestWait

@@ -365,8 +365,13 @@ type Pool struct {
 	// Guarded by routeMu. In-memory only: a restart resets every counter
 	// to zero (same discipline as the probe scheduler's transient flags)
 	// - no pool_state rows, no SQL.
-	routeMu    sync.Mutex
-	routeSlots map[slotKey]*slotState
+	// Smart model queues (model_queue.go) share routeMu: one
+	// work-conserving FIFO per model for pooled entries (bridge entries
+	// keep the per-lane park above). Lazily created like routeSlots, so
+	// no constructor change is needed.
+	routeMu     sync.Mutex
+	routeSlots  map[slotKey]*slotState
+	routeQueues map[string]*modelQueue
 
 	// MASQ precious sessions (precious.go): open set of (entry, model)
 	// pairs whose live session is never proactively dropped (load drops,

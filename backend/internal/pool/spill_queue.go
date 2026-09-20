@@ -1,21 +1,25 @@
-// spill_queue.go — MASQ ordered lanes with spill-on-wait-expiry.
+// spill_queue.go — MASQ spill budget with scale-out on wait expiry.
 //
-// One Acquire walks the account lanes in roster index order (#1..#N) for
-// the requested model. A lane whose slots are full parks the caller FIFO
-// (slot_ledger.go); only when the lane's QUEUE_WAIT budget elapses does
-// the request spill to the next lane. A full lane is NOT an upstream
-// refusal, so spilled lanes write no rate-limit bucket entry and record
-// no error string — the spill is silent. When every lane spills, the last
-// lane's signal surfaces once as the existing 429 rate-limit shape.
+// One Acquire scans the account lanes in roster index order (#1..#N) for
+// the requested model. A lane with a free slot and an already-usable
+// session grants instantly; otherwise the request parks on the model's
+// global FIFO queue (model_queue.go). Only when the queue's QUEUE_WAIT
+// budget elapses does the request scale out to the next cold lane. A full
+// lane is NOT an upstream refusal, so scaled lanes write no rate-limit
+// bucket entry and record no error string — the scale-out is silent. When
+// no lane is left, the last signal surfaces once as the existing 429
+// rate-limit shape.
 //
 // MAX_SPILL_ACCOUNTS bounds the walk: the head lane plus that many
 // continuation accounts (0 = unbounded, the full index chain). A 429 quota
 // requeue (I5) never consumes spill budget: waiting out a quota window on
-// the same lane is not a spill hop.
+// the same lane is not a spill hop. The same-lane requeue itself lives in
+// acquire_route.go (modelRequeue): after the jail it retakes its own lane's
+// free slot when one is still open, else retries the immediate-grant scan
+// and otherwise rejoins the model queue at the head.
 package pool
 
 import (
-	"context"
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/upstream"
 	"time"
@@ -72,31 +76,4 @@ func quotaRequeueNotBefore(rle *upstream.RateLimitError, laneWait time.Duration)
 		return time.Time{}, false
 	}
 	return time.Now().Add(rle.RetryAfter), true
-}
-
-// slotRequeue parks the caller for a same-lane quota requeue (I5): it
-// sleeps until notBefore (the quota jail expiry), then acquires on the
-// same lane normally — tail of the lane queue when contended, immediate
-// grant when the lane drained meanwhile. It never touches the spill chain
-// (waiting out a quota window is not a spill hop) and writes no cooldown:
-// the upstream RetryAfter is the only clock. The caller's ctx bounds the
-// whole wait. It reports whether the caller waited at all (jail sleep or
-// lane park) for queue-wait telemetry.
-func (p *Pool) slotRequeue(ctx context.Context, key slotKey, displayIdx int, cap, depth int, wait time.Duration, notBefore time.Time) (*slotPermit, bool, error) {
-	slept := false
-	if delay := time.Until(notBefore); delay > 0 {
-		slept = true
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return nil, true, ctx.Err()
-		case <-timer.C:
-		}
-	}
-	permit, parked, err := p.slotAcquire(ctx, key, displayIdx, cap, depth, wait)
-	if err != nil {
-		return nil, true, err
-	}
-	return permit, slept || parked, nil
 }

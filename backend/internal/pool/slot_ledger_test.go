@@ -42,6 +42,9 @@ func TestSlotRacingCapWaits(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, nil, mock)
+	// Warm: the smart queue grants instantly only on free slot + usable
+	// session; the tests below measure slot mechanics, not cold admission.
+	smartWarmLane(t, p, modelA, 0)
 	entry := smartEntry(p, 0)
 
 	first, err := p.Acquire(context.Background(), modelA)
@@ -65,7 +68,7 @@ func TestSlotRacingCapWaits(t *testing.T) {
 		lease, err := p.Acquire(context.Background(), modelA)
 		thirdCh <- result{lease, err}
 	}()
-	eventually(t, "third acquire parks", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
+	eventually(t, "third acquire parks", func() bool { return p.modelQueueDepth(modelA) == 1 })
 	if got := p.slotLive(slotKey{entry: entry, model: modelA}); got != 2 {
 		t.Fatalf("live slots while parked = %d, want 2 (never a third live turn)", got)
 	}
@@ -111,6 +114,9 @@ func TestSlotFIFOOrder(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
+	// Warm: the smart queue grants instantly only on free slot + usable
+	// session; the tests below measure slot mechanics, not cold admission.
+	smartWarmLane(t, p, modelA, 0)
 	entry := smartEntry(p, 0)
 
 	holder, err := p.Acquire(context.Background(), modelA)
@@ -126,7 +132,7 @@ func TestSlotFIFOOrder(t *testing.T) {
 		lease, err := p.Acquire(context.Background(), modelA)
 		aCh <- result{lease, err}
 	}()
-	eventually(t, "waiter A parks", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
+	eventually(t, "waiter A parks", func() bool { return p.modelQueueDepth(modelA) == 1 })
 
 	p.LeaseRelease(holder)
 	var leaseA *Lease
@@ -145,7 +151,7 @@ func TestSlotFIFOOrder(t *testing.T) {
 		lease, err := p.Acquire(context.Background(), modelA)
 		bCh <- result{lease, err}
 	}()
-	eventually(t, "waiter B parks behind A", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
+	eventually(t, "waiter B parks behind A", func() bool { return p.modelQueueDepth(modelA) == 1 })
 	select {
 	case r := <-bCh:
 		t.Fatalf("waiter B granted before A released: %v %v", r.lease, r.err)
@@ -210,7 +216,6 @@ func TestSlotQueueOverflow429(t *testing.T) {
 		c.SlotsPerAccount = 1
 		c.QueueDepth = 1
 	}, mock)
-	entry := smartEntry(p, 0)
 
 	holder, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
@@ -225,7 +230,7 @@ func TestSlotQueueOverflow429(t *testing.T) {
 		lease, err := p.Acquire(context.Background(), modelA)
 		parkedCh <- result{lease, err}
 	}()
-	eventually(t, "waiter parks", func() bool { return p.slotQueued(slotKey{entry: entry, model: modelA}) == 1 })
+	eventually(t, "waiter parks", func() bool { return p.modelQueueDepth(modelA) == 1 })
 
 	// The overflow contender asks for the SAME model: lanes are keyed per
 	// (account, model), so a different model would take its own empty lane
@@ -332,7 +337,7 @@ func TestSlotDrainParityNoPressure(t *testing.T) {
 	defer mock0.Close()
 	mock1 := testutil.NewMock()
 	defer mock1.Close()
-	p := newSmartTestPool(t, nil, mock0, mock1)
+	p := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, mock0, mock1)
 
 	const n = 6
 	got := make([]int, n)
@@ -365,6 +370,8 @@ func TestSlotHotStickiness(t *testing.T) {
 	mock1 := testutil.NewMock()
 	defer mock1.Close()
 	p := newSmartTestPool(t, nil, mock0, mock1)
+	// Warm: this round measures hot-session reuse, not cold admission.
+	smartWarmLane(t, p, modelA, 0)
 
 	for i := range 4 {
 		lease, err := p.Acquire(context.Background(), modelA)
@@ -389,7 +396,7 @@ func TestSlotAllCappedDegrades(t *testing.T) {
 	defer mock0.Close()
 	mock1 := testutil.NewMock()
 	defer mock1.Close()
-	p := newSmartTestPool(t, nil, mock0, mock1)
+	p := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, mock0, mock1)
 
 	rle := &upstream.RateLimitError{
 		Status: "rate_limited", Model: modelA, RetryAfter: time.Minute,
@@ -419,7 +426,7 @@ func TestSlotTransientHookFires(t *testing.T) {
 	}
 	mock1 := testutil.NewMock()
 	defer mock1.Close()
-	p := newSmartTestPool(t, nil, mock0, mock1)
+	p := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, mock0, mock1)
 
 	lease, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
@@ -464,6 +471,9 @@ func TestSlotLedgerTwoSlotsThirdParks(t *testing.T) {
 		c.QueueWait = 2 * time.Second
 		c.QueueDepth = 16
 	}, mock0, mock1)
+	// Warm: the smart queue grants instantly only on free slot + usable
+	// session; the tests below measure slot mechanics, not cold admission.
+	smartWarmLane(t, p, modelA, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	m1, err := p.Acquire(ctx, modelA)
@@ -520,8 +530,10 @@ func TestSlotLedgerTwoSlotsThirdParks(t *testing.T) {
 
 // TestSlotLedgerPerModelIsolation is the MASQ R2 isolation keeper: lanes
 // are keyed per (account, model), so 2 turns of modelA plus 2 turns of
-// modelB run together on account #1 (4 live turns, zero parks) while
-// account #2 sees no contact at all.
+// modelB run together on account #1 (4 live turns) while account #2 sees
+// no contact at all. Each model's first touch parks once for cold
+// admission (modelA arrives warm here; modelB's first parks); hot
+// sessions reuse with zero parks.
 func TestSlotLedgerPerModelIsolation(t *testing.T) {
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
@@ -529,9 +541,12 @@ func TestSlotLedgerPerModelIsolation(t *testing.T) {
 	t.Cleanup(mock1.Close)
 	p := newSmartTestPool(t, func(c *config.Config) {
 		c.SlotsPerAccount = 2
-		c.QueueWait = 2 * time.Second
+		c.QueueWait = 300 * time.Millisecond
 		c.QueueDepth = 16
 	}, mock0, mock1)
+	// Warm for modelA only: the lane holds one session at a time, so
+	// modelB's first touch still exercises cold per-model admission.
+	smartWarmLane(t, p, modelA, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	var held []*Lease
@@ -558,8 +573,19 @@ func TestSlotLedgerPerModelIsolation(t *testing.T) {
 		if l.Token != 0 {
 			t.Fatalf("lease %d on account #%d, want #1 (2xA + 2xB share one account)", i, l.Token+1)
 		}
-		if l.QueueWait != 0 {
-			t.Fatalf("lease %d parked (%v), want zero parks (per-model slots free)", i, l.QueueWait)
+		switch {
+		case i < 2:
+			if l.QueueWait != 0 {
+				t.Fatalf("lease %d parked (%v), want zero parks (lane warm for modelA)", i, l.QueueWait)
+			}
+		case i == 2:
+			if l.QueueWait <= 0 {
+				t.Fatalf("lease %d never parked, want >0 (cold per-model admission parks once)", i)
+			}
+		default:
+			if l.QueueWait != 0 {
+				t.Fatalf("lease %d parked (%v), want zero parks (modelB session hot)", i, l.QueueWait)
+			}
 		}
 	}
 	entry := smartEntry(p, 0)

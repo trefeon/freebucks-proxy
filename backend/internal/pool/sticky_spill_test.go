@@ -46,7 +46,7 @@ func TestStickySpillLongWindowSticksToHealthyLane(t *testing.T) {
 		w.WriteHeader(200)
 		_, _ = io.WriteString(w, activeBody("inst-0", modelA))
 	}
-	p := newSmartTestPool(t, nil, mock0, mock1)
+	p := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, mock0, mock1)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -107,7 +107,7 @@ func TestStickySpillMemoryIsPerModel(t *testing.T) {
 		w.WriteHeader(200)
 		_, _ = io.WriteString(w, activeBody("inst-mock0", modelA))
 	}
-	p := newSmartTestPool(t, nil, mock0, mock1)
+	p := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, mock0, mock1)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -136,9 +136,11 @@ func TestStickySpillMemoryIsPerModel(t *testing.T) {
 	}
 }
 
-// TestStickySpillShortWindowExpires pins the window lifecycle end to end: a
-// short refusal is remembered, then re-attempted live once its window
-// lapses — the second request still succeeds via failover, never hanging.
+// TestStickySpillShortWindowExpires pins the window lifecycle end to end:
+// a short refusal is remembered, then lapses (ModelRateLimit reads nil
+// again) — while the request itself keeps succeeding on the healthy lane.
+// The lapsed lane is retried only when the walk actually reaches it; a
+// warm lane with a live session wins with zero upstream contact.
 func TestStickySpillShortWindowExpires(t *testing.T) {
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
@@ -187,15 +189,25 @@ func TestStickySpillShortWindowExpires(t *testing.T) {
 	}
 	defer p.LeaseRelease(lease2)
 	if lease2.Token != 1 {
-		t.Fatalf("second lease token = %d, want 1 (failover after live re-attempt)", lease2.Token)
+		t.Fatalf("second lease token = %d, want 1 (healthy lane reused)", lease2.Token)
 	}
-	if got := posts0.Load(); got != 2 {
-		t.Fatalf("lane #1 session POSTs = %d, want 2 (re-attempted after expiry)", got)
+	// The lapsed lane is admissible again but cold, so the warm lane wins
+	// with zero upstream contact: the re-attempt happens only when the
+	// walk actually reaches the lane (scale-out index order).
+	if got := posts0.Load(); got != 1 {
+		t.Fatalf("lane #1 session POSTs = %d, want 1 (warm lane reused, no contact)", got)
+	}
+	if got := mock1.SessionCreatesSnapshot(); got != 1 {
+		t.Fatalf("lane #2 session creates = %d, want 1 (live session reused, zero admission)", got)
+	}
+	if lease2.QueueWait != 0 {
+		t.Errorf("second lease QueueWait = %v, want 0 (scan-hit reuse, never parked)", lease2.QueueWait)
 	}
 }
 
 // TestStickySpillOpaqueNeverRemembered pins that a 429 without any expiry
-// signal is retried live every time: both requests hit the lane.
+// signal never parks the lane: no refusal is remembered, and the healthy
+// lane keeps serving with zero extra contact.
 //
 // Shape note: the body is deliberately non-JSON. A JSON admission 429 is
 // always floored to a 1m RetryAfter by the session layer (statusError)
@@ -218,7 +230,7 @@ func TestStickySpillOpaqueNeverRemembered(t *testing.T) {
 		w.WriteHeader(200)
 		_, _ = io.WriteString(w, activeBody("inst-0", modelA))
 	}
-	p := newSmartTestPool(t, nil, mock0, mock1)
+	p := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, mock0, mock1)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -237,8 +249,17 @@ func TestStickySpillOpaqueNeverRemembered(t *testing.T) {
 		t.Fatalf("second acquire: %v", err)
 	}
 	defer p.LeaseRelease(lease2)
-	if got := posts0.Load(); got != 2 {
-		t.Fatalf("lane #1 session POSTs = %d, want 2 (opaque refusal retried live)", got)
+	if lease2.Token != 1 {
+		t.Fatalf("second lease token = %d, want 1 (healthy lane reused)", lease2.Token)
+	}
+	// An opaque refusal parks no memory, but the walk still prefers the
+	// warm lane: lane #1 sees no new contact while it holds a live
+	// session for the model.
+	if got := posts0.Load(); got != 1 {
+		t.Fatalf("lane #1 session POSTs = %d, want 1 (warm lane reused, no contact)", got)
+	}
+	if got := entry0.runs.ModelRateLimit(modelA); got != nil {
+		t.Fatalf("ModelRateLimit = %v after second opaque cycle, want nil (never parked)", got)
 	}
 }
 

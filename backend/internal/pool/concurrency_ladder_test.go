@@ -56,14 +56,13 @@ package pool
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 const (
@@ -73,8 +72,8 @@ const (
 
 	// ladParkDetect is the park-detection heuristic bound: an instant-mock
 	// acquire returns in milliseconds, so silence past this bound with a
-	// grown FIFO queue means genuinely parked (verified via slotQueued,
-	// never assumed). It is detection only — holds stay channel-gated.
+	// grown model queue (verified via modelQueueDepth, never assumed) means
+	// genuinely parked. It is detection only — holds stay channel-gated.
 	ladParkDetect = 100 * time.Millisecond
 	ladStepTO     = 5 * time.Second
 )
@@ -110,6 +109,26 @@ func newLadderPool(t *testing.T, n int, _ string, wait time.Duration) (*Pool, []
 		t.Fatalf("slotParams = %d/%d/%v, want %d/%d/%v (control)", cap, depth, wt, ladCap, ladDepth, wait)
 	}
 	return p, mocks
+}
+
+// ladWarmLane provisions an already-usable session on one lane without
+// taking a slot (direct session-manager admission, no park): the smart
+// model queue grants instantly only on a free slot PLUS a usable session,
+// so a stone-cold pool would park every wave's first arrival for the full
+// QUEUE_WAIT while the scale-out admits it. Cold admission is the
+// short-wait tests' business (slot_ledger, spill_queue, queue_wait); the
+// ladder measures slot mechanics (caps, FIFO, stick-first distribution),
+// so each wave starts with its head lane session-warm. One lane only —
+// the creates==1 / creates==0 pins stay meaningful.
+func ladWarmLane(t *testing.T, p *Pool, model string, idx int) {
+	t.Helper()
+	toks := p.roster.Load()
+	if idx < 0 || idx >= len(*toks) || (*toks)[idx] == nil {
+		t.Fatalf("ladder warm-up lane %d out of range (roster %d)", idx, len(*toks))
+	}
+	if _, err := (*toks)[idx].session.EnsureSessionForModel(context.Background(), model); err != nil {
+		t.Fatalf("ladder warm-up lane %d: %v", idx, err)
+	}
 }
 
 // ladSlots snapshots per-token live turns and parked waiters.
@@ -150,11 +169,12 @@ func assertLadCaps(t *testing.T, peak []int, what string) {
 	}
 }
 
-// acquireHeld sequentially acquires n leases (solo leaders — deterministic
-// routing, no election-gate followers) and holds them: all n turns are live
+// acquireHeld sequentially acquires n leases on a session-warm head lane
+// (deterministic routing) and holds them: all n turns are live
 // simultaneously on return.
 func acquireHeld(t *testing.T, ctx context.Context, p *Pool, model string, n int) []*Lease {
 	t.Helper()
+	ladWarmLane(t, p, model, 0)
 	held := make([]*Lease, 0, n)
 	for range n {
 		l, err := p.Acquire(ctx, model)
@@ -202,7 +222,22 @@ type ladWaveResult struct {
 // otherwise. Settled (transfer-released) leases are dead and never released
 // twice.
 func runLadWave(t *testing.T, p *Pool, model string, c int) ladWaveResult {
+	return runLadWaveInner(t, p, model, c, true)
+}
+
+// runLadWaveCold is the no-warm-up variant for the admission-storm round
+// (round I): the replacement session must come from the wave's own
+// scale-out, not the harness. The first arrival parks cold with no holder
+// to release, so the settle below awaits its scale-out grant instead.
+func runLadWaveCold(t *testing.T, p *Pool, model string, c int) ladWaveResult {
+	return runLadWaveInner(t, p, model, c, false)
+}
+
+func runLadWaveInner(t *testing.T, p *Pool, model string, c int, warm bool) ladWaveResult {
 	t.Helper()
+	if warm {
+		ladWarmLane(t, p, model, 0)
+	}
 	n := len(*p.roster.Load())
 	start := make([]chan struct{}, c)
 	resCh := make([]chan ladWorkerRes, c)
@@ -300,7 +335,12 @@ func runLadWave(t *testing.T, p *Pool, model string, c int) ladWaveResult {
 				sample()
 				victims := heldByToken[where]
 				if len(victims) == 0 {
-					t.Fatalf("wave(%d): worker %d parked on token %d with no holder to release", c, i, where)
+					// Cold head lane (no holders yet — the scale-out
+					// admits it after QUEUE_WAIT): nothing to release,
+					// so await the scale-out grant. Only the unwarmed
+					// admission-storm round parks here.
+					awaitGrant(i, "cold admission")
+					continue
 				}
 				rel := victims[0]
 				heldByToken[where] = victims[1:]
@@ -836,12 +876,9 @@ func ladQuarantineViaBan(t *testing.T, ctx context.Context, p *Pool, mocks []*te
 // zero parks, C>cap with 2 live + (C-2) parked FIFO. Banned takes ZERO
 // turns; all succeed.
 func TestConcurrencyLadderBanned(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool ladder lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	ctx := context.Background()
 	for _, c := range []int{1, 2, 3, 4, 5, 6, 8} {
-		p, mocks := newLadderPool(t, 5, "drain", 0)
+		p, mocks := newLadderPool(t, 5, "drain", 500*time.Millisecond)
 		ladQuarantineViaBan(t, ctx, p, mocks, 4, modelA)
 		createsBefore := mocks[0].SessionCreatesSnapshot()
 		if c <= 2 {
@@ -892,7 +929,7 @@ func TestConcurrencyLadderBanned(t *testing.T) {
 			t.Fatalf("banned C=%d: holder creates = %d, want 1 (one entitlement serves the wave)", c, got)
 		}
 	}
-	p10, mocks10 := newLadderPool(t, 5, "drain", 0)
+	p10, mocks10 := newLadderPool(t, 5, "drain", 500*time.Millisecond)
 	ladQuarantineViaBan(t, ctx, p10, mocks10, 4, modelA)
 	createsBefore10 := mocks10[0].SessionCreatesSnapshot()
 	r := runLadWave(t, p10, modelA, 10)
@@ -1309,4 +1346,68 @@ func TestAffinityExpired(t *testing.T) {
 		}
 	}
 	t.Logf("AFFIN expired: replacement landed on account %d, 5/5 served on instance %s, replacement creates=1, errors=0", landing+1, inst[0])
+}
+
+// TestConcurrencyLadderAdmissionStorm is round I: six concurrent cold
+// arrivals over a 5-account pool with a short wait and NO harness
+// warm-up — every admission must come from the wave's own scale-out.
+// The storm converges to 2/2/2 live turns on accounts 1-3 with exactly
+// one session create per serving lane (concurrent cold admissions
+// collapse via the session manager's single-flight), accounts 4-5 see
+// zero contact, and every lease reports QueueWait>0 (all six parked;
+// nothing fast-grants cold). No arrival order is pinned — the counts
+// hold under any interleaving.
+func TestConcurrencyLadderAdmissionStorm(t *testing.T) {
+	p, mocks := newLadderPool(t, 5, "drain", 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	const c = 6
+	type result struct {
+		lease *Lease
+		err   error
+	}
+	resCh := make(chan result, c)
+	var wg sync.WaitGroup
+	for range c {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l, err := p.Acquire(ctx, modelA)
+			resCh <- result{l, err}
+		}()
+	}
+	wg.Wait()
+	close(resCh)
+	var held []*Lease
+	counts := make([]int, 5)
+	for r := range resCh {
+		if r.err != nil {
+			t.Fatalf("storm acquire: %v (want zero errors)", r.err)
+		}
+		held = append(held, r.lease)
+		counts[r.lease.Token]++
+		if r.lease.QueueWait <= 0 {
+			t.Errorf("storm lease on token %d QueueWait=%v, want >0 (cold arrivals all park)", r.lease.Token, r.lease.QueueWait)
+		}
+	}
+	if counts[0] != 2 || counts[1] != 2 || counts[2] != 2 || counts[3] != 0 || counts[4] != 0 {
+		t.Fatalf("storm split = %v, want [2 2 2 0 0] (scale-out fills in index order)", counts)
+	}
+	for i := range 3 {
+		if got := mocks[i].SessionCreatesSnapshot(); got != 1 {
+			t.Errorf("account #%d creates = %d, want 1 (single-flight, one session shared)", i+1, got)
+		}
+	}
+	for i := 3; i < 5; i++ {
+		if got := mocks[i].SessionCreatesSnapshot(); got != 0 {
+			t.Errorf("account #%d creates = %d, want 0 (storm never reaches it)", i+1, got)
+		}
+	}
+	live, queued := ladSlots(p)
+	if ladSum(live) != c || ladSum(queued) != 0 {
+		t.Fatalf("storm live/queued = %v/%v, want 6 total live and an empty queue", live, queued)
+	}
+	releaseHeld(p, held)
+	assertLadQuiescent(t, p, "admission-storm")
+	t.Logf("LADDER admission-storm: split=%v creates=1/1/1/0/0 queue-waits>0 errors=0", counts)
 }

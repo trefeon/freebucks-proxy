@@ -3,14 +3,13 @@ package pool
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestSpillWaitsFullQueueWaitBeforeTouchingNextAccount proves the spill
@@ -18,9 +17,6 @@ import (
 // #1's lane — account #2 sees zero contact before QUEUE_WAIT elapses —
 // then the waiter spills and is granted on #2 with QueueWait>0.
 func TestSpillWaitsFullQueueWaitBeforeTouchingNextAccount(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool spill lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()
@@ -30,6 +26,9 @@ func TestSpillWaitsFullQueueWaitBeforeTouchingNextAccount(t *testing.T) {
 		c.QueueWait = 1500 * time.Millisecond
 		c.QueueDepth = 16
 	}, mock0, mock1)
+	// Warm: the two holder slots grant instantly; the third still parks
+	// the full wait because the head lane is full, not because it is cold.
+	smartWarmLane(t, p, modelA, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	l1, err := p.Acquire(ctx, modelA)
@@ -84,9 +83,6 @@ func TestSpillWaitsFullQueueWaitBeforeTouchingNextAccount(t *testing.T) {
 // first take #1's fast-path slots (QueueWait==0), any two of the
 // remaining three take #2's spilled slots, and one always loses.
 func TestSpillBurst5TwoAccounts(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool spill lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()
@@ -96,6 +92,10 @@ func TestSpillBurst5TwoAccounts(t *testing.T) {
 		c.QueueWait = 1500 * time.Millisecond
 		c.QueueDepth = 16
 	}, mock0, mock1)
+	// Warm: lane #1 serves its two fast-path slots instantly (QueueWait==0
+	// proves it); lane #2 stays cold so the rest spill only after #1's
+	// wait elapses.
+	smartWarmLane(t, p, modelA, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

@@ -20,12 +20,16 @@ func TestPreciousTwoAccountsSameModel(t *testing.T) {
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()
 	t.Cleanup(mock1.Close)
+	// The mocks share the static default instance id, so lane #2 gets its
+	// own before the burst: the terminal supersede phase tells the healthy
+	// lane's session apart from the dead one by id.
+	mock1.InstanceID = "inst-second-lane"
 	p := newSmartTestPool(t, func(c *config.Config) {
 		c.SlotsPerAccount = 2
-		c.QueueWait = 1500 * time.Millisecond
+		c.QueueWait = 1000 * time.Millisecond
 		c.QueueDepth = 16
 	}, mock0, mock1)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	// Four contenders over 2 accounts x cap 2: every lease grants, split 2/2
@@ -139,9 +143,11 @@ func TestPreciousTwoAccountsSameModel(t *testing.T) {
 		t.Errorf("post-idle instance = %q, want precious %q", after.SessionInstanceID, inst[0])
 	}
 
-	// Terminal exception: a superseded session still drops so the next
-	// request re-admits fresh. The mock serves a static instance id, so
-	// rotate it first to tell the re-admission apart from the kept one.
+	// Terminal exception: a superseded session still drops — the next
+	// request never reuses the dead instance. The healthy lane serves it
+	// at once (no re-admit churn while a live session stands); the dead
+	// lane heals lazily on the next spill. The mock serves a static
+	// instance id, so rotate it first to tell the lanes apart.
 	mock0.InstanceID = "inst-readmit-2"
 	p.InvalidateLeaseSessionWithReason(after, session.ReasonSuperseded, 409)
 	p.LeaseRelease(after)
@@ -151,9 +157,12 @@ func TestPreciousTwoAccountsSameModel(t *testing.T) {
 	}
 	defer p.LeaseRelease(fresh)
 	if fresh.SessionInstanceID == inst[0] {
-		t.Errorf("post-superseded instance = %q, want a fresh admission (superseded drops)", fresh.SessionInstanceID)
+		t.Errorf("post-superseded instance = %q, want the healthy lane's session (superseded drops)", fresh.SessionInstanceID)
 	}
-	if got := mock0.SessionCreatesSnapshot(); got != 2 {
-		t.Errorf("account #1 creates after superseded = %d, want 2 (re-admit)", got)
+	if fresh.Token != 1 {
+		t.Errorf("post-superseded token = %d, want 1 (healthy lane serves at once)", fresh.Token)
+	}
+	if got := mock0.SessionCreatesSnapshot(); got != 1 {
+		t.Errorf("account #1 creates after superseded = %d, want 1 (no re-admit churn; lane heals on next spill)", got)
 	}
 }

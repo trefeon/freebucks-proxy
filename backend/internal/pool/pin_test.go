@@ -2,13 +2,12 @@ package pool
 
 import (
 	"context"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestPinBurst5OneAccount is the MASQ I4 burst keeper: slot 0 pinned to
@@ -16,9 +15,6 @@ import (
 // the pinned lane — while slot 1 (pinned to modelB) sees zero contact and
 // no client-visible error surfaces.
 func TestPinBurst5OneAccount(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool pin-burst lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()
@@ -29,6 +25,9 @@ func TestPinBurst5OneAccount(t *testing.T) {
 		c.QueueDepth = 16
 		c.PinModel = map[int]string{0: modelA, 1: modelB}
 	}, mock0, mock1)
+	// Warm lane #1 (pinned to modelA): the holders grant instantly while
+	// lane #2 stays cold and pinned away, so the burst queues on #1.
+	smartWarmLane(t, p, modelA, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

@@ -12,15 +12,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log/slog"
-	"strings"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/phasetiming"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"log/slog"
+	"strings"
+	"testing"
+	"time"
 )
 
 // parkHold is the bounded hold kept while the waiter is already parked on
@@ -36,17 +35,23 @@ func waitForParkedWaiter(t *testing.T, p *Pool, key slotKey) {
 	eventually(t, "waiter parks on the live-turn queue", func() bool { return p.slotQueued(key) == 1 })
 }
 
+// waitForModelParkedWaiter waits until the model's global queue holds
+// exactly one waiter (pooled lanes never park lane-locally; slotQueued
+// stays for the bridge path and its unit tests).
+func waitForModelParkedWaiter(t *testing.T, p *Pool, model string) {
+	t.Helper()
+	eventually(t, "waiter parks on the model queue", func() bool { return p.modelQueueDepth(model) == 1 })
+}
+
 // TestQueueWaitRecordedWhenParkedThenGranted proves the granted-after-park
 // path reports its wait: the lease carries it and the request's phase
 // accumulator carries queue_wait_ms.
 func TestQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
-	entry := smartEntry(p, 0)
+	// Warm: the holder grants instantly; only the waiter parks.
+	smartWarmLane(t, p, modelA, 0)
 
 	holder, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
@@ -58,7 +63,7 @@ func TestQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
 		lease, err := p.Acquire(ctx, modelA)
 		parkedCh <- acquireResult{lease, err}
 	}()
-	waitForParkedWaiter(t, p, slotKey{entry: entry, model: modelA})
+	waitForModelParkedWaiter(t, p, modelA)
 	time.Sleep(parkHold)
 	p.LeaseRelease(holder)
 
@@ -92,12 +97,12 @@ func TestQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
 // TestQueueWaitAbsentWhenNeverParked proves an immediate grant reports no
 // wait at all: no phase key and a zero lease wait.
 func TestQueueWaitAbsentWhenNeverParked(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, nil, mock)
+	// Warm: the grant is immediate (free slot + usable session), so no
+	// wait is recorded anywhere.
+	smartWarmLane(t, p, modelA, 0)
 
 	ctx, phases := phasetiming.WithContext(context.Background())
 	lease, err := p.Acquire(ctx, modelA)
@@ -117,15 +122,14 @@ func TestQueueWaitAbsentWhenNeverParked(t *testing.T) {
 // TestQueueWaitAbsentAfterQueueWaitTimeout proves a waiter whose QUEUE_WAIT
 // elapsed claims no wait: it never held a slot, so no wait was granted.
 func TestQueueWaitAbsentAfterQueueWaitTimeout(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) {
 		c.SlotsPerAccount = 1
 		c.QueueWait = 80 * time.Millisecond
 	}, mock)
+	// Warm: the holder grants instantly; only the waiter parks.
+	smartWarmLane(t, p, modelA, 0)
 
 	holder, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
@@ -203,15 +207,13 @@ func TestBridgeQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
 // timeout/exhausted skip, so an operator could not tell a queued admission
 // from a slow one.
 func TestLeaseAcquiredLineReportsQueueWait(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
-	}
 	mock := testutil.NewMock()
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
+	// Warm: the holder grants instantly; only the waiter parks.
+	smartWarmLane(t, p, modelA, 0)
 	var sink bytes.Buffer
 	p.logger = slog.New(slog.NewTextHandler(&sink, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	entry := smartEntry(p, 0)
 
 	holder, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
@@ -222,7 +224,7 @@ func TestLeaseAcquiredLineReportsQueueWait(t *testing.T) {
 		lease, err := p.Acquire(context.Background(), modelA)
 		parkedCh <- acquireResult{lease, err}
 	}()
-	waitForParkedWaiter(t, p, slotKey{entry: entry, model: modelA})
+	waitForModelParkedWaiter(t, p, modelA)
 	time.Sleep(parkHold)
 	p.LeaseRelease(holder)
 

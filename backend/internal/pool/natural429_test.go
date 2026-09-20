@@ -37,10 +37,10 @@ func TestNatural429RequeuesNoParkNoFailover(t *testing.T) {
 	}
 	p := newSmartTestPool(t, func(c *config.Config) {
 		c.SlotsPerAccount = 2
-		c.QueueWait = 30 * time.Second
+		c.QueueWait = 2 * time.Second
 		c.QueueDepth = 16
 	}, mock0, mock1)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	start := time.Now()
@@ -80,8 +80,8 @@ func TestNatural429RequeuesNoParkNoFailover(t *testing.T) {
 		b1 := testutil.NewMock()
 		t.Cleanup(b1.Close)
 		b0.Ban = true
-		bp := newSmartTestPool(t, nil, b0, b1)
-		bctx, bcancel := context.WithTimeout(context.Background(), 30*time.Second)
+		bp := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, b0, b1)
+		bctx, bcancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer bcancel()
 
 		// A banned head lane quarantines and the walk advances: the
@@ -106,7 +106,7 @@ func TestNatural429RequeuesNoParkNoFailover(t *testing.T) {
 		t.Cleanup(c1.Close)
 		c0.Ban = true
 		c1.Ban = true
-		cp := newSmartTestPool(t, nil, c0, c1)
+		cp := newSmartTestPool(t, func(c *config.Config) { c.QueueWait = 300 * time.Millisecond }, c0, c1)
 		if _, err := cp.Acquire(bctx, modelA); !errors.Is(err, upstream.ErrBanned) {
 			t.Errorf("all-banned acquire = %v, want ErrBanned", err)
 		}
