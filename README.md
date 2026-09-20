@@ -30,12 +30,17 @@ Run from GHCR (release image, no local build):
 
 ```sh
 cp .env.example .env   # then edit: AUTH_TOKENS, ADMIN_TOKEN, ...
-VERSION=v1.7.0 docker compose pull
-VERSION=v1.7.0 docker compose up -d
+export VERSION="$(gh release view --repo trefeon/freebuff-proxy --json tagName -q .tagName)"
+docker compose pull
+docker compose up -d
 ```
 
-Pin `VERSION` to the release tag; verify `GET /healthz` → 200, and note
-`/admin` sits behind the login gate (redirects to `/admin/login`).
+That resolves the newest release tag (prereleases excluded); pin `VERSION` to it
+for a reproducible deploy, or leave `VERSION` unset to follow the `latest` image.
+Verify `GET /healthz` → 200, and note `/admin` sits behind the login gate
+(redirects to `/admin/login`). Without `gh`, the same value comes from
+`curl -fsSL https://api.github.com/repos/trefeon/freebuff-proxy/releases/latest`
+(field `tag_name`).
 
 Then:
 
