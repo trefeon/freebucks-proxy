@@ -1,7 +1,8 @@
 # Universal Clients — custom-provider recipes
 
 Point any open-source agentic CLI/harness at freebuff-proxy as a custom
-provider and it reaches the Freebuff server looking like the official CLI.
+provider and it reaches the upstream service looking like the official
+upstream CLI.
 The proxy renames foreign tool names to the official signature equivalents
 on the upstream wire and restores the client's own names on every response
 path; parameters are forwarded untouched after structural normalization —
@@ -13,7 +14,7 @@ only names are rewritten.
   Anthropic MUST NOT (the SDK appends `/v1/messages` itself).
 - Auth: OpenAI-shape providers send `Authorization: Bearer <proxy-key>`;
   Anthropic and opencode-go send `x-api-key: <proxy-key>`.
-- Model field: any served Freebuff model id.
+- Model field: any served model id.
 - Never forward vendor env names upstream (`ANTHROPIC_BASE_URL`,
   `KIMI_CODE_BASE_URL`, …) — they are harness-side config only.
 - `tools:[]` empty-tools sentinel: only with real tool history (a prior
@@ -27,7 +28,7 @@ only names are rewritten.
 
 | Client | Base URL | Auth | Model field | Notes |
 |---|---|---|---|---|
-| OMP/pi (OpenAI) | `http://HOST:3457/v1` | `Authorization: Bearer <proxy-key>` | any served Freebuff id | compat baked at build; rerouting needs `registerProvider` |
+| OMP/pi (OpenAI) | `http://HOST:3457/v1` | `Authorization: Bearer <proxy-key>` | any served id | compat baked at build; rerouting needs `registerProvider` |
 | OMP/pi (Anthropic) | `http://HOST:3457` (no `/v1`) | `x-api-key: <proxy-key>` | same | SDK appends `/v1/messages` |
 | claude-code | `ANTHROPIC_BASE_URL=http://HOST:3457` | `ANTHROPIC_API_KEY=<proxy-key>` | served id | strip `cc_*` markers (also done server-side) |
 | codex | `config.toml model_provider + base_url=http://HOST:3457/v1`, `wire_api=responses` | `env_key` → proxy key | served id | Responses ordering preserved |

@@ -6,7 +6,7 @@ Machine-readable rules for agents working in this repo. Human overview lives in
 
 ## 1. Identity
 
-- Go 1.26 (`go.mod`) FreeBuff wire gateway. OpenAI-compatible surfaces
+- Go 1.26 (`go.mod`) gateway for the upstream wire protocol. OpenAI-compatible surfaces
   (`/v1/chat/completions`, `/v1/models` — see `backend/cmd/freebuff-proxy/e2e_test.go`,
   `backend/internal/cli/cli_serve.go`) plus an Anthropic translation layer
   (`backend/internal/server/anthropic*.go`).
@@ -17,9 +17,10 @@ Machine-readable rules for agents working in this repo. Human overview lives in
   pooled (`AUTH_TOKENS` set + `BRIDGE_ENABLED=0`), bridge (`AUTH_TOKENS`
   empty, per-request client token), hybrid (default when `AUTH_TOKENS` set:
   `API_KEYS` credential uses the pool, any other credential relays as bridge).
-- Freebucks meter: the wire `prices` map is the sole cost source; charge-once at
-  session start; 1h sessions; `DELETE` refund; Pacific-midnight refill.
-  `deepseek/deepseek-v4-flash` is an unpriced row (verified cost-0 live 2026-09-08).
+- Upstream credits meter (wire fields: `freebucks*`): the wire `prices` map is
+  the sole cost source; charge-once at session start; 1h sessions; `DELETE`
+  refund; Pacific-midnight refill. `deepseek/deepseek-v4-flash` is an unpriced
+  row (verified cost-0 live 2026-09-08).
 
 ## 2. Topology
 
@@ -28,7 +29,7 @@ Machine-readable rules for agents working in this repo. Human overview lives in
   `modelcat`, `registry`, `wirefacts`.
 - `frontend/` — Svelte 5 SPA. Committed bundle
   `backend/internal/dashboard/dist` is what the binary serves.
-- `upstream/freebuff` — gitignored live vendor clone of `CodebuffAI/freebuff`, never commit. Source of truth for all wire/registry/model work. Keep freshly fetched to `origin/main` before starting; pins live in `backend/internal/wirefacts/testdata/wire/snapshots.json` (`upstream_sha`) + `scripts/vendor-version.txt`, verified by `scripts/check-upstream.sh`.
+- The gitignored upstream vendor clone (live checkout) — never commit; the exact path lives in `scripts/check-upstream.sh`. Source of truth for all wire/registry/model work. Keep freshly fetched to `origin/main` before starting; pins live in `backend/internal/wirefacts/testdata/wire/snapshots.json` (`upstream_sha`) + `scripts/vendor-version.txt`, verified by `scripts/check-upstream.sh`.
 - `scripts/` — `sync-upstream.sh`, `check-upstream.sh` (canonical parity check),
   `review-wire-drift.sh`, `drift-exact.sh` (exact export-level MODEL/PRICE/WIRE report),
   `drift-tui.sh` (picker wireframe per tier: rows/order/fields + refresh checklist).
@@ -135,7 +136,7 @@ dotenv → static → live → SSE hash → store refresh.
    lives in workflow `if:` conditions only. Dual pins
    (vendor-version.txt + snapshots.json vendor_version) land atomically in
    the same bump commit before the wiregen SHA gate.
-7. Upstream-first: start any wire/registry/model work by updating `upstream/freebuff` to latest `origin/main` (`git -C upstream/freebuff fetch origin main`, checkout `origin/main`). Nothing gates or pre-approves this update. If it moved past the recorded pins, classify with `check-upstream.sh` + `review-wire-drift.sh` and carry any port/re-pin through the drift PR flow.
+7. Upstream-first: start any wire/registry/model work by updating the gitignored upstream vendor clone to latest `origin/main` (`git -C upstream/freebuff fetch origin main`, checkout `origin/main`). Nothing gates or pre-approves this update. If it moved past the recorded pins, classify with `check-upstream.sh` + `review-wire-drift.sh` and carry any port/re-pin through the drift PR flow.
 8. Subagent worktrees & fast lanes: many subagents share ONE tree (one checkout + branch) when editing the same domain — same feature area, disjoint files or tightly-coupled edits, with hub coordination before touching shared files. Split to one-worktree-per-agent only when domains differ or clobber risk is real. In multi-agent parallel lanes touching frontend/, the integrating lane rebuilds + commits dist LAST; parallel lanes NEVER rebuild dist concurrently (stale-bundle races).
 9. Domain-gated CI: CI uses path filtering (`dorny/paths-filter`). PRs modifying only frontend bypass backend race tests, CodeQL, and Go lint in ~3 seconds. PRs modifying only backend bypass Playwright e2e in ~3 seconds. Docs PRs bypass all heavy suites. Always keep PR changes tightly scoped to the domain.
 10. Rotating server-suite flake triage: a FAIL set that passes solo is the known pre-existing Windows-host flake — solo-rerun the failing tests, then run the full suite on a pristine `/tmp` worktree at HEAD; rotating-set + pristine-FAIL = note-and-move-on, CI Linux is authority (see §5 flake policy).

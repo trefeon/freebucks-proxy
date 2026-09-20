@@ -1,19 +1,22 @@
-# FreeBuff CLI — reference
+# Upstream CLI — reference
 
-Complete reference for the official **FreeBuff CLI** (`freebuff` npm package), the
+Complete reference for the official **upstream CLI** (npm package `freebuff`), the
 reference client for everything the proxy mirrors on the wire. Audience:
 freebuff-proxy maintainers (session/wire parity, registry rows, error taxonomy)
 and users driving the CLI through the gateway.
 
-- **Audited pin**: `upstream/freebuff` @ `2b165f749` (= npm `freebuff@0.0.180`).
+- **Audited pin**: the gitignored upstream vendor clone @ `2b165f749` (= npm
+  `freebuff@0.0.180`).
   Previous audit pin: `e2b911eca` (= `0.0.178`) — see §14 for the delta.
-- **Citations**: every `path:line` is relative to `upstream/freebuff/` (the
-  gitignored vendor clone). `freebuff/cli/release/package.json` version lags the
-  npm tag in some revisions — treat the npm tag as the version of record.
-- **Build scope**: everything below describes the FreeBuff build
+- **Citations**: every `path:line` is relative to the gitignored upstream vendor
+  clone (its path and pin live in `scripts/check-upstream.sh`).
+  `freebuff/cli/release/package.json` version lags the npm tag in some
+  revisions — treat the npm tag as the version of record.
+- **Build scope**: everything below describes the upstream build
   (`FREEBUFF_MODE=true` compile-time define → `IS_FREEBUFF`,
   `cli/src/utils/constants.ts:11`), i.e. the shipped `freebuff` binary.
-  Codebuff-only behavior is mentioned only where it explains shared code paths.
+  Behavior of the sibling build (the same source tree compiled without
+  `FREEBUFF_MODE`) is mentioned only where it explains shared code paths.
 - **Companion docs**: `CLI-Limitations.md` (behavior-by-behavior port audit vs
   the proxy), `UNIVERSAL-CLIENTS.md` (pointing other harnesses at the gateway).
 
@@ -36,7 +39,7 @@ and users driving the CLI through the gateway.
 
 ## 2. Packaging: wrapper + binary
 
-Freebuff ships in two layers: an npm wrapper that fetches, verifies, and launches a prebuilt Bun binary, and that binary, which holds all CLI/TUI code.
+The CLI ships in two layers: an npm wrapper that fetches, verifies, and launches a prebuilt Bun binary, and that binary, which holds all CLI/TUI code.
 
 | Layer | Entry | Runtime | Role |
 |---|---|---|---|
@@ -44,33 +47,33 @@ Freebuff ships in two layers: an npm wrapper that fetches, verifies, and launche
 | compiled binary | `cli/src/entry.ts:8-12` | Bun `--compile` | broker-child detection, else `await import('./index')` |
 
 - Bin map `freebuff` → `index.js` (`freebuff/cli/release/package.json:6-8`); the wrapper prefers its packaged `launcher.js` and falls back to `cli/release-core/launcher.js` only in source checkouts (`freebuff/cli/release/index.js:6-22`).
-- The wrapper spawns the binary with argv passed through unchanged and stdio inherited (stderr piped on win32 only), adding `CODEBUFF_LAUNCHER_PID` (`cli/release-core/launcher.js:1521-1533`). It parses no Freebuff flags itself.
-- **Build-time flag.** `IS_FREEBUFF = getCliEnv().FREEBUFF_MODE === 'true'` (`cli/src/utils/constants.ts:9`); the build exports `FREEBUFF_MODE: 'true'` (`freebuff/cli/build.ts:37-40`) and injects it as `process.env.FREEBUFF_MODE` in the bundler define list (`cli/scripts/build-binary.ts:165-172`). Every `IS_FREEBUFF` branch is therefore DCE'd, so "removed in Freebuff" means absent from the shipped parser and registries.
+- The wrapper spawns the binary with argv passed through unchanged and stdio inherited (stderr piped on win32 only), adding `CODEBUFF_LAUNCHER_PID` (`cli/release-core/launcher.js:1521-1533`). It parses no upstream CLI flags itself.
+- **Build-time flag.** `IS_FREEBUFF = getCliEnv().FREEBUFF_MODE === 'true'` (`cli/src/utils/constants.ts:9`); the build exports `FREEBUFF_MODE: 'true'` (`freebuff/cli/build.ts:37-40`) and injects it as `process.env.FREEBUFF_MODE` in the bundler define list (`cli/scripts/build-binary.ts:165-172`). Every `IS_FREEBUFF` branch is therefore DCE'd, so "removed" in the tables below means absent from the shipped parser and registries.
 - **Version source of truth.** The binary prints `loadPackageVersion()` = `CODEBUFF_CLI_VERSION` env → `../package.json` version → `'dev'` (`cli/src/cli-args.ts:23-39`). The wrapper's own version and update baseline come from its `package.json` (`freebuff/cli/release/index.js:29`), `0.0.180` at this pin (`freebuff/cli/release/package.json:3`).
-- **Branding deltas vs Codebuff.** Wrapper config carries `packageName: 'freebuff'`, `displayName: 'Freebuff'`, `telemetryEvent: 'cli.update_freebuff_failed'` (`freebuff/cli/release/index.js:26-32`); archives are `freebuff-<targetKey>.tar.gz` (`cli/release-core/launcher.js:348-355`); commander registers name `freebuff`, description "Freebuff - Free AI coding assistant" (`cli/src/cli-args.ts:55-56`).
+- **Branding deltas vs the sibling build.** Wrapper config carries `packageName: 'freebuff'`, `displayName: 'Freebuff'`, `telemetryEvent: 'cli.update_freebuff_failed'` (`freebuff/cli/release/index.js:26-32`); archives are `freebuff-<targetKey>.tar.gz` (`cli/release-core/launcher.js:348-355`); commander registers name `freebuff`, description "Freebuff - Free AI coding assistant" (`cli/src/cli-args.ts:55-56`).
 - **Wrapper config dir** is `~/.config/manicode` (`cli/release-core/launcher.js:256-259`), independent of the TUI's `FREEBUFF_CONFIG_DIR` (`cli/src/utils/config-dir.ts:16-35`). Layout: `freebuff` / `freebuff.exe` (`launcher.js:260-267`), `freebuff-metadata.json` (`:268`), `.freebuff-download-temp` (`:269`), `cpu-features.json` (`:458-460`).
 - **Artifacts.** `${origin}/api/releases/download/${version}/${packageName}-${targetKey}.tar.gz` (`cli/release-core/launcher.js:1014-1018`); default origin `https://codebuff.com` (`:16`), overridable via `NEXT_PUBLIC_CODEBUFF_APP_URL` (https-only except localhost, `:47-75`). sha256 is checked against the release/NPM doc's `binaryChecksums`, fail-closed (`:91-114`); install atomically replaces binary + sibling `tree-sitter.wasm` + metadata with rollback (`:1087-1132`).
 - **CPU fallback.** Baseline targets `linux-x64-baseline` / `win32-x64-baseline` (`cli/release-core/launcher.js:357-360`) are chosen pre-emptively when the cached probe says no AVX2; Windows always assumes AVX2 (`:434-446`). A confirmed SIGILL / `0xC0000409` startup crash re-downloads the baseline and respawns, and only that confirmed case writes `cpu-features.json` (`:453-459`, `:1625-1634`). An explicit `*_BINARY_TARGET` override disables auto-fallback (`:1641-1644`).
 - **Crash reporting (win32 only).** stderr is piped and teed so the panic tail survives the terminal reset (`cli/release-core/launcher.js:1524-1533,1560-1600`); `printCrashDiagnostics` prints system info, honest AVX2 state, target, and binary path (`:1430-1455`), then exits with the child's code/signal (`:1690-1696`).
 - **Binary-side natives.** Compiled builds self-extract bundled ripgrep next to `process.execPath` and export `getRgPath()`, which sets `CODEBUFF_RG_PATH` for the SDK (`cli/src/native/ripgrep.ts:19-63`); `cli/src/polyfills/bun-strip-ansi.ts` restores `Bun.stripANSI` removed in Bun 1.2. On Windows, child terminal commands are spawned by a detached re-exec of the same binary with `--terminal-command-broker` (`cli/src/utils/terminal-command-broker.ts:340-386`) because extra stdio pipes are fatal under Bun on win32.
-- **SPEC vs code drift.** `freebuff/SPEC.md:55-56,61,66` mandates mode `'FREE'`; the shipped parser hardcodes `initialMode = 'LITE'` (`cli/src/cli-args.ts:121-124`), `AGENT_MODES` still lists DEFAULT/LITE/MAX/PLAN (`cli/src/utils/constants.ts:165-173`), and Freebuff's LITE maps to agent id `base2-free` and cost mode `free` (`:167,184`). The parser test pins `'LITE'` (`cli/src/__tests__/cli-args.test.ts:112`). Treat the SPEC mode text as stale.
+- **SPEC vs code drift.** `freebuff/SPEC.md:55-56,61,66` mandates mode `'FREE'`; the shipped parser hardcodes `initialMode = 'LITE'` (`cli/src/cli-args.ts:121-124`), `AGENT_MODES` still lists DEFAULT/LITE/MAX/PLAN (`cli/src/utils/constants.ts:165-173`), and the upstream build's LITE maps to agent id `base2-free` and cost mode `free` (`:167,184`). The parser test pins `'LITE'` (`cli/src/__tests__/cli-args.test.ts:112`). Treat the SPEC mode text as stale.
 
 ## 3. Invocation surface
 
-Flags are registered by commander inside `parseArgs()` (`cli/src/cli-args.ts:41-145`); the Freebuff branch is `:52-73`, the Codebuff branch `:74-111`.
+Flags are registered by commander inside `parseArgs()` (`cli/src/cli-args.ts:41-145`); the upstream branch is `:52-73`, the sibling branch `:74-111`.
 
-| Flag | Freebuff | Codebuff | Effect / default |
+| Flag | Upstream | Sibling | Effect / default |
 |---|---|---|---|
 | `-v, --version` | yes (`cli-args.ts:57`) | yes (`:79`) | prints `loadPackageVersion()` (`:23-39`) |
-| `-h, --help` | yes (`:73`) | yes (`:108`) | commander auto-help; Freebuff adds no `addHelpText` |
+| `-h, --help` | yes (`:73`) | yes (`:108`) | commander auto-help; the upstream build adds no `addHelpText` |
 | `--continue [conversation-id]` | yes (`:58-61`) | yes (`:88-91`) | `continue: boolean`; trimmed non-empty id ⇒ `continueId`, else `null` (`:136-140`) |
 | `--cwd <directory>` | yes (`:62-65`) | yes (`:92-95`) | `process.chdir(cwd)` inside `initializeApp` (`cli/src/init/init-app.ts:9-12`); unvalidated, a missing dir throws |
 | `--trust-agents` | yes (`:66-69`) | yes (`:96-99`) | loads repo `.agents`/`mcp.json` without the trust prompt (CI); defaults `false` (`:143`) |
 | `login` — positional, `choices: ['login']` | yes (`:70-72`) | — | the only accepted positional; anything else is a commander "invalid choice" error |
-| `[prompt...]` | **removed** | yes (`:109`) | Freebuff has no initial prompt: `initialPrompt` is always `null` (`:132`) |
-| `--agent <agent-id>` | **removed** | yes (`:80-83`) | Freebuff always runs the session-selected freebuff model |
-| `--clear-logs` | **removed** | yes (`:84-87`) | `clearLogs` stays `false` (`:135`), so `cli/src/index.tsx:331-333` is dead in Freebuff |
-| `--lite` / `--free` / `--max` / `--plan` | **removed** | yes (`:100-103`) | Freebuff hardcodes `initialMode = 'LITE'` (`:121-124`) |
+| `[prompt...]` | **removed** | yes (`:109`) | the upstream CLI has no initial prompt: `initialPrompt` is always `null` (`:132`) |
+| `--agent <agent-id>` | **removed** | yes (`:80-83`) | the upstream CLI always runs the session-selected model |
+| `--clear-logs` | **removed** | yes (`:84-87`) | `clearLogs` stays `false` (`:135`), so `cli/src/index.tsx:331-333` is dead in the upstream build |
+| `--lite` / `--free` / `--max` / `--plan` | **removed** | yes (`:100-103`) | the upstream build hardcodes `initialMode = 'LITE'` (`:121-124`) |
 
 **Login is a subcommand, not a flag.** `command === 'login'` is checked before the renderer starts and short-circuits to `runPlainLogin()` (`cli/src/index.tsx:236-248`): it prints a URL, polls `LOGIN_WEBSITE_URL`, saves credentials, and exits `0` on success or `1` on timeout/abort (`cli/src/login/plain-login.ts:26-108`). `--cwd` may appear before or after `login` (`cli/src/__tests__/cli-args.test.ts:93-149`).
 
@@ -97,7 +100,7 @@ Flags are registered by commander inside `parseArgs()` (`cli/src/cli-args.ts:41-
 
 Ordered path for a normal `freebuff` launch; every gate below happens before the TUI renders.
 
-1. **npm wrapper** `main()`: print `startupBanner` (empty for Freebuff) → `ensureBinaryReady()` → `spawnInstalledBinary()` → `attachExitHandler()` → `setTimeout(checkForUpdates, 100)` (`cli/release-core/launcher.js:1701-1715`).
+1. **npm wrapper** `main()`: print `startupBanner` (empty in the upstream build) → `ensureBinaryReady()` → `spawnInstalledBinary()` → `attachExitHandler()` → `setTimeout(checkForUpdates, 100)` (`cli/release-core/launcher.js:1701-1715`).
 2. `cli/src/entry.ts:8-12` — if `isTerminalCommandBrokerInvocation(process.argv)`, run `serveTerminalCommandBroker()` (child mode); otherwise `await import('./index')`.
 3. `cli/src/index.tsx:8` — side-effect import of `./pre-init/tree-sitter-wasm` publishes the sibling `tree-sitter.wasm` path and bytes on `globalThis` and `CODEBUFF_TREE_SITTER_WASM_PATH` before the SDK/code-map import chain triggers `Parser.init` (`cli/src/pre-init/tree-sitter-wasm.ts:33-88`).
 4. `cli/src/index.tsx:67-71` — TanStack Query `focusManager.setEventListener(...)` + `setFocused(true)` (no browser visibility API in a terminal).
@@ -110,10 +113,10 @@ Ordered path for a normal `freebuff` launch; every gate below happens before the
 11. `cli/src/index.tsx:246-249` — `login` ⇒ `runPlainLogin()`, then return; no renderer is created.
 12. `cli/src/index.tsx:251-255` — project-picker flag when cwd is the home dir **or a descendant** (`cli/src/utils/project-picker.ts:3-12`).
 13. `cli/src/index.tsx:257-267` — analytics `APP_LAUNCHED` with `version/platform/arch/hasInitialPrompt/hasAgentOverride/continueChat/initialMode/isFreeBuff`.
-14. `cli/src/index.tsx:268-274` — Freebuff **and** win32 ⇒ early `drainClientLogs()` so an AV/watchdog kill still leaves a launch row.
-15. `cli/src/index.tsx:281-301` — trust gate: `resolveTrustedAgentDirs` over `getDefaultAgentDirs()`, `~/.agents` always trusted, `interactive` = stdin **and** stdout TTY, `trustAll` = `--trust-agents` or `CODEBUFF_TRUST_AGENT_DIRS`; skipped dirs are `logger.warn`-ed (never happen in Freebuff, which has no `--agent`), then `initializeAgentRegistry({agentDirs})`.
+14. `cli/src/index.tsx:268-274` — the upstream build **and** win32 ⇒ early `drainClientLogs()` so an AV/watchdog kill still leaves a launch row.
+15. `cli/src/index.tsx:281-301` — trust gate: `resolveTrustedAgentDirs` over `getDefaultAgentDirs()`, `~/.agents` always trusted, `interactive` = stdin **and** stdout TTY, `trustAll` = `--trust-agents` or `CODEBUFF_TRUST_AGENT_DIRS`; skipped dirs are `logger.warn`-ed (never happen upstream, which has no `--agent`), then `initializeAgentRegistry({agentDirs})`.
 16. `cli/src/index.tsx:304` — `initializeSkillRegistry()` loads `.agents/skills`.
-17. `cli/src/index.tsx:307-329` — `publish` branch; **unreachable in Freebuff** because commander accepts only `login` as a positional.
+17. `cli/src/index.tsx:307-329` — `publish` branch; **unreachable upstream** because commander accepts only `login` as a positional.
 18. `cli/src/index.tsx:331-338` — `clearLogFile()` when `clearLogs` (always false here), then deferred `setTimeout(trimOversizedChatLogs, 0)`.
 19. `cli/src/index.tsx:340` — `createQueryClient()`.
 20. `cli/src/index.tsx:352-363` — credential gate in `AppWithAsyncAuth`: no stored token ⇒ `requireAuth = true`; token present ⇒ `hasInvalidCredentials = true`, `requireAuth = false`. The names are historical — the token is never validated at startup.
@@ -132,7 +135,7 @@ Ordered path for a normal `freebuff` launch; every gate below happens before the
 
 ## 5. Login, credentials & logout
 
-Freebuff keeps one bearer token in `<configDir>/credentials.json` and signs in through a code-in-URL plus status-poll flow; no device-code grant and no token refresh exist anywhere in the tree.
+The CLI keeps one bearer token in `<configDir>/credentials.json` and signs in through a code-in-URL plus status-poll flow; no device-code grant and no token refresh exist anywhere in the tree.
 
 ### Credential file
 
@@ -180,7 +183,7 @@ Same dir also holds `freebuff-instance-owner.json` (`cli/src/utils/freebuff-inst
 
 ## 6. Session lifecycle & recovery
 
-The CLI holds at most one free seat per account: POST acquires, GET refreshes, DELETE releases — all against the **codebuff** app host even in Freebuff builds (`NEXT_PUBLIC_CODEBUFF_APP_URL || 'https://codebuff.com'`, trailing slash stripped) (`cli/src/utils/freebuff-session-api.ts:98-107`).
+The CLI holds at most one free seat per account: POST acquires, GET refreshes, DELETE releases — all against the **codebuff** app host even in the upstream build (`NEXT_PUBLIC_CODEBUFF_APP_URL || 'https://codebuff.com'`, trailing slash stripped) (`cli/src/utils/freebuff-session-api.ts:98-107`).
 
 | Method | Path | Extra headers | Body |
 |---|---|---|---|
@@ -249,7 +252,7 @@ Union at `common/src/types/freebuff-session.ts:809-1153`; the line refs in this 
 | Seat lost locally | `markFreebuffSessionEnded()` when the gate missed and the message is re-queued at the front; a poll returning `none` while holding `active`/`ended` synthesizes `ended` without an instance id, carrying `rateLimitsByModel`/`subscription`/`freebucks` forward | `cli/src/hooks/use-send-message.ts:303-319`; `cli/src/hooks/use-freebuff-session.ts:816-848` |
 | Startup finds an existing seat | first GET (`previousStatus === null`) + `active` → auto-POST if the recorded owner pid is dead, else apply `takeover_prompt` and stop | `cli/src/hooks/use-freebuff-session.ts:791-807` |
 | Take-over accepted | `takeOverFreebuffSession()` pins the selected model to the server's `active` model and re-POSTs (queue position preserved); single-flight | `cli/src/hooks/use-freebuff-session.ts:389-403` |
-| BYOK connection selected | every Freebuff session path short-circuits: no admission, no gate, `costMode: 'normal'` | `cli/src/app.tsx:358-360`, `:386-396` |
+| BYOK connection selected | every upstream session path short-circuits: no admission, no gate, `costMode: 'normal'` | `cli/src/app.tsx:358-360`, `:386-396` |
 
 ### Instance ownership (pid logic)
 
@@ -261,7 +264,7 @@ Union at `common/src/types/freebuff-session.ts:809-1153`; the line refs in this 
 
 - `/end-session` (alias `/model`) → `returnToFreebuffLanding({resetChat:true})` → `releaseSlot: true` DELETE, then the picker with `status:'none'` (`cli/src/commands/command-registry.ts:765-781`; `cli/src/hooks/use-freebuff-session.ts:295-302`); message `END_SESSION_MESSAGE` = "Ending session and returning to the model picker…" (`cli/src/utils/constants.ts:12-13`).
 - Unmount / HMR fires a best-effort DELETE only when `holdsLiveFreebuffSlot` is true (`cli/src/hooks/use-freebuff-session.ts:1008-1022`).
-- Cleanup ordering (`cli/src/utils/exit-cleanly.ts:55-121`): sponsored-run settlement **started first, awaited last**; then `cleanupLocal()`; then `stopEngagementTracking()`; then the remote tasks `flushAnalytics`, `drainClientLogs`, the sponsored notice and — Freebuff only — `endFreebuffSession` (= `releaseSlot()`) under `Promise.allSettled` with a 1000 ms `EXIT_CLEANUP_TIMEOUT_MS`; then `process.exit(code)`. A single-flight `exitPromise` makes competing triggers idempotent.
+- Cleanup ordering (`cli/src/utils/exit-cleanly.ts:55-121`): sponsored-run settlement **started first, awaited last**; then `cleanupLocal()`; then `stopEngagementTracking()`; then the remote tasks `flushAnalytics`, `drainClientLogs`, the sponsored notice and — upstream only — `endFreebuffSession` (= `releaseSlot()`) under `Promise.allSettled` with a 1000 ms `EXIT_CLEANUP_TIMEOUT_MS`; then `process.exit(code)`. A single-flight `exitPromise` makes competing triggers idempotent.
 - Sponsored-run settlement: `settleInterruptedSponsoredRun()` → `run.interrupt('signal')` → abort the turn, report `failed` with a diagnostic reason (one attempt; no sweep exists for local rows), **keep the worktree**, and return a notice naming path, branch and `/ads:remove-worktree` (`cli/src/utils/sponsored-run-exit.ts:40-46`; `cli/src/utils/sponsored-run.ts:882-913`).
 - Ctrl+C: stdin is raw in the TUI so SIGINT never fires — the key is routed from OpenTUI to `exitCliCleanly()`; the non-fullscreen handler needs a double Ctrl+C within 2 s (`cli/src/hooks/use-freebuff-ctrl-c-exit.ts:8-25`; `cli/src/hooks/use-exit-handler.ts:52-59`).
 - SIGTERM/SIGHUP/SIGINT/`beforeExit`/`exit`/`uncaughtException`/`unhandledRejection` all route to `exitCliCleanly()`; with `CODEBUFF_LAUNCHER_PID` set and differing from our pid, a 500 ms poll exits when the launcher dies (Windows `tasklist` probe) (`cli/src/utils/renderer-cleanup.ts:182-260`).
@@ -270,24 +273,24 @@ Union at `common/src/types/freebuff-session.ts:809-1153`; the line refs in this 
 
 ## 7. Command surface & input grammar
 
-FreeBuff carries **two independently filtered command registries** — the `/` menu list and the executable lookup — so the same build can render a command it cannot run (none) or run one it never shows (`login`, `init`, the 8 `ads:*` controls).
+The upstream CLI carries **two independently filtered command registries** — the `/` menu list and the executable lookup — so the same build can render a command it cannot run (none) or run one it never shows (`login`, `init`, the 8 `ads:*` controls).
 
 **(a) Two registries and why they diverge.**
 
 - **Menu list** `SLASH_COMMANDS` (`cli/src/data/slash-commands.ts:230-236`), extended with one dynamic row per loaded skill by `getSlashCommandsWithSkills()` (`cli/src/data/slash-commands.ts:258-269`); drives the `/` autocomplete.
 - **Executable registry** `COMMAND_REGISTRY` (`cli/src/commands/command-registry.ts:784-786`), resolved by `findCommand(cmd)`: lowercase match on `name` **or** `aliases`, then a dynamic `skill:<name>` lookup (`cli/src/commands/command-registry.ts:788-809`).
 - Divergence is deliberate: the registry keeps `login`, `init` and the 8 `ads:*` proposal commands that the menu never renders, while the menu's `dashboard` row carries the `usage` alias so `/usage` still lands somewhere after the `usage` command was removed (`cli/src/commands/command-registry.ts:522-531`).
-- FreeBuff counts: **19** static menu entries + N skill rows; **29** static registry entries.
+- Upstream counts: **19** static menu entries + N skill rows; **29** static registry entries.
 - Invariant pinned by test: every menu command lacking `insertText` must exist in the registry (`cli/src/commands/__tests__/router-input.test.ts:264-270`).
 
-**(b) Command table (FreeBuff build).** `M` = in `/` menu, `R` = resolvable by typing; `Y` present, `–` absent.
+**(b) Command table (upstream build).** `M` = in `/` menu, `R` = resolvable by typing; `Y` present, `–` absent.
 
 | # | Command | Aliases | M | R | Behavior | Source |
 |---|---|---|---|---|---|---|
 | 1 | `help` | `h`, `?`; slashless `help` | Y | Y | Sets input mode `help` → HelpBanner, auto-hides after 60 s. | `cli/src/commands/help.ts:9`; `cli/src/components/help-banner.tsx:9,42-47`; `cli/src/commands/command-registry.ts:318-327`; `cli/src/data/slash-commands.ts:53-59` |
 | 2 | `diagnostics` | `diag`, `processes` | Y | Y | System message: local CLI CPU/mem + terminal-tool PIDs; "Command lines and environment variables are omitted for safety." | `cli/src/commands/command-registry.ts:328-337`; `cli/src/commands/process-diagnostics.ts:94-95`; `cli/src/data/slash-commands.ts:60-65` |
 | 3 | `interview` | — | Y | Y | Args → `buildInterviewPrompt(args)`; bare → `interview` mode (label `Interview`). | `cli/src/commands/command-registry.ts:639-662`; `cli/src/utils/input-modes.ts:84-93`; `cli/src/data/slash-commands.ts:104-108` |
-| 4 | `plan` | — | Y | Y | Args → `buildPlanPrompt(args)`; bare → `plan` mode. **Freebuff-only.** | `cli/src/commands/command-registry.ts:663-687,199-209`; `cli/src/data/slash-commands.ts:109-113` |
+| 4 | `plan` | — | Y | Y | Args → `buildPlanPrompt(args)`; bare → `plan` mode. **Upstream-only.** | `cli/src/commands/command-registry.ts:663-687,199-209`; `cli/src/data/slash-commands.ts:109-113` |
 | 5 | `review` | — | Y | Y | Args → `buildReviewPromptFromArgs(args)`; bare → `openReviewScreen` selection UI, then `review` mode. Present, not removed. | `cli/src/commands/command-registry.ts:688-712`; `cli/src/chat.tsx:1055-1057`; `cli/src/data/slash-commands.ts:114-118` |
 | 6 | `queue` | `queued` | Y | Y | Opens the queue editor when `queuedCount > 0`, else system message `Nothing queued.` No `/q` alias: `/q` quits. | `cli/src/commands/command-registry.ts:713-723`; `cli/src/chat.tsx:1059-1064`; `cli/src/data/slash-commands.ts:119-124` |
 | 7 | `new` | `n`, `clear`, `c`, `reset`; slashless `new` | Y | Y | Aborts the run (`stopActiveRun('new-chat')`), clears messages, `startNewChat()`; args become the new chat's first message. | `cli/src/commands/command-registry.ts:436-471`; `cli/src/data/slash-commands.ts:125-131` |
@@ -297,10 +300,10 @@ FreeBuff carries **two independently filtered command registries** — the `/` m
 | 11 | `feedback` | registry `bug`, `report`; menu entry has none | Y | Y | Opens the feedback form; args prefill the text box and cursor. | `cli/src/commands/command-registry.ts:352-368`; `cli/src/data/slash-commands.ts:162-166` |
 | 12 | `bash` | `!` | Y | Y | Args → runs `runBashCommand(args)`; bare → `bash` input mode. | `cli/src/commands/command-registry.ts:369-389`; `cli/src/data/slash-commands.ts:167-172` |
 | 13 | `theme:toggle` | — | Y | Y | Swaps light/dark; system message `Switched to <theme> theme.` | `cli/src/commands/command-registry.ts:724-737`; `cli/src/data/slash-commands.ts:185-189` |
-| 14 | `byok` | `provider` | Y | Y | **Freebuff-only.** Subcommands `list`/`add`/`update`/`validate`/`select`/`remove`/`off`/`help`; keys referenced by env-var NAME only, never stored; credential-shaped history redacted. | `cli/src/commands/command-registry.ts:742-746,199-209`; `cli/src/commands/byok.ts:15-41,161-320`; `cli/src/data/slash-commands.ts:190-195` |
-| 15 | `reasoning` | `effort`, `think` | Y | Y | **Freebuff-only.** Reads/sets thinking level for the selected model; clear words `default|auto|reset|clear|none`; takes effect on the next message. | `cli/src/commands/command-registry.ts:747-760`; `cli/src/commands/reasoning.ts:18,36-82`; `cli/src/data/slash-commands.ts:196-201` |
-| 16 | `end-session` | `model` | Y | Y | **Freebuff-only.** Posts `END_SESSION_MESSAGE` (`Ending session and returning to the model picker…`) then `returnToFreebuffLanding({ resetChat: true })`. `/model` alias pinned by test. | `cli/src/commands/command-registry.ts:765-780`; `cli/src/utils/constants.ts:12-13`; `cli/src/commands/__tests__/freebuff-command-aliases.test.ts:4-32`; `cli/src/data/slash-commands.ts:202-207` |
-| 17 | `dashboard` | `usage`, `stats`, `streak` | Y | Y | **Freebuff-only.** Posts the `/account` URL plus a streak/activity/tokens/system line and best-effort `safeOpen(url)`; the `usage` alias is why `/usage` still resolves. | `cli/src/commands/command-registry.ts:522-548`; `cli/src/data/slash-commands.ts:208-213` |
+| 14 | `byok` | `provider` | Y | Y | **Upstream-only.** Subcommands `list`/`add`/`update`/`validate`/`select`/`remove`/`off`/`help`; keys referenced by env-var NAME only, never stored; credential-shaped history redacted. | `cli/src/commands/command-registry.ts:742-746,199-209`; `cli/src/commands/byok.ts:15-41,161-320`; `cli/src/data/slash-commands.ts:190-195` |
+| 15 | `reasoning` | `effort`, `think` | Y | Y | **Upstream-only.** Reads/sets thinking level for the selected model; clear words `default|auto|reset|clear|none`; takes effect on the next message. | `cli/src/commands/command-registry.ts:747-760`; `cli/src/commands/reasoning.ts:18,36-82`; `cli/src/data/slash-commands.ts:196-201` |
+| 16 | `end-session` | `model` | Y | Y | **Upstream-only.** Posts `END_SESSION_MESSAGE` (`Ending session and returning to the model picker…`) then `returnToFreebuffLanding({ resetChat: true })`. `/model` alias pinned by test. | `cli/src/commands/command-registry.ts:765-780`; `cli/src/utils/constants.ts:12-13`; `cli/src/commands/__tests__/freebuff-command-aliases.test.ts:4-32`; `cli/src/data/slash-commands.ts:202-207` |
+| 17 | `dashboard` | `usage`, `stats`, `streak` | Y | Y | **Upstream-only.** Posts the `/account` URL plus a streak/activity/tokens/system line and best-effort `safeOpen(url)`; the `usage` alias is why `/usage` still resolves. | `cli/src/commands/command-registry.ts:522-548`; `cli/src/data/slash-commands.ts:208-213` |
 | 18 | `logout` | `signout`; slashless `logout` | Y | Y | Stops the active run, runs the logout mutation, posts `Logged out.`, then unmounts the authenticated runtime. | `cli/src/commands/command-registry.ts:403-428`; `cli/src/data/slash-commands.ts:214-220` |
 | 19 | `exit` | `quit`, `q`; slashless `exit` | Y | Y | `exitCliCleanly()`. | `cli/src/commands/command-registry.ts:429-435`; `cli/src/data/slash-commands.ts:221-227` |
 | 20 | `login` | `signin` | – | Y | Hidden: posts `You're already in the app. Use /logout to switch accounts.` | `cli/src/commands/command-registry.ts:390-402` |
@@ -319,27 +322,27 @@ FreeBuff carries **two independently filtered command registries** — the `/` m
 
 - Menu removal set `FREEBUFF_REMOVED_COMMAND_IDS` (`cli/src/data/slash-commands.ts:33-42`): `ads:enable`, `ads:disable`, `usage`, `subscribe`, `agent:gpt-5`, `image`, `publish`, `init`.
 - Registry removal set `FREEBUFF_REMOVED_COMMANDS` (`cli/src/commands/command-registry.ts:189-197`): `ads:enable`, `ads:disable`, `usage`, `subscribe`, `image`, `publish`, `gpt-5-agent`.
-- Effect per command: `ads:enable`/`ads:disable` gone from both surfaces (ads are always on under FreeBuff) — `cli/src/data/slash-commands.ts:34-35`, `cli/src/commands/command-registry.ts:190-191`; `usage` (+`credits`) gone, `/usage` resolves to `dashboard` via alias while `/credits` has no owner — `cli/src/commands/command-registry.ts:192,506,531`; `subscribe` (+`strong`,`sub`,`buy-credits`) gone from both — `cli/src/commands/command-registry.ts:193,515-516`; `agent:gpt-5`/`gpt-5-agent` gone with its `insertText: '@GPT-5 Agent '` shortcut — `cli/src/data/slash-commands.ts:38,151-155`, `cli/src/commands/command-registry.ts:196,617-628`; `image` (+`img`,`attach`) gone, leaving the `image` input mode unreachable (only `Ctrl+V` paste attaches) — `cli/src/commands/command-registry.ts:194,549-568`; `publish` gone (its menu entry was already commented out) — `cli/src/data/slash-commands.ts:40,180-184`.
+- Effect per command: `ads:enable`/`ads:disable` gone from both surfaces (ads are always on upstream) — `cli/src/data/slash-commands.ts:34-35`, `cli/src/commands/command-registry.ts:190-191`; `usage` (+`credits`) gone, `/usage` resolves to `dashboard` via alias while `/credits` has no owner — `cli/src/commands/command-registry.ts:192,506,531`; `subscribe` (+`strong`,`sub`,`buy-credits`) gone from both — `cli/src/commands/command-registry.ts:193,515-516`; `agent:gpt-5`/`gpt-5-agent` gone with its `insertText: '@GPT-5 Agent '` shortcut — `cli/src/data/slash-commands.ts:38,151-155`, `cli/src/commands/command-registry.ts:196,617-628`; `image` (+`img`,`attach`) gone, leaving the `image` input mode unreachable (only `Ctrl+V` paste attaches) — `cli/src/commands/command-registry.ts:194,549-568`; `publish` gone (its menu entry was already commented out) — `cli/src/data/slash-commands.ts:40,180-184`.
 - `init` is the asymmetry: filtered from the menu only, still executable (`cli/src/data/slash-commands.ts:41`); absent from `cli/src/commands/command-registry.ts:189-197`.
 - `mode:*` is excluded by construction, not by the removal set: `MODE_COMMANDS = IS_FREEBUFF ? [] : …` and `...(IS_FREEBUFF ? [] : AGENT_MODES)` — `cli/src/data/slash-commands.ts:24-31,179`, `cli/src/commands/command-registry.ts:569-598`.
 - `/connect:claude` (+`/claude`) and `/refer-friends` (+`/referral`,`/redeem`) are **not defined anywhere** in this revision, so "removed" does not apply.
 
-**(d) Freebuff-only commands.** `FREEBUFF_ONLY_COMMAND_IDS` (`cli/src/data/slash-commands.ts:44-50`) and `FREEBUFF_ONLY_COMMANDS` (`cli/src/commands/command-registry.ts:199-209`) list the same five: `byok`, `plan`, `end-session`, `dashboard`, `reasoning`. The registry comment records why: the reasoning ladder and the metadata it sets are Freebuff-catalog/free-mode only (`cli/src/commands/command-registry.ts:204-208`), and the dashboard hub is a Freebuff web surface (`cli/src/commands/command-registry.ts:524-530`).
+**(d) Upstream-only commands.** `FREEBUFF_ONLY_COMMAND_IDS` (`cli/src/data/slash-commands.ts:44-50`) and `FREEBUFF_ONLY_COMMANDS` (`cli/src/commands/command-registry.ts:199-209`) list the same five: `byok`, `plan`, `end-session`, `dashboard`, `reasoning`. The registry comment records why: the reasoning ladder and the metadata it sets are upstream-catalog/free-mode only (`cli/src/commands/command-registry.ts:204-208`), and the dashboard hub is an upstream web surface (`cli/src/commands/command-registry.ts:524-530`).
 
 **(e) Input grammar.**
 
 - **Slash parsing.** `/name args`; the first whitespace-delimited token is lowercased, args are the remainder (`cli/src/commands/router-utils.ts:26-34,59-68`). Matching is case-insensitive against name or alias (`cli/src/commands/command-registry.ts:789-794`).
 - **`/` menu activation.** Only when the current line matches `/^(\s*)\/([^\s]*)$/` **and** starts at index 0 — first composer line, no spaces in the query (`cli/src/hooks/use-suggestion-engine.ts:52-65`). Filtering is ordered and dedup'd by id: prefix-of-id/alias → substring-of-id/alias → substring-of-description; slash commands are **not** fuzzy (fuzzy matching applies to files/agents only) (`cli/src/hooks/use-suggestion-engine.ts:174-245,291-348`).
 - **Menu keys.** `↑/↓` select; `Tab`/`Shift+Tab` complete into the composer without executing; `Enter` executes the highlighted command unless it declares `insertText`, in which case the text is inserted (`cli/src/utils/keyboard-actions.ts:253-279`).
-- **Slashless.** Only implicit ids surviving the FreeBuff filter are reachable without `/`: `help`, `new`, `logout`, `exit`, and only as a single bare word (`cli/src/data/slash-commands.ts:238-242`; `cli/src/commands/router-utils.ts:70-79`). Consequence: bare `init` is now a normal message while `/init` still runs the command.
+- **Slashless.** Only implicit ids surviving the upstream filter are reachable without `/`: `help`, `new`, `logout`, `exit`, and only as a single bare word (`cli/src/data/slash-commands.ts:238-242`; `cli/src/commands/router-utils.ts:70-79`). Consequence: bare `init` is now a normal message while `/init` still runs the command.
 - **`!bash`.** Typing exactly `!` in `default` mode enters `bash` mode and clears the composer (`cli/src/components/chat-input-bar.tsx:211-222`); that mode shows the `!` label, placeholder `enter bash command...`, and disables slash suggestions (`cli/src/utils/input-modes.ts:64-73`). Submitting prefixes `!` into history and runs it (`cli/src/commands/router.ts:307-316`); inline `!cmd` in default mode runs immediately (`cli/src/commands/router.ts:399-406`). `/bash cmd` and `/!cmd` run immediately, bare `/bash` or `/!` enter bash mode (`cli/src/commands/command-registry.ts:369-389`). Bash output is UI-only, never sent to AI context (`cli/src/commands/router.ts:220-251`).
 - **`@files` / `@agents`.** Trigger requires `@` at line start or after whitespace, not escaped (`\@`), not inside `"…"`/`` `…` ``, and not after `[a-zA-Z0-9.:]` (kills emails/URLs); the query must contain no whitespace (`cli/src/hooks/use-suggestion-engine.ts:106-143`). One combined list: **agents first, then files** (`cli/src/chat.tsx:1394-1434`). Agents match fuzzily; files match fuzzily with highlight indices and refresh from disk while a mention is active (`cli/src/hooks/use-suggestion-engine.ts:350-476,623-654`). `Tab`/`Enter` completes to `@agentId ` or `@filePath `; `Tab` with multiple matches cycles, with one match completes (`cli/src/utils/keyboard-actions.ts:294-307`).
 - **No `#` or other prefix.** The engine parses only `/` and `@` (`cli/src/hooks/use-suggestion-engine.ts:45,146`).
-- **Input modes.** Union: `default`, `bash`, `homeDir`, `plan`, `review`, `interview`, `skill`, `usage`, `image`, `help`, `outOfCredits`, `subscriptionLimit` (`cli/src/utils/input-modes.ts:8-20`). User-command-reachable in FreeBuff: `default`, `bash`, `plan`, `review`, `interview`, `skill`, `help` (plus automatic `homeDir`); `image` and `usage` are unreachable (their commands are removed/filtered) (`cli/src/commands/command-registry.ts:549-568`; `cli/src/data/slash-commands.ts:36`). The agent-mode toggle is force-disabled for every mode (`cli/src/utils/input-modes.ts:178-183`).
+- **Input modes.** Union: `default`, `bash`, `homeDir`, `plan`, `review`, `interview`, `skill`, `usage`, `image`, `help`, `outOfCredits`, `subscriptionLimit` (`cli/src/utils/input-modes.ts:8-20`). User-command-reachable upstream: `default`, `bash`, `plan`, `review`, `interview`, `skill`, `help` (plus automatic `homeDir`); `image` and `usage` are unreachable (their commands are removed/filtered) (`cli/src/commands/command-registry.ts:549-568`; `cli/src/data/slash-commands.ts:36`). The agent-mode toggle is force-disabled for every mode (`cli/src/utils/input-modes.ts:178-183`).
 - **Queue editing.** `/queue` or **Ctrl+Q** (only when `queuedCount > 0`) opens the panel (`cli/src/utils/keyboard-actions.ts:220-224`). Inside: `q`/`Esc`/`Ctrl+C` close; `j`/`k`/`↑`/`↓` select; `Shift|Ctrl+↑↓` or `J`/`K` reorder; `t` move to top; `e`/`Enter` edit; `d`/`Delete`/`Backspace` delete (`cli/src/utils/queue-panel-actions.ts:28-70`). While editing, Enter saves, Esc cancels, emptying the prompt deletes it; footer strings verbatim: `Enter save · Esc cancel · emptying it deletes` and `click a row to edit · ⇧↑↓ reorder · d delete · esc close` (`cli/src/components/queue-panel.tsx:303-307`). A mid-turn submit **steers** the live run (plain text, no attachments, not a slash command, no queued `!` output, empty queue) or **queues** (`cli/src/commands/router.ts:465-506`).
 - **Other keyboard.** `Esc` exits a non-default input mode before anything else unless the mode sets `blockKeyboardExit` (`subscriptionLimit` only) (`cli/src/utils/keyboard-actions.ts:211-215`); `Ctrl+C` clears non-empty input → interrupts a live run → clears a paused queue → warns then exits (`cli/src/utils/keyboard-actions.ts:227-237,323-325,380-385`); `Ctrl+T` collapses/expands all agents (`cli/src/utils/keyboard-actions.ts:345-350`); multi-line inserts on `Shift+Enter`, `Option/Alt+Enter`, `Ctrl+J`, and trailing `\`+Enter (`cli/src/components/multiline-input.tsx:603-621`).
 
-**(f) Help banner — exact FreeBuff content.** Source: `cli/src/components/help-banner.tsx:37-127`; the `Credits` block is suppressed under `IS_FREEBUFF` (`cli/src/components/help-banner.tsx:102-125`). Rendered rows, verbatim:
+**(f) Help banner — exact upstream content.** Source: `cli/src/components/help-banner.tsx:37-127`; the `Credits` block is suppressed under `IS_FREEBUFF` (`cli/src/components/help-banner.tsx:102-125`). Rendered rows, verbatim:
 
 ```
 Shortcuts
@@ -368,7 +371,7 @@ Banner mechanics: `HELP_TIMEOUT = 60 * 1000` auto-hide back to `default` (`cli/s
 
 **(g) Gotchas.**
 
-- `/model` does **not** switch models — under FreeBuff it resolves to `end-session` (alias pinned by test), i.e. it ends the session and returns to the picker (`cli/src/commands/command-registry.ts:765-767`; `cli/src/commands/__tests__/freebuff-command-aliases.test.ts:22-32`).
+- `/model` does **not** switch models — upstream it resolves to `end-session` (alias pinned by test), i.e. it ends the session and returns to the picker (`cli/src/commands/command-registry.ts:765-767`; `cli/src/commands/__tests__/freebuff-command-aliases.test.ts:22-32`).
 - `/q` is exit, never queue: `queue` deliberately has no `q` alias (`cli/src/commands/command-registry.ts:713-717`; `cli/src/data/slash-commands.ts:225`).
 - Menu/registry asymmetry: `login` and `init` execute but never appear in `/`; the 8 `ads:*` controls are type-only. Conversely `dashboard`'s `usage` alias means `/usage` "works" while the `usage` command does not exist (`cli/src/data/slash-commands.ts:230-236`; `cli/src/commands/command-registry.ts:784-794`).
 - `init` lost its slashless form: filtering it out of `SLASH_COMMANDS` also removes it from `SLASHLESS_COMMAND_IDS` (`cli/src/data/slash-commands.ts:238-242`), so bare `init` becomes a normal agent message.
@@ -432,7 +435,7 @@ The TUI is a second rendering surface on top of the session wire: model names, t
 
 - Takeover keys: Enter confirms focus, Esc exits, ←/→/Tab switch buttons (`:181-222`); session-ended: Enter = new session, Esc = back to the picker (`session-ended-banner.tsx:130-146`).
 - Statuses with **no** CLI screen: `model_locked`, `model_unavailable`, `purchase_*`, `premium_slot_taken`, `consent_required`, `first_tab_discount_changed`. No session "queued" screen exists (`committedModelId` is always null, `freebuff-model-selector.tsx:347-349`); the only queue UI is the message queue.
-- Agent-mode toggle is disabled in Freebuff (`cli/src/utils/input-modes.ts:178-183`).
+- Agent-mode toggle is disabled upstream (`cli/src/utils/input-modes.ts:178-183`).
 
 ### 8.5 Ads
 
@@ -592,7 +595,7 @@ Every limit is a wire status/code the CLI matches, and the chat path evaluates t
 
 Gate wire contract (`common/src/types/freebuff-session.ts:1200-1224`): `waiting_room_required` 428 `endsTheSession:true`, `session_expired` 410 true, `session_superseded` 409 true, `session_model_mismatch` 409 true, `session_limit_reached` 409 false, `waiting_room_queued` 429 false, `model_unavailable` 410 false.
 
-Two cross-checks that shape the matrix: `getFreebuffRateLimitErrorMessage` returns `null` for non-429, so a 402/403/5xx can never be reframed as "temporarily busy" (`error-handling.ts:125-129`); and `nextDelayMs` enumerates every Freebuff-only status that must not be polled further, exhaustively over the response union (`use-freebuff-session.ts:76-111`).
+Two cross-checks that shape the matrix: `getFreebuffRateLimitErrorMessage` returns `null` for non-429, so a 402/403/5xx can never be reframed as "temporarily busy" (`error-handling.ts:125-129`); and `nextDelayMs` enumerates every upstream-only status that must not be polled further, exhaustively over the response union (`use-freebuff-session.ts:76-111`).
 
 Not found at this pin (verified, not assumed): `no_endpoints` (an OpenRouter body reaching generic verbatim; only server-side), `outside_hours` (the availability vocabulary is `'always' | 'off_peak_only' | 'deployment_hours'`), `fanout` (named only in a server-side comment; the CLI-visible shed path is #19), and `free_mode_cli_required` (0 hits repo-wide).
 
@@ -750,7 +753,7 @@ Because these are inlined, `IS_FREEBUFF` and `NEXT_PUBLIC_CB_ENVIRONMENT` cannot
 | `CODEBUFF_BINARY_TARGET`, `CLI_BINARY_TARGET` | launcher target overrides, after `FREEBUFF_BINARY_TARGET` | `cli/release-core/launcher.js:382-397` |
 | `HTTP_PROXY`/`http_proxy`/`HTTPS_PROXY`/`https_proxy`, `NO_PROXY`/`no_proxy` | launcher download proxy: CONNECT tunnel for https, `Proxy-Authorization: Basic` when the URL carries credentials, `NO_PROXY` domain list | `cli/release-core/http.js:86-247` |
 
-Freebuff reuses the `CODEBUFF_*` names for these shared knobs — there is no parallel `FREEBUFF_*` set. Terminal/IDE/OS detection (read, not configuration): `SHELL, COMSPEC, HOME, USERPROFILE, APPDATA, XDG_CONFIG_HOME, TERM, TERM_PROGRAM, TERM_BACKGROUND, TERMINAL_EMULATOR, COLORFGBG, NODE_ENV, NODE_PATH, PATH` (`common/src/env-process.ts:20-35`) plus `TMUX, STY, SSH_CLIENT, SSH_TTY, SSH_CONNECTION, CODESPACES, DISPLAY, WAYLAND_DISPLAY, KITTY_WINDOW_ID, SIXEL_SUPPORT, COLORTERM, ZED_*, VSCODE_*, CURSOR*, JETBRAINS_REMOTE_RUN, IDEA_INITIAL_DIRECTORY, IDE_CONFIG_DIR, JB_IDE_CONFIG_DIR, VISUAL, EDITOR, SystemRoot` (`cli/src/utils/env.ts:16-89`; typed `cli/src/types/env.ts:15-93`).
+The upstream build reuses the `CODEBUFF_*` names for these shared knobs — there is no parallel `FREEBUFF_*` set. Terminal/IDE/OS detection (read, not configuration): `SHELL, COMSPEC, HOME, USERPROFILE, APPDATA, XDG_CONFIG_HOME, TERM, TERM_PROGRAM, TERM_BACKGROUND, TERMINAL_EMULATOR, COLORFGBG, NODE_ENV, NODE_PATH, PATH` (`common/src/env-process.ts:20-35`) plus `TMUX, STY, SSH_CLIENT, SSH_TTY, SSH_CONNECTION, CODESPACES, DISPLAY, WAYLAND_DISPLAY, KITTY_WINDOW_ID, SIXEL_SUPPORT, COLORTERM, ZED_*, VSCODE_*, CURSOR*, JETBRAINS_REMOTE_RUN, IDEA_INITIAL_DIRECTORY, IDE_CONFIG_DIR, JB_IDE_CONFIG_DIR, VISUAL, EDITOR, SystemRoot` (`cli/src/utils/env.ts:16-89`; typed `cli/src/types/env.ts:15-93`).
 
 - `NEXT_PUBLIC_*` client schema is validated at import (invalid → throw). Required: `NEXT_PUBLIC_CB_ENVIRONMENT` (dev|test|prod), `NEXT_PUBLIC_CODEBUFF_APP_URL`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `NEXT_PUBLIC_POSTHOG_API_KEY`, `NEXT_PUBLIC_POSTHOG_HOST_URL`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL`, `NEXT_PUBLIC_WEB_PORT` (≥1000). Optional: `NEXT_PUBLIC_FREEBUFF_APP_URL`, pixel/site-verification/turnstile/recaptcha/humanbehavior keys (`common/src/env-schema.ts:5-73`; validation `common/src/env.ts:3-9`; derived `IS_DEV/IS_TEST/IS_PROD/IS_CI` `:17-20`).
 - Steering-var protection: a repo `.envrc` import drops and reports `CODEBUFF_*`, `FREEBUFF_*`, `NEXT_PUBLIC_*`, `OVERRIDE_{TARGET,PLATFORM,ARCH}`, `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED`, `SSL_CERT_{FILE,DIR}`, `BUN_(CONFIG|OPTIONS|INSTALL)`, `LD_(PRELOAD|LIBRARY_PATH)`, `DYLD_*` (`cli/src/init/init-direnv.ts:102-141`).
@@ -762,7 +765,7 @@ The npm `freebuff` package is a thin Node wrapper (`freebuff/cli/release/index.j
 
 ### Wrapper flow
 - Entry: `bin.freebuff → index.js`, `createLauncher({packageName:'freebuff', displayName:'Freebuff', wrapperVersion, binaryChecksums, telemetryEvent:'cli.update_freebuff_failed'})`; no install-time lifecycle scripts (`freebuff/cli/release/index.js:26-32`; `README.md:8-11`).
-- `main()`: optional startup banner (none for Freebuff) → `ensureBinaryReady()` → `spawnInstalledBinary()` → `attachExitHandler()` → `setTimeout(checkForUpdates, 100)` (`:1701-1715`).
+- `main()`: optional startup banner (none in the upstream build) → `ensureBinaryReady()` → `spawnInstalledBinary()` → `attachExitHandler()` → `setTimeout(checkForUpdates, 100)` (`:1701-1715`).
 - `ensureBinaryReady` is ready when `freebuff-metadata.json` exists, the binary exists, and the target is still allowed (`:636-671`); a wrapper newer than the installed binary repairs synchronously with no registry lookup (`:1147-1156`), otherwise it fetches `https://registry.npmjs.org/freebuff/latest` (`:550-583`). A download failure with a cached binary continues on the cache; with none, exit 1 (`:1186-1201`).
 - Target key `"${process.platform}-${process.arch}"`, overridden by `FREEBUFF_BINARY_TARGET` > `CODEBUFF_BINARY_TARGET` > `CLI_BINARY_TARGET` (must be a known key): `linux-x64`, `linux-x64-baseline`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `win32-x64`, `win32-x64-baseline` (`:25-33, 378-397, 516-541`).
 - Artifact URL: `GET ${resolveDownloadOrigin(NEXT_PUBLIC_CODEBUFF_APP_URL)}/api/releases/download/<version>/freebuff-<target>.tar.gz` (`:1014-1018`). The origin override applies only over `https:`, or `http:` on localhost/loopback; anything else is warned and ignored (`:37-75`). A 302 may land on the GitHub release asset (`README.md:15-16`), and redirects may only hit the original host, `codebuff.com`, `freebuff.com`, `github.com` (+`www.`), `*.githubusercontent.com`, never downgrading https→http (`cli/release-core/http.js:15-72`).
@@ -801,7 +804,7 @@ The npm `freebuff` package is a thin Node wrapper (`freebuff/cli/release/index.j
 ### Release & build plumbing
 - Build: `bun freebuff/cli/build.ts <version>` sets `FREEBUFF_MODE=true` and shells out to `bun cli/scripts/build-binary.ts freebuff <version>` (`freebuff/cli/build.ts:23-42`). `build-binary.ts` runs `scripts/prebuild-agents.ts` → `sdk` build → OpenTUI native bundle → `bun build src/entry.ts --compile --production --target=<bun target> --outfile=cli/bin/freebuff --sourcemap=none --define … --env "NEXT_PUBLIC_*"` → copies `tree-sitter.wasm` → `chmod 0755` (`cli/scripts/build-binary.ts:123-224`).
 - Version source of truth is the published wrapper version `freebuff/cli/release/package.json:3`, passed to the build so `CODEBUFF_CLI_VERSION` matches (`freebuff/SPEC.md:244`); runtime resolution is baked `CODEBUFF_CLI_VERSION` → `../package.json` → `'dev'` (`cli/src/cli-args.ts:23-39`). Self-update compares npm `latest` against `freebuff-metadata.json`.
-- Release: `bun freebuff/cli/release.ts [patch|minor|major] [--ref <sha>]` dispatches `freebuff-release.yml` in `CodebuffAI/freebuff-private` (`freebuff/cli/release.ts:73-84`); it requires `CODEBUFF_GITHUB_TOKEN`.
+- Release: `bun freebuff/cli/release.ts [patch|minor|major] [--ref <sha>]` dispatches `freebuff-release.yml` in the upstream vendor repository (`freebuff/cli/release.ts:73-84`); it requires `CODEBUFF_GITHUB_TOKEN`.
 - Checksum stamping: `write-binary-checksums.js write --binary-name freebuff --binaries-dir binaries --package-dir freebuff/cli/release` hashes `<name>-<target>/<name>-<target>.tar.gz` into `package.json.binaryChecksums`; `verify` fails the publish if any of the 7 targets is missing, not sha256, or unknown (`cli/release-core/write-binary-checksums.js:5-25, 82-151`). This checkout carries no `binaryChecksums` — it is stamped in the publish job.
 - Public-clone CI: `.github/workflows/ci.yml:35-54` builds `bun freebuff/cli/build.ts 0.0.0-ci` on Ubuntu with placeholder `NEXT_PUBLIC_*`, then runs `cli/bin/freebuff --version` and `bun cli/scripts/smoke-binary.ts cli/bin/freebuff`. `freebuff-release.yml`, `freebuff-e2e.yml` and `prod-smoke.yml` are referenced but absent here (`freebuff/e2e/README.md:84-85, 137-161`).
 - e2e/smoke expectations: `--version` prints semver, exits 0, and is unaffected by a project `bunfig.toml` preload (`version.e2e.test.ts:10-49`); `--help` contains `freebuff` and not `codebuff` (`help-command.e2e.test.ts:8-31`), and the smoke variant asserts `Usage: freebuff`, `Free AI coding assistant`, and the absence of `--free/--max/--plan/--lite` (`freebuff/cli/smoke-test.test.ts:123-150`); startup renders a boot marker and none of `Fatal error during startup`, `Internal error: tree-sitter.wasm not found`, `FATAL`, `panic`, `Segmentation fault` (`startup.e2e.test.ts:17-55`). `login` must enter `Freebuff Login` / `Generating login URL` (`smoke-test.test.ts:152-169`); the e2e binary path is `FREEBUFF_BINARY` or `cli/bin/freebuff` (`freebuff/e2e/utils/binary-helpers.ts:8-13`).
@@ -821,7 +824,7 @@ The npm `freebuff` package is a thin Node wrapper (`freebuff/cli/release/index.j
 | version file | `freebuff/cli/release/package.json:3` `0.0.177` → `0.0.180` |
 
 - **Version-file-lags-npm caveat:** at `e2b911eca` the release file still read `0.0.177`, one behind its own npm tag `0.0.178`. Never derive the vendor revision from `freebuff/cli/release/package.json` — use the npm tag/git SHA.
-- The proxy pin file `scripts/vendor-version.txt` still reads `0.0.178` while the local `upstream/freebuff` checkout is already at `2b165f749`; this audit describes the tree ahead of the pin.
+- The proxy pin file `scripts/vendor-version.txt` still reads `0.0.178` while the local gitignored upstream vendor clone is already at `2b165f749`; this audit describes the tree ahead of the pin.
 
 ### 14.2 File inventory (condensed by class)
 
@@ -848,7 +851,7 @@ Class key: **B** CLI behavior · **W** wire/registry · **A** ads/sponsored · *
 - **`common/src/util/freebuff-first-tab-discount.ts` — B (copy).** `shared across Desktop and CLI` → `shared across Web, Desktop and CLI` (`:85`).
 - **`common/src/constants/freebuff-models.ts` — W.** `FREEBUFF_GLM_V53_FLASH_MAX_PRICE` re-priced `$0.10/$0.30` → `$0.14/$0.45` (`:258-261`; Z.ai/Novita/GMICloud all moved above the old ceiling). New wire ids: `deepseek/deepseek-v4.1-flash` (`:486-487`), `deepseek/deepseek-v4.1-pro` (`:488`), `z-ai/glm-5.3` (`:489`), plus staff-only `anthropic/claude-fable-5.1-test` (`:501-502`) and `openai/gpt-6-astra-discount-test` (`:503-504`). `FREEBUFF_PROVISIONED_MODELS` grows to 6 rows (`:1539-1546`, new rows `:1543-1545`); new `FREEBUFF_INTERNAL_EVAL_MODELS` (`:1579-1582`). **No additions to `FREEBUFF_MODELS` / picker catalogs** — the three new model options are referenced only by the provisioned/eval lists. Tier logic: `isFreebuffSessionModelAllowedForAccessTier` admits a campaign (`FREEBUFF_LIMITED_OFFER_MODEL_IDS`) model on **either** tier (`:3361-3363`); `resolveFreebuffModelForAccessTier` hoists the limited-offer lookup above the limited-tier coercion (`:3466-3469`), so an explicit Fable pick survives at limited tier.
 - **`common/src/constants/free-agents.ts` — W.** Five new roots in `FREEBUFF_ROOT_AGENT_IDS`: `base2-free-deepseek-v4-1-flash`, `-deepseek-v4-1-pro`, `-glm-5-3`, `-astra-discount-test`, `-fable-test` (`:355-359`); model→root entries for the 3 provisioned + 2 eval ids (`:439-446`); one-model pins in `FREE_MODE_AGENT_MODELS` (`:630-638`).
-- **`common/src/constants/freebuff-cost-mode.ts` — W (new).** New server error code `FREEBUFF_COST_MODE_ESCALATION_ERROR = 'free_mode_cost_mode_required'` (`:63-64`) with operator copy (`:65-66`), plus `isFreebuffOnlyAgentId()` (`:13`), `isFreebuffCostModeEscalation()` (`:56`) and `parseExemptUserIds()` for `FREEBUFF_BAN_EXEMPT_USER_IDS` (`:87-97`). Closes a bypass: a Freebuff agent id sent with `codebuff_metadata.cost_mode != 'free'` turned off ~20 free-mode gates. The predicate alone is **not** abuse — the paid-Luna path (`codebuff/base2-free-luna` + `cost_mode: normal`) stays 200. No consumer exists in the public snapshot.
+- **`common/src/constants/freebuff-cost-mode.ts` — W (new).** New server error code `FREEBUFF_COST_MODE_ESCALATION_ERROR = 'free_mode_cost_mode_required'` (`:63-64`) with operator copy (`:65-66`), plus `isFreebuffOnlyAgentId()` (`:13`), `isFreebuffCostModeEscalation()` (`:56`) and `parseExemptUserIds()` for `FREEBUFF_BAN_EXEMPT_USER_IDS` (`:87-97`). Closes a bypass: an upstream agent id sent with `codebuff_metadata.cost_mode != 'free'` turned off ~20 free-mode gates. The predicate alone is **not** abuse — the paid-Luna path (`codebuff/base2-free-luna` + `cost_mode: normal`) stays 200. No consumer exists in the public snapshot.
 - **`common/src/types/freebuff-session.ts` — W.** `FreebuffSubscriptionTierOffer.yearlyPrepaidPurchasable?` (`:104`); `FreebuffSubscriptionInfo.source` widened to `'stripe' | 'grant' | 'prepaid'` (`:369`), prepaid ⇒ `cancelAtPeriodEnd: true` with `renewsAt` = paid-through, and `prepaidRenewableAt?: string` (`:374`). Gate-code/status literals (the `wirecodes_gen` extraction source) are **unchanged**.
 - **`common/src/util/runtime-app-url.ts` — B/W.** New shared `RUNTIME_APP_URL_ENV_VARS = ['NEXT_PUBLIC_CODEBUFF_APP_URL','CODEBUFF_APP_URL']` (`:21-24`); `sdk/src/env.ts` imports it instead of a local copy (`sdk/src/env.ts:12-15,89`), and `smoke-binary.ts` uses it to strip the vars for the isolation probe.
 - **`packages/agent-runtime/src/compact-history.ts` — B (SDK).** New `compactHistoryNow()` (`:1196`): the mechanical pass of `maybeCompactHistory` with the trigger decision removed; returns `null` when a pass would not shrink history, throws the runtime's user-presentable sentence when the live request alone is over budget, emits `context_compaction_completed` telemetry with `trigger_reason: 'manual'` (`:1219`).
@@ -864,7 +867,7 @@ Class key: **B** CLI behavior · **W** wire/registry · **A** ads/sponsored · *
 ### 14.5 Effect on `docs/CLI-Limitations.md`
 
 Invalidates:
-- The pin line `Vendor pin: upstream/freebuff @ e2b911eca (= live npm 0.0.178, zero drift)` — stale; the checked-out tree is `2b165f749` (npm `0.0.180`), and "zero drift" no longer holds against the local clone.
+- The vendor-pin line in `docs/CLI-Limitations.md` (`e2b911eca`, recorded there as "live npm 0.0.178, zero drift") — stale; the checked-out tree is `2b165f749` (npm `0.0.180`), and "zero drift" no longer holds against the local clone.
 - Row **P2-1**'s picker-notice cite (`freebucks.ts:188`) — `FREEBUCKS_PICKER_NOTICE` no longer exists, so that half of the item is moot (the cosmetic-countdown verdict stands).
 - Line-number cites only (verdicts hold): row 12's `freebuff-session-api.ts:117-133` is now the network-error helper block — the `compact` / `firstTabDiscount` / `walletSpendLimit` call site moved to `:151-162`; W1's `freebuff-landing-screen.tsx:791-801` and `freebuff-model-selector.tsx` cites shift with the two edits. Row 14's `:48-73` range is unchanged.
 

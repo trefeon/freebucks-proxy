@@ -1,13 +1,14 @@
 # CLI → Proxy Limitations (CLI-Limitations)
 
-Static audit of the FreeBuff CLI behaviors in scope vs the proxy port.
-Vendor pin: `upstream/freebuff` @ `e2b911eca` (= live npm `0.0.178`, zero drift).
+Static audit of the upstream CLI behaviors in scope vs the proxy port.
+Vendor pin: the gitignored upstream vendor clone @ `e2b911eca` (= live npm
+`0.0.178`, zero drift); path + pin verified by `scripts/check-upstream.sh`.
 Proxy: `main` @ `e9427683`.
 
 > Pin note (2026-09-20): upstream has since moved to `2b165f749` (= npm
 > `freebuff@0.0.180`). This audit was not re-run; the delta — including which
 > files audited below actually changed and whether any verdict is invalidated —
-> is recorded in `FREEBUFF-CLI.md` §14 (`Version delta 0.0.178 → 0.0.180`).
+> is recorded in `UPSTREAM-CLI.md` §14 (`Version delta 0.0.178 → 0.0.180`).
 
 - Verdicts: **PORTED** / **GAP-P0** (breaks interop — harness retry-spin or
   wrong-operator billing) / **GAP-P1** (parity gap, degraded UX, no spin) /
@@ -28,7 +29,7 @@ error envelopes.
 
 ### P0-1 — `403 free_mode_unavailable` (+ `anonymous_network` variant) unmapped
 
-- CLI: `upstream/freebuff/cli/src/utils/error-handling.ts:59-65`
+- CLI: `cli/src/utils/error-handling.ts:59-65`
   (`isFreeModeUnavailableError`: `statusCode === 403` + `error ===
   'free_mode_unavailable'`); variant message at `:200-211`
   (`getFreeModeUnavailableErrorMessage`: `countryBlockReason ===
@@ -163,8 +164,8 @@ error envelopes.
 
 ## P2 — minor
 
-- **P2-1 — freebucks countdown/presentation copy**: reset countdown
-  (`freebucks.ts:194-207`), header line (`:123-146`), intro
+- **P2-1 — upstream-credits (`freebucks*`) countdown/presentation copy**:
+  reset countdown (`freebucks.ts:194-207`), header line (`:123-146`), intro
   (`:176-185`), picker notice (`:188`) — Web/Desktop/CLI picker UX. Proxy
   correctly derives everything off the wire (no hardcoded prices,
   `freebucks.ts:14-21` constraint honored via `session_parse.go`); only the
