@@ -19,6 +19,7 @@
   import { refreshTokens } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
   import { isExhausted } from "../utils/tokenStatus.js";
+  import { formatLocalDateTime } from "../utils/format.js";
   import {
     spawnIntent,
     firstTabListPriceFor,
@@ -66,23 +67,16 @@
   // naming the window refusal. The payload carries no per-model detail, so
   // this names the pool-level reset — the next request spills to the next
   // account. "" when the account is not parked.
-  function fmtParkedTime(raw) {
-    const ms = Date.parse(String(raw ?? ""));
-    if (!Number.isFinite(ms)) return "";
-    const d = new Date(ms);
-    const hh = String(d.getUTCHours()).padStart(2, "0");
-    const mm = String(d.getUTCMinutes()).padStart(2, "0");
-    return `${hh}:${mm}Z`;
-  }
   let parkedNote = $derived.by(() => {
     if (!token.cooldown_active && !isExhausted(token)) return "";
-    const until = fmtParkedTime(token.cooldown_until);
+    // Both stamps are absolute UTC on the wire: render them on the
+    // operator's wall clock with their zone, like every other reset clock
+    // on the page.
+    const until = formatLocalDateTime(token.cooldown_until);
     const kind = token.cooldown_kind ? ` (${token.cooldown_kind})` : "";
-    const resets = token.cooldown_resets_at
-      ? ` · resets ${fmtParkedTime(token.cooldown_resets_at)}`
-      : token.freebucks?.daily?.reset_at
-        ? ` · resets ${fmtParkedTime(token.freebucks.daily.reset_at)}`
-        : "";
+    const resetsAt =
+      token.cooldown_resets_at || token.freebucks?.daily?.reset_at || "";
+    const resets = resetsAt ? ` · resets ${formatLocalDateTime(resetsAt)}` : "";
     if (isExhausted(token)) {
       return `Exhausted — upstream 429${kind} until ${until || "—"} — spills to next account${resets}`;
     }
