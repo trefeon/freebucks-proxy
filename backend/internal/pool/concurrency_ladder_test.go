@@ -225,14 +225,6 @@ func runLadWave(t *testing.T, p *Pool, model string, c int) ladWaveResult {
 	return runLadWaveInner(t, p, model, c, true)
 }
 
-// runLadWaveCold is the no-warm-up variant for the admission-storm round
-// (round I): the replacement session must come from the wave's own
-// scale-out, not the harness. The first arrival parks cold with no holder
-// to release, so the settle below awaits its scale-out grant instead.
-func runLadWaveCold(t *testing.T, p *Pool, model string, c int) ladWaveResult {
-	return runLadWaveInner(t, p, model, c, false)
-}
-
 func runLadWaveInner(t *testing.T, p *Pool, model string, c int, warm bool) ladWaveResult {
 	t.Helper()
 	if warm {
