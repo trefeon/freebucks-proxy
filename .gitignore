@@ -88,6 +88,18 @@ node_modules/
 *.tmp
 *.bak
 
+# ── python tooling (scripts/) ──
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# ── agent harness state (would carry transcripts/config) ──
+.omp/
+.codex/
+.pi/
+
 # ── agent handoff docs (local only, not repo content) ──
 HANDOFF.md
 *.handoff.md
