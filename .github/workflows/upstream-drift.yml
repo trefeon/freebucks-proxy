@@ -52,7 +52,18 @@
 #     dashboard binary so users see up-to-date sync status without a live
 #     network call at boot. Opens a PR only when the embed's semantic
 #     content (everything except checked_at) actually changed.
-# NOTE: all four PR-opening jobs need Settings -> Actions -> General ->
+#  4. **Auto re-pin** (open-repin-pr): AFTER the version's wire/registry/
+#     dashboard PRs merged — no open drift/port/notices/dashboard PR (any
+#     version), and functional drift additionally needs the version's merged
+#     wire-port PR (clearance from merged-PR state; the classify-first abort
+#     in repin-all.sh stays the backstop). Advances BOTH pins
+#     (scripts/vendor-version.txt + snapshots.json upstream_sha/vendor_version)
+#     to the live wrapper version in ONE atomic commit via
+#     `repin-all.sh --bot <live-version>`, re-runs the pinned verify, and
+#     opens a single per-version re-pin PR whose body embeds the impact map
+#     plus the pin-jump classification. Never auto-merge; the re-pin PR
+#     merges last (wire -> registry -> dashboard -> re-pin).
+# NOTE: all five PR-opening jobs need Settings -> Actions -> General ->
 # "Allow GitHub Actions to create and approve pull requests".
 name: upstream-drift
 
@@ -194,7 +205,7 @@ jobs:
           LIVE_VERSION: ${{ needs.version_gate.outputs.live_version }}
         run: |
           # Gate-level per-version dedupe. The title selectors below are the
-          # exact ones from the four PR jobs' per-version skip steps (never
+          # exact ones from the five PR jobs' per-version skip steps (never
           # a second convention). Any match means this version is already
           # being handled: every downstream job stands down and the run ends
           # at the gate with this summary as its conclusion.
@@ -204,8 +215,9 @@ jobs:
               (.title | startswith("chore(registry): sync") and contains($v)) or
               (.title | startswith("chore(wire): upstream drift to vendor") and contains($v)) or
               (.title | startswith("chore(wire): re-pin notice copy to vendor") and contains($v)) or
+              (.title | startswith("chore(wire): re-pin to vendor") and contains($v)) or
               (.title | startswith("chore(dashboard): refresh upstream-drift embed to vendor") and contains($v))
-            ) | '#\(.number) \(.title)'] | join(", ")')"
+            ) | "#\(.number) \(.title)"] | join(", ")')"
           duplicate="false"
           if [ -n "$match" ]; then
             duplicate="true"
@@ -905,6 +917,235 @@ jobs:
             --body "$body" \
             --label "dependencies"
 
+  open-repin-pr:
+    name: Auto re-pin (advance pins)
+    needs: [version_gate, version_dedupe, drift]
+    # Fires only AFTER the version's drift work landed: a confirmed wrapper
+    # bump, no duplicate-version PR open, and the interlock step below finds
+    # no open drift/port/notices/dashboard PR plus (for functional drift) a
+    # merged wire-port PR for the version. Advances BOTH pins
+    # (scripts/vendor-version.txt + snapshots.json upstream_sha/vendor_version)
+    # in one atomic commit via repin-all.sh --bot, re-runs the pinned verify,
+    # and opens a single per-version re-pin PR. Never auto-merge; the re-pin
+    # PR merges last (wire -> registry -> dashboard -> re-pin).
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.version_dedupe.outputs.duplicate != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure commit identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Clone upstream reference
+        env:
+          FREEBUFF_REFERENCE_DIR: ${{ runner.temp }}/freebuff-ref
+        run: |
+          mkdir -p "$FREEBUFF_REFERENCE_DIR"
+          git clone --depth 50 https://github.com/CodebuffAI/freebuff.git "$FREEBUFF_REFERENCE_DIR"
+          git -C "$FREEBUFF_REFERENCE_DIR" fetch --unshallow || true
+
+      - name: Check re-pin interlocks
+        id: locks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VER: ${{ needs.version_gate.outputs.live_version }}
+          EXACT_FUNCTIONAL: ${{ needs.drift.outputs.exact_functional }}
+        run: |
+          # Interlock 1: never re-pin while any drift/port/notices/dashboard
+          # PR is still open (any version — a newer version's open PR means
+          # the pins are about to move under this run).
+          open_prs="$(gh pr list --state open --json number,title || echo '[]')"
+          open_match="$(printf '%s' "$open_prs" | jq -r '
+            [.[] | select(
+              (.title | startswith("chore(registry): sync")) or
+              (.title | startswith("chore(wire): upstream drift to vendor")) or
+              (.title | startswith("chore(wire): re-pin notice copy to vendor")) or
+              (.title | startswith("chore(wire): re-pin to vendor")) or
+              (.title | startswith("chore(dashboard): refresh upstream-drift embed to vendor"))
+            ) | "#\(.number) \(.title)"] | join(", ")')"
+          blocked=""
+          if [ -n "$open_match" ]; then
+            blocked="open drift PRs still present: $open_match"
+          fi
+          # Interlock 2: functional drift re-pins only after the version's
+          # port PR merged. Clearance comes from merged-PR state, not from
+          # re-classifying: the classify-first abort inside repin-all.sh
+          # stays the backstop either way.
+          if [ -z "$blocked" ] && [ "${EXACT_FUNCTIONAL:-0}" != "0" ]; then
+            merged="$(gh pr list --state merged --limit 100 --json number,title \
+              --jq ".[] | select(.title | startswith(\"chore(wire): upstream drift to vendor\") and contains(\"${NEW_VER}\")) | \"#\(.number) \(.title)\"" | head -3)"
+            if [ -z "$merged" ]; then
+              blocked="functional drift for $NEW_VER with no merged wire-port PR; port first"
+            else
+              echo "Functional clearance from merged PR(s): $merged"
+            fi
+          fi
+          {
+            echo "blocked=$blocked"
+          } >>"$GITHUB_OUTPUT"
+          {
+            echo "## Re-pin interlocks"
+            echo ""
+            if [ -n "$blocked" ]; then
+              echo "BLOCKED: $blocked"
+            else
+              echo "Clear: no open drift PRs; functional clearance satisfied for \`$NEW_VER\`."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Check out fresh branch
+        if: steps.locks.outputs.blocked == ''
+        env:
+          BRANCH_NAME: chore/upstream-repin-${{ needs.drift.outputs.upstream_sha }}
+        run: |
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            git checkout -B "$BRANCH_NAME" origin/"$BRANCH_NAME"
+          else
+            git checkout -b "$BRANCH_NAME"
+          fi
+
+      - name: Run auto re-pin (repin-all.sh --bot)
+        if: steps.locks.outputs.blocked == ''
+        id: repin
+        env:
+          FREEBUFF_REFERENCE_DIR: ${{ runner.temp }}/freebuff-ref
+          UPSTREAM_SHA: ${{ needs.drift.outputs.upstream_sha }}
+          NEW_VER: ${{ needs.version_gate.outputs.live_version }}
+        run: |
+          # Full chain in machine mode: classify-first (aborts on
+          # FUNCTIONAL/UNKNOWN), refresh snapshots, stamp BOTH pins to the
+          # exact live version, wiregen, pinned verify. pipefail so a script
+          # abort fails the step instead of hiding behind tee.
+          set -o pipefail
+          bash scripts/repin-all.sh --bot "$NEW_VER" "$UPSTREAM_SHA" "$FREEBUFF_REFERENCE_DIR" 2>&1 | tee "$RUNNER_TEMP/repin.log"
+          {
+            echo "repin_classify<<EOF"
+            awk '/==> 1\. Classifying/,/^classify:/' "$RUNNER_TEMP/repin.log"
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Commit the atomic re-pin
+        if: steps.locks.outputs.blocked == ''
+        id: commit
+        run: |
+          git add scripts/vendor-version.txt backend/internal/wirefacts/testdata/wire backend/internal/wirefacts/wirefacts.go backend/internal/wirefacts/wirefacts_test.go backend/internal/wirefacts/emit_wire.go backend/internal/wirefacts/wirefacts_gen.go backend/internal/modelcat/catalog_gen.go backend/internal/upstream/wirecodes_gen.go backend/internal/upstream/notices_gen.go backend/internal/convert/toolnames_gen.go scripts/wire-baseline.tsv
+          {
+            echo "skip_pr=false"
+          } >>"$GITHUB_OUTPUT"
+          if git diff --cached --quiet; then
+            # Pins already at target: only a branch already ahead of main
+            # (orphaned re-pin commit) still reaches the PR step.
+            if git diff --quiet origin/main HEAD; then
+              echo "Pins already at target and branch matches main; skipping PR."
+              echo "skip_pr=true" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Branch already has re-pin commits ahead of main; reusing them."
+          else
+            sha="${{ needs.drift.outputs.upstream_sha }}"
+            short="${sha:0:7}"
+            old_ver="${{ needs.version_gate.outputs.pinned_version }}"
+            new_ver="${{ needs.version_gate.outputs.live_version }}"
+            git -c commit.gpgsign=false commit -m "chore(wire): re-pin to vendor ${short} ${old_ver} -> ${new_ver}" \
+              -m "Automated re-pin triggered by .github/workflows/upstream-drift.yml (open-repin-pr, after the version's drift PRs merged)." \
+              -m "Dual pins advance atomically: scripts/vendor-version.txt plus snapshots.json upstream_sha/vendor_version." \
+              -m "Vendor ${old_ver} -> ${new_ver} @ ${{ needs.drift.outputs.old_sha }}..${sha}" \
+              -m "Upstream SHA: ${sha}" \
+              -m "Drift summary:" \
+              -m "${{ needs.drift.outputs.drift_summary }}"
+          fi
+          git push -u origin HEAD
+
+      - name: Close superseded re-pin PRs
+        if: steps.locks.outputs.blocked == '' && steps.commit.outputs.skip_pr != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_SHA: ${{ needs.drift.outputs.upstream_sha }}
+          NEW_VER: ${{ needs.version_gate.outputs.live_version }}
+        run: |
+          # One rolling re-pin PR per wrapper version; titles carrying the
+          # new version are kept (per-version skip), older ones are stale
+          # the moment a newer version exists.
+          gh pr list --state open --json number,title,headRefName \
+            --jq '.[] | select(.title | startswith("chore(wire): re-pin to vendor")) | {number, title, branch: .headRefName}' \
+          | jq -c . \
+          | while read -r pr; do
+              num=$(echo "$pr" | jq -r .number)
+              title=$(echo "$pr" | jq -r .title)
+              branch=$(echo "$pr" | jq -r .branch)
+              if [ -n "$NEW_VER" ] && printf '%s' "$title" | grep -Fq "$NEW_VER"; then
+                echo "Keeping #$num (matches version $NEW_VER); not superseded."
+                continue
+              fi
+              case "$branch" in
+                chore/upstream-repin-"${UPSTREAM_SHA:0:7}"|chore/upstream-repin-"${UPSTREAM_SHA}") ;;
+                *) gh pr close "$num" --comment "Superseded by upstream ${UPSTREAM_SHA:0:7} ($NEW_VER); a fresh re-pin PR covers the current pin state." \
+                     && git push origin --delete "$branch" || true ;;
+              esac
+            done
+
+      - name: Open or update PR
+        if: steps.locks.outputs.blocked == '' && steps.commit.outputs.skip_pr != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_SHA: ${{ needs.drift.outputs.upstream_sha }}
+          OLD_SHA: ${{ needs.drift.outputs.old_sha }}
+          OLD_VER: ${{ needs.version_gate.outputs.pinned_version }}
+          NEW_VER: ${{ needs.version_gate.outputs.live_version }}
+          DRIFT_SUMMARY: ${{ needs.drift.outputs.drift_summary }}
+          EXACT_ANNOUNCE: ${{ needs.drift.outputs.exact_announce }}
+          IMPACT_ANNOUNCE: ${{ needs.drift.outputs.impact_announce }}
+          REPIN_CLASSIFY: ${{ steps.repin.outputs.repin_classify }}
+        run: |
+          short="${UPSTREAM_SHA:0:7}"
+          title="chore(wire): re-pin to vendor ${short} ${OLD_VER} -> ${NEW_VER}"
+          existing=$(gh pr list --state open --json number,title \
+            --jq ".[] | select(.title | startswith(\"chore(wire): re-pin to vendor\") and contains(\"${NEW_VER}\")) | .number" | head -1)
+          if [ -n "$existing" ]; then
+            echo "Existing re-pin PR #$existing already open for version ${NEW_VER}; reusing (per-version skip)."
+            exit 0
+          fi
+          body="Vendor ${OLD_VER} -> ${NEW_VER} @ ${OLD_SHA:0:7}..${UPSTREAM_SHA:0:7}
+          Checkpoint ${OLD_SHA:0:7} -> upstream $UPSTREAM_SHA (full: ${OLD_SHA} -> ${UPSTREAM_SHA})
+
+          $DRIFT_SUMMARY
+
+          ## Classification for the pin jump (repin-all.sh step 1, BEFORE any refresh)
+
+          \`\`\`
+          $REPIN_CLASSIFY
+          \`\`\`
+
+          ## Exact model/price changes (scripts/drift-exact.sh)
+
+          $EXACT_ANNOUNCE
+
+          ## Export impact map (scripts/drift-impact.sh)
+
+          $IMPACT_ANNOUNCE
+
+          Verified: dual pins advanced atomically (scripts/vendor-version.txt plus snapshots.json upstream_sha/vendor_version), wiregen regen, check-upstream.sh $UPSTREAM_SHA exit 0, wirefacts plus TestFallbackParityWithPinnedUpstream green.
+          Never auto-merge: the owner merges after green gates.
+
+          Note: PRs created with GITHUB_TOKEN do not trigger CI workflows; run the checks manually before merging."
+          gh pr create --base main \
+            --title "$title" \
+            --body "$body" \
+            --label "dependencies"
 
   publish-drift-data:
     name: Publish drift JSON to dashboard embed

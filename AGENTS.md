@@ -143,7 +143,13 @@ dotenv → static → live → SSE hash → store refresh.
    when an open PR already carries the live version. The version signal NEVER changes script exit codes — the gate
    lives in workflow `if:` conditions only. Dual pins
    (vendor-version.txt + snapshots.json vendor_version) land atomically in
-   the same bump commit before the wiregen SHA gate.
+   the same bump commit before the wiregen SHA gate. Auto re-pin
+   (`open-repin-pr`, `scripts/repin-all.sh --bot <live-version>`) fires only
+   on a confirmed bump with no open drift/port/notices/dashboard PR and
+   (for functional drift) a merged wire-port PR for the version; it advances
+   both pins in one commit, embeds the impact map + pin-jump classification
+   in the PR body, and never auto-merges. Merge order stays wire → registry
+   → dashboard → re-pin, one green merge before the next.
 7. Upstream-first: start any wire/registry/model work by updating the gitignored upstream vendor clone to latest `origin/main` (`git -C upstream/freebuff fetch origin main`, checkout `origin/main`). Nothing gates or pre-approves this update. If it moved past the recorded pins, classify with `check-upstream.sh` + `review-wire-drift.sh` and carry any port/re-pin through the drift PR flow.
 8. Subagent worktrees & fast lanes: many subagents share ONE tree (one checkout + branch) when editing the same domain — same feature area, disjoint files or tightly-coupled edits, with hub coordination before touching shared files. Split to one-worktree-per-agent only when domains differ or clobber risk is real. In multi-agent parallel lanes touching frontend/, the integrating lane rebuilds + commits dist LAST; parallel lanes NEVER rebuild dist concurrently (stale-bundle races).
 9. Domain-gated CI: CI uses path filtering (`dorny/paths-filter`). PRs modifying only frontend bypass backend race tests, CodeQL, and Go lint in ~3 seconds. PRs modifying only backend bypass Playwright e2e in ~3 seconds. Docs PRs bypass all heavy suites. Always keep PR changes tightly scoped to the domain.

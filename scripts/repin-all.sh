@@ -3,12 +3,21 @@
 #
 # Usage:
 #   scripts/repin-all.sh [--dry-run] <vendor-sha> [clone-dir]
+#   scripts/repin-all.sh [--dry-run] --bot <version> <vendor-sha> [clone-dir]
 #
 #   vendor-sha  full 40-char upstream commit SHA in upstream/freebuff
 #   clone-dir   local reference clone (default: $FREEBUFF_REFERENCE_DIR,
 #               else <repo>/upstream/freebuff)
 #   --dry-run   classify drift and print the planned refresh plus the exact
 #               gh commands for the three PRs; write nothing
+#   --bot <version>
+#               machine mode for the upstream-drift auto re-pin job: stamp
+#               snapshots.json vendor_version to <version> exactly (no npm
+#               lookup) and advance scripts/vendor-version.txt to <version>
+#               in the same step, so both pins land atomically. The human
+#               path (no --bot) keeps the npm-or-keep behavior and never
+#               touches scripts/vendor-version.txt. Classify-first abort
+#               unchanged in both modes.
 #
 # Steps (in order, per the proven playbook):
 #   1. Classify wire drift with review-wire-drift.sh BEFORE touching baselines.
@@ -17,7 +26,9 @@
 #      through the same refresh: the snapshots re-pin plus wiregen regen
 #      carries the new copy with no port.
 #   2. Refresh the 13 wire snapshots via git show plus LF normalize and stamp
-#      snapshots.json upstream_sha and vendor_version.
+#      snapshots.json upstream_sha and vendor_version. Under --bot,
+#      scripts/vendor-version.txt advances to the same version here, so the
+#      dual pins land in one atomic commit.
 #   3. Update wirefacts_test testUpstream and the wirefacts.go go:generate line.
 #   4. Run go run ./backend/cmd/wiregen -upstream <sha>.
 #   5. Verify with check-upstream.sh <sha> plus hermetic wirefacts and
@@ -30,11 +41,18 @@
 # check-upstream.sh with DRIFT_REPORT set. This script calls those; it does
 # not reimplement them.
 #
-# Non-interactive bot path: .github/workflows/upstream-drift.yml runs steps
-# 2-5 of this chain for the notice-copy re-pin job (classification already
-# done in the drift job: exact_functional == 0 with notice_only_files > 0).
-# The steps are invoked here, not duplicated in the workflow, so the manual
-# flow and the bot flow share one implementation.
+# Non-interactive bot paths (both share this implementation, so the manual
+# flow and the bot flows never diverge):
+#  - notice-copy re-pin job: runs steps 2-5 of this chain, human path
+#    (no --bot; classification already done in the drift job with
+#    exact_functional == 0 and notice_only_files > 0).
+#  - auto re-pin job (open-repin-pr): runs the full chain with
+#    --bot <live-version> AFTER the version's wire/registry/dashboard PRs
+#    merged. The workflow interlocks (no open drift PRs; functional drift
+#    needs a merged port PR for the version) gate the run, and the
+#    classify-first abort below stays the backstop. --bot stamps the exact
+#    version (no npm lookup) and advances scripts/vendor-version.txt
+#    alongside snapshots.json.
 #
 # Windows: run under Git Bash, e.g.
 #   "C:\Program Files\Git\bin\bash.exe" scripts/repin-all.sh --dry-run <sha>
@@ -43,10 +61,20 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=1
-  shift
-fi
+BOT_VERSION=""
+while [[ "${1:-}" == "--dry-run" || "${1:-}" == "--bot" ]]; do
+  if [[ "$1" == "--dry-run" ]]; then
+    DRY_RUN=1
+    shift
+  else
+    BOT_VERSION="${2:-}"
+    if ! [[ "$BOT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.+-]+)*$ ]]; then
+      echo "repin-all: --bot needs a wrapper version (e.g. 0.0.181), got: $BOT_VERSION" >&2
+      exit 2
+    fi
+    shift 2
+  fi
+done
 VENDOR_SHA="${1:-}"
 CLONE_DIR="${2:-${FREEBUFF_REFERENCE_DIR:-$REPO_ROOT/upstream/freebuff}}"
 WIRE_DIR="$REPO_ROOT/backend/internal/wirefacts/testdata/wire"
@@ -90,6 +118,9 @@ if ((DRY_RUN)); then
   echo "==> dry-run: would refresh ${#WIRE_FILES[@]} wire snapshots via git show plus LF normalize"
   for p in "${WIRE_FILES[@]}"; do echo "  refresh $p"; done
   echo "dry-run: would stamp snapshots.json upstream_sha to $VENDOR_SHA and vendor_version to npm freebuff (or keep pinned when npm is absent)"
+  if [[ -n "$BOT_VERSION" ]]; then
+    echo "dry-run: --bot mode would stamp vendor_version to $BOT_VERSION exactly (no npm lookup) and advance scripts/vendor-version.txt to $BOT_VERSION in the same step"
+  fi
   echo "dry-run: would update backend/internal/wirefacts/wirefacts_test.go testUpstream and backend/internal/wirefacts/wirefacts.go go:generate"
   echo "dry-run: would run go run ./backend/cmd/wiregen -upstream $VENDOR_SHA"
   echo "dry-run: would verify with check-upstream.sh $VENDOR_SHA plus hermetic wirefacts and TestFallbackParityWithPinnedUpstream"
@@ -104,11 +135,20 @@ else
   done
   echo "==> 3. Stamping snapshots.json plus wirefacts pins"
   PINNED_VERSION="$(tr -d '\r\n' <"$REPO_ROOT/scripts/vendor-version.txt")"
-  NPM_VERSION=""
-  if command -v npm >/dev/null 2>&1; then
-    NPM_VERSION="$(npm view freebuff version 2>/dev/null || true)"
+  if [[ -n "$BOT_VERSION" ]]; then
+    # Machine mode: the workflow already resolved live_version; stamp it
+    # exactly and advance the wrapper pin alongside the snapshots pin, so
+    # both land in the one re-pin commit (dual-pin atomicity).
+    VENDOR_VERSION="$BOT_VERSION"
+    printf '%s\n' "$BOT_VERSION" >"$REPO_ROOT/scripts/vendor-version.txt"
+    echo "stamped scripts/vendor-version.txt to $BOT_VERSION"
+  else
+    NPM_VERSION=""
+    if command -v npm >/dev/null 2>&1; then
+      NPM_VERSION="$(npm view freebuff version 2>/dev/null || true)"
+    fi
+    VENDOR_VERSION="${NPM_VERSION:-$PINNED_VERSION}"
   fi
-  VENDOR_VERSION="${NPM_VERSION:-$PINNED_VERSION}"
   python3 - "$SNAPSHOTS" "$VENDOR_SHA" "$VENDOR_VERSION" "$WIRE_DIR" <<'PY'
 import hashlib, json, pathlib, sys
 snap_path, sha, version, wiredir = sys.argv[1], sys.argv[2], sys.argv[3], pathlib.Path(sys.argv[4])
