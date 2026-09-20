@@ -19,11 +19,29 @@
 # (re-pin plus regen, never a port). FUNC hunks printed stay functional
 # only. Registry model files get MODEL vs PRICE labels from the export
 # name, so the bot announces "price change only" instead of "models drifted".
+# Classification compares the unified diff of the stripped blocks: any
+# remaining +/- line is functional. (The old bare-diff + '^[+-]' grep could
+# never match, so it mislabeled FUNCTIONAL rows as COMMENT_ONLY.)
+# Row lists are materialized to temp files (no `< <(…)` procsub) and every
+# line read is CR-stripped: byte-clean under text-mode Windows shells and
+# CRLF checkouts alike.
 #
 # File status is one of SAME, COMMENT_ONLY, NOTICE_ONLY, FUNCTIONAL.
 # NOTICE_ONLY files carry changed_notice (the reworded exports) and need
 # the notice re-pin chain, not a Go-side port. True functional shape drift
 # anywhere keeps FUNCTIONAL: the notice path never fires.
+#
+# New-file discovery: upstream files that are added, renamed, deleted, or
+# modified under the watched source trees (cli/src, common/src, packages,
+# sdk) but outside the fixed REGISTRY_FILES/WIRE_FILES lists are NOT folded
+# into the per-file report — they are emitted as a separate top-level
+# `untracked[]` array ({status, path}) plus `summary.untracked_files` and
+# `UNTRACKED ...` announce lines, so a rename (e.g. freebuff-trust.ts ->
+# freebuff-standing.ts) or a brand-new constants file is never silently
+# ignored. A git rename (R status) surfaces as a D row for the old path plus
+# an A row for the new path. All pre-existing fields keep their names;
+# `untracked`/`untracked_files` are purely additive. Version never affects
+# the exit code (gate lives in workflow `if:` conditions only).
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd | sed 's|\\|/|g')"
@@ -114,12 +132,32 @@ group_of() {
 	printf 'unwatched'
 }
 
+# Source trees whose non-noise churn must surface even when no fixed watch
+# list names the file. Covers every WIRE_FILES/REGISTRY_FILES directory plus
+# sdk (new surface, no pinned files yet). Anything outside these trees
+# (repo docs, evals, infra) stays out of scope and is skipped as before.
+WATCH_TREES=(
+	cli/src
+	common/src
+	packages
+	sdk
+)
+
 is_noise() {
 	local p="$1"
 	[[ "$p" == "package.json" || "$p" == "bun.lock" ]] && return 0
 	[[ "$p" == *.md ]] && return 0
 	[[ "$p" == *.test.ts || "$p" == *.test.tsx ]] && return 0
 	[[ "$p" == *__tests__* || "$p" == */test/* || "$p" == e2e/* || "$p" == */e2e/* || "$p" == docs/* || "$p" == assets/* ]] && return 0
+	return 1
+}
+
+# Exit 0 when the upstream path lives under one of WATCH_TREES.
+under_watch() {
+	local p="$1" t
+	for t in "${WATCH_TREES[@]}"; do
+		[[ "$p" == "$t"/* ]] && return 0
+	done
 	return 1
 }
 # Reads file content on stdin, writes one file per export block into $1 and
@@ -159,8 +197,17 @@ split_blocks() {
 
 # COMMENT_ONLY when the block diff strips to nothing (same rule as
 # review-wire-drift.sh: drop +/- markers, file headers, comment/blank lines).
+# The diff MUST be unified (-U3): bare `diff` emits normal format (`<`/`>`
+# prefixes) which the `^[+-]` grep below never matches, mislabeling every
+# genuine FUNCTIONAL hunk as comment-only. The strip result is captured
+# into a variable (never a trailing `grep -q`): under `set -o pipefail` a
+# `grep -q` closes the pipe early, the upstream greps die with SIGPIPE
+# (141), and pipefail turns that into pipeline failure — again mislabeling
+# FUNCTIONAL as comment-only. This mirrors review-wire-drift.sh exactly.
 kind_of() {
-	if diff "$1" "$2" 2>/dev/null | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-][[:space:]]*(/\*|\*|\*/|//|$)' | grep -q .; then
+	local stripped
+	stripped="$(diff -U3 --label a --label b "$1" "$2" 2>/dev/null | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-][[:space:]]*(/\*|\*|\*/|//|$)' || true)"
+	if [[ -n "$stripped" ]]; then
 		printf 'functional'
 	else
 		printf 'comment'
@@ -232,6 +279,7 @@ echo "drift-exact: $OLD_SHA -> $NEW_SHA"
 FILES_JSON=()
 ANNOUNCE=()
 IGNORED=()
+UNTRACKED=()
 functional_files=0
 comment_files=0
 notice_files=0
@@ -240,14 +288,37 @@ notice_files=0
 # of these string values is notice copy (re-pin plus regen), never a port.
 NOTICE_EXPORTS="FREEBUFF_TIER_CHANGE_NOTICE FREEBUFF_CAPACITY_NOTICE FREEBUFF_RESTRICTED_NOTICE FREEBUFF_BUDGET_NOTICE FREEBUFF_FREEBUCKS_CEILING_NOTICE"
 
+# Describe a raw --name-status letter for the UNTRACKED announce lines.
+status_word() {
+	case "$1" in
+	A) printf 'added' ;;
+	D) printf 'removed' ;;
+	M) printf 'modified' ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
+
 if [[ "$OLD_SHA" == "$NEW_SHA" ]]; then
 	echo "drift-exact: refs identical, nothing to compare"
 else
+	# Materialize the rename-split name list to a temp file and read that:
+	# `< <(…)` process substitution is avoided (unreliable on some Windows
+	# shells, and unsupported by plain POSIX sh).
+	git -C "$CLONE_DIR" diff --name-status "$OLD_SHA" "$NEW_SHA" -- | awk -F'\t' '{ if ($1 ~ /^R/) { print "D\t" $2; print "A\t" $3 } else { print $1 "\t" $2 } }' >"$TMP/names.txt" || die "diff failed"
 	while IFS=$'\t' read -r status path; do
+		# Trailing-CR strip: native-Windows stdout (e.g. jq) may emit CRLF
+		# when this script runs under a text-mode console; also makes the
+		# loop robust to CRLF checkouts. No-op on clean input.
+		status="${status%$'\r'}"; path="${path%$'\r'}"
 		[[ -z "$path" ]] && continue
 		group="$(group_of "$path")"
 		if [[ "$group" == "unwatched" ]]; then
-			is_noise "$path" && IGNORED+=("$path")
+			if is_noise "$path"; then
+				IGNORED+=("$path")
+			elif under_watch "$path"; then
+				UNTRACKED+=("$status	$path")
+				ANNOUNCE+=("UNTRACKED $path ($(status_word "$status"))")
+			fi
 			continue
 		fi
 		added=() removed=() changed_c=() changed_f=() changed_n=() hunks=""
@@ -265,6 +336,7 @@ else
 			split_blocks "$TMP/old" <"$TMP/full_old"
 			split_blocks "$TMP/new" <"$TMP/full_new"
 			while IFS= read -r b; do
+				b="${b%$'\r'}"
 				[[ -z "$b" ]] && continue
 				fb="$(printf '%s' "$b" | sed 's/[^A-Za-z0-9_#+.,=-]/_/g')"
 				if [[ ! -f "$TMP/new/$fb" ]]; then
@@ -287,6 +359,7 @@ else
 				fi
 			done <"$TMP/old/MANIFEST"
 			while IFS= read -r b; do
+				b="${b%$'\r'}"
 				[[ -z "$b" ]] && continue
 				fb="$(printf '%s' "$b" | sed 's/[^A-Za-z0-9_#+.,=-]/_/g')"
 				[[ -f "$TMP/old/$fb" ]] || added+=("$b")
@@ -323,7 +396,7 @@ else
 			--argjson changed_notice "$(printf '%s\n' ${changed_n[@]+"${changed_n[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
 			--arg hunks "$hunks" \
 			'{path:$path,group:$group,status:$status,added:$added,removed:$removed,changed_functional:$changed_functional,changed_comment:$changed_comment,changed_notice:$changed_notice,hunks:$hunks}')")
-	done < <(git -C "$CLONE_DIR" diff --name-status "$OLD_SHA" "$NEW_SHA" -- || die "diff failed")
+	done <"$TMP/names.txt"
 fi
 
 action="false"
@@ -332,12 +405,13 @@ jq -n --arg old "$OLD_SHA" --arg new "$NEW_SHA" \
 	--argjson files "$(printf '%s\n' ${FILES_JSON[@]+"${FILES_JSON[@]}"} | jq -s .)" \
 	--argjson ignored "$(printf '%s\n' ${IGNORED[@]+"${IGNORED[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
 	--argjson announce "$(printf '%s\n' ${ANNOUNCE[@]+"${ANNOUNCE[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
+	--argjson untracked "$(printf '%s\n' ${UNTRACKED[@]+"${UNTRACKED[@]}"} | jq -R 'split("\t") | select(length == 2) | {status: .[0], path: .[1]} | select(.path | length > 0)' | jq -s .)" \
 	--argjson functional_files "$functional_files" --argjson comment_files "$comment_files" \
 	--argjson notice_files "$notice_files" --argjson action_needed "$action" \
-	'{old_sha:$old,new_sha:$new,checked_at:(now|todate),files:$files,ignored_paths:$ignored,announce:$announce,
-    summary:{functional_files:$functional_files,comment_only_files:$comment_files,notice_only_files:$notice_files,action_needed:$action_needed}}' >"$EXACT_REPORT"
+	'{old_sha:$old,new_sha:$new,checked_at:(now|todate),files:$files,ignored_paths:$ignored,untracked:$untracked,announce:$announce,
+    summary:{functional_files:$functional_files,comment_only_files:$comment_files,notice_only_files:$notice_files,untracked_files:($untracked|length),action_needed:$action_needed}}' >"$EXACT_REPORT"
 
 echo "report: $EXACT_REPORT"
-echo "functional_files=$functional_files comment_only_files=$comment_files notice_only_files=$notice_files action_needed=$action"
+echo "functional_files=$functional_files comment_only_files=$comment_files notice_only_files=$notice_files untracked_files=$(jq -r '.summary.untracked_files' "$EXACT_REPORT") action_needed=$action"
 if ((${#ANNOUNCE[@]})); then printf '  - %s\n' "${ANNOUNCE[@]}"; fi
 if [[ "$action" == "true" ]]; then exit 1; else exit 0; fi

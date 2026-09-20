@@ -242,6 +242,7 @@ jobs:
       tui_announce: ${{ steps.tui.outputs.tui_announce }}
       tui_refresh: ${{ steps.tui.outputs.tui_refresh }}
       old_sha: ${{ steps.exact.outputs.old_sha }}
+      impact_announce: ${{ steps.impact.outputs.impact_announce }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -336,6 +337,21 @@ jobs:
             echo "EOF"
           } >>"$GITHUB_OUTPUT"
 
+      - name: Run export impact mapping
+        id: impact
+        env:
+          IMPACT_REPORT: ${{ runner.temp }}/impact.json
+        run: |
+          # Export->consumer map over the exact-report JSON.
+          # Exit 1 means impact entries exist; never fail the job on it.
+          rc=0
+          bash scripts/drift-impact.sh "${{ runner.temp }}/exact.json" || rc=$?
+          echo "drift-impact.sh exit code: $rc"
+          {
+            echo "impact_announce<<EOF"
+            jq -r '.announce[]' "$IMPACT_REPORT"
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
 
       - name: Post step summary
         if: always()
@@ -677,6 +693,7 @@ jobs:
           CLASSIFICATION: ${{ steps.classify.outputs.classification }}
           EXACT_FUNCTIONAL: ${{ needs.drift.outputs.exact_functional }}
           EXACT_ANNOUNCE: ${{ needs.drift.outputs.exact_announce }}
+          IMPACT_ANNOUNCE: ${{ needs.drift.outputs.impact_announce }}
           TUI_ANNOUNCE: ${{ needs.drift.outputs.tui_announce }}
         run: |
           short="${UPSTREAM_SHA:0:7}"
@@ -700,6 +717,10 @@ jobs:
           ## Backend impact: port the FUNCTIONAL hunks below (Go-side + test)
 
           $EXACT_ANNOUNCE
+
+          ## Export impact map (scripts/drift-impact.sh)
+
+          $IMPACT_ANNOUNCE
 
           ## Frontend impact: picker rows/copy (scripts/drift-tui.sh)
 
