@@ -135,7 +135,12 @@ dotenv → static → live → SSE hash → store refresh.
    SAME: live known AND equal). Unknown/empty live fails OPEN to a full run
    (skip=false). Full classification + PRs run only on a confirmed wrapper
    bump; per-version PRs are reused by title match on the new version, never
-   duplicated. The version signal NEVER changes script exit codes — the gate
+   duplicated. A `repository_dispatch` event (type `freebuff-cli-release`,
+   `client_payload.version`) wakes the workflow exactly on release -- reference
+   poller `scripts/watch-freebuff-release.sh` runs on cron on the infra box,
+   not CI; the payload skips the npm lookup but is validated and must still
+   differ from pinned. A `version_dedupe` job stands all downstream jobs down
+   when an open PR already carries the live version. The version signal NEVER changes script exit codes — the gate
    lives in workflow `if:` conditions only. Dual pins
    (vendor-version.txt + snapshots.json vendor_version) land atomically in
    the same bump commit before the wiregen SHA gate.

@@ -1,15 +1,30 @@
 # Upstream drift detection (CodebuffAI/freebuff), version-gated on the
 # npm wrapper version (single source: scripts/vendor-version.txt).
 #
-#  The version_gate job compares the pinned wrapper version against the
-#  live `npm view freebuff version` (timeout 15, fail-open). Outputs:
-#  pinned_version / live_version (empty when unknown) / live_known /
-#  version_changed (true only when live_known && live != pinned) /
-#  skip (true only when live_known && pinned == live).
+# Triggers (cheapest first):
+#  - repository_dispatch type `freebuff-cli-release` carrying the new
+#    version as client_payload.version: exact wake-up on release, fired by
+#    an external poller (reference: scripts/watch-freebuff-release.sh, cron
+#    on the infra box, NOT CI). The payload version becomes live_version
+#    with NO npm lookup, but is validated (malformed -> unknown, fail-open)
+#    and still must differ from pinned to count as changed: never trusted
+#    blindly.
+#  - workflow_dispatch with optional input `version`: the same fast path
+#    for manual runs and dry-testing the dispatch path without an event.
+#  - schedule every 12h: fallback poller via `npm view freebuff version`.
+#
+#  The version_gate job runs FIRST and is the cheapest step (one shallow
+#  checkout plus, poll path only, the npm lookup with a 15s timeout,
+#  fail-open). Outputs: pinned_version / live_version (empty when unknown)
+#  / live_known / version_changed (true only when live_known && live !=
+#  pinned) / skip (true only when live_known && pinned == live).
 #  skip=true means positively-confirmed SAME: every downstream job is
-#  gated behind `skip != 'true'`, so the run opens zero PRs after the
-#  gate summary. Unknown/empty live fails open (skip=false,
-#  version_changed=false) to a full classification run. PR creation is
+#  gated behind `skip != 'true'`, so the run stops after the gate summary.
+#  Unknown/empty live fails open (skip=false, version_changed=false) to a
+#  full classification run that opens NO PRs and writes NO dashboard data.
+#  A version_dedupe job then stands every downstream job down when an open
+#  PR already carries the live version (same title selectors as the
+#  per-job skips below, never a second convention). PR creation is
 #  additionally gated on version_changed plus functional signals, and
 #  reuses any open PR whose title already carries the new version
 #  (per-version skip, never duplicate).
@@ -42,7 +57,14 @@
 name: upstream-drift
 
 on:
+  repository_dispatch:
+    types: [freebuff-cli-release]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Wrapper version to check (e.g. 0.0.178); empty polls npm.'
+        required: false
+        default: ''
   schedule:
     # Every 12h (05:17 and 17:17 UTC): the upstream public-sync bot lands
     # batches near-daily. Each run diffs checkpoint -> HEAD, where the
@@ -78,23 +100,46 @@ jobs:
       - name: Compare pinned vs live wrapper version
         id: gate
         run: |
-          # Single source: scripts/vendor-version.txt. Live comes from
-          # `npm view freebuff version` with a 15s timeout, fail-open:
-          # unknown/empty live must never skip the full classification run.
-          # Version never affects script exit codes; the gate lives in
-          # workflow `if:` conditions only.
+          # Single source: scripts/vendor-version.txt. Fast path: an
+          # explicit version from the trigger (dispatch payload, else manual
+          # input) skips the npm lookup. It is validated, never trusted
+          # blindly: malformed falls back to unknown (fail-open), and
+          # version_changed still requires live != pinned. Poll path: live
+          # comes from `npm view freebuff version` with a 15s timeout,
+          # fail-open. Version never affects script exit codes; the gate
+          # lives in workflow `if:` conditions only.
           pinned=""
           if [ -f scripts/vendor-version.txt ]; then
             pinned="$(tr -d '\r\n \t' <scripts/vendor-version.txt || true)"
           fi
+          candidate="${{ github.event.client_payload.version }}"
+          live_src="repository_dispatch"
+          if [ -z "$candidate" ]; then
+            candidate="${{ inputs.version }}"
+            live_src="workflow_dispatch input"
+          fi
           live=""
-          if command -v npm >/dev/null 2>&1; then
-            if command -v timeout >/dev/null 2>&1; then
-              live="$(timeout 15 npm view freebuff version 2>/dev/null || true)"
+          explicit="false"
+          if [ -n "$candidate" ]; then
+            explicit="true"
+            candidate="$(printf '%s' "$candidate" | tr -d '\r\n \t' || true)"
+            if printf '%s' "$candidate" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.+-]+)*$'; then
+              live="$candidate"
             else
-              live="$(npm view freebuff version 2>/dev/null || true)"
+              echo "Ignoring malformed version '$candidate' from $live_src; treating live as unknown."
+              live_src="rejected $live_src payload"
             fi
-            live="$(printf '%s' "$live" | tr -d '\r\n \t' || true)"
+          fi
+          if [ "$explicit" != "true" ]; then
+            live_src="npm"
+            if command -v npm >/dev/null 2>&1; then
+              if command -v timeout >/dev/null 2>&1; then
+                live="$(timeout 15 npm view freebuff version 2>/dev/null || true)"
+              else
+                live="$(npm view freebuff version 2>/dev/null || true)"
+              fi
+              live="$(printf '%s' "$live" | tr -d '\r\n \t' || true)"
+            fi
           fi
           live_known="false"
           if [ -n "$live" ]; then
@@ -115,24 +160,73 @@ jobs:
             echo "version_changed=$version_changed"
             echo "skip=$skip"
           } >>"$GITHUB_OUTPUT"
-          echo "version_gate: pinned=${pinned:-unknown} live=${live:-unknown} live_known=$live_known version_changed=$version_changed skip=$skip"
+          echo "version_gate: pinned=${pinned:-unknown} live=${live:-unknown} (via $live_src) live_known=$live_known version_changed=$version_changed skip=$skip"
           {
             echo "## Version gate"
             echo ""
-            echo "pinned: \`${pinned:-unknown}\` live: \`${live:-unknown}\` live_known: \`$live_known\` version_changed: \`$version_changed\` skip: \`$skip\`"
+            echo "pinned: \`${pinned:-unknown}\` live: \`${live:-unknown}\` (via \`$live_src\`) live_known: \`$live_known\` version_changed: \`$version_changed\` skip: \`$skip\`"
             echo ""
             if [ "$skip" = "true" ]; then
-              echo "Wrapper version SAME ($pinned): positively confirmed, skipping classification and all PRs."
+              echo "Wrapper version SAME ($pinned, via $live_src): positively confirmed, skipping classification and all PRs."
             elif [ "$live_known" = "false" ]; then
-              echo "Live wrapper version unknown (fail open): running full classification."
+              echo "Live wrapper version unknown (fail open, via $live_src): running full classification; no PRs and no dashboard data without a confirmed bump."
             else
-              echo "Wrapper bump $pinned -> $live: running full classification."
+              echo "Wrapper bump $pinned -> $live (via $live_src): running full classification."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+  version_dedupe:
+    name: Per-version duplicate check
+    needs: version_gate
+    # Only a positively-confirmed bump can duplicate: unknown/same live
+    # leaves every PR job gated off already, so there is nothing to dedupe
+    # (a skipped job exposes empty outputs, and the downstream
+    # `duplicate != 'true'` clauses pass vacuously).
+    if: needs.version_gate.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      duplicate: ${{ steps.check.outputs.duplicate }}
+      duplicate_pr: ${{ steps.check.outputs.duplicate_pr }}
+    steps:
+      - name: Check for an open PR already carrying the live version
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LIVE_VERSION: ${{ needs.version_gate.outputs.live_version }}
+        run: |
+          # Gate-level per-version dedupe. The title selectors below are the
+          # exact ones from the four PR jobs' per-version skip steps (never
+          # a second convention). Any match means this version is already
+          # being handled: every downstream job stands down and the run ends
+          # at the gate with this summary as its conclusion.
+          open_prs="$(gh pr list --state open --json number,title || echo '[]')"
+          match="$(printf '%s' "$open_prs" | jq -r --arg v "$LIVE_VERSION" '
+            [.[] | select(
+              (.title | startswith("chore(registry): sync") and contains($v)) or
+              (.title | startswith("chore(wire): upstream drift to vendor") and contains($v)) or
+              (.title | startswith("chore(wire): re-pin notice copy to vendor") and contains($v)) or
+              (.title | startswith("chore(dashboard): refresh upstream-drift embed to vendor") and contains($v))
+            ) | '#\(.number) \(.title)'] | join(", ")')"
+          duplicate="false"
+          if [ -n "$match" ]; then
+            duplicate="true"
+          fi
+          {
+            echo "duplicate=$duplicate"
+            echo "duplicate_pr=$match"
+          } >>"$GITHUB_OUTPUT"
+          {
+            echo "## Per-version dedupe"
+            echo ""
+            if [ "$duplicate" = "true" ]; then
+              echo "Live version \`$LIVE_VERSION\` is already handled by open PR(s): $match. Downstream jobs stand down."
+            else
+              echo "No open PR carries live version \`$LIVE_VERSION\`; proceeding."
             fi
           } >>"$GITHUB_STEP_SUMMARY"
   drift:
     name: Detect upstream drift
-    needs: version_gate
-    if: needs.version_gate.outputs.skip != 'true'
+    needs: [version_gate, version_dedupe]
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_dedupe.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     outputs:
       has_drift: ${{ steps.report.outputs.has_drift }}
@@ -289,8 +383,8 @@ jobs:
 
   codegen-parity:
     name: Generated files match wiregen output
-    needs: version_gate
-    if: needs.version_gate.outputs.skip != 'true'
+    needs: [version_gate, version_dedupe]
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_dedupe.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -322,8 +416,8 @@ jobs:
 
   open-drift-pr:
     name: Open sync PR (registry drift)
-    needs: [version_gate, drift]
-    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.drift.outputs.has_registry_drift == 'true'
+    needs: [version_gate, version_dedupe, drift]
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.drift.outputs.has_registry_drift == 'true' && needs.version_dedupe.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -462,8 +556,8 @@ jobs:
 
   open-port-pr:
     name: Open port PR (wire drift)
-    needs: [version_gate, drift]
-    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.drift.outputs.exact_functional != '0'
+    needs: [version_gate, version_dedupe, drift]
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.drift.outputs.exact_functional != '0' && needs.version_dedupe.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -625,7 +719,7 @@ jobs:
             --label "anti-ban"
   open-notices-pr:
     name: Re-pin PR (notice copy only)
-    needs: [version_gate, drift]
+    needs: [version_gate, version_dedupe, drift]
     # Notice-string-only drift (the five FREEBUFF_*_NOTICE exports consumed
     # by the wireNotices table in backend/internal/wirefacts/emit_wire.go)
     # is re-pinnable by the bot: refresh snapshots plus wiregen regen plus
@@ -634,7 +728,7 @@ jobs:
     # exact_functional != 0 excludes this job. Never auto-merge; the owner
     # merges after green gates. Per-version skip plus close-superseded
     # mirror the other jobs: one rolling notices PR per wrapper version.
-    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.drift.outputs.exact_functional == '0' && needs.drift.outputs.exact_notice != '0'
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.drift.outputs.exact_functional == '0' && needs.drift.outputs.exact_notice != '0' && needs.version_dedupe.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -793,10 +887,10 @@ jobs:
 
   publish-drift-data:
     name: Publish drift JSON to dashboard embed
-    needs: [version_gate, drift]
+    needs: [version_gate, version_dedupe, drift]
     # Runs only on a positively-confirmed wrapper bump; the embed PR is
     # additionally limited to semantic changes (see Refresh step).
-    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true'
+    if: needs.version_gate.outputs.skip != 'true' && needs.version_gate.outputs.version_changed == 'true' && needs.version_dedupe.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
