@@ -10,13 +10,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"freebucks-proxy/backend/internal/convert"
+	"freebucks-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebucks-proxy/backend/internal/convert"
-	"freebucks-proxy/backend/internal/phasetiming"
 )
 
 // responsesItem is one output item being assembled during stream relay:
@@ -61,6 +60,7 @@ func (s *Server) relayResponsesStream(ctx context.Context, w http.ResponseWriter
 	flusher, keepalive, lines, lastWrite, ok := newStreamRelay(ctx, w, r)
 	if !ok {
 		s.logger.Warn("response writer does not support flushing")
+		stats.aborted = true
 		return
 	}
 	defer keepalive.Stop()
@@ -135,11 +135,13 @@ func (s *Server) relayResponsesStream(ctx context.Context, w http.ResponseWriter
 	for {
 		select {
 		case <-ctx.Done():
+			stats.aborted = true
 			return
 		case <-keepalive.C:
 			maybeKeepalive(w, flusher, lastWrite, "event: ping\ndata: {\"type\": \"ping\"}\n\n")
 		case lc := <-lines:
 			if lc.err != nil {
+				stats.aborted = true
 				if ctx.Err() == nil {
 					s.logger.Warn("responses upstream stream error", streamErrorAttrs(ctx, chatStart, stats, lc.err)...)
 					flushXMLCalls()
@@ -467,6 +469,7 @@ func (s *Server) accumulateResponsesChunk(st *responsesStreamState, chunk map[st
 func (s *Server) relayResponsesJSON(ctx context.Context, w http.ResponseWriter, r io.Reader, stats *relayStats, chatStart time.Time, model, respID string) {
 	acc := convert.NewAccumulatorOpts(s.convertOptions())
 	if err := drainUpstream(ctx, r, acc, stats, chatStart); err != nil {
+		stats.aborted = true
 		if errors.Is(err, errDrainUpstreamDecode) {
 			s.writeJSONError(w, http.StatusBadGateway,
 				"failed to decode upstream stream: "+errDrainCause(err), "upstream_error", "upstream_unavailable", 0)
@@ -479,6 +482,7 @@ func (s *Server) relayResponsesJSON(ctx context.Context, w http.ResponseWriter, 
 	// Accumulate into a Responses output list.
 	var completion map[string]any
 	if err := json.Unmarshal(acc.Finish(), &completion); err != nil {
+		stats.aborted = true
 		s.writeJSONError(w, http.StatusBadGateway,
 			"failed to decode upstream stream: "+err.Error(), "upstream_error", "upstream_unavailable", 0)
 		return

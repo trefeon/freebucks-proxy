@@ -357,9 +357,10 @@ func (p *Pool) bridgeSessionPollTick(ctx context.Context, cfg *config.Config) {
 		if !entry.nextPollAt.IsZero() && now.Before(entry.nextPollAt) {
 			continue
 		}
+		pollStart := time.Now()
 		failures, delay, err := pollSession(ctx, entry.session, cfg, entry.pollFailures)
 		if err != nil {
-			p.logger.Debug("pool: bridge session poll failed", "err", err, "retry_in", delay)
+			p.logger.Debug("pool: bridge session poll failed", "token", bridgeTokenLabel(entry), "ms", time.Since(pollStart).Milliseconds(), "err", err, "retry_in", delay)
 		}
 		entry.pollFailures = failures
 		entry.nextPollAt = now.Add(delay)

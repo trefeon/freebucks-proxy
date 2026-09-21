@@ -28,6 +28,7 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 	flusher, keepalive, lines, lastWrite, ok := newStreamRelay(ctx, w, r)
 	if !ok {
 		s.logger.Warn("response writer does not support flushing")
+		stats.aborted = true
 		return
 	}
 	defer keepalive.Stop()
@@ -128,11 +129,13 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 	for {
 		select {
 		case <-ctx.Done():
+			stats.aborted = true
 			return
 		case <-keepalive.C:
 			maybeKeepalive(w, flusher, lastWrite, ": keepalive\n\n")
 		case lc := <-lines:
 			if lc.err != nil {
+				stats.aborted = true
 				if ctx.Err() == nil {
 					emitXMLFlush()
 					s.logger.Warn("upstream stream error", streamErrorAttrs(ctx, chatStart, stats, lc.err)...)
@@ -172,6 +175,7 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 			}
 			frame := convert.EncodeSSE(clean)
 			if _, err := w.Write(frame); err != nil {
+				stats.aborted = true
 				s.logger.Debug("stream write failed", "err", err)
 				return
 			}
@@ -243,6 +247,7 @@ func (s *Server) relayJSON(ctx context.Context, w http.ResponseWriter, r io.Read
 		}
 	}
 	if err := drainUpstream(ctx, r, acc, stats, chatStart, probe); err != nil {
+		stats.aborted = true
 		if errors.Is(err, errDrainUpstreamDecode) {
 			s.writeJSONError(w, http.StatusBadGateway,
 				"failed to decode upstream stream: "+errDrainCause(err), "upstream_error", "upstream_unavailable", 0)

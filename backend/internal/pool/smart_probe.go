@@ -237,7 +237,7 @@ func (p *Pool) smartProbeTickAt(ctx context.Context, now time.Time) {
 	// tick. Due tokens keep their dirty/reset state, so nothing is lost —
 	// the next pass re-collects them.
 	if !p.smartProbeInflight.CompareAndSwap(false, true) {
-		p.logger.Debug("pool: smart probe round already in flight, tick suppressed")
+		p.logger.Debug("pool: smart probe round already in flight, tick suppressed", "tokens", due)
 		return
 	}
 	p.wg.Add(1)
@@ -257,7 +257,11 @@ func (p *Pool) smartProbeTickAt(ctx context.Context, now time.Time) {
 			p.smartProbeFireOne(ctx, idx)
 		}
 	}()
-	p.logger.Debug("pool: smart probe dispatch", "tokens", due)
+	disp := make([]int, 0, len(due))
+	for _, idx := range due {
+		disp = append(disp, idx+1)
+	}
+	p.logger.Debug("pool: smart probe dispatch", "tokens", disp)
 }
 
 // smartProbeFireOne fires one due token's session-less probe and folds the
@@ -293,7 +297,7 @@ func (p *Pool) smartProbeFireOne(ctx context.Context, idx int) {
 		step := tok.probeBackoffStep.Add(1)
 		delay := smartProbeRetryDelay(step, smartProbeBackoffCap(p.cfg.Load()))
 		tok.probeNextAt.Store(now.Add(delay).UnixNano())
-		p.logger.Info("pool: smart probe refused, backing off", "token", idx+1, "retry_in", delay)
+		p.logger.Info("pool: smart probe refused, backing off", "token", idx+1, "outcome", outcome.Status, "retry_in", delay)
 		return
 	}
 	if outcome.Status == "freebucks_exhausted" {
@@ -302,7 +306,7 @@ func (p *Pool) smartProbeFireOne(ctx context.Context, idx int) {
 		// drift; this parks the fire itself.
 		tok.probeBackoffStep.Store(0)
 		tok.probeNextAt.Store(smartProbeExhaustedResume(outcome, now).UnixNano())
-		p.logger.Info("pool: smart probe found exhausted freebucks, sleeping to reset", "token", idx+1)
+		p.logger.Info("pool: smart probe found exhausted freebucks, sleeping to reset", "token", idx+1, "outcome", outcome.Status, "reset_at", outcome.ResetAt)
 		return
 	}
 	if err != nil {
@@ -310,11 +314,12 @@ func (p *Pool) smartProbeFireOne(ctx context.Context, idx int) {
 		// but park one quiet interval instead of re-firing on the next
 		// pass while upstream is unreachable.
 		tok.probeNextAt.Store(now.Add(smartProbe429BaseInterval).UnixNano())
-		p.logger.Debug("pool: smart probe errored, parking one interval", "token", idx+1, "err", err)
+		p.logger.Debug("pool: smart probe errored, parking one interval", "token", idx+1, "outcome", outcome.Status, "err", err)
 		return
 	}
 	tok.probeBackoffStep.Store(0)
 	tok.probeNextAt.Store(0)
+	p.logger.Debug("pool: smart probe ok", "token", idx+1, "outcome", outcome.Status)
 }
 
 // smartProbeExhaustedResume sleeps an exhausted account exactly until its

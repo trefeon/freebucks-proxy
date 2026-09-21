@@ -9,10 +9,9 @@ package runs
 
 import (
 	"context"
+	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"time"
-
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // asyncJobKind discriminates the deferred-side-effect jobs carried by the
@@ -230,18 +229,30 @@ func (m *RunManager) finishPayload(run *Run) (status string, steps []upstream.Ru
 // a run leaves the manager — FINISHed through the deferred queue or
 // force-dropped from the draining list without FINISH — logs the same
 // run-finished event with the run's lifetime (duration_ms, now-StartedAt),
-// its in-memory recorded step count (steps), and the termination path
-// ("finish" via the FINISH queue, "drop" without FINISH). steps is the
+// its in-memory recorded step count (steps), its terminal status
+// (completed/cancelled/failed — finishPayload's honest status, defaulting
+// to completed when unset), and the termination path ("finish" via the
+// FINISH queue, "drop" without FINISH). steps is the
 // run's recorded-step snapshot taken under m.mu by the caller: the queue
 // path reuses finishPayload's copy, the drop path reads run.Steps while
-// holding the manager mutex. Takes no lock itself.
+// holding the manager mutex. Takes no lock itself. agent is the cross-lane
+// contract name for the runs-package agent_id (pool/server log agent, so
+// both keys are emitted and one grep correlates every lane); agent_id
+// stays verbatim for existing parsers.
 func logRunFinished(run *Run, steps int, termination string) {
+	status := run.Status
+	if status == "" {
+		status = "completed"
+	}
 	slog.Debug("runs: run finished",
 		"run_id", run.RunID,
+		"agent_id", run.AgentID,
+		"agent", run.AgentID,
 		"requests", run.Requests,
 		"trace_session_id", run.TraceSessionID,
 		"duration_ms", int(time.Since(run.StartedAt).Milliseconds()),
 		"steps", steps,
+		"status", status,
 		"termination", termination)
 }
 

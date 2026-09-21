@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -13,9 +15,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 func TestCreateActive(t *testing.T) {
@@ -562,6 +561,54 @@ func TestTerminalEventReasons(t *testing.T) {
 			t.Errorf("recreated log missing table reason/status:\n%s", got)
 		}
 	})
+}
+
+// TestLifecycleLinesCarryInstanceModelStatus pins the debug-log coverage
+// contract on the hot session lines: the fast-path reused record carries
+// instance_id + model + status, and the invalidated/ended records carry the
+// cached model alongside their reason/status.
+func TestLifecycleLinesCarryInstanceModelStatus(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr := newTestManager(t, mock)
+	const model = "deepseek/deepseek-v4-flash"
+	mgr.SetSessionStateForTest("active", "inst-test-1", model, time.Now().Add(time.Hour), time.Time{})
+
+	var buf bytes.Buffer
+	restore := captureLogs(&buf)
+	defer restore()
+	if _, err := mgr.EnsureSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, `msg="session reused"`) ||
+		!strings.Contains(got, "instance_id=inst-test-1") ||
+		!strings.Contains(got, "model="+model) ||
+		!strings.Contains(got, "status=active") {
+		t.Errorf("reused log missing instance_id/model/status:\n%s", got)
+	}
+
+	buf.Reset()
+	mgr.InvalidateWithReason("expired", 400)
+	got = buf.String()
+	if !strings.Contains(got, `msg="session invalidated"`) ||
+		!strings.Contains(got, "reason=expired") ||
+		!strings.Contains(got, "status=400") ||
+		!strings.Contains(got, "model="+model) {
+		t.Errorf("invalidated log missing reason/status/model:\n%s", got)
+	}
+
+	mgr.SetSessionStateForTest("active", "inst-test-1", model, time.Now().Add(time.Hour), time.Time{})
+	buf.Reset()
+	if err := mgr.EndSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got = buf.String()
+	if !strings.Contains(got, `msg="session ended"`) ||
+		!strings.Contains(got, "reason=ended") ||
+		!strings.Contains(got, "model="+model) {
+		t.Errorf("ended log missing reason=ended/model:\n%s", got)
+	}
 }
 
 // TestReAdmitStormDetector pins that more than 3 invalidations within 60s

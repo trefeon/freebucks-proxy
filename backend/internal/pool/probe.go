@@ -201,7 +201,7 @@ func (p *Pool) ProbeTokenDetailed(ctx context.Context, token int) (ProbeTokenOut
 		tok.quarantine.Store(nil)
 		tok.runs.ClearCooldowns()
 		p.clearCooldownHintFor(tok)
-		p.logger.Info("pool: quarantine lifted (probe confirmed account unbanned)", "token", token+1)
+		p.logger.Info("pool: quarantine lifted (probe confirmed account unbanned)", "token", token+1, "reason", "banned")
 	}
 
 	// Update quota, standing, referral, and freebucks from the live probe

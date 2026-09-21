@@ -64,11 +64,14 @@ func ParseLevel(s string) (slog.Level, bool) {
 }
 
 // New builds the process logger at the given level. stderr gets the
-// colorized text handler; when logFile is set the same lines are appended
-// there via io.MultiWriter. Coloring is disabled only when a log file is
-// actually opened — a single handler writes to both sinks and ANSI escapes
-// in a file are noise. A log file that cannot be opened is reported on
-// stderr and stderr-only logging continues, keeping its colors.
+// colorized text handler when it is an interactive console; piped or
+// redirected stderr (containers, services, docker logs) gets plain text so
+// ANSI escapes never reach collectors or break grep. When logFile is set the
+// same lines are appended there via io.MultiWriter; a single handler writes
+// to both sinks, so an open log file also disables color (ANSI escapes in a
+// file are noise). A log file that cannot be opened is reported on stderr
+// and stderr-only logging continues, keeping console colors when stderr is
+// a console.
 //
 // format selects the handler: "json" writes one JSON object per record
 // (real group nesting); anything else — including "" — is the text format.
@@ -83,6 +86,8 @@ func New(level slog.Level, logFile string, format string) *slog.Logger {
 		if dir := filepath.Dir(logFile); dir != "" && dir != "." {
 			_ = os.MkdirAll(dir, 0o755)
 		}
+		// NOTE: LOG_FILE is append-only with no rotation — the file grows
+		// without bound; rotate/truncate it externally (e.g. logrotate).
 		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "freebucks-proxy: warning: cannot open log file %s: %v\n", logFile, err)
@@ -96,9 +101,18 @@ func New(level slog.Level, logFile string, format string) *slog.Logger {
 	case "json":
 		return slog.New(&jsonHandler{w: w, level: level, file: file})
 	default:
-		h := &textHandler{w: w, level: level, colorize: file == nil, file: file}
+		h := &textHandler{w: w, level: level, colorize: file == nil && stderrIsTerminal(), file: file}
 		return slog.New(h)
 	}
+}
+
+// stderrIsTerminal reports whether stderr is an interactive console (a
+// character device). Piped or redirected stderr — containers, services,
+// docker logs, test pipes — is not, so ANSI color is skipped there.
+// Same stdlib idiom as cli.stderrIsCharDevice (telemetry cannot import cli).
+func stderrIsTerminal() bool {
+	fi, err := os.Stderr.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 // levelName renders a level token. LevelTrace prints as TRACE instead of

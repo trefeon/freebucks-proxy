@@ -16,6 +16,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"freebucks-proxy/backend/internal/stealth"
+	"freebucks-proxy/backend/internal/telemetry"
 	"io"
 	"log/slog"
 	"math/big"
@@ -23,9 +25,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"freebucks-proxy/backend/internal/stealth"
-	"freebucks-proxy/backend/internal/telemetry"
 )
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body []byte) (*http.Request, error) {
@@ -140,19 +139,20 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 	// without a start line a death that never answers (hang until the
 	// caller gives up) leaves no trace of which call was in flight.
 	// Headers stay out — the token must never reach the logs.
-	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-		attrs := []any{"method", req.Method, "path", req.URL.Path}
-		if reqID := ReqID(ctx); reqID != "" {
-			attrs = append(attrs, "req_id", reqID)
-		}
-		slog.Debug("upstream request", attrs...)
-	}
+	// req_id rides every do() line (""/absent only when the call was not
+	// made through ChatCompletions with opts.RequestID, e.g. session/run
+	// management): grep stays uniform across chat and control calls.
+	// req.URL.Path (never URL.String) keeps query/secret material out.
+	slog.Debug("upstream request", "method", req.Method, "path", req.URL.Path, "req_id", ReqID(ctx))
 
 	for attempt := 1; ; attempt++ {
 		resp, err := c.http.Do(req)
 		if err == nil {
 			if werr := wrapDecompress(resp); werr != nil {
 				_ = resp.Body.Close()
+				slog.Debug("upstream error", "method", req.Method, "path", req.URL.Path,
+					"ms", time.Since(start).Milliseconds(), "class", errClassName(werr),
+					"err", werr, "req_id", ReqID(ctx))
 				if cancel != nil {
 					cancel()
 				}
@@ -168,16 +168,14 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 				bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyRead))
 				_ = resp.Body.Close()
 				bodyText := telemetry.RedactSecrets(string(bodyBytes))
-				classErr := c.classify(resp.StatusCode, bodyText, resp.Header)
+				classErr := c.classifyWithReqID(resp.StatusCode, bodyText, resp.Header, ReqID(ctx))
 				class := errClassName(classErr)
 				attrs := []any{
 					"method", req.Method, "path", req.URL.Path,
 					"status", resp.StatusCode, "ms", time.Since(start).Milliseconds(),
 					"class", class,
 					"body", truncateRunes(bodyText, 500),
-				}
-				if reqID := ReqID(ctx); reqID != "" {
-					attrs = append(attrs, "req_id", reqID)
+					"req_id", ReqID(ctx),
 				}
 				slog.Debug("upstream response", attrs...)
 				resp.Body = io.NopCloser(strings.NewReader(bodyText))
@@ -200,6 +198,7 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 			body, bodyErr := replayBody()
 			if bodyErr != nil {
 				slog.Debug("upstream retry aborted: body replay failed",
+					"method", req.Method, "path", req.URL.Path,
 					"token", c.tokenIndex+1, "attempt", attempt, "err", bodyErr,
 					"req_id", ReqID(ctx))
 			} else {
@@ -209,8 +208,9 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 				req.Body = body
 				req.Close = true // fresh connection for the retry
 				slog.Debug("upstream transient failure, retrying",
+					"method", req.Method, "path", req.URL.Path,
 					"token", c.tokenIndex+1, "attempt", attempt, "reason", err.Error(),
-					"path", req.URL.Path, "req_id", ReqID(ctx))
+					"ms", time.Since(start).Milliseconds(), "req_id", ReqID(ctx))
 				timer := time.NewTimer(c.retryDelay())
 				select {
 				case <-timer.C:
@@ -226,8 +226,12 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 			}
 		}
 
+		// Transport failure (no response read, so no status): class names
+		// the failure shape (generic UpstreamError for raw transport
+		// errors); classified >=400s return via `upstream response` above.
 		slog.Debug("upstream error", "method", req.Method, "path", req.URL.Path,
-			"ms", time.Since(start).Milliseconds(), "err", err, "req_id", ReqID(ctx))
+			"ms", time.Since(start).Milliseconds(), "class", errClassName(err),
+			"err", err, "req_id", ReqID(ctx))
 		if cancel != nil {
 			cancel()
 		}

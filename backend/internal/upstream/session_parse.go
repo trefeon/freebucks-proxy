@@ -485,7 +485,12 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 		return state, nil
 	}
 	if resp.StatusCode >= 400 {
-		return nil, c.classify(resp.StatusCode, body, resp.Header)
+		// Pure matrix mapping only: do() already classified this same
+		// response (ledger count + `upstream rate limit classified` line),
+		// and both sessionCall/EndSession prefer do()'s error whenever one
+		// exists — reusing the wrapper here would log and count the same
+		// refusal twice. The classification log fires exactly once, in do().
+		return nil, classifyError(resp.StatusCode, body, resp.Header)
 	}
 	if req.Method == http.MethodDelete {
 		// Pre-receipt servers answer a DELETE with 2xx and an empty (or

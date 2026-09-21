@@ -10,15 +10,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"freebucks-proxy/backend/internal/phasetiming"
 	"freebucks-proxy/backend/internal/runs"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // bridgeEntry is one lazily-created client-token slot in bridge mode: the
@@ -163,7 +162,7 @@ func (p *Pool) AcquireBridge(ctx context.Context, clientToken, model string) (*L
 		permit, parked, slotErr := p.slotAcquire(ctx, slotKey{entry: entry, model: model}, 0, slotCap, slotDepth, slotWait)
 		if slotErr != nil {
 			if slotIsQueueExhausted(slotErr) {
-				p.logger.Debug("pool: bridge live-turn queue exhausted", "token", bridgeTokenLabel(entry), "err", slotErr)
+				p.logger.Debug("pool: bridge live-turn queue exhausted", "token", bridgeTokenLabel(entry), "model", model, "err", slotErr)
 				return nil, slotQueueRateLimit(slotErr.(*slotQueueExhaustedError), model, slotCap, p.slotLive(slotKey{entry: entry, model: model}))
 			}
 			return nil, slotErr
@@ -241,7 +240,7 @@ admitRetry:
 			// session create so the admission does not bounce off the same
 			// 428 again (mirrors the fixed-token path in acquire.go).
 			if cfg.WaitingRoomChain && entry.client.ConsumeWaitingRoomChain() {
-				p.logger.Debug("pool: bridge firing waiting-room pre-session chain", "token", bridgeTokenLabel(entry))
+				p.logger.Debug("pool: bridge firing waiting-room pre-session chain", "token", bridgeTokenLabel(entry), "model", model)
 				entry.client.FireWaitingRoomChain(ctx)
 			}
 			sessionStart := time.Now()
@@ -268,7 +267,7 @@ admitRetry:
 			// A 401 means this client token is dead upstream: evict the
 			// entry so the next request recreates it fresh instead of
 			// riding a dead credential. No cooldown write.
-			p.logger.Debug("pool: bridge entry evicting on auth rejection")
+			p.logger.Debug("pool: bridge entry evicting on auth rejection", "token", bridgeTokenLabel(entry), "model", model, "err", err)
 			p.bridgeEvictToken(clientToken)
 		}
 		if rle := c.rateLimited; rle != nil {
@@ -360,7 +359,7 @@ sessionReady:
 		if c.authRejected {
 			// Dead client token: evict so the next request recreates it
 			// fresh. No cooldown write.
-			p.logger.Debug("pool: bridge entry evicting on auth rejection")
+			p.logger.Debug("pool: bridge entry evicting on auth rejection", "token", bridgeTokenLabel(entry), "model", model, "err", err)
 			p.bridgeEvictToken(clientToken)
 		}
 		if rle := c.rateLimited; rle != nil {
@@ -396,8 +395,9 @@ sessionReady:
 		return nil, fmt.Errorf("bridge: entry evicted during admission; retry the request")
 	}
 	bridgeLeaseAttrs := []any{
+		"token", bridgeTokenLabel(entry),
 		"model", effectiveModel, "agent", effectiveAgentID, "instance_id", ss.InstanceID,
-		"country", ss.CountryCode,
+		"country", ss.CountryCode, "ms", time.Since(runStart).Milliseconds(),
 	}
 	if queueWait > 0 {
 		// Queue-wait telemetry: a granted park used to be invisible (only

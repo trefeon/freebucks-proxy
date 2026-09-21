@@ -63,6 +63,15 @@ func tagLimitedIPModel(lie *upstream.LimitedIpError, model string) *upstream.Lim
 	return &tagged
 }
 
+// formatLogUntil renders a refusal-window expiry for log lines: RFC3339 when
+// the window is live, "none" when it is unusable (zero or already past).
+func formatLogUntil(t time.Time) string {
+	if t.IsZero() {
+		return "none"
+	}
+	return t.Format(time.RFC3339)
+}
+
 // rememberModelRateLimit records one lane's admission/run-start rate-limit
 // refusal as that model's refusal memory (runs.RememberModelRateLimit), so
 // the next same-model walk skips the dead lane without upstream contact.
@@ -79,13 +88,6 @@ func (p *Pool) rememberModelRateLimit(tok *tokenEntry, model string, rle *upstre
 		cp.Model = model
 	}
 	tok.runs.RememberModelRateLimit(model, &cp)
-	args := []any{"model", model, "retry_after", cp.RetryAfter}
-	if !cp.ResetAt.IsZero() {
-		args = append(args, "reset", cp.ResetAt.Format(time.RFC3339))
-	}
-	if li := p.indexOfEntry(tok); li >= 0 {
-		args = append([]any{"token", li + 1}, args...)
-	}
 	// RememberModelRateLimit parks only refusals with a live expiry window;
 	// an opaque refusal is a no-op there, so say so here too — the Info
 	// line must mean the lane will actually be skipped. The predicate
@@ -94,6 +96,17 @@ func (p *Pool) rememberModelRateLimit(tok *tokenEntry, model string, rle *upstre
 	until := cp.ResetAt
 	if cp.RetryAfter > 0 {
 		until = now.Add(cp.RetryAfter)
+	}
+	args := []any{"model", model, "retry_after", cp.RetryAfter, "until", formatLogUntil(until)}
+	if !cp.ResetAt.IsZero() {
+		args = append(args, "reset", cp.ResetAt.Format(time.RFC3339))
+	}
+	if li := p.indexOfEntry(tok); li >= 0 {
+		args = append([]any{"token", li + 1}, args...)
+	} else {
+		// Entry left the roster mid-flight: fall back to the
+		// non-reversible label so the line still carries attribution.
+		args = append([]any{"token", tokenEntryLabel(tok)}, args...)
 	}
 	if until.IsZero() || !until.After(now) {
 		p.logger.Debug("pool: admission rate limit not remembered (no usable expiry)", args...)
@@ -245,7 +258,7 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 	// covers what a restart forgot.
 	if ws.skipHinted && tok != nil && tok.token != "" && p.cooldownHintFresh(poolTokenHash(tok.token), time.Now()) {
 		ws.errs = append(ws.errs, fmt.Sprintf("%s: terminal cooldown hint fresh, skipping one probe", name))
-		p.logger.Debug("pool: token skipped (cooldown hint)", "token", idx+1)
+		p.logger.Debug("pool: token skipped (cooldown hint)", "token", idx+1, "model", model, "reason", "terminal cooldown hint fresh")
 		return true
 	}
 	// Quarantined tokens (terminal account state: a live ban) are
@@ -260,7 +273,7 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 	// excluded forever.
 	if q := tok.quarantine.Load(); q != nil && !p.clearLiftedQuarantine(tok) {
 		ws.errs = append(ws.errs, fmt.Sprintf("%s: quarantined (%s: %s)", name, q.reason, q.detail))
-		p.logger.Debug("pool: token skipped (quarantined)", "token", idx+1, "state", q.reason, "reason", q.detail)
+		p.logger.Debug("pool: token skipped (quarantined)", "token", idx+1, "model", model, "state", q.reason, "reason", q.detail)
 		switch terr := q.err.(type) {
 		case *upstream.BanError:
 			dup := false
@@ -285,7 +298,7 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 	if pinnedOut(cfg, p.reg, idx, model) {
 		tok.pinSkips.Add(1)
 		ws.errs = append(ws.errs, fmt.Sprintf("%s: model %q not pinned to this slot", name, model))
-		p.logger.Debug("pool: token skipped (model pin)", "token", idx+1, "model", model)
+		p.logger.Debug("pool: token skipped (model pin)", "token", idx+1, "model", model, "reason", "not pinned to this slot")
 		return true
 	}
 	// Freebucks balance cap: skip tokens whose Freebucks allowance is exhausted
@@ -293,7 +306,7 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 	if capped, retryAfter := freebucksCapped(tok, model); capped {
 		ws.rateLimited = appendRateLimitEntry(ws.rateLimited, freebucksLimitError(tok, model), idx)
 		ws.errs = append(ws.errs, fmt.Sprintf("%s: freebucks balance exhausted for model %q (retry in %v)", name, model, retryAfter.Round(time.Second)))
-		p.logger.Debug("pool: token skipped (freebucks capped)", "token", idx+1, "model", model)
+		p.logger.Debug("pool: token skipped (freebucks capped)", "token", idx+1, "model", model, "retry_after", retryAfter, "reason", "freebucks balance exhausted")
 		return true
 	}
 
@@ -304,8 +317,14 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 		if canServeOtherModel(tok.runs.RateLimitError(), model) {
 			// Token is only quota-capped for the remembered model, but can still serve `model`.
 		} else {
+			skipReason := "cooldown"
+			if tok.runs.BanError() != nil {
+				skipReason = "banned"
+			} else if tok.runs.RateLimitError() != nil {
+				skipReason = "rate_limited"
+			}
 			ws.errs = append(ws.errs, fmt.Sprintf("%s: cooling down until %s", name, until.Format(time.RFC3339)))
-			p.logger.Debug("pool: token skipped (cooldown)", "token", idx+1, "until", until.Format(time.RFC3339))
+			p.logger.Debug("pool: token skipped (cooldown)", "token", idx+1, "until", formatLogUntil(until), "reason", skipReason)
 			if be := tok.runs.BanError(); be != nil {
 				dup := false
 				for _, existing := range ws.banned {
@@ -338,7 +357,11 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 		}
 		ws.rateLimited = appendRateLimitEntry(ws.rateLimited, &tagged, idx)
 		ws.errs = append(ws.errs, name+": "+tagged.Error()+" (remembered, no upstream contact)")
-		p.logger.Debug("pool: token skipped (remembered model rate limit)", "token", idx+1, "model", model)
+		mrUntil := tagged.ResetAt
+		if tagged.RetryAfter > 0 {
+			mrUntil = time.Now().Add(tagged.RetryAfter)
+		}
+		p.logger.Debug("pool: token skipped (remembered model rate limit)", "token", idx+1, "model", model, "retry_after", tagged.RetryAfter, "until", formatLogUntil(mrUntil))
 		return true
 	}
 	return false
@@ -659,7 +682,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 	// by the client's own chain timeout) before the next session create
 	// so the admission does not bounce off the same 428 again.
 	if cfg.WaitingRoomChain && tok.client.ConsumeWaitingRoomChain() {
-		p.logger.Debug("pool: firing waiting-room pre-session chain", "token", idx+1)
+		p.logger.Debug("pool: firing waiting-room pre-session chain", "token", idx+1, "model", model)
 		tok.client.FireWaitingRoomChain(ctx)
 	}
 	instanceID, err := tok.session.EnsureSessionForModel(ctx, model)
@@ -671,7 +694,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 			// 401 invalid is a per-account credential refusal, never a
 			// terminal quarantine: other accounts may still serve, so the
 			// loop continues with no cooldown write.
-			p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1)
+			p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1, "model", model, "err", err)
 		}
 		var wr *session.WaitingRoomError
 		if errors.As(err, &wr) {
@@ -699,7 +722,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 					// usable session — and its park waits for a Release
 					// that only lands here), so the same-lane retry
 					// below cannot lose the lane and fail over.
-					p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter)
+					p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "ms", time.Since(sessionStart).Milliseconds())
 					rqStart := time.Now()
 					carry, parked, rerr := p.modelRequeue(ws, sCap, sDepth, sWait, notBefore, tok, idx, routeSlot)
 					if rerr != nil {
@@ -708,7 +731,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 								ws.queueWait += qerr.Wait
 							}
 							if ws.spill.note(qerr, sCap) {
-								p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+								p.logger.Debug("pool: token lane spilled", "token", idx+1, "model", model, "err", rerr)
 								return laneResult{outcome: laneNext}
 							}
 							return laneResult{outcome: laneBreak}
@@ -832,7 +855,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 			// 401 invalid is a per-account credential refusal, never a
 			// terminal quarantine: other accounts may still serve, so the
 			// loop continues with no cooldown write.
-			p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1)
+			p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1, "model", model, "err", err)
 		}
 		var wr *session.WaitingRoomError
 		if errors.As(err, &wr) {
@@ -850,7 +873,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 					// The lane's slot stays HELD across the jail sleep
 					// (see the admission path): no fresh arrival can
 					// steal the lane mid-jail.
-					p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "phase", "run-start")
+					p.logger.Debug("pool: quota requeue same lane", "token", idx+1, "model", model, "retry_after", rle.RetryAfter, "phase", "run-start", "ms", time.Since(runStart).Milliseconds())
 					rqStart := time.Now()
 					carry, parked, rerr := p.modelRequeue(ws, sCap, sDepth, sWait, notBefore, tok, idx, routeSlot)
 					if rerr != nil {
@@ -859,7 +882,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 								ws.queueWait += qerr.Wait
 							}
 							if ws.spill.note(qerr, sCap) {
-								p.logger.Debug("pool: token lane spilled", "token", idx+1, "err", rerr)
+								p.logger.Debug("pool: token lane spilled", "token", idx+1, "model", model, "err", rerr)
 								return laneResult{outcome: laneNext}
 							}
 							return laneResult{outcome: laneBreak}
@@ -924,7 +947,7 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 	}
 	leaseAttrs := []any{
 		"token", idx + 1, "model", effectiveModel, "agent", effectiveAgentID, "instance_id", instanceID,
-		"country", ss.CountryCode,
+		"country", ss.CountryCode, "ms", time.Since(sessionStart).Milliseconds(),
 	}
 	if ws.queueWait > 0 {
 		// Queue-wait telemetry: this admission parked in the model's FIFO
@@ -1050,7 +1073,7 @@ func (p *Pool) walkTail(ws *walkState) (*Lease, error) {
 	}
 	if len(ws.waiting) > 0 {
 		wr := bestWaitingRoom(ws.waiting)
-		p.logger.Debug("pool: waiting room surfaced", "position", wr.Position, "queue_depth", wr.QueueDepth, "retry_after", wr.RetryAfter.String())
+		p.logger.Debug("pool: waiting room surfaced", "model", ws.model, "position", wr.Position, "queue_depth", wr.QueueDepth, "retry_after", wr.RetryAfter.String())
 		return nil, wr
 	}
 	// Every lane spilled and nothing else was recorded: surface the last

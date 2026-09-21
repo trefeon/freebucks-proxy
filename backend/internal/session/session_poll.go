@@ -207,7 +207,11 @@ func (m *Manager) pollPersisted(ctx context.Context, requestedModel string) (*up
 			m.store.Remove(m.key, st.InstanceID)
 			return nil, nil
 		}
-		slog.Debug("session resumed from store", "instance_id", st.InstanceID, "expires_at", st.ExpiresAt.Format(time.RFC3339))
+		resumedModel := st.Model
+		if resumedModel == "" {
+			resumedModel = requestedModel
+		}
+		slog.Debug("session resumed from store", "instance_id", st.InstanceID, "model", resumedModel, "status", "active", "expires_at", st.ExpiresAt.Format(time.RFC3339))
 		return st, nil
 	case "ended", "superseded", "none", "banned":
 		m.store.Remove(m.key, st.InstanceID)
@@ -247,6 +251,10 @@ func (m *Manager) Poll(ctx context.Context) error {
 		return nil
 	}
 	instanceID := m.state.instanceID
+	// polledModel joins every poll-path line below to the session's model:
+	// the poll GET carries only the instance id, so without this snapshot
+	// the drop/park/heartbeat lines cannot name their model.
+	polledModel := m.state.model
 	m.mu.Unlock()
 
 	start := time.Now()
@@ -269,7 +277,7 @@ func (m *Manager) Poll(ctx context.Context) error {
 			m.mu.Unlock()
 			if dropped {
 				m.recordInvalidation(reasonPoll)
-				slog.Warn("session dropped during poll", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", instanceID)
+				slog.Warn("session dropped during poll", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", instanceID, "model", polledModel)
 			}
 		}
 		// Hold: any other poll GET error keeps the slot — the row stays
@@ -283,7 +291,7 @@ func (m *Manager) Poll(ctx context.Context) error {
 		m.pollFailures++
 		failures := m.pollFailures
 		m.mu.Unlock()
-		slog.Debug("session parked during poll", "instance_id", instanceID, "failures", failures,
+		slog.Debug("session parked during poll", "instance_id", instanceID, "model", polledModel, "failures", failures,
 			"backoff_ms", pollBackoff(failures, pollRetryAfter(err)).Milliseconds(), "err", err)
 		return err
 	}
@@ -308,7 +316,7 @@ func (m *Manager) Poll(ctx context.Context) error {
 			m.mu.Unlock()
 			if dropped {
 				m.recordInvalidation(reasonPoll)
-				slog.Warn("session dropped during poll", "reason", reasonPoll, "status", st.Status, "instance_id", instanceID)
+				slog.Warn("session dropped during poll", "reason", reasonPoll, "status", st.Status, "instance_id", instanceID, "model", polledModel)
 			}
 		}
 		return serr
@@ -323,7 +331,7 @@ func (m *Manager) Poll(ctx context.Context) error {
 		m.mu.Unlock()
 		if dropped {
 			m.recordInvalidation(tableReason(st.Status))
-			slog.Warn("session ended during poll", "reason", tableReason(st.Status), "status", st.Status, "instance_id", instanceID)
+			slog.Warn("session ended during poll", "reason", tableReason(st.Status), "status", st.Status, "instance_id", instanceID, "model", polledModel)
 		}
 		return nil
 	}
@@ -344,7 +352,7 @@ func (m *Manager) Poll(ctx context.Context) error {
 					expiresAt:         st.ExpiresAt,
 					gracePeriodEndsAt: graceEnd,
 				})
-				slog.Debug("session in grace drain during poll", "instance_id", instanceID, "grace_ends_at", graceEnd.Format(time.RFC3339))
+				slog.Debug("session in grace drain during poll", "instance_id", instanceID, "model", m.state.model, "status", st.Status, "grace_ends_at", graceEnd.Format(time.RFC3339))
 			}
 			m.mu.Unlock()
 			return nil
@@ -360,14 +368,14 @@ func (m *Manager) Poll(ctx context.Context) error {
 		m.mu.Unlock()
 		if dropped {
 			m.recordInvalidation(tableReason(st.Status))
-			slog.Warn("session ended during poll", "reason", tableReason(st.Status), "status", st.Status, "instance_id", instanceID)
+			slog.Warn("session ended during poll", "reason", tableReason(st.Status), "status", st.Status, "instance_id", instanceID, "model", polledModel)
 		}
 		return nil
 	}
 	// Heartbeat liveness confirmed: the compact poll returned a usable
 	// status (active). instance/ms/status standardize the heartbeat poll
 	// line so ops can see each liveness beat and its latency.
-	slog.Debug("session: heartbeat poll", "instance_id", shortInstance(instanceID), "ms", ms, "status", st.Status)
+	slog.Debug("session: heartbeat poll", "instance_id", shortInstance(instanceID), "model", polledModel, "ms", ms, "status", st.Status)
 	return nil
 }
 

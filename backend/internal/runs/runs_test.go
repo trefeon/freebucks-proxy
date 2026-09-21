@@ -1036,17 +1036,20 @@ func TestRunFinishedLogCarriesLifecycleAttrs(t *testing.T) {
 		return strings.Contains(logged(), "runs: run finished")
 	})
 
-	re := regexp.MustCompile(`runs: run finished[^\n]*duration_ms=([0-9]+) steps=([0-9]+) termination=([a-z]+)`)
+	re := regexp.MustCompile(`runs: run finished[^\n]*duration_ms=([0-9]+) steps=([0-9]+) status=([a-z]+) termination=([a-z]+)`)
 	m := re.FindStringSubmatch(logged())
 	if m == nil {
 		t.Fatalf("run finished record missing lifecycle attrs:\n%s", logged())
 		return
 	}
-	if m[3] != "finish" {
-		t.Errorf("termination = %q, want finish (FINISH queue path)", m[3])
+	if m[4] != "finish" {
+		t.Errorf("termination = %q, want finish (FINISH queue path)", m[4])
 	}
 	if m[2] != "2" {
 		t.Errorf("steps = %s, want 2 (recorded before rotation)", m[2])
+	}
+	if m[3] != "completed" {
+		t.Errorf("status = %q, want completed (no failure or abandon on this run)", m[3])
 	}
 	duration, err := strconv.Atoi(m[1])
 	if err != nil || duration < 0 {
@@ -1094,7 +1097,7 @@ func TestRunFinishedDropLogsTermination(t *testing.T) {
 	if !warnRe.MatchString(out) {
 		t.Errorf("TTL-expired warn lost its fields:\n%s", out)
 	}
-	dropRe := regexp.MustCompile(`runs: run finished[^\n]*duration_ms=[0-9]+ steps=([0-9]+) termination=drop`)
+	dropRe := regexp.MustCompile(`runs: run finished[^\n]*duration_ms=[0-9]+ steps=([0-9]+) status=([a-z]+) termination=drop`)
 	m := dropRe.FindStringSubmatch(out)
 	if m == nil {
 		t.Fatalf("no run finished drop record:\n%s", out)
@@ -1103,10 +1106,112 @@ func TestRunFinishedDropLogsTermination(t *testing.T) {
 	if m[1] != "1" {
 		t.Errorf("dropped run steps = %s, want 1", m[1])
 	}
+	if m[2] != "completed" {
+		t.Errorf("dropped run status = %s, want completed (never failed or abandoned)", m[2])
+	}
 	// Dropped without FINISH: nothing may have reached the upstream.
 	if got := len(mock.FinishedRunsSnapshot()); got != 0 {
 		t.Errorf("dropped run must not be FINISHed upstream, got %d finished runs", got)
 	}
+}
+
+// TestRunResumedFromStoreLogsSource verifies the "runs: run resumed from
+// store" line carries the adopt-time source context: replaced=false on a
+// fresh adopt (no in-memory run for the agent) and replaced=true when the
+// adopt displaces a live in-memory run, plus the resumed run_id and its
+// trace_session_id so the next chat trace correlates.
+func TestRunResumedFromStoreLogsSource(t *testing.T) {
+	testutil.UnsetConfigEnv(t)
+	mock := testutil.NewMock()
+	defer mock.Close()
+	store := session.NewStore(t.TempDir() + "/state.json")
+
+	// First process: START a run (persisted).
+	mgr1, _ := newTestManagerOpts(t, mock, Options{RotationInterval: time.Hour, Store: store})
+	run, err := mgr1.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr1.Release(run)
+	mgr1.Shutdown(context.Background())
+
+	// Second process (restart) on the same store: adopt the persisted run
+	// with no in-memory twin, then age the twin and re-adopt to exercise
+	// the replaced=true arm (the store record stays fresh throughout).
+	mgr2, _ := newTestManagerOpts(t, mock, Options{RotationInterval: time.Hour, Store: store})
+	restore, logged := captureSlogLocked()
+	defer restore()
+	adopted, err := mgr2.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.RunID != run.RunID {
+		t.Fatalf("restart acquired run %s, want persisted %s", adopted.RunID, run.RunID)
+	}
+	mgr2.Release(adopted)
+	ageRun(t, mgr2, agentA, 2*time.Hour)
+	second, err := mgr2.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr2.Release(second)
+
+	resumeRe := regexp.MustCompile(`runs: run resumed from store[^\n]*run_id=(run-[0-9]+)[^\n]*trace_session_id=([0-9a-f-]+)[^\n]*replaced=(true|false)`)
+	matches := resumeRe.FindAllStringSubmatch(logged(), -1)
+	if len(matches) != 2 {
+		t.Fatalf("want 2 run resumed lines (fresh adopt + replace adopt), got %d:\n%s", len(matches), logged())
+		return
+	}
+	if matches[0][1] != run.RunID || matches[0][3] != "false" {
+		t.Errorf("fresh adopt = run_id %q replaced=%s, want %q replaced=false", matches[0][1], matches[0][3], run.RunID)
+	}
+	if matches[0][2] != run.TraceSessionID {
+		t.Errorf("fresh adopt trace_session_id = %q, want persisted %q", matches[0][2], run.TraceSessionID)
+	}
+	if matches[1][1] != run.RunID || matches[1][3] != "true" {
+		t.Errorf("replace adopt = run_id %q replaced=%s, want %q replaced=true", matches[1][1], matches[1][3], run.RunID)
+	}
+	mgr2.Shutdown(context.Background())
+}
+
+// TestReleaseAbandonedLogsCancelled verifies ReleaseAbandoned's lifecycle
+// record: the last-lease abandon logs run_id/agent/status=cancelled with the
+// in-flight count at drop time (0 by construction), and the run's eventual
+// FINISH reports the cancelled status upstream instead of completed.
+func TestReleaseAbandonedLogsCancelled(t *testing.T) {
+	testutil.UnsetConfigEnv(t)
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr, _ := newTestManager(t, mock, time.Hour)
+
+	run, err := mgr.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore, logged := captureSlogLocked()
+	defer restore()
+	mgr.ReleaseAbandoned(run)
+
+	abandonRe := regexp.MustCompile(`runs: run abandoned[^\n]*run_id=(run-[0-9]+)[^\n]*agent=agent-alpha[^\n]*status=(cancelled|failed)[^\n]*inflight=([0-9]+)`)
+	m := abandonRe.FindStringSubmatch(logged())
+	if m == nil {
+		t.Fatalf("no run abandoned record:\n%s", logged())
+		return
+	}
+	if m[1] != run.RunID {
+		t.Errorf("abandoned run_id = %q, want %q", m[1], run.RunID)
+	}
+	if m[2] != "cancelled" {
+		t.Errorf("abandoned status = %q, want cancelled", m[2])
+	}
+	if m[3] != "0" {
+		t.Errorf("abandoned inflight = %s, want 0 (last lease dropped)", m[3])
+	}
+	eventually(t, "cancelled FINISH of abandoned run", func() bool {
+		f, ok := finishedRun(mock, run.RunID)
+		return ok && f.Status == "cancelled"
+	})
+	mgr.Shutdown(context.Background())
 }
 
 // TestShutdownAbandonWarnLogsFields verifies that the shutdown drain

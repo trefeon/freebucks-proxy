@@ -646,11 +646,12 @@ func (m *RunManager) rotate(ctx context.Context, agentID string) error {
 		// Issue #40: resume a persisted run instead of STARTing a fresh one
 		// when a restart left an active run behind. Only runs started within
 		// the rotation interval are adopted — a stale entry is dropped so
-		// the upstream's own rotation wins. A drained run is NOT resumable
-		// here: its record is removed when its FINISH is dispatched (see
-		// removeRun / finishIfReadyCtx), so only genuinely active runs are
-		// ever present in the store. Best-effort: the store read never fails
-		// the rotate.
+		// the upstream's own rotation wins. #680 invariant: a run is only
+		// ever resumable from the store while it is genuinely active — its
+		// record dies at FINISH DISPATCH (see removeRun / finishIfReadyCtx),
+		// never after the FINISH response lands, so a draining run whose
+		// FINISH is still in flight can never be adopted here. Best-effort:
+		// the store read never fails the rotate.
 		if m.store != nil && m.key != "" {
 			if pr := m.store.LoadRun(m.key, agentID); pr != nil {
 				if pr.RunID != "" && time.Since(pr.StartedAt) < m.rotationInterval {
@@ -687,7 +688,7 @@ func (m *RunManager) rotate(ctx context.Context, agentID string) error {
 					if oldRun != nil {
 						m.enqueueFinish(oldRun)
 					}
-					slog.Debug("runs: run resumed from store", "agent_id", agentID, "run_id", pr.RunID)
+					slog.Debug("runs: run resumed from store", "agent_id", agentID, "agent", agentID, "run_id", pr.RunID, "trace_session_id", pr.TraceSessionID, "replaced", oldRun != nil)
 					return nil
 				}
 				m.store.RemoveRun(m.key, agentID)

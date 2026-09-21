@@ -76,6 +76,7 @@ func (s *Server) relayAnthropicStream(ctx context.Context, w http.ResponseWriter
 	flusher, keepalive, lines, lastWrite, ok := newStreamRelay(ctx, w, r)
 	if !ok {
 		s.logger.Warn("response writer does not support flushing")
+		stats.aborted = true
 		return
 	}
 	defer keepalive.Stop()
@@ -119,11 +120,13 @@ func (s *Server) relayAnthropicStream(ctx context.Context, w http.ResponseWriter
 	for {
 		select {
 		case <-ctx.Done():
+			stats.aborted = true
 			return
 		case <-keepalive.C:
 			maybeKeepalive(w, flusher, lastWrite, "event: ping\ndata: {\"type\": \"ping\"}\n\n")
 		case lc := <-lines:
 			if lc.err != nil {
+				stats.aborted = true
 				if ctx.Err() == nil {
 					s.logger.Warn("anthropic upstream stream error", streamErrorAttrs(ctx, chatStart, stats, lc.err)...)
 					s.flushAnthropicXMLToolCalls(send, st, xmlExtractor, &xmlCallIndex)
@@ -159,6 +162,7 @@ func (s *Server) relayAnthropicStream(ctx context.Context, w http.ResponseWriter
 			// Responses relay's error handling; the OpenAI chat relay
 			// passes the error frame through for its own clients).
 			if errVal, hasErr := chunk["error"]; hasErr && errVal != nil {
+				stats.aborted = true
 				if ctx.Err() == nil {
 					var msg, typ string
 					if em, ok := errVal.(map[string]any); ok {

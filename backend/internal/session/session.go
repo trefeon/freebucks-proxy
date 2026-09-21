@@ -13,11 +13,10 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"time"
-
 	"freebucks-proxy/backend/internal/modelcat"
 	"freebucks-proxy/backend/internal/upstream"
+	"log/slog"
+	"time"
 )
 
 const (
@@ -651,17 +650,19 @@ func (m *Manager) Invalidate() {
 func (m *Manager) InvalidateWithReason(reason string, status int) {
 	m.mu.Lock()
 	instanceID := ""
+	model := ""
 	if m.state != nil {
 		instanceID = m.state.instanceID
+		model = m.state.model
 	}
 	m.commit(nil)
 	m.mu.Unlock()
 	m.recordInvalidation(reason)
 	if status > 0 {
-		slog.Debug("session invalidated", "instance_id", instanceID, "reason", reason, "status", status)
+		slog.Debug("session invalidated", "instance_id", instanceID, "model", model, "reason", reason, "status", status)
 		return
 	}
-	slog.Debug("session invalidated", "instance_id", instanceID, "reason", reason)
+	slog.Debug("session invalidated", "instance_id", instanceID, "model", model, "reason", reason)
 }
 
 // InvalidateInstance drops the cached session only when its instance id
@@ -685,14 +686,15 @@ func (m *Manager) InvalidateInstanceWithReason(instanceID, reason string, status
 		m.mu.Unlock()
 		return
 	}
+	model := m.state.model
 	m.commit(nil)
 	m.mu.Unlock()
 	m.recordInvalidation(reason)
 	if status > 0 {
-		slog.Debug("session invalidated", "instance_id", instanceID, "reason", reason, "status", status)
+		slog.Debug("session invalidated", "instance_id", instanceID, "model", model, "reason", reason, "status", status)
 		return
 	}
-	slog.Debug("session invalidated", "instance_id", instanceID, "reason", reason)
+	slog.Debug("session invalidated", "instance_id", instanceID, "model", model, "reason", reason)
 }
 
 // ClearQueued drops the cached session only when it is in the queued

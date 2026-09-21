@@ -49,6 +49,14 @@ func (c *Client) RateLimitEvents() map[string]int64 {
 // in-client error paths must use this wrapper; the free classifyError stays
 // pure for tests.
 func (c *Client) classify(status int, body string, hdr http.Header) error {
+	return c.classifyWithReqID(status, body, hdr, "")
+}
+
+// classifyWithReqID is classify carrying the caller's request correlation
+// id onto the classification line, so the ledger line joins with the do()
+// request/response lines of the same call. Empty when the caller holds no
+// request id (direct calls, tests).
+func (c *Client) classifyWithReqID(status int, body string, hdr http.Header, reqID string) error {
 	err := classifyError(status, body, hdr)
 	// classifyError returns a concrete typed error in the interface, never a
 	// nil interface — so err is always non-nil; test the sentinel directly.
@@ -63,7 +71,7 @@ func (c *Client) classify(status int, body string, hdr http.Header) error {
 	// behavior fix lands.
 	if code, window := rateLimitInfo(body, err); code != "" {
 		c.countRateLimitEvent(code)
-		logRateLimitClassified(status, body, code, window, err)
+		logRateLimitClassified(status, body, code, window, err, reqID)
 	}
 	return err
 }
@@ -189,12 +197,15 @@ func rateLimitFields(err error) (time.Duration, time.Time) {
 // and must already be redacted by the caller. A distinguishable window
 // refusal adds kind + window_hours next to its code, so the operator reading
 // the line sees WHY the cooldown is ~20h without opening the body.
-func logRateLimitClassified(status int, body, code, window string, err error) {
+// req_id joins the line with the do() request/response lines of the same
+// call ("" when the caller holds no request id).
+func logRateLimitClassified(status int, body, code, window string, err error, reqID string) {
 	attrs := []any{
 		"status", status,
 		"code", code,
 		"window", window,
 		"body", body,
+		"req_id", reqID,
 	}
 	if kind := rateLimitKind(err); kind != "" {
 		attrs = append(attrs, "kind", kind)

@@ -37,19 +37,33 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 		}
 	}
 	if lease != nil {
+		// Held lease (ok path and pre-release errors): the run attribution
+		// comes straight off the lease. lease.Run is always set on pooled
+		// and bridge leases from the pool; the guard is for synthetic
+		// test leases only.
+		runID, traceSID := "", ""
+		if lease.Run != nil {
+			runID, traceSID = lease.Run.RunID, lease.Run.TraceSessionID
+		}
 		attrs = append(attrs,
 			"token", tokenLabel(lease),
 			"agent", lease.AgentID,
-			"trace_session_id", lease.Run.TraceSessionID,
+			"run_id", runID,
+			"trace_session_id", traceSID,
+			"instance_id", lease.SessionInstanceID,
 		)
 	} else if st != nil {
-		// No lease was ever held (acquire failure or pre-attempt
-		// refusal). Two nil-lease failures still carry token attribution:
+		// No lease held at trace time (acquire failure, pre-attempt
+		// refusal, or a post-acquire error whose lease chatAttempt already
+		// released). Two nil-lease failures still carry token attribution:
 		// a post-acquire upstream error reports the failed lease's token
 		// (chatAttempt releases before returning), and an acquire-time
 		// rate limit reports the binding token plus the limited set.
 		// Egress refusals (model_ip_limited) and every other no-token
-		// path leave both empty, so the row keeps TOKEN —.
+		// path leave both empty, so the row keeps TOKEN —. The failed run
+		// attribution below mirrors the held-lease keys field-for-field so
+		// the error trace carries the same run/session identity as the ok
+		// path; acquire-time failures leave all three empty.
 		if st.failedToken != "" {
 			attrs = append(attrs, "token", st.failedToken)
 			if st.failedAgent != "" {
@@ -60,6 +74,15 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 			if st.rateTokens != "" {
 				attrs = append(attrs, "rate_tokens", st.rateTokens)
 			}
+		}
+		if st.failedRunID != "" {
+			attrs = append(attrs, "run_id", st.failedRunID)
+		}
+		if st.failedTraceSessionID != "" {
+			attrs = append(attrs, "trace_session_id", st.failedTraceSessionID)
+		}
+		if st.failedInstanceID != "" {
+			attrs = append(attrs, "instance_id", st.failedInstanceID)
 		}
 	}
 	if errClass != "" {
@@ -131,8 +154,12 @@ func (s *Server) recordRequestOutcome(lease *pool.Lease, model string, status, e
 }
 
 // chatDoneAttrs builds the structured log attributes for a completed chat,
-// including reasoning effort when the client requested it.
-func chatDoneAttrs(reqID, model, agent string, stream bool, ms int64, chunks, bytes int, reasoningEffort string) []any {
+// including reasoning effort when the client requested it. aborted marks a
+// relay that never reached its clean-EOF terminal frame (upstream stream
+// died mid-relay or the client went away); it renders as aborted=true and
+// is omitted when the relay completed cleanly. Log-only: it never feeds
+// release/abandon decisions.
+func chatDoneAttrs(reqID, model, agent string, stream bool, ms int64, chunks, bytes int, reasoningEffort string, aborted bool) []any {
 	attrs := []any{
 		"req_id", reqID,
 		"model", model,
@@ -147,6 +174,9 @@ func chatDoneAttrs(reqID, model, agent string, stream bool, ms int64, chunks, by
 	if reasoningEffort != "" {
 		attrs = append(attrs, "reasoning_effort", reasoningEffort)
 	}
+	if aborted {
+		attrs = append(attrs, "aborted", true)
+	}
 	return attrs
 }
 
@@ -157,7 +187,12 @@ func chatDoneAttrs(reqID, model, agent string, stream bool, ms int64, chunks, by
 // (backoffMs stays 0 — the retry needs no sleep: the dead run was already
 // invalidated, so the re-acquire starts fresh immediately). Created in
 // chatCore (which owns the req_id): attempts/statuses are filled by
-// chatAttempt, retried by chatCore's retry branch.
+// chatAttempt, retried by chatCore's retry branch. Only errors carrying an
+// upstream HTTP status append to statuses (sentinel-classified refusals
+// such as run-invalid record none), so len(statuses) can lag attempts: a
+// run-invalid rotate-and-retry-once that recovers renders attempts=2 with
+// statuses_seen="200", and one that fails twice renders attempts=2 with no
+// statuses_seen at all.
 type chatTraceState struct {
 	reqID           string
 	clientRequestID string
@@ -182,6 +217,18 @@ type chatTraceState struct {
 	// held when the request failed (acquire-time failure).
 	failedToken string
 	failedAgent string
+	// failedRunID/failedTraceSessionID/failedInstanceID carry the run
+	// attribution of a post-acquire chat error: chatAttempt releases the
+	// lease before returning, so without these the error trace would lose
+	// the run (and its session instance) that actually served (and failed)
+	// the attempt. The ok path logs the same keys from the held lease, so
+	// the error path matches it field-for-field. Empty = no lease was
+	// held when the request failed (acquire-time failure). Raw keys never
+	// appear here — run/session ids are opaque upstream handles, not
+	// credentials.
+	failedRunID          string
+	failedTraceSessionID string
+	failedInstanceID     string
 	// rateToken/rateTokens carry an acquire-time rate-limit's token
 	// attribution (pool returned nil lease): the 1-based binding token
 	// whose window bounds the wait, plus the comma-joined 1-based set

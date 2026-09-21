@@ -179,11 +179,11 @@ func (m *Manager) EnsureSessionForModel(ctx context.Context, model string) (stri
 						m.mu.Unlock()
 						go m.asyncReAdmit(model)
 						m.recordReAdmitTrigger()
-						slog.Debug("session: pre-emptive re-admit triggered", "instance_id", instance, "model", s.model, "window", window)
+						slog.Debug("session: pre-emptive re-admit triggered", "instance_id", instance, "model", s.model, "status", s.status, "window", window)
 						return instance, nil
 					}
 					m.mu.Unlock()
-					slog.Debug("session reused", "instance_id", instance, "model", s.model, "expires_at", s.expiresAt.Format(time.RFC3339))
+					slog.Debug("session reused", "instance_id", instance, "model", s.model, "status", s.status, "expires_at", s.expiresAt.Format(time.RFC3339))
 					return instance, nil
 				}
 				// Usability exhausted (past grace) or model mismatch — fall

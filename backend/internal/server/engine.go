@@ -277,6 +277,6 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	st.usageInput, st.usageOutput, st.usageCached, st.usageReasoning, st.usageTotal = stats.usageInput, stats.usageOutput, stats.usageCached, stats.usageReasoning, stats.usageTokens
 	phases.Since(phasetiming.TotalMS, start)
 	ms := time.Since(start).Milliseconds()
-	s.logger.Info(kind+" done", chatDoneAttrs(reqID, model, lease.AgentID, stream, ms, stats.chunks, stats.bytes, reasoningEffort)...)
+	s.logger.Info(kind+" done", chatDoneAttrs(reqID, model, lease.AgentID, stream, ms, stats.chunks, stats.bytes, reasoningEffort, stats.aborted)...)
 	s.traceChat(lease, model, ms, "ok", "", phases.All(), st)
 }

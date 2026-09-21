@@ -77,8 +77,9 @@ func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.Run
 	if runsMgr.InflightCount() == 0 {
 		snap := sess.Snapshot()
 		if snap.Status == "queued" {
+			mStart := time.Now()
 			if _, err := sess.EnsureSession(mCtx); err != nil {
-				logger.Debug("pool: maintain session not ready", "token", label, "err", err)
+				logger.Debug("pool: maintain session not ready", "token", label, "model", snap.Model, "ms", time.Since(mStart).Milliseconds(), "err", err)
 			} else {
 				// Issue #90a: pre-create the run for the session's model
 				// agent so the first request on this session does not pay the
@@ -355,9 +356,10 @@ func (p *Pool) sessionPollTick(ctx context.Context) {
 		if !tok.nextPollAt.IsZero() && now.Before(tok.nextPollAt) {
 			continue
 		}
+		pollStart := time.Now()
 		failures, delay, err := pollSession(ctx, tok.session, cfg, tok.pollFailures)
 		if err != nil {
-			p.logger.Debug("pool: session poll failed", "token", i+1, "err", err, "retry_in", delay)
+			p.logger.Debug("pool: session poll failed", "token", i+1, "ms", time.Since(pollStart).Milliseconds(), "err", err, "retry_in", delay)
 		}
 		tok.pollFailures = failures
 		tok.nextPollAt = now.Add(delay)

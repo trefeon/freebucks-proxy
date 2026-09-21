@@ -5,17 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 	"math"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // quotaSummary renders the live per-model session quota from a probe's
@@ -477,11 +476,15 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	// Routine 429 rate_limited (upstream pool refusal) and 503
 	// session_superseded (another instance holds the seat — terminal per
 	// FREEBUFF_GATE_CODES endsTheSession:true, not an operator-actionable
-	// fault) are expected churn: log at Info. Every other upstream-class
-	// failure stays Warn (5xx, upstream_unavailable, bans; the
-	// upstream-class 429 variants carry their own codes above).
+	// fault) are expected churn: log at Info. Client-visible 5xx is a
+	// real failure the operator must see (upstream_unavailable 502s,
+	// upstream transport deaths, 503 capacity gates): log at Error so it
+	// survives level filtering and greps as an error. Every other surface
+	// is a 4xx refusal: log at Warn.
 	if code == "rate_limited" || code == "session_superseded" {
 		s.logger.Info("request failed", attrs...)
+	} else if status >= 500 {
+		s.logger.Error("request failed", attrs...)
 	} else {
 		s.logger.Warn("request failed", attrs...)
 	}

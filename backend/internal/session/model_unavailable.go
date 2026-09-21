@@ -1,11 +1,10 @@
 package session
 
 import (
-	"log/slog"
-	"time"
-
 	"freebucks-proxy/backend/internal/telemetry"
 	"freebucks-proxy/backend/internal/upstream"
+	"log/slog"
+	"time"
 )
 
 // liveFallbackMeter extracts the live Freebucks meter (prices + exemption)
@@ -133,10 +132,10 @@ func (m *Manager) modelUnavailableShortCircuit(target *string) bool {
 	telemetry.RecordModelUnavailableSkip()
 	if reuse {
 		slog.Debug("session: model cached unavailable, reusing fallback session",
-			"requested", *target, "model", cached.model, "skip_until", skipUntil.Format(time.RFC3339))
+			"instance_id", cached.instanceID, "requested", *target, "model", cached.model, "status", cached.status, "skip_until", skipUntil.Format(time.RFC3339))
 	} else {
 		slog.Debug("session: model cached unavailable, falling back without admission",
-			"requested", *target, "fallback", fallback, "skip_until", skipUntil.Format(time.RFC3339))
+			"instance_id", "", "requested", *target, "fallback", fallback, "skip_until", skipUntil.Format(time.RFC3339))
 	}
 	*target = fallback
 	return reuse

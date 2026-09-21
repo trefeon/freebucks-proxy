@@ -7,10 +7,9 @@ package server
 import (
 	"bufio"
 	"context"
+	"freebucks-proxy/backend/internal/convert"
 	"io"
 	"time"
-
-	"freebucks-proxy/backend/internal/convert"
 )
 
 // relayStats accumulates per-response relay counters for logging.
@@ -36,6 +35,14 @@ type relayStats struct {
 	// field and message_start events (issue #164). Empty when a relay is
 	// driven directly by a test with no lease.
 	servedModel string
+	// aborted marks a relay that never reached its clean-EOF terminal frame:
+	// the upstream stream died mid-relay (write error / scan error), the
+	// client went away (ctx done), or a non-streaming drain failed before
+	// WriteHeader(200). Every relay sets it on its early returns and leaves
+	// it false on the clean-EOF return; chatCore surfaces it as aborted=true
+	// on the "chat done" line (omitted when clean). Log-only: it never feeds
+	// release/abandon decisions.
+	aborted bool
 	// toolMap restores client tool names on the response paths (issue #140):
 	// chatCore renames mapped client tools to official signature names
 	// on the request, so every relay must rename them BACK before writing.

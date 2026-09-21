@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -167,6 +168,12 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 				if errors.As(cerr, &cde) && cde.RetryAfter > 0 {
 					ra = cde.RetryAfter
 				}
+				// Same-session retry after the parsed wait: Debug like the
+				// transport retry in do(), carrying the same join keys.
+				slog.Debug("upstream capacity deferred, retrying same session",
+					"method", req.Method, "path", req.URL.Path,
+					"status", resp.StatusCode, "class", errClassName(cerr),
+					"retry_after", ra.String(), "req_id", ReqID(ctx))
 				timer := time.NewTimer(ra)
 				select {
 				case <-timer.C:

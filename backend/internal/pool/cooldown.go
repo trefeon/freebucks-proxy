@@ -379,8 +379,11 @@ func (p *Pool) quarantineToken(tok *tokenEntry, reason string, err error) {
 		}
 	}
 	if tok.quarantine.CompareAndSwap(nil, rec) {
-		p.logger.Warn("pool: token quarantined (terminal account state)",
-			"token_label", tokenEntryLabel(tok), "state", reason, "reason", rec.detail)
+		attrs := []any{"token_label", tokenEntryLabel(tok), "state", reason, "reason", rec.detail}
+		if li := p.indexOfEntry(tok); li >= 0 {
+			attrs = append([]any{"token", li + 1}, attrs...)
+		}
+		p.logger.Warn("pool: token quarantined (terminal account state)", attrs...)
 	}
 }
 
@@ -401,8 +404,11 @@ func (p *Pool) clearLiftedQuarantine(tok *tokenEntry) bool {
 		return false
 	}
 	if tok.quarantine.CompareAndSwap(q, nil) {
-		p.logger.Info("pool: quarantine lifted (temporary ban expired)",
-			"token_label", tokenEntryLabel(tok), "state", q.reason)
+		attrs := []any{"token_label", tokenEntryLabel(tok), "state", q.reason}
+		if li := p.indexOfEntry(tok); li >= 0 {
+			attrs = append([]any{"token", li + 1}, attrs...)
+		}
+		p.logger.Info("pool: quarantine lifted (temporary ban expired)", attrs...)
 		// The upstream unban lifted the terminal state: the ban hint is
 		// stale, drop it so the token re-admits immediately.
 		p.clearCooldownHintFor(tok)

@@ -33,6 +33,7 @@ import (
 func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, r *http.Request, up io.Reader, stats *relayStats, chatStart time.Time, requestedModel string) {
 	acc := convert.NewAccumulatorOpts(s.convertOptions())
 	if err := drainUpstream(ctx, up, acc, stats, chatStart); err != nil {
+		stats.aborted = true
 		if errors.Is(err, errDrainUpstreamDecode) {
 			s.writeAnthropicError(w, r, http.StatusBadGateway,
 				"failed to decode upstream stream: "+errDrainCause(err), "upstream_error", 0)
@@ -44,6 +45,7 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 	}
 	var completion map[string]any
 	if err := json.Unmarshal(acc.Finish(), &completion); err != nil {
+		stats.aborted = true
 		s.writeAnthropicError(w, r, http.StatusBadGateway,
 			"failed to decode upstream stream: "+err.Error(), "upstream_error", 0)
 		return
@@ -62,11 +64,13 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 	// with 400 invalid_tool_arguments; loose tools keep the legacy {} input.
 	msgObj, err := anthropicMessageFromCompletionStrict(completion, servedModel, strictToolsFromRequest(r))
 	if err != nil {
+		stats.aborted = true
 		s.writeAnthropicError(w, r, http.StatusBadRequest, err.Error(), invalidToolArgumentsCode, 0)
 		return
 	}
 	out, err := json.Marshal(msgObj)
 	if err != nil {
+		stats.aborted = true
 		s.writeAnthropicError(w, r, http.StatusBadGateway,
 			"failed to build response: "+err.Error(), "upstream_error", 0)
 		return

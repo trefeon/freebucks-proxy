@@ -115,8 +115,13 @@ func TestNewLoggerAppendsToFile(t *testing.T) {
 }
 
 func TestNewLoggerColors(t *testing.T) {
+	// The colorized level tokens are rendered by the text handler when its
+	// colorize flag is set. New() only sets it on an interactive console
+	// and the test runner's stderr is a pipe, so pin the token rendering
+	// with an explicitly colorized handler — and pin the piped default
+	// (plain text, no ANSI) via NewLogger.
 	out := captureStderr(t, func() {
-		logger := NewLogger(true, "")
+		logger := slog.New(&textHandler{w: os.Stderr, level: slog.LevelDebug, colorize: true})
 		logger.Debug("m-debug")
 		logger.Info("m-info")
 		logger.Warn("m-warn")
@@ -134,6 +139,16 @@ func TestNewLoggerColors(t *testing.T) {
 		if !strings.Contains(out, want.token) {
 			t.Errorf("stderr missing color token %q (for %s): %q", want.token, want.msg, out)
 		}
+	}
+	plain := captureStderr(t, func() {
+		logger := NewLogger(true, "")
+		logger.Info("m-info-plain")
+	})
+	if strings.Contains(plain, "\x1b[") {
+		t.Errorf("piped stderr must not contain ANSI escapes: %q", plain)
+	}
+	if !strings.Contains(plain, "level=INFO") || !strings.Contains(plain, "m-info-plain") {
+		t.Errorf("piped stderr missing plain line: %q", plain)
 	}
 }
 
@@ -317,17 +332,22 @@ func TestNewLoggerCreatesNestedLogDir(t *testing.T) {
 func TestColorizeWhenLogFileFailsToOpen(t *testing.T) {
 	// A log file whose parent cannot be created (a regular file occupies the
 	// directory position, so MkdirAll fails) cannot be opened; the logger
-	// falls back to stderr-only and must keep its ANSI colors.
+	// falls back to stderr-only. Colors are kept only on an interactive
+	// console — the test runner's stderr is a pipe, so the fallback must
+	// be plain text (no ANSI) while still carrying the line.
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out := captureStderr(t, func() {
 		logger := NewLogger(true, filepath.Join(blocker, "x.log"))
-		logger.Info("still-colored")
+		logger.Info("still-logged")
 	})
-	if !strings.Contains(out, "\x1b[32mINFO\x1b[0m") {
-		t.Errorf("stderr lost colors after log file open failure: %q", out)
+	if strings.Contains(out, "\x1b[") {
+		t.Errorf("piped stderr fallback must not contain ANSI escapes: %q", out)
+	}
+	if !strings.Contains(out, "level=INFO") || !strings.Contains(out, "still-logged") {
+		t.Errorf("stderr lost the line after log file open failure: %q", out)
 	}
 }
 

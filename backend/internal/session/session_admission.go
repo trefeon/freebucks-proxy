@@ -133,7 +133,7 @@ func (m *Manager) adoptOrCreate(ctx context.Context, requestedModel string) (*up
 		if requestedModel != "" && st.Model != "" && st.Model != requestedModel {
 			return nil, fmt.Errorf("ADOPT_CLI_SESSION: the CLI session is for model %s but %s was requested — refusing to create a competing session (use %s or stop the CLI)", st.Model, requestedModel, st.Model)
 		}
-		slog.Info("adopted existing CLI freebuff session", "instance_id", shortInstance(st.InstanceID), "model", st.Model)
+		slog.Info("adopted existing CLI freebuff session", "instance_id", shortInstance(st.InstanceID), "model", st.Model, "status", "active")
 		return st, nil
 	case "queued":
 		// Adopt the queue position: pollAt mirrors the create path.
@@ -147,10 +147,10 @@ func (m *Manager) adoptOrCreate(ctx context.Context, requestedModel string) (*up
 			}
 			st.PollAt = time.Now().Add(wait)
 		}
-		slog.Info("adopted queued CLI freebuff session", "instance_id", shortInstance(st.InstanceID), "position", st.Position, "wait", queueWaitHuman(st.PollAt), "elapsed", queueElapsedHuman(admitStart))
+		slog.Info("adopted queued CLI freebuff session", "instance_id", shortInstance(st.InstanceID), "model", st.Model, "status", "queued", "position", st.Position, "wait", queueWaitHuman(st.PollAt), "elapsed", queueElapsedHuman(admitStart))
 		return st, nil
 	case "disabled":
-		slog.Info("adopted disabled CLI freebuff session")
+		slog.Info("adopted disabled CLI freebuff session", "instance_id", "", "model", requestedModel, "status", "disabled")
 		return st, nil
 	default:
 		return nil, fmt.Errorf("ADOPT_CLI_SESSION: CLI session %s is not adoptable (status %q) — refusing to create a competing session (restart the CLI or stop it)", shortInstance(owner.InstanceID), status)
@@ -256,11 +256,22 @@ func (m *Manager) asyncReAdmit(model string) {
 	close(m.refreshCh)
 	m.refreshCh = nil
 	m.mu.Unlock()
+	// Snapshot the ridden/landed slot for the outcome line: a failed
+	// re-admit keeps riding the old session, a success lands the new one.
+	m.mu.Lock()
+	readmitID, readmitModel, readmitStatus := "", model, ""
+	if m.state != nil {
+		readmitID, readmitModel, readmitStatus = m.state.instanceID, m.state.model, m.state.status
+		if readmitModel == "" {
+			readmitModel = model
+		}
+	}
+	m.mu.Unlock()
 	if err != nil {
-		slog.Debug("session: pre-emptive re-admit failed", "err", err)
+		slog.Debug("session: pre-emptive re-admit failed", "instance_id", readmitID, "model", readmitModel, "status", readmitStatus, "err", err)
 		return
 	}
-	slog.Debug("session: pre-emptive re-admit done")
+	slog.Debug("session: pre-emptive re-admit done", "instance_id", readmitID, "model", readmitModel, "status", readmitStatus)
 }
 
 // recordReAdmitTrigger remembers a pre-emptive re-admit trigger (issue #99)
@@ -362,7 +373,7 @@ func (m *Manager) releaseHeldSlotForTarget(ctx context.Context, targetModel stri
 	// replayable through a later EndSession.
 	rcpt, err := m.client.EndSession(ctx, oldID)
 	if err != nil {
-		slog.Warn("session: EndSession failed on model switch (state kept)", "instance_id", oldID, "held_model", heldModel, "err", err)
+		slog.Warn("session: EndSession failed on model switch (state kept)", "instance_id", oldID, "model", heldModel, "held_model", heldModel, "reason", reasonModelLock, "err", err)
 		return
 	}
 	m.recordReleaseReceipt(oldID, rcpt)
@@ -372,7 +383,7 @@ func (m *Manager) releaseHeldSlotForTarget(ctx context.Context, targetModel stri
 		m.commit(nil)
 	}
 	m.mu.Unlock()
-	slog.Info("session: slot released on model switch", "instance_id", oldID, "held_model", heldModel, "requested_model", targetModel)
+	slog.Info("session: slot released on model switch", "instance_id", oldID, "model", heldModel, "held_model", heldModel, "requested_model", targetModel, "reason", reasonModelLock, "status", "ended")
 }
 
 // refresh runs the create/poll status loop, updating cached state, until the
@@ -442,7 +453,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				m.mu.Unlock()
 				if dropped {
 					m.recordInvalidation(reasonPoll)
-					slog.Warn("session dropped on queued refresh", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", cached.instanceID)
+					slog.Warn("session dropped on queued refresh", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", cached.instanceID, "model", cached.model)
 				}
 			}
 			return err
@@ -492,7 +503,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			m.mu.Lock()
 			m.commit(&cachedState{status: "disabled"})
 			m.mu.Unlock()
-			slog.Debug("session created", "status", "disabled", "instance_id", "")
+			slog.Debug("session created", "status", "disabled", "instance_id", "", "model", targetModel)
 			return nil
 		case "queued":
 			if preemptive {
@@ -503,7 +514,16 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				// surface waiting-room latency on the next request. Keep
 				// the cached session; the once-per-expiry guard stops a
 				// retry storm.
-				slog.Debug("session: pre-emptive re-admit queued, riding old session")
+				m.mu.Lock()
+				riddenID, riddenModel := "", targetModel
+				if m.state != nil {
+					riddenID, riddenModel = m.state.instanceID, m.state.model
+					if riddenModel == "" {
+						riddenModel = targetModel
+					}
+				}
+				m.mu.Unlock()
+				slog.Debug("session: pre-emptive re-admit queued, riding old session", "instance_id", riddenID, "model", riddenModel, "status", "queued")
 				return nil
 			}
 			pollAt := st.PollAt
@@ -535,7 +555,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				limitedOfferReason: st.LimitedOfferReason,
 			})
 			m.mu.Unlock()
-			slog.Debug("session queued", "instance_id", st.InstanceID, "model", model,
+			slog.Debug("session queued", "instance_id", st.InstanceID, "model", model, "status", status,
 				"position", st.Position, "queue_depth", st.QueueDepth, "poll_at", pollAt.Format(time.RFC3339), "wait", queueWaitHuman(pollAt), "elapsed", queueElapsedHuman(admitStart))
 			return nil
 		case "ended", "superseded", "none":
@@ -568,7 +588,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 						gracePeriodEndsAt: graceEnd,
 					})
 					m.mu.Unlock()
-					slog.Debug("session parked in grace during refresh", "status", status, "instance_id", st.InstanceID)
+					slog.Debug("session parked in grace during refresh", "status", status, "instance_id", st.InstanceID, "model", model)
 					return nil
 				}
 			}
@@ -576,7 +596,14 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			m.commit(nil)
 			m.mu.Unlock()
 			m.recordInvalidation(tableReason(status))
-			slog.Debug("session recreated", "reason", tableReason(status), "status", status, "instance_id", st.InstanceID)
+			// The dropped row's model is the live-refresh target (a fresh
+			// manager re-admitting from the store has no cached model yet,
+			// so fall back to the request target there too).
+			dropModel := targetModel
+			if cached != nil && cached.model != "" {
+				dropModel = cached.model
+			}
+			slog.Debug("session recreated", "reason", tableReason(status), "status", status, "instance_id", st.InstanceID, "model", dropModel)
 		case "banned", "country_blocked", "rate_limited", "ip_capped", "spend_limited", "session_model_mismatch", "limited_ip",
 			"consent_required", "purchase_claim_released", "purchase_in_use", "purchase_capacity",
 			"first_tab_discount_changed":
@@ -610,7 +637,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			if rcpt, _ := m.client.EndSession(ctx, releaseID); rcpt != nil {
 				m.recordReleaseReceipt(releaseID, rcpt)
 			}
-			slog.Debug("session released on model lock, retrying", "reason", reasonModelLock, "current", st.CurrentModel, "target", targetModel)
+			slog.Debug("session released on model lock, retrying", "instance_id", releaseID, "reason", reasonModelLock, "current", st.CurrentModel, "target", targetModel)
 		case "model_unavailable":
 			// Requested model is not available; fall back to the cheapest
 			// served unmetered model for this token's live Freebucks meter
@@ -623,7 +650,11 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			m.recordModelUnavailable(targetModel, st.UnavailableWindow, st.AvailableHours)
 			fallbackPrices, fallbackExempt := liveFallbackMeter(st)
 			fallback := DefaultFallbackModelFor(fallbackPrices, fallbackExempt)
-			slog.Debug("session falling back on model unavailable", "requested", targetModel, "fallback", fallback, "limited_offer_reason", st.LimitedOfferReason)
+			fallbackInstance := ""
+			if cached != nil {
+				fallbackInstance = cached.instanceID
+			}
+			slog.Debug("session falling back on model unavailable", "instance_id", fallbackInstance, "requested", targetModel, "fallback", fallback, "limited_offer_reason", st.LimitedOfferReason)
 			targetModel = fallback
 			m.mu.Lock()
 			m.commit(nil)
@@ -716,8 +747,10 @@ func (m *Manager) RefreshRefund(ctx context.Context) error {
 func (m *Manager) EndSession(ctx context.Context) error {
 	m.mu.Lock()
 	instanceID := ""
+	model := ""
 	if s := m.state; s != nil {
 		instanceID = s.instanceID
+		model = s.model
 	}
 	pending := m.pendingRefund
 	m.commit(nil)
@@ -729,7 +762,7 @@ func (m *Manager) EndSession(ctx context.Context) error {
 		}
 		return nil
 	}
-	slog.Debug("session ended", "instance_id", instanceID, "reason", reasonEnded)
+	slog.Debug("session ended", "instance_id", instanceID, "model", model, "reason", reasonEnded)
 	// A superseded DELETE is the same "slot already gone" case as
 	// session-invalid (#119): swallow both so teardown never errors on a
 	// gone row (a nil receipt records nothing).
@@ -788,7 +821,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	// store entry lets pollPersisted resume it on restart instead of burning
 	// a fresh premium slot. Only DELETE when persistence is off.
 	if snap != nil && snap.status == "active" && sessionUsable(snap) {
-		slog.Info("session kept on shutdown (persistence, restart resumes)", "instance_id", shortInstance(instanceID), "model", snap.model)
+		slog.Info("session kept on shutdown (persistence, restart resumes)", "instance_id", shortInstance(instanceID), "model", snap.model, "status", snap.status)
 		return nil
 	}
 	// Release the upstream slot directly (not EndSession): EndSession's CAS
@@ -796,7 +829,14 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	// DELETE carries the held x-freebuff-instance-id (vendor parity:
 	// callFreebuffSession sends it on DELETE when known). The cached state
 	// is kept in-memory so the store entry stays; the process is exiting.
-	slog.Debug("session ended on shutdown", "instance_id", shortInstance(instanceID), "reason", reasonShutdown)
+	// snap is non-nil here whenever instanceID is set (both derive from the
+	// same cached state above; the early return covers the empty case), so
+	// snap.model names the slot being released.
+	snapModel := ""
+	if snap != nil {
+		snapModel = snap.model
+	}
+	slog.Debug("session ended on shutdown", "instance_id", shortInstance(instanceID), "model", snapModel, "reason", reasonShutdown)
 	rcpt, err := m.client.EndSession(ctx, instanceID)
 	if err != nil && !errors.Is(err, upstream.ErrSessionInvalid) && !errors.Is(err, upstream.ErrSessionSuperseded) {
 		return err

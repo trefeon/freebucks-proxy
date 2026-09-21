@@ -195,10 +195,18 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		st.statuses = append(st.statuses, sc)
 	}
 	// The lease is released before every error return below, so remember
-	// its attribution for the trace line now.
+	// its attribution for the trace line now: token/agent for the access
+	// and trace lines, run/session ids so the error trace matches the ok
+	// path field-for-field. lease.Run is always set on pool leases; the
+	// guard is for synthetic test leases only.
 	if lease != nil {
 		st.failedToken = tokenLabel(lease)
 		st.failedAgent = lease.AgentID
+		if lease.Run != nil {
+			st.failedRunID = lease.Run.RunID
+			st.failedTraceSessionID = lease.Run.TraceSessionID
+		}
+		st.failedInstanceID = lease.SessionInstanceID
 	}
 	switch {
 	case errors.Is(err, upstream.ErrModelIPLimited):
