@@ -9,13 +9,20 @@ and users driving the CLI through the gateway.
   the tree the citations corrected in this revision were verified against.
   Previous audit pins: `2b165f749` (npm `0.0.180`, §14) and before it
   `e2b911eca` (= npm `0.0.178`).
+- **Vendor tip at this revision**: `d77544748`, nine commits past the audit pin.
+  That batch touches four files and changes no CLI surface and no wire shape
+  (`bun.lock`, a comment-only addition in `common/src/constants/freebuff-models.ts`,
+  a new SDK usage-receipts test, a one-line `sdk/src/impl/model-provider.ts`
+  switch to `includeUsage: true`) — see §14.7. Every citation below therefore
+  still resolves at the tip.
 - **Recorded wiregen pin**: `backend/internal/wirefacts/testdata/wire/snapshots.json:2-3`
   records `upstream_sha 2b165f749…` with `vendor_version 0.0.180`, and
   `scripts/vendor-version.txt:1` reads `0.0.180`. That manifest's
   `cli/src/components/freebuff-model-selector.tsx` hash (`snapshots.json:30-31`,
   `5ecfb9ff…`) no longer matches the tip (`7fc1341d…`) — the selector is a
-  wire-tracked file (`scripts/check-upstream.sh:126`), so **drift exists** and
-  the manifest pin is stale by 15 commits (§14.6).
+  wire-tracked file (`scripts/check-upstream.sh:126`), so **drift exists**: the
+  manifest pin is 24 commits behind the vendor tip (15 to the audit pin, §14.6,
+  plus 9 more, §14.7).
   The vendor clone *path* lives in `scripts/check-upstream.sh` (`:90-98`); that
   script holds no pin — its ref defaults to the floating `main` (`:81`) and a
   full-SHA ref is only *gated* against `snapshots.json` (`:229-244`).
@@ -932,6 +939,27 @@ against the recorded pin. What changed between the pin and the tip:
 **No chat-wire file changed in this delta.** `cli/src/utils/error-handling.ts`, `cli/src/hooks/helpers/send-message.ts`, `cli/src/hooks/use-freebuff-session.ts`, `common/src/constants/freebuff-errors.ts` and `cli/src/utils/polling-backoff.ts` are all untouched, so §10's limit/error matrix and the P0/P1 verdicts in `CLI-Limitations.md` stand unchanged by this batch.
 
 **Docs corrected against this delta:** §8.3's row-detail order and line cites, §9.7's first-tab and off-peak lines, §11's peak/off-peak notes, §12's config-dir test path, and the pin blocks at the top of this document and of `CLI-Limitations.md`.
+
+### 14.7 Delta `8ed5d3e5e` → `d77544748` (9 commits further past the wiregen pin)
+
+Nine commits, four files, **no CLI surface and no wire shape change** — this is
+the batch that landed after the previous revision's audit pin, and it is why
+every §8/§9/§10 citation above still resolves unchanged:
+
+| File | Change | Class |
+|---|---|---|
+| `common/src/constants/freebuff-models.ts` | +16 lines, comment only: the GLM 5.3 Flash price-ceiling rationale (the `FREEBUFF_GLM_V53_FLASH_MAX_PRICE` values themselves are untouched at `$0.14` in / `$0.45` out per M) | **C** (comment) |
+| `sdk/src/impl/model-provider.ts` | `includeUsage: undefined` → `true` in the BYOK/custom-provider branch of `getModelForRequest` (`:288-291`), so SDK-served streams ask the provider for usage | **B** (SDK only) |
+| `sdk/src/impl/__tests__/usage-receipts.test.ts` | +87, new test for the above | **T** |
+| `bun.lock` | lockfile churn | **C** |
+
+Nothing in `cli/src/` changed in this batch: `error-handling.ts`,
+`hooks/helpers/send-message.ts`, `hooks/use-freebuff-session.ts`,
+`utils/freebuff-session-api.ts` and `components/freebuff-model-selector.tsx`
+are all untouched, so §6/§8/§10 and the `CLI-Limitations.md` verdicts stand.
+The one behavior a proxy can observe: an SDK client using a custom provider now
+asks for usage in the stream (`stream_options.include_usage`), which the
+gateway already accepts and relays.
 
 ## 15. Proxy cross-reference
 

@@ -74,9 +74,11 @@ One-shot `config:migrated_env_v1` converges effective config into the overlay;
 | Spend/ledger/admissions (`pool/ledger/<hash>`, `pool/admissions`) | `DB-hint`, window-clipped | Y (`installLedger` drops out-of-window) |
 
 Why `instanceId` is temp by necessity: upstream mints + rotates it on every
-admission `POST` (`session/session_admission.go`), TTL `~1h` + grace
-(`session_types.go`), no heartbeat — a stored id without re-validation buys a
-`428/410/409` round-trip at best, a stuck re-poll loop at worst.
+admission `POST` (`session/session_admission.go`); the repo's own session
+windows are a 5s pre-expiry margin and a 30-minute grace drain
+(`session/session.go:22-28` — `expiryMargin`, `graceWindow`), with no
+heartbeat — a stored id without re-validation buys a `428/410/409` round-trip
+at best, a stuck re-poll loop at worst.
 
 ### History/observability plane → `DB` tables vs `log` vs `mem`
 
@@ -113,8 +115,9 @@ Raw tokens/keys never reach `DB`/rings/logs: `hex(sha256)[:16]` only
 1. Gate `SESSION_STATE_FILE`/`SESSION_PERSIST`/`LOG_FILE`/`HTTP_READ_TIMEOUT`/
    `AUTO_DISCOVER_TOKEN` to `env`-only `400` (extend `ADMIN_FORCE_SECURE_COOKIES`
    precedent; old rows cleared by `DELETE :key`).
-2. Optional timestamped cooldown-hint (`pool/cooldown/<hash> → {kind,until_ms}`)
-   + bridge-survivor blob — hints only, expiry-checked. Default stays `mem`.
+2. ~~Optional timestamped cooldown-hint + bridge-survivor blob~~ — **shipped**
+   (`pool/cooldown_hint.go`; hints only, expiry-checked, `mem` stays the
+   authority).
 3. Optional: dedupe quota double-writer to the session row; fix
    `pool_persist.go` header claiming bridge rows `snapshotPoolState` doesn't stage.
 

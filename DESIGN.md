@@ -5,12 +5,14 @@ Source of truth is `frontend/src/app.css`; this file states the rules.
 and queued — implement only where zero-risk single-line, else document only.
 Theme law: dark-only terminal cyber ops, obsidian surfaces, hairline borders,
 radius 3px buttons / 4px cards, accent `#28c244`/`#00ff66`, Geist + JetBrains
-Mono, no shadows except the focus ring, no gradients/glow.
+Mono, no shadows beyond the focus ring + the `.led-critical` halo + the SPEC
+Toaster `shadow-lg`, no gradients/glow.
 
 ## Theme
 
 Dark-only (`color-scheme: dark`), "terminal cyber ops" instrument feel:
-obsidian surfaces, hairline enclosures, no shadows except the focus ring.
+obsidian surfaces, hairline enclosures, no shadows beyond the focus ring, the
+`.led-critical` halo and the one queued Toaster `shadow-lg` removal.
 
 ## Tokens (`:root` in `app.css`)
 
@@ -23,9 +25,11 @@ obsidian surfaces, hairline enclosures, no shadows except the focus ring.
 | text    | `--fp-text` / `--fp-muted` / `--fp-dim`             | `#f4f6fb` / `#94a3b8` / `#64748b` |
 | accent  | `--fp-accent` / `--fp-accent-hover` / `--fp-accent-dim` | `#28c244` / `#00ff66` / `rgba(40,194,68,.12)` |
 | state   | `--fp-success` / `--fp-warning` / `--fp-error` / `--fp-info` | `#22c55e` / `#f59e0b` / `#ef4444` / `#38bdf8` |
+| state-deep | `--fp-error-deep`                                | `#7f1d1d`                         |
 | radius  | `--fp-radius-sm` / `--fp-radius`                    | `3px` / `4px`                     |
 | motion  | `--fp-ease` / `--fp-duration` / `--fp-duration-lg`  | `cubic-bezier(.23,1,.32,1)` / `150ms` / `250ms` |
 | focus   | `--fp-ring`                                         | `0 0 0 2px bg, 0 0 0 4px accent`  |
+| shadow  | `--shadow-soft` (declared, unused)                  | `0 4px 20px -2px rgba(0,0,0,.35)` |
 | btn-h   | `--fp-btn-h-sm` / `--fp-btn-h-md` / `--fp-btn-h-lg`  | `32px` / `40px` / `48px`          |
 | btn-pad | `--fp-btn-pad-sm` / `--fp-btn-pad-md` / `--fp-btn-pad-lg` | `6px 10px` / `10px 16px` / `12px 20px` |
 
@@ -119,7 +123,9 @@ one danger.
 - Text contrast ≥ 4.5:1, large text / UI chrome ≥ 3:1 (sole authority:
   `better-accessibility` skill).
 - Visible focus always: global `:focus-visible` 2px accent outline + 2px
-  offset; never remove it. `--fp-ring` stays the ONLY shadow in the repo.
+  offset; never remove it. `--fp-ring` is the only shadow in active use:
+  `--shadow-soft` is declared in `app.css:69-70` but referenced nowhere, and
+  the Toaster's `shadow-lg` (`Toaster.svelte:60`) is the one queued removal.
 - Forced-colors fallback (`@media (forced-colors: active)` in `app.css`):
   buttons drop token fills for `ButtonFace`/`ButtonText`, disabled maps to
   `GrayText`, focus ring becomes 3px `Highlight`. Any new focus treatment
@@ -140,7 +146,7 @@ one danger.
   `grep -n "min-height: 44px" frontend/src/app.css`
 - [ ] `.fp-btn-lg` exists in `app.css` AND `Button.svelte` accepts `lg`:
   `grep -rn "fp-btn-lg" frontend/src/app.css frontend/src/lib/components/Button.svelte`
-- [ ] No Tailwind geometry on buttons: `grep -rEn "!h-[78]|min-h-\[44px\]" frontend/src/lib frontend/src/pages` → 0 hits
+- [ ] No Tailwind geometry on buttons: `grep -rEn "!h-[78]|min-h-\[44px\]" frontend/src/lib frontend/src/pages` → hits ONLY the documented mobile touch-target uplift (`TokenCardMobile.svelte:258`, `[&_.fp-btn]:min-h-[44px]`), zero elsewhere
 - [ ] No raw destructive fills: `grep -rn "bg-red-600|bg-amber-600" frontend/src` → 0 hits (→ `fp-btn-danger`)
 - [ ] One primary per view: `grep -rn 'variant="primary"' frontend/src/lib frontend/src/pages` — every file with 2+ hits MUST cut to one
 - [ ] One danger per row: `grep -rn 'variant="danger"' frontend/src/lib` — `TokenCard` MUST show one
@@ -189,7 +195,7 @@ one danger.
 - Data tables MUST be `.fp-table` (hairline rows, left text, right `.num`
   mono numbers, `tr:last-child` no bottom border, mobile tightening in
   `app.css`). Reference: `MetricsPanel.svelte:234,366` (incl. `sr-only`
-  captions), `ModelsPanel.svelte:165`, `TeamUsagePanel.svelte:130`,
+  captions), `ModelsPanel.svelte:291,294,301,332`, `TeamUsagePanel.svelte:130`,
   `TokenTable.svelte:154-155`, `DevTools.svelte:608`.
 - SPEC: `Review.svelte:689` runs a bare `w-full text-left font-mono
   text-[11px]` table — move onto `.fp-table`.
@@ -208,7 +214,8 @@ one danger.
   `Button.svelte` md + `danger` (sister lane `MigrateButtons` owns this file).
 - Loading in modals uses `Spinner` (the `Button.svelte:33-35` pattern),
   never emoji or text-only. Focus trap + restore + Escape live in
-  `Modal.svelte:78-114`; backdrop close button `Modal.svelte:138-139`.
+  `Modal.svelte:62-114` (restore at `:62-63`, trap at `:78-90`, Escape at
+  `:70`); backdrop close button `Modal.svelte:134-140`.
 
 ### Badges
 
@@ -250,13 +257,15 @@ one danger.
 - `Alert.svelte` is the inline pattern (icon + 2px tinted left border + tone
   fill): tones `info|success|warning|error`, icons `Info|CheckCircle2|
   AlertTriangle|AlertCircle` (`Alert.svelte:2-30`) — error icon tone already
-  correct, no change. Toasts (`stores/toast.js:5-8`, max 4, 5s auto-dismiss)
+  correct, no change. Toasts (`stores/toast.js:7-10`: max 4 visible,
+  10s auto-dismiss for every tone — only an explicit `sticky: true` opts out)
   mirror ONLY action receipts; contextual states (session-expired,
   default-password, DB-overlay degraded, upstream drift, maturity
   kill-switch) stay inline as `<Alert>`.
-- SPEC: `Toaster.svelte:59` `shadow-lg` MUST become a hairline
-  `border-[var(--fp-border)]` (already present) with no shadow — theme bans
-  shadows except the focus ring. Sister-lane file: document only.
+- SPEC: `Toaster.svelte:60` `shadow-lg` MUST become a hairline
+  `border-[var(--fp-border)]` (already present) with no shadow — the theme
+  allows no shadow beyond the focus ring and the `.led-critical` halo.
+  Sister-lane file: document only.
 
 ### Layout
 
@@ -275,7 +284,7 @@ one danger.
   `DevTools.svelte:404-510`; `log-level`/`log-msg`/`logs-page-size`
   `LiveConsole.svelte:1193,1215,1403`; `token` `Login.svelte:110`;
   `settings-search` `Settings.svelte:123`; `add-token-input`
-  `Tokens.svelte:609`). Never copy a literal `id` into a second component;
+  `Tokens.svelte:632`). Never copy a literal `id` into a second component;
   per-row controls MUST use `Field` auto-ids or suffixed ids.
 
 ## Rules
@@ -287,5 +296,5 @@ one danger.
 5. Respect `prefers-reduced-motion`.
 6. Button geometry is `fp-*` + `--fp-btn-*` tokens only — Tailwind sizing utilities on a button are defects.
 7. One `primary` per view; `danger` only behind a confirm step.
-8. New colors MUST be `fp-*` tokens — no `emerald-`/`zinc-`/`red-`/`amber-` scales, no raw hex in markup.
+8. New colors MUST be `fp-*` tokens — no `emerald-`/`zinc-`/`red-`/`amber-` scales, no raw hex in markup. (The remaining violations are enumerated as SPEC items under "Other families" — that list, not this rule, tracks what is still un-swapped.)
 9. Tables MUST be `.fp-table`; selects MUST be `.fp-select`; password/key-material inputs MUST be `fp-input` (+ mono for key material).

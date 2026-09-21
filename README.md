@@ -17,7 +17,11 @@ lifecycle.
 - Dashboard at `/admin` (Svelte SPA embedded in the binary).
 - Credit metering follows the wire `prices` map (upstream credits, wire fields
   `freebucks*`): charged once per session-hour at session start, refunded on
-  early `DELETE`, refilled on a Pacific-midnight cadence.
+  early `DELETE`, and refilled at the daily reset the server advertises
+  (`resetTimeZone`/`resetAt` in the session payload — the account's own local
+  midnight; Pacific midnight only on servers that omit the zone). The proxy's
+  own counters (per-day requests, spend buckets, IP re-admit caps) keep
+  bucketing on the Pacific day (`pool/spend.go:bucketStart`).
 
 ## Quickstart
 
@@ -53,7 +57,9 @@ Then:
 - `http://localhost:3457/admin` → dashboard
 
 Defaults that matter (`.env.example`): `SAFE_MODE=true` (anti-ban preset),
-`COST_MODE=free`, 30 req/min and 1500 req/day Pacific limits.
+`COST_MODE=free`. The per-day/per-minute request caps are gone — upstream quota
+and 429s are the enforcement — and per-IP rate limiting is off by default
+(`RATE_LIMIT_PER_IP=0`; set it and `RATE_LIMIT_BURST` to enable).
 
 Configuration persistence: the first boot imports the effective config
 (process env wins over `.env` over defaults) into the dashboard DB
@@ -126,8 +132,10 @@ docker compose down --remove-orphans   # clears the pre-rename container
 
 - `backend/` — gateway source.
 - `frontend/` — dashboard SPA source.
-- `scripts/` — upstream sync / drift tooling.
-- `docs/` — agent workflow notes.
+- `scripts/` — upstream sync / drift tooling, plus the client tool-name corpus
+  generator (`extract-tool-calls.sh`).
+- `docs/` — client-compatibility recipes, upstream CLI notes, and architecture
+  decisions (`docs/decisions/`).
 
 ## Contributing
 

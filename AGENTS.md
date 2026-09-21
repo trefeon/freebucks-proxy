@@ -1,8 +1,9 @@
 # AGENTS.md — freebucks-proxy operating guide
 
 Machine-readable rules for agents working in this repo. Human overview lives in
-`README.md`; visual grammar in `DESIGN.md`; multi-agent workflow in
-`devdocs/AGENTIC-WORKFLOW.md`.
+`README.md`; visual grammar in `DESIGN.md`; architecture decisions in
+`docs/decisions/`; multi-agent workflow in the repo's local dev notes
+(`devdocs/`, gitignored — present only in a development checkout).
 
 ## 1. Identity
 
@@ -19,14 +20,31 @@ Machine-readable rules for agents working in this repo. Human overview lives in
   `API_KEYS` credential uses the pool, any other credential relays as bridge).
 - Upstream credits meter (wire fields: `freebucks*`): the wire `prices` map is
   the sole cost source; charge-once at session start; 1h sessions; `DELETE`
-  refund; Pacific-midnight refill. `deepseek/deepseek-v4-flash` is an unpriced
-  row (verified cost-0 live 2026-09-08).
+  refund. The daily refill follows the reset the session payload advertises
+  (`resetTimeZone`/`resetAt` — the account's own local midnight; Pacific
+  midnight only on servers that omit the zone), while the proxy's own counters
+  bucket on the Pacific day (`pool/spend.go:bucketStart`).
+  `deepseek/deepseek-v4-flash` bills 15 Freebucks/hour with a server-sent
+  off-peak offer (vendor fixture: 10 in the 22:00-06:00 UTC window,
+  `common/src/util/__tests__/freebuff-off-peak-price.test.ts:4-9`), and its
+  peak PRICE card still doubles even though the peak-serving pause was
+  removed (`common/src/constants/freebuff-models.ts:1406-1409` — the vendor
+  comment is explicit that only the pause went away). Daily allowances differ
+  per country group (`common/src/constants/freebuff-countries.ts:19-62`; the
+  amounts themselves are server-side). The wire `prices`/`offPeak` maps —
+  never this note — are the source of truth.
 
 ## 2. Topology
 
 - `backend/` — Go gateway (`cmd/`, `internal/`). `internal/` packages include
   `server`, `pool`, `upstream`, `session`, `store`, `config`, `dashboard`,
-  `modelcat`, `registry`, `wirefacts`.
+  `modelcat`, `registry`, `wirefacts`, `convert`.
+- Client tool-name layer: `backend/internal/convert` renames foreign client
+  tool names to official signature names on the request leg and restores the
+  client's own names on every response path, including the name-uniqueness
+  virtualization (`mcp__*`) and the wire-grammar legalization
+  (`^[A-Za-z0-9_-]{1,64}$`). Rules, rejected alternatives and invariants:
+  `docs/decisions/tool-name-translation.md`.
 - `frontend/` — Svelte 5 SPA. Committed bundle
   `backend/internal/dashboard/dist` is what the binary serves.
 - The gitignored upstream vendor clone (live checkout) — never commit; the exact path lives in `scripts/check-upstream.sh`. Source of truth for all wire/registry/model work. Keep freshly fetched to `origin/main` before starting; pins live in `backend/internal/wirefacts/testdata/wire/snapshots.json` (`upstream_sha`) + `scripts/vendor-version.txt`, verified by `scripts/check-upstream.sh`.
@@ -54,6 +72,11 @@ go vet ./backend/internal/<pkg>/...
 # Upstream Parity / Wire Drift: instant export-level check
 bash scripts/drift-exact.sh
 
+# Client tool-name corpus: regenerate the fixture from the gitignored
+# reference/ corpus, then run the sweep (wire-unique + grammar-legal +
+# exact client-name restore per harness)
+bash scripts/extract-tool-calls.sh && go test ./backend/internal/convert/ -run Corpus -v
+
 # Config validation
 go test ./backend/internal/config/...
 
@@ -79,7 +102,7 @@ golangci-lint run ./backend/...
 # Frontend bundle & full e2e suite
 npm --prefix frontend run check && npm --prefix frontend run lint && npm --prefix frontend run format:check
 npm --prefix frontend run build             # vite build → refresh backend/internal/dashboard/dist
-npm --prefix frontend run test:e2e          # Playwright 18 specs (needs built dist)
+npm --prefix frontend run test:e2e          # Playwright e2e (frontend/e2e/*.spec.ts, needs built dist)
 ```
 
 # Windows host: AV blocks test-exe link in %TEMP% (e2e builds outside it),
@@ -157,10 +180,16 @@ dotenv → static → live → SSE hash → store refresh.
 
 ## 5. Budgets and freezes (as observed)
 
-- Autonomy under ~10-step rails; fan out via isolated lanes (see
-  `devdocs/AGENTIC-WORKFLOW.md` §1).
-- Request limits default 30/min, 1500/day Pacific; `SAFE_MODE=true` is the
-  anti-ban preset (`.env.example`); `COST_MODE=free`.
+- Autonomy under ~10-step rails; fan out via isolated lanes (see the local dev
+  notes `devdocs/AGENTIC-WORKFLOW.md` §1, gitignored).
+- Pacing, as shipped: the five per-day/per-minute request caps
+  (`MAX_MESSAGES_PER_DAY`, `MAX_REQUESTS_PER_DAY`, `MAX_REQUESTS_PER_MINUTE`,
+  `MAX_SPEND_PER_DAY`, `BRIDGE_DAILY_LIMIT`) are superseded and ignored
+  (`config_env_test.go:TestDeletedCapsIgnored`); upstream quota/429 is the
+  enforcement and slots pace bursts. Per-IP limiting is off by default
+  (`RATE_LIMIT_PER_IP=0`, `.env.example`) and `RATE_LIMIT_BURST` defaults to
+  2x it. `SAFE_MODE=true` is the anti-ban preset (`.env.example`);
+  `COST_MODE=free`.
 - Test flake policy: single FAIL with greens before/after (e.g. wall-clock
   quota-boot probe before ~09:05 PDT) is note-and-move-on after 2 reruns;
   reproduce on pristine `main` before blaming the branch.
