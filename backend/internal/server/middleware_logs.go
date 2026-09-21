@@ -206,9 +206,11 @@ func reqIDFrom(ctx context.Context) string {
 	return id
 }
 
-// originalBodyKey carries the client's raw request body (issue #140):
-// handlers normalize+rename tools into a separate buffer, and chatCore needs
-// the ORIGINAL names to build the response-side restore map.
+// originalBodyKey carries the pre-normalization request body in the
+// OpenAI-chat envelope (issue #140): handlers normalize+rename tools into a
+// separate buffer, and the strict-tool replay gate (strictToolsFromRequest)
+// must read the tool declarations the CLIENT sent. Response-side tool-name
+// restore no longer needs it — chatCore relays with the request's own mapper.
 type originalBodyKey struct{}
 
 func withOriginalBody(ctx context.Context, body []byte) context.Context {

@@ -111,13 +111,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			"invalid messages request: "+err.Error(), "invalid_json", 0)
 		return
 	}
-	normalized, _, err := convert.NormalizeRequestMappedOpts(chatParams, model, s.convertOptions())
+	normalized, toolMap, err := convert.NormalizeRequestMappedOpts(chatParams, model, s.convertOptions())
 	if err != nil {
 		s.writeAnthropicError(w, r, http.StatusBadRequest,
 			"request body must be a valid JSON object: "+err.Error(), "invalid_json", 0)
 		return
 	}
-	r = r.WithContext(withOriginalBody(r.Context(), chatParams)) // #140: response-side restore map
+	r = r.WithContext(withOriginalBody(r.Context(), chatParams)) // #140: strict-tool gate reads the client's own declarations
 	inputTokens := 0
 	if s.tokenEstimator != nil {
 		if count, err := s.tokenEstimator.CountAnthropicRequest(raw); err == nil && count > 0 {
@@ -134,7 +134,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			s.relayAnthropicJSON(ctx, w, r, up, stats, chatStart, rawModel)
 		}
 	}
-	s.chatCore(w, r, model, stream, normalized, convert.ExtractReasoningEffort(raw), "messages", relay)
+	s.chatCore(w, r, model, stream, normalized, toolMap, convert.ExtractReasoningEffort(raw), "messages", relay)
 }
 
 // anthropicDefaultMaxTokens is the server-side rule for a /v1/messages

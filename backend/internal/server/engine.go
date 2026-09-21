@@ -65,13 +65,16 @@ func (b *timedBackend) Acquire(ctx context.Context, model string) (*pool.Lease, 
 // token lease (bridge routing included), call upstream with
 // retry-once recovery, then relay the forced stream to the client through
 // relay. kind names the endpoint in request/done log lines.
-func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, stream bool, normalized []byte, reasoningEffort, kind string, relay relayFunc) {
-	// Issue #140: the tool-name tolerance map. The handlers normalize
-	// with NormalizeRequestMapped, which renames mapped client tools to
-	// official signature names IN the normalized body; the mapper that maps
-	// them BACK is rebuilt here from the client's ORIGINAL body so response
-	// relays can restore names the client dispatched on.
-	toolMap := convert.NewToolMapper(originalBodyFromContext(r.Context()))
+func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, stream bool, normalized []byte, toolMap convert.ToolMapper, reasoningEffort, kind string, relay relayFunc) {
+	// Issue #140: the tool-name tolerance map. toolMap is the SAME mapper the
+	// handler normalized with (NormalizeRequestMapped) — never a rebuild from
+	// the client body, because the request leg's name-uniqueness dedupe only
+	// exists on that instance: a later client tool whose resolved wire name is
+	// already taken virtualizes to mcp__<client name> inside ToUpstream
+	// (issue #685: opencode v2 offers bash + execute — CodeMode's model-facing
+	// tool, packages/codemode/docs/codemode.md — both mapping to
+	// run_terminal_command, so the model called the virtualized mcp__execute
+	// and a rebuilt mapper leaked that name to a client that never offered it).
 	// D1: the access wrapper minted the request's correlation id; direct
 	// handler calls (tests) mint here so it is never empty. The value is
 	// threaded into the request context AND into ChatOptions.RequestID so

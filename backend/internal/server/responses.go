@@ -111,13 +111,13 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			"invalid responses request: "+err.Error(), "invalid_request_error", "invalid_json", 0)
 		return
 	}
-	normalized, _, err := convert.NormalizeRequestMappedOpts(chatParams, model, s.convertOptions())
+	normalized, toolMap, err := convert.NormalizeRequestMappedOpts(chatParams, model, s.convertOptions())
 	if err != nil {
 		s.writeJSONError(w, http.StatusBadRequest,
 			"request body must be a valid JSON object: "+err.Error(), "invalid_request_error", "invalid_json", 0)
 		return
 	}
-	r = r.WithContext(withOriginalBody(r.Context(), chatParams)) // #140: response-side restore map
+	r = r.WithContext(withOriginalBody(r.Context(), chatParams)) // #140: strict-tool gate reads the client's own declarations
 	respID := "resp_" + randHexString(12)
 	reasoningEffort := convert.ExtractReasoningEffort(raw)
 	var relay relayFunc
@@ -132,7 +132,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			s.relayResponsesJSON(ctx, w, up, stats, chatStart, model, respID)
 		}
 	}
-	s.chatCore(w, r, model, stream, normalized, reasoningEffort, "responses", relay)
+	s.chatCore(w, r, model, stream, normalized, toolMap, reasoningEffort, "responses", relay)
 }
 
 // responsesToChatParams translates a Responses API request body into chat

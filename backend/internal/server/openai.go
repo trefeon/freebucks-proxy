@@ -81,20 +81,20 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["stream"].(bool); ok {
 		stream = v
 	}
-	normalized, _, err := convert.NormalizeRequestMappedOpts(body, model, s.convertOptions())
+	normalized, toolMap, err := convert.NormalizeRequestMappedOpts(body, model, s.convertOptions())
 	if err != nil {
 		s.writeJSONError(w, http.StatusBadRequest,
 			"request body must be a valid JSON object: "+err.Error(), "invalid_request_error", "invalid_json", 0)
 		return
 	}
-	r = r.WithContext(withOriginalBody(r.Context(), body)) // #140: response-side restore map
+	r = r.WithContext(withOriginalBody(r.Context(), body)) // #140: strict-tool gate reads the client's own declarations
 	var relay relayFunc
 	if stream {
 		relay = s.relayStream
 	} else {
 		relay = s.relayJSON
 	}
-	s.chatCore(w, r, model, stream, normalized, convert.ExtractReasoningEffort(raw), "chat", relay)
+	s.chatCore(w, r, model, stream, normalized, toolMap, convert.ExtractReasoningEffort(raw), "chat", relay)
 }
 
 // validateChatUnsupportedParams returns an error message (or "") for

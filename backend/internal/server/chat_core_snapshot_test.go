@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/session"
@@ -125,7 +126,7 @@ func TestChatCoreSnapshotAPIKeyRemovalTear(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	s.chatCore(w, stamped, reviewFixModel, true, reviewFixChatBody(), "", "chat completions", reviewFixDrainRelay)
+	s.chatCore(w, stamped, reviewFixModel, true, reviewFixChatBody(), convert.ToolMapper{}, "", "chat completions", reviewFixDrainRelay)
 
 	if len(mock.RecordedChatHeaders) != 1 {
 		t.Fatalf("upstream chat calls = %d, want 1 (recorder body: %s)", len(mock.RecordedChatHeaders), w.Body.String())
@@ -152,7 +153,7 @@ func TestChatCoreSnapshotBridgeFlipTear(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	s.chatCore(w, stamped, reviewFixModel, true, reviewFixChatBody(), "", "chat completions", reviewFixDrainRelay)
+	s.chatCore(w, stamped, reviewFixModel, true, reviewFixChatBody(), convert.ToolMapper{}, "", "chat completions", reviewFixDrainRelay)
 
 	if len(mock.RecordedChatHeaders) != 1 {
 		t.Fatalf("upstream chat calls = %d, want 1 (recorder body: %s)", len(mock.RecordedChatHeaders), w.Body.String())
@@ -243,7 +244,7 @@ func TestChatCorePaddedAPIKeyStaysPooled(t *testing.T) {
 			}
 
 			w := httptest.NewRecorder()
-			s.chatCore(w, stamped, reviewFixModel, true, reviewFixChatBody(), "", "chat completions", reviewFixDrainRelay)
+			s.chatCore(w, stamped, reviewFixModel, true, reviewFixChatBody(), convert.ToolMapper{}, "", "chat completions", reviewFixDrainRelay)
 
 			if len(mock.RecordedChatHeaders) != 1 {
 				t.Fatalf("upstream chat calls = %d, want 1 (recorder body: %s)", len(mock.RecordedChatHeaders), w.Body.String())
