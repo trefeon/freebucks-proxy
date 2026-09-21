@@ -1,5 +1,6 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
+COPY go.mod go.sum ./
 # BuildKit cache mounts keep rebuilds fast and the build layer small:
 # the module cache survives across builds (no re-download), and the
 # go-build cache speeds recompiles without bloating the final image.
