@@ -13,7 +13,14 @@ import (
 // LeaseRelease decrements the leased run's inflight counter. Call when the
 // request completes or fails. Safe on nil leases.
 func (p *Pool) LeaseRelease(lease *Lease) {
-	if lease == nil || lease.Run == nil {
+	if lease == nil {
+		return
+	}
+	// Seat accounting first (seat.go): the count taken before this lease's
+	// session admission must drop whatever happens below, including the run
+	// row being gone.
+	lease.releaseSeat()
+	if lease.Run == nil {
 		return
 	}
 	t := lease.leaseTarget()
@@ -49,7 +56,13 @@ func (p *Pool) LeaseRelease(lease *Lease) {
 // run keep it alive. The server calls this instead of LeaseRelease when it
 // observes a client disconnect.
 func (p *Pool) LeaseAbandon(lease *Lease) {
-	if lease == nil || lease.Run == nil {
+	if lease == nil {
+		return
+	}
+	// Seat accounting first (seat.go), mirroring LeaseRelease: a cancelled
+	// chat frees the seat even when the run row is gone.
+	lease.releaseSeat()
+	if lease.Run == nil {
 		return
 	}
 	t := lease.leaseTarget()

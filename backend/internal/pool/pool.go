@@ -401,10 +401,14 @@ type Pool struct {
 }
 
 type tokenEntry struct {
-	session   *session.Manager
-	runs      *runs.RunManager
-	client    *upstream.Client
-	ledger    *AccountLedger // usage + spend state, guarded by the pool roster mutex
+	session *session.Manager
+	runs    *runs.RunManager
+	client  *upstream.Client
+	ledger  *AccountLedger // usage + spend state, guarded by the pool roster mutex
+	// seat counts turns between their session admission and their lease
+	// release (seat.go). The session's pre-emptive re-admit consults it so a
+	// rotation never supersedes an instance that a turn is still using.
+	seat      seatCounter
 	email     atomic.Pointer[string]
 	accountID atomic.Pointer[string]
 	// accountFetch guards the background account-info backfill so at most
@@ -627,6 +631,9 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 			token:   cfg.AuthTokens[i],
 			ledger:  newAccountLedger(),
 		}
+		// Seat gate (seat.go): a pre-emptive re-admit must not rotate the
+		// account's single seat while a turn is admitting or dispatching.
+		entry.session.SetReAdmitGate(entry.seat.idle)
 		toks = append(toks, entry)
 	}
 	p.roster = *newTokenRoster(toks)
@@ -656,12 +663,14 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 	toks := p.roster.Load()
 	for _, tok := range *toks {
 		tok.session.SetReAdmitLead(cfg.SessionReAdmitLead)
+		tok.session.SetReAdmitGate(tok.seat.idle)
 		tok.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		tok.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 	}
 	p.bridgeMu.Lock()
 	for _, entry := range p.bridge {
 		entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
+		entry.session.SetReAdmitGate(entry.seat.idle)
 		entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 	}
@@ -821,6 +830,7 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 		token:   token,
 		ledger:  newAccountLedger(),
 	}
+	entry.session.SetReAdmitGate(entry.seat.idle)
 	go p.asyncAccountInfoFetch(entry)
 	return entry, nil
 }
@@ -942,5 +952,11 @@ func (p *Pool) EnsureTokenSession(ctx context.Context, token int, model string) 
 		return "", fmt.Errorf("pool: token %d out of range", token)
 	}
 	tok := (*toks)[token]
+	// Seat accounting (seat.go): this operator action runs the same session
+	// admission, so it counts as a seat user while it is in flight — a chat
+	// turn's re-admit defers behind it, and its own admission defers behind
+	// a turn that is already holding the seat.
+	tok.seat.acquire()
+	defer tok.seat.release()
 	return tok.session.EnsureSessionForModel(ctx, model)
 }

@@ -68,6 +68,18 @@ type Manager struct {
 	// was observed). The guard resets naturally when a new session (with a
 	// new expiresAt) lands. Guarded by mu.
 	reAdmitExpiry time.Time
+	// reAdmitGate, when non-nil, reports whether a pre-emptive re-admit may
+	// rotate the upstream seat right now. Upstream keeps ONE session per
+	// account for CLI/web clients (no multi-session contract: the vendored
+	// freebuff-models.ts documents freebuff_multi_session as Desktop-only),
+	// so every fresh admission rewrites active_instance_id and kills any
+	// completion still in flight on the old row — the driver of the live
+	// 2026-09-21 503 session_superseded pair. The pool wires this to the
+	// token's in-flight run count so the trigger defers to the first request
+	// that finds the seat idle while the session rides its grace drain.
+	// Nil means "always allowed" (legacy behavior). Evaluated under mu, so
+	// the callback MUST NOT block or take a pool lock.
+	reAdmitGate func() bool
 	// probeTTL (issue #60, SESSION_PROBE_CACHE_TTL default 15s) + lastAdmitted:
 	// the last successful upstream session response is reused to skip a
 	// redundant poll GET within the TTL.
@@ -161,16 +173,31 @@ func (m *Manager) EnsureSessionForModel(ctx context.Context, model string) (stri
 					// or queue keeps the cache and rides on.
 					if m.reAdmitLead > 0 && !m.reAdmitExpiry.Equal(s.expiresAt) &&
 						reAdmitDue(s, m.reAdmitLead, time.Now()) {
+						window := "lead"
+						if !time.Now().Before(s.expiresAt.Add(-expiryMargin)) {
+							window = "grace"
+						}
+						// Seat gate (pool/seat.go): upstream keeps ONE session
+						// per account for CLI/web clients, so this rotation
+						// rewrites the account's active_instance_id and 409s
+						// every completion still in flight on the old instance
+						// (observed live 2026-09-21: two in-flight turns died
+						// 21s and 46s after a lead trigger). While another turn
+						// holds the seat, ride the session — it stays usable
+						// through its expiry and its 30-minute grace drain —
+						// and retry the trigger on the next request that finds
+						// the seat idle.
+						if m.reAdmitGate != nil && !m.reAdmitGate() {
+							m.mu.Unlock()
+							slog.Debug("session: pre-emptive re-admit deferred, seat in use", "instance_id", instance, "model", s.model, "status", s.status, "window", window)
+							return instance, nil
+						}
 						// Issue #132: one attempt per expiry window. The
 						// upstream refuses a fresh create while the old
 						// instance is still authoritative, so a failed
 						// re-admit must ride the old session to expiry
 						// instead of re-triggering on every request (each
 						// trigger burns a session slot).
-						window := "lead"
-						if !time.Now().Before(s.expiresAt.Add(-expiryMargin)) {
-							window = "grace"
-						}
 						m.reAdmitExpiry = s.expiresAt
 						m.refreshing = true
 						m.refreshErr = nil
@@ -180,7 +207,14 @@ func (m *Manager) EnsureSessionForModel(ctx context.Context, model string) (stri
 						go m.asyncReAdmit(model)
 						m.recordReAdmitTrigger()
 						slog.Debug("session: pre-emptive re-admit triggered", "instance_id", instance, "model", s.model, "status", s.status, "window", window)
-						return instance, nil
+						// The seat is ours alone (the gate proved no other turn
+						// holds it), so THIS request must dispatch on the
+						// instance the re-admit lands — handing it the old row
+						// would make it the casualty of our own rotation. Loop
+						// into the single-flight park below, which returns the
+						// new instance, or rides the old one when the refresh
+						// is refused or queues.
+						continue
 					}
 					m.mu.Unlock()
 					slog.Debug("session reused", "instance_id", instance, "model", s.model, "status", s.status, "expires_at", s.expiresAt.Format(time.RFC3339))

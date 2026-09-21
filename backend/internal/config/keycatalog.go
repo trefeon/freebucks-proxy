@@ -263,7 +263,7 @@ var keyCatalog = []KeyDef{
 	{
 		Key: "SESSION_RE_ADMIT_LEAD", Group: GroupPool, Kind: "text", Hidden: true,
 		Default:     "60s",
-		Description: `Re-admit a session pre-emptively when less than this remains: the request rides the old session while the refresh runs in the background.`,
+		Description: `Re-admit a session pre-emptively when less than this remains. The rotation waits until the account's seat is idle (upstream keeps one session per account, so a fresh admission supersedes any turn still in flight); a request that finds the seat busy rides the old session through its grace drain, and the request that trips the re-admit is served by the fresh session.`,
 	},
 	{
 		Key: "SESSION_STATE_FILE", Group: GroupPool, Kind: "text", RestartOnly: true, Hidden: true,

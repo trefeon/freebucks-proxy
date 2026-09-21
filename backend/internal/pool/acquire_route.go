@@ -655,12 +655,24 @@ func (p *Pool) modelRequeue(ws *walkState, cap, depth int, wait time.Duration, n
 // lane-exhausted waiter scales out silently to the next lane — a full lane
 // is not an upstream refusal, so it writes no bucket and no error string.
 // The caller's own ctx expiry returns as-is.
-func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *slotPermit) laneResult {
+func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *slotPermit) (res laneResult) {
 	ctx := ws.ctx
 	model := ws.model
 	agentID := ws.agentID
 	cfg := ws.cfg
 	name := fmt.Sprintf("token-%d", idx+1)
+
+	// Seat accounting (seat.go): this turn is visible to the session's
+	// re-admit gate from BEFORE its session admission until its lease is
+	// released, so a pre-emptive re-admit can never rotate the account's
+	// single upstream seat while a completion is about to ride the instance
+	// handed out below. A lane that grants no lease drops its count now.
+	tok.seat.acquire()
+	defer func() {
+		if res.outcome != laneGranted {
+			tok.seat.release()
+		}
+	}()
 
 	// Session admission: the live-turn slot above is the only local
 	// concurrency bound here.

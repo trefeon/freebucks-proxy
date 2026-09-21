@@ -6,14 +6,13 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 func newTestSession(t *testing.T, mock *testutil.MockUpstream) *Manager {
@@ -31,11 +30,15 @@ func newTestSession(t *testing.T, mock *testutil.MockUpstream) *Manager {
 	return NewManager(client)
 }
 
-// TestReAdmitTriggersAsyncAndRidesOldSession pins issue #99: with the
-// re-admit lead larger than the session's remaining life, EnsureSession
-// triggers a background re-admit and rides the OLD instance this request;
-// the next request gets the NEW instance once the re-admit lands.
-func TestReAdmitTriggersAsyncAndRidesOldSession(t *testing.T) {
+// TestReAdmitTriggersAsyncAndServesNewInstance pins issue #99 with the
+// anti-supersede handover: with the re-admit lead larger than the session's
+// remaining life, the request that trips the trigger is served by the NEW
+// instance once the admission lands. It must NOT be handed the row it just
+// superseded — upstream rotates the account's single seat on every admission
+// and 409s the disowned instance's next completion, which is exactly the
+// live 2026-09-21 503 session_superseded pair. Exactly one upstream create
+// pays for the handover.
+func TestReAdmitTriggersAsyncAndServesNewInstance(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	var creates atomic.Int32
@@ -65,21 +68,19 @@ func TestReAdmitTriggersAsyncAndRidesOldSession(t *testing.T) {
 	if first != "inst-1" {
 		t.Fatalf("first instance = %q, want inst-1", first)
 	}
-	// The re-admit is async: this call rode the old session.
+	// The second call trips the re-admit and is served by the instance it
+	// lands: the caller waits on the single-flight refresh instead of riding
+	// the superseded row.
 	second, err := m.EnsureSession(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second != "inst-1" {
-		t.Fatalf("second (during/after re-admit) = %q, want inst-1 (ride old)", second)
+	if second != "inst-2" {
+		t.Fatalf("trigger request instance = %q, want inst-2 (serve the admission it tripped)", second)
 	}
-	// The background re-admit created a second session.
-	eventually(t, "async re-admit", func() bool { return creates.Load() >= 2 })
-	// Once the re-admit landed, the next request gets the new instance.
-	eventually(t, "new instance served", func() bool {
-		id, err := m.EnsureSession(context.Background())
-		return err == nil && id == "inst-2"
-	})
+	if n := creates.Load(); n != 2 {
+		t.Fatalf("session creates = %d, want 2 (the handover is one admission)", n)
+	}
 }
 
 // TestReAdmitFailureRidesOldSession pins the failure path: when the async
@@ -149,13 +150,13 @@ func TestReAdmitDisabledByDefault(t *testing.T) {
 	}
 }
 
-// TestGraceWindowTriggersAsyncReAdmitAndHandsOver pins issue #163: when a
-// request arrives while the cached session is being ridden only through
-// its grace drain (a long stream crossed the expiresAt boundary), the
-// request rides the OLD instance while a background re-admit fires; once
-// the fresh admission lands, the next request gets the NEW instance — no
-// synchronous admission (waiting room) is paid at grace end, and the
-// handover consumes exactly one create.
+// TestGraceWindowTriggersAsyncReAdmitAndHandsOver pins issue #163 with the
+// anti-supersede handover: when a request arrives while the cached session is
+// being ridden only through its grace drain (a long stream crossed the
+// expiresAt boundary), it trips the re-admit and is served by the FRESH
+// instance the handover lands — no synchronous admission (waiting room) at
+// grace end, no request riding the row the handover supersedes, and exactly
+// one create.
 func TestGraceWindowTriggersAsyncReAdmitAndHandsOver(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -183,18 +184,17 @@ func TestGraceWindowTriggersAsyncReAdmitAndHandsOver(t *testing.T) {
 	})
 	m.mu.Unlock()
 
-	// The first request rides the old instance and triggers the async
-	// re-admit.
+	// The first request trips the grace handover and is served by the fresh
+	// instance (the old row is the one being superseded).
 	instance, err := m.EnsureSessionForModel(context.Background(), "deepseek/deepseek-v4-pro")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if instance != "inst-grace" {
-		t.Fatalf("first instance = %q, want inst-grace (ride old through grace)", instance)
+	if instance != "inst-new" {
+		t.Fatalf("first instance = %q, want inst-new (served by the handover it tripped)", instance)
 	}
-	// The background re-admit created the fresh session.
 	eventually(t, "grace re-admit create", func() bool { return creates.Load() >= 1 })
-	// Once the re-admit lands, the next request gets the new instance.
+	// The next request also gets the new instance.
 	eventually(t, "fresh instance served after handover", func() bool {
 		id, err := m.EnsureSessionForModel(context.Background(), "deepseek/deepseek-v4-pro")
 		return err == nil && id == "inst-new"

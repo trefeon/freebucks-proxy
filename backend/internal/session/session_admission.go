@@ -29,6 +29,22 @@ func (m *Manager) SetReAdmitLead(d time.Duration) {
 	m.mu.Unlock()
 }
 
+// SetReAdmitGate installs the in-flight gate for the pre-emptive re-admit:
+// fn reports whether a rotation may start right now. The pool wires it to the
+// account's seat counter (pool/seat.go), so a re-admit never rotates the
+// account's single upstream seat out from under a turn that is still
+// dispatching — upstream rewrites active_instance_id on every admission and
+// refuses the disowned instance's next completion with 409
+// session_superseded. A closed gate defers the trigger to the next request
+// that finds the seat idle; the session keeps serving through its grace drain
+// meanwhile. Nil clears the gate (rotation always allowed). Called with mu
+// held: fn must be fast and must not block or take a lock.
+func (m *Manager) SetReAdmitGate(fn func() bool) {
+	m.mu.Lock()
+	m.reAdmitGate = fn
+	m.mu.Unlock()
+}
+
 // CLIOwner mirrors the official CLI's freebuff-instance-owner.json (issue
 // #97, reference proxy-freebuff server.js readCliInstanceOwner): the CLI
 // rewrites this file whenever its active session changes (restart,
