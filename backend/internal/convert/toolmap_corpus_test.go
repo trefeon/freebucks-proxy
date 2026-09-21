@@ -20,20 +20,25 @@ import (
 //
 // For each harness the fixture's full tool list is replayed through the real
 // ingress→egress path (NormalizeRequestMapped, then both upstream response
-// shapes) and the wire is checked against the four contract invariants:
+// shapes) and the wire is checked against the five contract invariants:
 //
 //  1. wire names are unique — strict upstreams (DeepSeek, Muse Spark, MiMo)
 //     reject duplicate tool names outright ("Tool names must be unique"), so
 //     dedupe is unconditional;
-//  2. no wire name is a member of ForeignHarnessToolNames — upstream's
+//  2. every wire name satisfies the upstream tools grammar
+//     (^[A-Za-z0-9_-]{1,64}$, see wireNameGrammar): ONE illegal name fails the
+//     whole request, so a harness name the grammar rejects must be legalized
+//     for the wire and restored downstream — Codewhale registers the dotted
+//     `web.run`;
+//  3. no wire name is a member of ForeignHarnessToolNames — upstream's
 //     detector raises foreign_tool_names on ANY harness name, enforced;
-//  3. every wire name restores through RestoreName to the EXACT client name
+//  4. every wire name restores through RestoreName to the EXACT client name
 //     (case and spelling preserved), and FromUpstreamChunk agrees for both
 //     choices[].delta.tool_calls[] and choices[].message.tool_calls[];
-//  4. ClassifyWireTools still reads first-party: at least one GENUINE
+//  5. ClassifyWireTools still reads first-party: at least one GENUINE
 //     signature tool and no enforced foreign signal.
 //
-// Invariants 2 and 3 are checked per CLIENT tool by wire index: ToUpstream
+// Invariants 2-4 are checked per CLIENT tool by wire index: ToUpstream
 // walks tools[] in order and only APPENDS the injected end_turn/decide, so the
 // check loop covers exactly the client's own tools and never the injections
 // (invariant 1 scans the whole array, injections included).
@@ -230,13 +235,21 @@ func assertCorpusHarnessWireClean(t *testing.T, h corpusHarness) {
 		seen[name] = h.Harness
 	}
 
-	// Invariants 2 and 3, per fixture tool. ToUpstream walks the tools array
-	// in order and only APPENDS the injected end_turn/decide, so wire index i
-	// is client tool i.
+	// Invariants 2 (grammar) and 3 (exact restore), per fixture tool.
+	// ToUpstream walks the tools array in order and only APPENDS the injected
+	// end_turn/decide, so wire index i is client tool i.
 	for i, ct := range h.Tools {
 		wire := corpusWireName(wireTools[i])
 		if wire == "" {
 			t.Fatalf("harness %s: wire tool %d has no name (client tool %q, source %s)", h.Harness, i, ct.Name, ct.Source)
+		}
+		// Invariant 2: the upstream tools grammar (^[A-Za-z0-9_-]{1,64}$).
+		// One illegal name fails the WHOLE upstream request, so a harness
+		// name the grammar rejects must be legalized, not forwarded
+		// (Codewhale registers the dotted `web.run`).
+		if !wireNameGrammar.MatchString(wire) {
+			t.Errorf("harness %s: client tool %q (source %s) reached the wire as %q, which the upstream tools grammar %s rejects",
+				h.Harness, ct.Name, ct.Source, wire, wireNameGrammar)
 		}
 		if ForeignHarnessToolNames[wire] {
 			t.Errorf("harness %s: client tool %q (source %s) reached the wire as %q, a foreign harness name — upstream raises foreign_tool_names on it",
