@@ -3,13 +3,12 @@ package server
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-
 	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
+	"io"
+	"net/http"
 )
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the
@@ -110,7 +109,10 @@ func (b bridgeBackend) RecordSpend(lease *pool.Lease, tokens int64) { b.p.Record
 // never retry in-request — the error returns for writeError after releasing
 // the lease, with cache invalidation for dead sessions/runs (invalid,
 // expired, superseded, 428-required) and a ban cooldown+quarantine for
-// terminal bans so the account stops serving. The acquire/chat/invalidate/
+// terminal bans so the account stops serving. The one exception: an
+// ErrRunInvalid refusal is retried ONCE by chatCore, which calls this again
+// with a fresh acquire after the dead run was invalidated here — see
+// chatCore's rotate-and-retry-once. The acquire/chat/invalidate/
 // cooldown hooks are behind the chatBackend interface so the pooled
 // (fixed-token) and bridge paths share one implementation. 429 quota,
 // ip_capped and country blocks surface with no cooldown write: admission
@@ -154,8 +156,9 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		// Issue #113: stamp the run's 1-based per-chat step counter so
 		// codebuff_metadata["llm_step_number"] matches the CLI (each chat
 		// call is one agent step; run-agent-step.ts increments per step).
-		// Incremented once per chatAttempt — the retry-once loop below
-		// retries the SAME step.
+		// One increment per chatAttempt: the counter belongs to the leased
+		// run, so chatCore's run-invalid retry (which re-acquires a FRESH
+		// run) stamps that new run's own first step.
 		StepNumber: int(lease.Run.NextStepNumber()),
 	}
 
@@ -182,7 +185,7 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 	defer release()
 
 	up, err := backend.Chat(ctx, lease, opts, normalized)
-	st.attempts = 1
+	st.attempts++
 	if err == nil {
 		st.statuses = append(st.statuses, http.StatusOK)
 		released = true // Disarm deferred release: ownership transferred to caller

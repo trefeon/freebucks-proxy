@@ -152,10 +152,12 @@ func chatDoneAttrs(reqID, model, agent string, stream bool, ms int64, chunks, by
 
 // chatTraceState accumulates the per-request attempt history for the chat
 // trace line: how many upstream chat attempts fired, the HTTP statuses
-// observed per attempt (success = 200), whether the retry-once recovery
-// re-acquired a lease, and the measured re-acquire wait before the retry.
-// Created in chatCore (which owns the req_id), filled by chatAttempt's
-// retry loop.
+// observed per attempt (success = 200), whether chatCore's run-invalid
+// rotate-and-retry-once fired, and the re-acquire wait before that retry
+// (backoffMs stays 0 — the retry needs no sleep: the dead run was already
+// invalidated, so the re-acquire starts fresh immediately). Created in
+// chatCore (which owns the req_id): attempts/statuses are filled by
+// chatAttempt, retried by chatCore's retry branch.
 type chatTraceState struct {
 	reqID           string
 	clientRequestID string

@@ -646,8 +646,11 @@ func (m *RunManager) rotate(ctx context.Context, agentID string) error {
 		// Issue #40: resume a persisted run instead of STARTing a fresh one
 		// when a restart left an active run behind. Only runs started within
 		// the rotation interval are adopted — a stale entry is dropped so
-		// the upstream's own rotation wins. Best-effort: the store read
-		// never fails the rotate.
+		// the upstream's own rotation wins. A drained run is NOT resumable
+		// here: its record is removed when its FINISH is dispatched (see
+		// removeRun / finishIfReadyCtx), so only genuinely active runs are
+		// ever present in the store. Best-effort: the store read never fails
+		// the rotate.
 		if m.store != nil && m.key != "" {
 			if pr := m.store.LoadRun(m.key, agentID); pr != nil {
 				if pr.RunID != "" && time.Since(pr.StartedAt) < m.rotationInterval {

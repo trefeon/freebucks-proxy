@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/phasetiming"
 	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"time"
@@ -13,9 +15,10 @@ import (
 // --- Shared completion engine (protocol-neutral) ---
 //
 // The acquire→upstream→relay core every completion surface runs on:
-// chatCore (lease acquisition, bridge routing, phase timing, endpoint log
-// lines), chatAttempt (retry-once recovery with session invalidation and
-// token cooldowns), and the plain SSE plumbing every relay shares
+// chatCore (lease acquisition, bridge routing, the ErrRunInvalid
+// rotate-and-retry-once, phase timing, endpoint log lines), chatAttempt
+// (one acquire→chat attempt with session/run invalidation and token
+// cooldowns on refusal), and the plain SSE plumbing every relay shares
 // (relayReadLoop, lineChunk, keepaliveInterval). Protocol policy does NOT
 // live here — each surface's handler, wire translation, stream relay and
 // error envelope live in its own file:
@@ -170,6 +173,16 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	}
 	be = &timedBackend{chatBackend: be, phases: phases}
 	up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
+	if err != nil && ctx.Err() == nil && errors.Is(err, upstream.ErrRunInvalid) {
+		// The lease's agent run is gone upstream (e.g. a resumed run whose FINISH
+		// raced this request: live 2026-09-21T07:05:05Z, upstream 400 runId Not
+		// Running surfaced as a bare 502). chatAttempt already Invalidated the run
+		// (in-memory + persisted record removed), so the re-acquire below cannot
+		// re-adopt it: rotate-and-retry-once, the sentinel's documented contract
+		// (upstream/errors.go).
+		st.retried = true
+		up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
+	}
 	if err != nil {
 		// Acquire-time rate limit (pool returned nil lease): attribute the
 		// binding token + limited set onto the trace line. Post-acquire

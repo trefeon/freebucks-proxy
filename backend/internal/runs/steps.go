@@ -199,8 +199,12 @@ func (m *RunManager) persistRun(run *Run) {
 	})
 }
 
-// removeRun drops the run from the session-state store (issue #40): the
-// run was FINISHed upstream, so a restart must not resurrect it.
+// removeRun drops the run from the session-state store (issue #40). Records
+// are removed at FINISH DISPATCH — not only after the FINISH response —
+// because a run whose FINISH is in flight is already dead upstream: leaving
+// the record behind lets a restart-resume (or a rotate() store-resume)
+// resurrect a draining run whose chats upstream rejects. A run is only
+// resumable from the store while it is genuinely active.
 func (m *RunManager) removeRun(run *Run) {
 	if m.store == nil || m.key == "" || run == nil {
 		return

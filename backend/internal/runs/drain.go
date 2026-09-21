@@ -92,6 +92,10 @@ func (m *RunManager) FinishRun(ctx context.Context, run *Run) {
 		return
 	}
 	m.drop(run)
+	// Same invariant as finishIfReadyCtx: the persisted record dies at
+	// FINISH DISPATCH, before the upstream call, so a concurrent rotate()
+	// or restart can never re-adopt a run whose FINISH is in flight.
+	m.removeRun(run)
 	status, steps, totalSteps := m.finishPayload(run)
 	if err := m.client.FinishRun(ctx, run.RunID, status, totalSteps, steps, ""); err != nil {
 		// Keep the run around for a Maintain retry; the id is not
@@ -102,8 +106,8 @@ func (m *RunManager) FinishRun(ctx context.Context, run *Run) {
 		slog.Debug("runs: FINISH failed, will retry on maintain", "run_id", run.RunID, "err", err)
 		return
 	}
-	// FINISHed cleanly: a restart must not resurrect the run.
-	m.removeRun(run)
+	// FINISHed cleanly: removeRun already covered it at dispatch, so a
+	// restart cannot resurrect the run.
 }
 
 // enqueueFinish submits a deferred FINISH for run through the bounded queue
@@ -322,6 +326,15 @@ func (m *RunManager) finishIfReadyCtx(ctx context.Context, run *Run) {
 	run.finishing = true
 	m.mu.Unlock()
 
+	// A draining run must NEVER be resumable: the persisted record dies
+	// the moment the FINISH is DISPATCHED, not when the FINISH response
+	// lands. rotate()'s store-resume branch would otherwise adopt a run
+	// whose FINISH is still in flight — upstream then rejects every chat
+	// on it (400 "runId Not Running") and the client sees a 502 with no
+	// retry (observed live 2026-09-21T07:05:05Z: abandoned run 87c3a9c3
+	// was re-adopted 117ms later by the next request's rotate()).
+	m.removeRun(run)
+
 	status, steps, totalSteps := m.finishPayload(run)
 	if err := m.client.FinishRun(ctx, run.RunID, status, totalSteps, steps, ""); err != nil {
 		m.mu.Lock()
@@ -345,7 +358,8 @@ func (m *RunManager) finishIfReadyCtx(ctx context.Context, run *Run) {
 	}
 	m.draining = filtered
 	m.mu.Unlock()
-	m.removeRun(run)
+	// removeRun already ran at dispatch, so the record never outlives the
+	// FINISH being sent.
 	logRunFinished(run, len(steps), "finish")
 }
 
