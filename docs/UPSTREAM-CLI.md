@@ -13,8 +13,11 @@ and users driving the CLI through the gateway.
   That batch touches four files and changes no CLI surface and no wire shape
   (`bun.lock`, a comment-only addition in `common/src/constants/freebuff-models.ts`,
   a new SDK usage-receipts test, a one-line `sdk/src/impl/model-provider.ts`
-  switch to `includeUsage: true`) — see §14.7. Every citation below therefore
-  still resolves at the tip.
+  switch to `includeUsage: true`) — see §14.7. Every citation below is pinned to
+  the audit tree (`8ed5d3e5e`): content is unchanged at the tip, but the 16
+  comment lines that batch inserted at `freebuff-models.ts:257` shift every later
+  line number in that one file by +16 (`:2054` here reads `:2070` at the tip), so
+  re-read a cite there by symbol, not by number.
 - **Recorded wiregen pin**: `backend/internal/wirefacts/testdata/wire/snapshots.json:2-3`
   records `upstream_sha 2b165f749…` with `vendor_version 0.0.180`, and
   `scripts/vendor-version.txt:1` reads `0.0.180`. That manifest's
@@ -943,12 +946,14 @@ against the recorded pin. What changed between the pin and the tip:
 ### 14.7 Delta `8ed5d3e5e` → `d77544748` (9 commits further past the wiregen pin)
 
 Nine commits, four files, **no CLI surface and no wire shape change** — this is
-the batch that landed after the previous revision's audit pin, and it is why
-every §8/§9/§10 citation above still resolves unchanged:
+the batch that landed after the previous revision's audit pin, so the content of
+every §8/§9/§10 citation above is unchanged (line numbers inside
+`common/src/constants/freebuff-models.ts` past `:256` shift by +16; see the note
+at the top of this document):
 
 | File | Change | Class |
 |---|---|---|
-| `common/src/constants/freebuff-models.ts` | +16 lines, comment only: the GLM 5.3 Flash price-ceiling rationale (the `FREEBUFF_GLM_V53_FLASH_MAX_PRICE` values themselves are untouched at `$0.14` in / `$0.45` out per M) | **C** (comment) |
+| `common/src/constants/freebuff-models.ts` | +16 comment lines inserted at `:257` (the GLM 5.3 Flash price-ceiling rationale; the `FREEBUFF_GLM_V53_FLASH_MAX_PRICE` values are untouched at `$0.14` in / `$0.45` out per M). Every later cite into this file moves +16 at the tip (`:2054` → `:2070`) | **C** (comment; line shift) |
 | `sdk/src/impl/model-provider.ts` | `includeUsage: undefined` → `true` in the BYOK/custom-provider branch of `getModelForRequest` (`:288-291`), so SDK-served streams ask the provider for usage | **B** (SDK only) |
 | `sdk/src/impl/__tests__/usage-receipts.test.ts` | +87, new test for the above | **T** |
 | `bun.lock` | lockfile churn | **C** |
