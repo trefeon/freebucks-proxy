@@ -35,6 +35,10 @@ type bridgeEntry struct {
 	// ledger is the entry's usage + spend state (issue #263); guarded by
 	// Pool.bridgeMu like lastUsed.
 	ledger *AccountLedger
+	// seat counts this entry's turns between their session admission and
+	// their lease release (seat.go), the same account-seat gate the pooled
+	// entries use.
+	seat seatCounter
 	// nextPollAt / pollFailures carry the session-liveness poll schedule;
 	// touched only by the maintain goroutine (bridgeSessionPollTick).
 	nextPollAt   time.Time
@@ -138,6 +142,19 @@ func (p *Pool) AcquireBridge(ctx context.Context, clientToken, model string) (*L
 			return nil, fmt.Errorf("bridge: token cooling down until %s", until.Format(time.RFC3339))
 		}
 	}
+
+	// Seat accounting (seat.go), mirroring the pooled admitOnLane: this
+	// bridge turn counts from before its session admission until its lease
+	// is released, so the session's pre-emptive re-admit cannot rotate the
+	// seat out from under a completion that is about to ride it. Every
+	// error return below drops the count through the deferred release.
+	entry.seat.acquire()
+	seatLeased := false
+	defer func() {
+		if !seatLeased {
+			entry.seat.release()
+		}
+	}()
 
 	// MASQ slot-ledger lane (slot_ledger.go, SLOTS_PER_ACCOUNT): the
 	// bridge entry gets the same hard wall as a pooled token - one
@@ -415,6 +432,7 @@ sessionReady:
 	p.idleFinished = false
 	p.lastActiveMu.Unlock()
 	slotLeased = true // the lease owns the slot now; the defer must not release it
+	seatLeased = true // the lease owns the seat count too (LeaseRelease/LeaseAbandon releases it)
 	return &Lease{
 		Token: -1, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: ss.InstanceID,
 		Bridge: entry, routeSlot: routeSlot, QueueWait: queueWait, AcquiredAt: time.Now(),

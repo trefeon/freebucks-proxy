@@ -21,11 +21,29 @@ import (
 
 // SetReAdmitLead configures the pre-emptive re-admit lead (issue #99): when
 // the cached active session has less than d left, EnsureSessionForModel
-// triggers an async re-admit and rides the old session. d <= 0 disables.
-// Wired by the pool from SESSION_RE_ADMIT_LEAD; safe to call at runtime.
+// starts an async re-admit — provided the seat is idle (SetReAdmitGate) — and
+// the triggering request is served by the re-admitted instance. d <= 0
+// disables. Wired by the pool from SESSION_RE_ADMIT_LEAD; safe to call at
+// runtime.
 func (m *Manager) SetReAdmitLead(d time.Duration) {
 	m.mu.Lock()
 	m.reAdmitLead = d
+	m.mu.Unlock()
+}
+
+// SetReAdmitGate installs the in-flight gate for the pre-emptive re-admit:
+// fn reports whether a rotation may start right now. The pool wires it to the
+// account's seat counter (pool/seat.go), so a re-admit never rotates the
+// account's single upstream seat out from under a turn that is still
+// dispatching — upstream rewrites active_instance_id on every admission and
+// refuses the disowned instance's next completion with 409
+// session_superseded. A closed gate defers the trigger to the next request
+// that finds the seat idle; the session keeps serving through its grace drain
+// meanwhile. Nil clears the gate (rotation always allowed). Called with mu
+// held: fn must be fast and must not block or take a lock.
+func (m *Manager) SetReAdmitGate(fn func() bool) {
+	m.mu.Lock()
+	m.reAdmitGate = fn
 	m.mu.Unlock()
 }
 
@@ -238,12 +256,11 @@ func queueElapsedHuman(start time.Time) string {
 	return d.String()
 }
 
-// asyncReAdmit runs a pre-emptive refresh in the background (issue #99): the
-// triggering request rides the old session while the new admission proceeds;
-// concurrent requests park on the single-flight refreshCh and get the new
-// instance once it lands (or ride the old session when the refresh fails and
-// it is still usable). Bounded by asyncReAdmitTimeout so a hung upstream
-// never leaks a goroutine.
+// asyncReAdmit runs a pre-emptive refresh in the background (issue #99):
+// concurrent requests park on the single-flight refreshCh — including the
+// request that triggered it, which is served by the new instance — and ride
+// the old session when the refresh fails or queues while it is still usable.
+// Bounded by asyncReAdmitTimeout so a hung upstream never leaks a goroutine.
 func (m *Manager) asyncReAdmit(model string) {
 	ctx, cancel := context.WithTimeout(context.Background(), asyncReAdmitTimeout)
 	defer cancel()

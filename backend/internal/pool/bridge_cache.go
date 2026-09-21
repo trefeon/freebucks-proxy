@@ -139,6 +139,7 @@ func (p *Pool) bridgeEntryFor(clientToken string) (*bridgeEntry, error) {
 	cfg := p.cfg.Load()
 	entry.session = session.NewManagerWithStore(client, p.store)
 	entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
+	entry.session.SetReAdmitGate(entry.seat.idle)
 	entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 	entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 	entry.runs = runs.NewRunManagerOpts(client, entry.session, runOptions(cfg))

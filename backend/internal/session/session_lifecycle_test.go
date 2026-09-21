@@ -720,7 +720,9 @@ func TestReAdmitStormTracksPreemptiveTriggers(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Second call: cached active with ~5s left (10s expiry, 60s lead) —
-	// triggers the pre-emptive re-admit and rides the old session.
+	// trips the pre-emptive re-admit; this request waits for and is served by
+	// the instance the re-admit lands, so what the assertion below pins is
+	// the trigger, not an instance swap (the mock serves one instance id).
 	if _, err := m.EnsureSession(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -744,10 +746,9 @@ func TestReAdmitStormTracksPreemptiveTriggers(t *testing.T) {
 }
 
 // TestPreemptiveReAdmitOncePerExpiry pins issue #132: a pre-emptive re-admit
-// fires at most ONCE per expiry window. Every request in the lead window
-// must ride the old session instead of re-triggering a fresh upstream
-// create — the observed 22-trigger / 30-create storm around a single
-// expiry.
+// fires at most ONCE per expiry window. The trigger plus five further
+// requests inside the window produce exactly one upstream create — the
+// observed 22-trigger / 30-create storm around a single expiry.
 func TestPreemptiveReAdmitOncePerExpiry(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -770,7 +771,7 @@ func TestPreemptiveReAdmitOncePerExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if instance != "inst-abc-123" {
-		t.Fatalf("triggered request instance = %q, want the old session being ridden", instance)
+		t.Fatalf("triggered request instance = %q, want the instance the mock serves", instance)
 	}
 	// Let the async create land.
 	deadline := time.Now().Add(3 * time.Second)
