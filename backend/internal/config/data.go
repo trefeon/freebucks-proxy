@@ -70,6 +70,12 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 	case "LOG_FILE":
 		return c.LogFile, false
 	case "LOG_LEVEL":
+		// Unset renders the effective default (debug): the boot logger
+		// falls back to debug, so Effective agrees with the running
+		// process instead of showing a blank row.
+		if c.LogLevel == "" {
+			return "debug", false
+		}
 		return c.LogLevel, false
 	case "LOG_FORMAT":
 		return c.LogFormat, false

@@ -515,14 +515,14 @@ test.describe("keys, usage and logs (mock backend)", () => {
     ).toBeVisible();
     const level = page.locator('select[aria-label="LOG_LEVEL"]');
     await expect(level).toBeVisible();
-    await level.selectOption("debug");
+    await level.selectOption("warn");
     await page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10_000 },
     );
     await expect
       .poll(() =>
-        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "debug"),
+        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "warn"),
       )
       .toBe(true);
     await expect(

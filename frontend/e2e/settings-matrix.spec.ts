@@ -280,7 +280,7 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await expect(
       page.getByText("the reader never consults the overlay").first(),
     ).toBeVisible();
-    await editor(page, "LOG_LEVEL").selectOption("debug");
+    await editor(page, "LOG_LEVEL").selectOption("warn");
     await toggleKey(page, "DEBUG_DUMP");
     await toggleKey(page, "DEVTOOLS_ENABLED");
     await toggleKey(page, "LOG_ACCESS");
@@ -289,7 +289,7 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await toggleKey(page, "DASHBOARD_REQUIRE_LOGIN");
 
     await expectPosted(posted, "SAFE_MODE", "false");
-    await expectPosted(posted, "LOG_LEVEL", "debug");
+    await expectPosted(posted, "LOG_LEVEL", "warn");
     await expectPosted(posted, "DEBUG_DUMP", "true");
     await expectPosted(posted, "DEVTOOLS_ENABLED", "true");
     await expectPosted(posted, "LOG_ACCESS", "false");

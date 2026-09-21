@@ -43,7 +43,7 @@
   } = $props();
 
   let env = $derived(parseEnv(rawText));
-  let logLevel = $derived(formValues.LOG_LEVEL || "info");
+  let logLevel = $derived(formValues.LOG_LEVEL || "debug");
 
   // Key search: row copy lives in consts so rendering + matching share one
   // source (case-insensitive key + label/description substring).
@@ -130,10 +130,10 @@
             onchange={(e) => onField("LOG_LEVEL", e.currentTarget.value)}
           >
             <option value="info" class="bg-[#141a25] text-[#e9edf3]"
-              >info (recommended)</option
+              >info</option
             >
             <option value="debug" class="bg-[#141a25] text-[#e9edf3]"
-              >debug</option
+              >debug (recommended)</option
             >
             <option value="warn" class="bg-[#141a25] text-[#e9edf3]"
               >warn</option

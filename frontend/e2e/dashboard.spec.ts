@@ -1305,14 +1305,14 @@ test.describe("dashboard hermetic mocks", () => {
     // LOG_LEVEL's only functional control is here now: the select instant-
     // saves to the overlay and the row keeps its restart-only honesty.
     const level = page.locator('select[aria-label="LOG_LEVEL"]');
-    await level.selectOption("debug");
+    await level.selectOption("warn");
     await page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10000 },
     );
     await expect
       .poll(() =>
-        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "debug"),
+        posted.some((p) => p.key === "LOG_LEVEL" && p.value === "warn"),
       )
       .toBe(true);
     await expect(

@@ -99,7 +99,7 @@ test.describe("instant-save dashboard", () => {
     const logLevel = page.getByRole("combobox", { name: "LOG_LEVEL" });
     await expect(logLevel).toBeVisible();
     const logLevelPost = waitSettingsPost(page);
-    await logLevel.selectOption("debug");
+    await logLevel.selectOption("warn");
     await logLevelPost;
     await expect.poll(() => postedKeys(posted)).toContain("LOG_LEVEL");
     await expect(
