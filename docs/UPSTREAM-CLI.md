@@ -673,6 +673,16 @@ Resolution order: restricted set → budget set → `freebucks_plan` → capacit
 
 **Signup block** (`common/src/constants/freebuff-signup-block.ts`) is web-login copy, not CLI: 9 reasons, also the `?error=` code — `captcha_missing`, `captcha_invalid`, `recaptcha_missing`, `recaptcha_invalid`, `mailbox_already_registered`, `privacy_egress`, `untrusted_client_ip`, `ip_signup_velocity`, `prefix_signup_velocity` (`:11-26`). Guard `isSignupBlockReason` (`:64-68`).
 
+The copy is the operationally important half, because it is the only public statement of what the gates key on — **creating an account is gated on egress and on per-network velocity** (`SIGNUP_BLOCK_MESSAGES`, `:35-58`; pinned copy in-repo: `backend/internal/wirefacts/testdata/wire/common/src/constants/freebuff-signup-block.ts`):
+
+| Reason | Copy (verbatim) |
+|---|---|
+| `privacy_egress` | `Accounts cannot be created over a VPN, proxy, or hosting provider. Please turn it off and try again — you can turn it back on afterwards.` |
+| `ip_signup_velocity` | `Too many accounts have been created from this network today. Please try again tomorrow, or contact support if you are on a shared connection.` |
+| `prefix_signup_velocity` | the same copy — the signal is accounts sharing an email prefix, not the IP alone |
+
+The decision logic lives in `@codebuff/auth/signup-gate`, which is **not** in the public snapshot, so no threshold is public: the wording is all that ships, and it describes a daily window. Note the asymmetry with §10's `ip_capped` — "hosting provider" is named as a refusal cause for *creation*, while an existing session from that same egress is only admission-capped. Email-domain weight is separate and public (vendor clone only — this file is not mirrored in-repo): `common/src/util/disposable-email.ts` classifies `disposable` (the header comment calls a *referred* account on one of those providers a strong farm signal), `privacy_relay` (carries weight only as corroboration — "must never gate a reward or trigger action on its own") and `mainstream_privacy` (classified so callers can see it; deliberately not priced), matched by exact domain or any subdomain.
+
 **Standing / Access Level** (`common/src/constants/freebuff-standing.ts`) — presentational half only: `FREEBUFF_TRUST_LEVELS = ['new','verified','established','core']` (index-ordered), `FREEBUFF_TRUST_MIN_LEVEL='new'`, `FREEBUFF_TRUST_FALLBACK_LEVEL='established'` (a resolver failure must NOT drop everyone to `new`), labels `Getting started | Verified | Established | Core member`; the wire `FreebuffStandingInfo` rides **only** the pre-join `status:'none'` response (`:20-26,33-46,61-76,100-123`).
 
 ### Session quotas
