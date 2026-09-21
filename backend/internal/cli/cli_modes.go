@@ -125,16 +125,16 @@ func ModeFlagsExclusiveWarning(flags ...bool) string {
 }
 
 // resolveLogLevel applies the effective log-level precedence: a set
-// LOG_LEVEL config wins, -v → debug, a dev build (version "dev", i.e. no
-// ldflags version stamp) defaults to debug so anomalies are analyzable
-// without flags, else info. An unparseable LOG_LEVEL silently falls back
-// to info (ParseLevel returns level 0, which is Info).
+// LOG_LEVEL config wins, -v → debug, an unset/empty/unparseable LOG_LEVEL
+// with -v off defaults to debug on every build (dev and release alike) so
+// GitHub error reports carry context out of the box. An unparseable
+// LOG_LEVEL silently falls back to debug (never info).
 func resolveLogLevel(cfgLogLevel string, verbose bool, version string) slog.Level {
 	if cfgLogLevel != "" {
 		if lv, ok := telemetry.ParseLevel(cfgLogLevel); ok {
 			return lv
 		}
-		return slog.LevelInfo
+		return slog.LevelDebug
 	}
 	if verbose {
 		return slog.LevelDebug
@@ -142,7 +142,7 @@ func resolveLogLevel(cfgLogLevel string, verbose bool, version string) slog.Leve
 	if version == "dev" {
 		return slog.LevelDebug
 	}
-	return slog.LevelInfo
+	return slog.LevelDebug
 }
 
 // logLevelDisplay renders the configured level for the startup summary.

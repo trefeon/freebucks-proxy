@@ -139,11 +139,11 @@
       "error",
       "trace"
     ],
-    "default": "info",
+    "default": "debug",
     "restart_only": true,
     "secret": false,
     "essential": true,
-    "description": "Log level (trace = wire-level bodies). Restart-only: the logger is configured once at boot and a reload never reconfigures it."
+    "description": "Log level. Release builds default to debug so GitHub error reports carry context out of the box; trace adds wire bodies. Restart-only: the logger is configured once at boot and a reload never reconfigures it."
   },
   {
     "key": "SAFE_MODE",

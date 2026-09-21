@@ -1,13 +1,15 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
+# BuildKit cache mounts keep rebuilds fast and the build layer small:
+# the module cache survives across builds (no re-download), and the
+# go-build cache speeds recompiles without bloating the final image.
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY . .
 # VERSION is injected from the build host (docker-compose passes
 # `git describe --tags`); the .git dir is excluded from the build context
 # so it cannot be derived here. Matches GoReleaser's -X main.version.
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/freebucks-proxy ./backend/cmd/freebucks-proxy
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/freebucks-proxy ./backend/cmd/freebucks-proxy
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata \

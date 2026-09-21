@@ -37,6 +37,13 @@ services:
       - LISTEN_ADDR=:3457
       - ADMIN_FORCE_SECURE_COOKIES=${ADMIN_FORCE_SECURE_COOKIES:-false}
       - ADMIN_INSECURE_HTTP=${ADMIN_INSECURE_HTTP:-}
+      # GOMEMLIMIT sits under the 256M container cap so the Go GC pressures
+      # before the OOM killer fires (live RSS measured ~25MiB, huge headroom).
+      - GOMEMLIMIT=192MiB
+      # GOMAXPROCS pairs with the deploy cpus '0.50' cap: pinned explicitly
+      # (no automaxprocs in-repo) so scheduling stays predictable on any
+      # host; the I/O-bound SSE fan-out needs just 1 compute thread.
+      - GOMAXPROCS=1
     # The process cwd IS the mount, so every cwd-relative path the dashboard
     # and config loader touch persists on the host: ./.env (device-login and
     # add/remove-token writes), ./.freebuff-session-state.json (SESSION_PERSIST),
@@ -106,6 +113,22 @@ services:
       retries: 3
       # Slow first start (registry refresh at boot) must not mark unhealthy.
       start_period: 10s
+    # Small default footprint: live RSS measured ~25MiB, so a 256M cap with
+    # a 64M/0.10 reservation leaves huge headroom while bounding the host.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+    # Bound `docker logs` disk usage: 5 rotated files of 10M each.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
 
   # Turnkey automatic HTTPS reverse proxy via Caddy.
   # Run with: docker compose --profile https up -d

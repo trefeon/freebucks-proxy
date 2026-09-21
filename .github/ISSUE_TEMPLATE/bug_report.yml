@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem with logs attached
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version / distribution
+      placeholder: e.g. ghcr.io/trefeon/freebucks-proxy:1.14.1 or binary version
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: Deploy method
+      options:
+        - compose pull (VERSION= tag)
+        - compose local build
+        - binary
+    validations:
+      required: true
+  - type: input
+    id: loglevel
+    attributes:
+      label: LOG_LEVEL / LOG_FORMAT in effect
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom and first-seen time (UTC)
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal repro steps
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Log bundle
+      description: Run ADMIN_TOKEN=<token> scripts/collect-debug.sh --since <window> and attach docker.log tail + logs-rollup.json + healthz.json + version. Bundle dir is mode 0600. Before uploading, scrub the bundle with `gitleaks detect --source <bundle> --redact` and eyeball the tail for raw tokens.
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction checklist
+      description: The proxy redacts secrets in logs — verify before pasting.
+      options:
+        - label: No AUTH_TOKENS, API keys, or raw tokens included
+          required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment (OS, RAM/CPU, docker version)

@@ -9,7 +9,7 @@ import (
 )
 
 // TestSettingsOverlayPrecedence pins ADR-0019 precedence on one live knob
-// (LOG_LEVEL, default "info"): file < db overlay < process env.
+// (LOG_LEVEL, default "debug"): file < db overlay < process env.
 func TestSettingsOverlayPrecedence(t *testing.T) {
 	clearEnv(t)
 	t.Chdir(t.TempDir())

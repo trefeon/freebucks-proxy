@@ -135,8 +135,8 @@ var keyCatalog = []KeyDef{
 	},
 	{
 		Key: "LOG_LEVEL", Group: GroupGeneral, Kind: "select", Enum: []string{"debug", "info", "warn", "error", "trace"}, Essential: true, RestartOnly: true,
-		Default:     "info",
-		Description: `Log level (trace = wire-level bodies). Restart-only: the logger is configured once at boot and a reload never reconfigures it.`,
+		Default:     "debug",
+		Description: `Log level. Release builds default to debug so GitHub error reports carry context out of the box; trace adds wire bodies. Restart-only: the logger is configured once at boot and a reload never reconfigures it.`,
 	},
 	{
 		Key: "SAFE_MODE", Group: GroupGeneral, Kind: "bool", Essential: true,

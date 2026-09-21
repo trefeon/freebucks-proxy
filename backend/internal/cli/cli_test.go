@@ -105,9 +105,9 @@ func TestModeFlagsExclusiveWarning(t *testing.T) {
 }
 
 // TestResolveLogLevel pins the effective log-level precedence: LOG_LEVEL
-// config wins when set and parseable (even over -v), -v → debug, a dev
-// build (version "dev") defaults to debug when unset, else info, and an
-// unparseable LOG_LEVEL silently falls back to info.
+// config wins when set and parseable (even over -v), -v → debug, an unset
+// LOG_LEVEL defaults to debug on every build (dev and release alike), and an
+// unparseable LOG_LEVEL silently falls back to debug.
 func TestResolveLogLevel(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -116,7 +116,7 @@ func TestResolveLogLevel(t *testing.T) {
 		version  string
 		want     slog.Level
 	}{
-		{"empty not verbose release", "", false, "1.2.3", slog.LevelInfo},
+		{"empty not verbose release", "", false, "1.2.3", slog.LevelDebug},
 		{"empty verbose release", "", true, "1.2.3", slog.LevelDebug},
 		{"empty not verbose dev", "", false, "dev", slog.LevelDebug},
 		{"verbose dev", "", true, "dev", slog.LevelDebug},
@@ -126,7 +126,7 @@ func TestResolveLogLevel(t *testing.T) {
 		{"config case-insensitive", "DEBUG", false, "1.2.3", slog.LevelDebug},
 		{"trace level", "trace", false, "1.2.3", telemetry.LevelTrace},
 		{"trace case-insensitive", "TRACE", true, "dev", telemetry.LevelTrace},
-		{"unparseable falls back to info", "bogus", true, "dev", slog.LevelInfo},
+		{"unparseable falls back to debug", "bogus", true, "dev", slog.LevelDebug},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

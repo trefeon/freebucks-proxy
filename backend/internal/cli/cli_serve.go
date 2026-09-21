@@ -75,8 +75,8 @@ func Serve(configPath string, verbose bool, version string) int {
 		return 1
 	}
 
-	// Effective log level: LOG_LEVEL config wins, else -v → debug, else a
-	// dev build (no ldflags version stamp) defaults to debug, else info.
+	// Effective log level: LOG_LEVEL config wins, else -v → debug, else debug
+	// (release builds default to debug so error reports carry context).
 	level := resolveLogLevel(cfg.LogLevel, verbose, version)
 	logger := telemetry.New(level, cfg.LogFile, cfg.LogFormat)
 	// The dashboard log viewer reads from an in-memory ring that mirrors
