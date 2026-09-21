@@ -297,9 +297,12 @@ func NewToolMapper(body []byte) ToolMapper {
 		upstreamName := resolveUpstreamTool(name, t.Function.Parameters)
 		if upstreamName != "" && upstreamName != name {
 			m.clientToUpstream[name] = upstreamName
-			// First occurrence wins the reverse slot: later client tools
-			// resolving to the same wire name virtualize in ToUpstream, so
-			// the reverse map must keep the first winner, not the last.
+			// Provisional reverse slot so a mapper used WITHOUT ToUpstream
+			// still restores. Ownership is finalized by ToUpstream's ordered
+			// pass, which knows which client tool actually claimed the shared
+			// wire name: here only the array order is visible, and a client
+			// tool whose own name IS the wire name may appear after a mapped
+			// one (see TestToolMapperWireNameOwnerRoundTrips).
 			if _, taken := m.upstreamToClient[upstreamName]; !taken {
 				m.upstreamToClient[upstreamName] = name
 			}
@@ -321,6 +324,12 @@ func NewToolMapper(body []byte) ToolMapper {
 // virtualize to mcp__<original> — restore already handles the namespace.
 // Strict upstreams (DeepSeek, Muse Spark, MiMo) reject duplicate tool names
 // outright ("Tool names must be unique"), so dedupe is unconditional.
+//
+// This pass is also what decides OWNERSHIP of every wire name: the client tool
+// that keeps (or claims) a wire name is the one that name restores to, and a
+// virtualized tool owns the mcp__<name> it was given. Name uniqueness depends
+// on array order, so only this ordered pass can answer that question — a
+// reverse map built up front (NewToolMapper) is a provisional guess.
 func (m ToolMapper) ToUpstream(payload map[string]any) {
 	tools, ok := payload["tools"].([]any)
 	if !ok {
@@ -344,9 +353,6 @@ func (m ToolMapper) ToUpstream(payload map[string]any) {
 		if !hit {
 			params, _ := fn["parameters"].(map[string]any)
 			upstreamName = resolveUpstreamTool(name, params)
-			if m.upstreamToClient != nil && upstreamName != "" && upstreamName != name {
-				m.upstreamToClient[upstreamName] = name
-			}
 		}
 		if upstreamName != "" && upstreamName != name {
 			fn["name"] = upstreamName
@@ -373,6 +379,19 @@ func (m ToolMapper) ToUpstream(payload map[string]any) {
 			}
 			fn["name"] = virt
 			finalName = virt
+		} else if name == finalName {
+			// The client's own name IS the wire name (nothing was renamed),
+			// so THIS tool owns the slot: NewToolMapper pre-registers reverse
+			// slots in array order but cannot know which client tool claims a
+			// shared wire name, so a mapped tool's entry here would hand this
+			// tool's calls to the wrong client tool (Roo-Code offers both
+			// write_file and write_to_file->write_file).
+			delete(m.upstreamToClient, finalName)
+		} else {
+			// First claimer of a renamed wire name owns the reverse slot.
+			if m.upstreamToClient != nil {
+				m.upstreamToClient[finalName] = name
+			}
 		}
 		used[finalName] = true
 	}
