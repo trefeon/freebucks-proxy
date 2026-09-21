@@ -63,7 +63,7 @@
   --fp-duration: 150ms;
   --fp-duration-lg: 250ms;
 
-  /* Focus ring — the only shadow in active use (see --shadow-soft below) */
+  /* Focus ring — the only shadow allowed */
   --fp-ring: 0 0 0 2px var(--fp-bg), 0 0 0 4px var(--fp-accent);
 
   /* Soft card shadow */
