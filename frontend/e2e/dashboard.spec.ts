@@ -653,14 +653,14 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByText("ADMIN_TOKEN", { exact: true })).toHaveCount(0);
     await expect(slots).toBeVisible();
     // Editing instant-saves the key to the overlay (debounced ~400ms).
-    await slots.fill("3");
+    await slots.fill("4");
     await page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10000 },
     );
     await expect
       .poll(() =>
-        posted.some((p) => p.key === "SLOTS_PER_ACCOUNT" && p.value === "3"),
+        posted.some((p) => p.key === "SLOTS_PER_ACCOUNT" && p.value === "4"),
       )
       .toBe(true);
     await expect(
@@ -986,7 +986,7 @@ test.describe("dashboard hermetic mocks", () => {
         contentType: "application/json",
         body: JSON.stringify({
           settings: [
-            { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
+            { key: "SLOTS_PER_ACCOUNT", value: "3", source: "db" },
             { key: "QUEUE_WAIT", value: "1m0s", source: "db" },
             { key: "QUEUE_DEPTH", value: "16", source: "db" },
             { key: "MAX_SPILL_ACCOUNTS", value: "0", source: "db" },
@@ -1129,13 +1129,13 @@ test.describe("dashboard hermetic mocks", () => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
     // Prod shape: the queue posture is Balance (QUEUE_WAIT=60s /
-    // QUEUE_DEPTH=16, SLOTS_PER_ACCOUNT=2, MAX_SPILL_ACCOUNTS=0).
+    // QUEUE_DEPTH=16, MAX_SPILL_ACCOUNTS=0) at the shipped slot cap.
     const posted: PostedSetting[] = [];
     await mockSettingsOverlay(page, posted, {
       seed: [
         { key: "QUEUE_WAIT", value: "60s", source: "db" },
         { key: "QUEUE_DEPTH", value: "16", source: "db" },
-        { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
+        { key: "SLOTS_PER_ACCOUNT", value: "3", source: "db" },
         { key: "MAX_SPILL_ACCOUNTS", value: "0", source: "db" },
       ],
     });
@@ -1193,7 +1193,7 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
     await page.getByRole("button", { name: "Controls" }).click();
-    // SLOTS_PER_ACCOUNT ships at 2 (the approved anti-ban pacing) and
+    // SLOTS_PER_ACCOUNT ships at 3 and
     // the tokens snapshot reports the pooled account count.
     const snapshot = f.tokens;
     const accounts = Number(
@@ -1203,7 +1203,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     expect(accounts).toBeGreaterThan(0);
     await expect(page.getByTestId("pool-ceiling")).toContainText(
-      `2 per account × ${accounts} accounts = ${2 * accounts} concurrent turns`,
+      `3 per account × ${accounts} accounts = ${3 * accounts} concurrent turns`,
     );
   });
 

@@ -83,13 +83,13 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10_000 },
     );
-    await slots.fill("3");
+    await slots.fill("4");
     await saveReq;
 
     // DB-first proof: the exact overlay payload the gateway would persist.
     await expect
       .poll(() => posted.find((p) => p.key === "SLOTS_PER_ACCOUNT")?.value)
-      .toBe("3");
+      .toBe("4");
     // Per-row saves stay inline by design (HEAD #563 only moved reset
     // outcomes to the global toaster): the row reports
     // saved-and-live and no toast appears.
@@ -116,7 +116,7 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Controls" }).click();
     const slots = page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]');
-    await slots.fill("3");
+    await slots.fill("4");
 
     await expect
       .poll(() => posted.filter((p) => p.key === "SLOTS_PER_ACCOUNT").length)

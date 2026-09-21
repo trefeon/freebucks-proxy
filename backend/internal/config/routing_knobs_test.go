@@ -49,8 +49,8 @@ func TestRoutingKnobDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.SlotsPerAccount != 2 {
-		t.Errorf("SlotsPerAccount = %d, want 2", cfg.SlotsPerAccount)
+	if cfg.SlotsPerAccount != 3 {
+		t.Errorf("SlotsPerAccount = %d, want 3", cfg.SlotsPerAccount)
 	}
 	if cfg.QueueWait != 30*time.Second {
 		t.Errorf("QueueWait = %v, want 30s", cfg.QueueWait)

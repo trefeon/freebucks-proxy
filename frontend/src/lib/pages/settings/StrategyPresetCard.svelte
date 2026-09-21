@@ -64,7 +64,7 @@
 
   const MASQ_LABEL = "MASQ";
   const MASQ_DESC =
-    "Ordered Sticky Slot-Packing: 2 slots per account with 60s deferred scale-out and sticky session retention. Maximizes account session reuse.";
+    "Ordered Sticky Slot-Packing: 3 slots per account with 60s deferred scale-out and sticky session retention. Maximizes account session reuse.";
   const DRAIN_LABEL = "Drain";
   const DRAIN_DESC =
     "Deep queues: each account serves up to 5 minutes / 1024 parked waiters before the request spills to the next account. Safest for a few accounts.";
@@ -81,7 +81,7 @@
 
   const SLOTS_LABEL = "Slots per Account";
   const SLOTS_DESC =
-    "Cap on concurrent live turns per account-model lane (default 2, the approved anti-ban pacing). Excess waiters park FIFO until Queue Wait elapses.";
+    "Cap on concurrent live turns per account-model lane (default 3; 2 is the conservative posture and 1 the strictest). Excess waiters park FIFO until Queue Wait elapses.";
   const SLOTS_HINT = "0 = unlimited (no slot gating at all)";
   const SPILL_LABEL = "Max Spill Accounts";
   const SPILL_DESC =
@@ -96,7 +96,7 @@
   const QDEPTH_HINT = "0 = no queueing (spill at once)";
 
   let env = $derived(parseEnv(rawText));
-  let slotsPerAccount = $derived(formValues.SLOTS_PER_ACCOUNT ?? "2");
+  let slotsPerAccount = $derived(formValues.SLOTS_PER_ACCOUNT ?? "3");
   let maxSpillAccounts = $derived(formValues.MAX_SPILL_ACCOUNTS ?? "0");
   let queueWait = $derived(formValues.QUEUE_WAIT ?? "30s");
   let queueDepth = $derived(formValues.QUEUE_DEPTH ?? "16");
@@ -391,10 +391,10 @@
               min={0}
               step={1}
               ariaLabel="SLOTS_PER_ACCOUNT"
-              placeholder="2"
+              placeholder="3"
               oninput={(v) => {
                 const val = v.trim();
-                onField("SLOTS_PER_ACCOUNT", val === "" ? "2" : val);
+                onField("SLOTS_PER_ACCOUNT", val === "" ? "3" : val);
               }}
             />
             <p class="text-[10px] text-[var(--fp-dim)] mt-1">

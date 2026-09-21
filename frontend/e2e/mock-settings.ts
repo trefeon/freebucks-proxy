@@ -140,7 +140,7 @@ export const KEY_HOME: Record<string, "pool" | "settings" | "usage"> = {
 // Balance posture seed (overlay wins the display, so rows show these).
 export function balanceStrategySeed(): OverlaySeed[] {
   return [
-    { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
+    { key: "SLOTS_PER_ACCOUNT", value: "3", source: "db" },
     { key: "MAX_SPILL_ACCOUNTS", value: "0", source: "db" },
     { key: "QUEUE_WAIT", value: "60s", source: "db" },
     { key: "QUEUE_DEPTH", value: "16", source: "db" },
@@ -150,14 +150,14 @@ export function balanceStrategySeed(): OverlaySeed[] {
 // Drain posture seed: deep queues before the spill.
 export function drainStrategySeed(): OverlaySeed[] {
   return [
-    { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
+    { key: "SLOTS_PER_ACCOUNT", value: "3", source: "db" },
     { key: "MAX_SPILL_ACCOUNTS", value: "0", source: "db" },
     { key: "QUEUE_WAIT", value: "300s", source: "db" },
     { key: "QUEUE_DEPTH", value: "1024", source: "db" },
   ];
 }
 
-// One saved row for every matrix key (non-default values, source db).
+// One saved row for every matrix key (source db).
 // Overlay seed rows use source:db or the display loses to file defaults.
 export function fullMatrixDbSeed(): OverlaySeed[] {
   const values: Record<string, string> = {

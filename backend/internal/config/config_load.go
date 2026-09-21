@@ -331,10 +331,12 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// SLOTS_PER_ACCOUNT defaults to 2 (the approved anti-ban pacing).
+	// SLOTS_PER_ACCOUNT defaults to 3: a ~5h live run at 3 turns per
+	// account-model lane drew no upstream flag (2026-09-22), so 3 ships and
+	// the old 2 is the conservative posture (1 = bunker, fully sequential).
 	// 0 = unlimited: no live-turn slot gating applies at all. Negative
 	// values floor to 0 instead of failing the load.
-	slotsPerAccount := 2
+	slotsPerAccount := 3
 	if raw.SlotsPerAccount != nil {
 		slotsPerAccount = *raw.SlotsPerAccount
 	}

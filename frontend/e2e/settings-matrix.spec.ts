@@ -220,7 +220,7 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     });
     await gotoControls(page, "tokens");
 
-    await fillKey(page, "SLOTS_PER_ACCOUNT", "3");
+    await fillKey(page, "SLOTS_PER_ACCOUNT", "4");
     await fillKey(page, "MAX_SPILL_ACCOUNTS", "1");
     await fillKey(page, "QUEUE_WAIT", "45s");
     await fillKey(page, "QUEUE_DEPTH", "32");
@@ -228,7 +228,7 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     // Bridge last: turning it off hides the BRIDGE_IDLE_EVICT row below.
     await toggleKey(page, "BRIDGE_ENABLED");
 
-    await expectPosted(posted, "SLOTS_PER_ACCOUNT", "3");
+    await expectPosted(posted, "SLOTS_PER_ACCOUNT", "4");
     await expectPosted(posted, "MAX_SPILL_ACCOUNTS", "1");
     await expectPosted(posted, "QUEUE_WAIT", "45s");
     await expectPosted(posted, "QUEUE_DEPTH", "32");
@@ -409,7 +409,7 @@ test.describe("settings matrix: threshold slider and overlay states", () => {
       page.getByText("overlay offline — per-key save unavailable").first(),
     ).toBeVisible();
 
-    await fillKey(page, "SLOTS_PER_ACCOUNT", "3");
+    await fillKey(page, "SLOTS_PER_ACCOUNT", "4");
     // The debounced write never fires while the store is offline.
     await expect.poll(() => posted.length).toBe(0);
     await expect(page.getByRole("status")).toHaveCount(0);

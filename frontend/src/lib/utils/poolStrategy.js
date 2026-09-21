@@ -19,7 +19,7 @@
  * threshold slider, and the e2e contract all read one source of truth.
  * Values the loader would not keep are resolved to the loader's own
  * fallbacks BEFORE classification — QUEUE_WAIT falls back to 30s,
- * QUEUE_DEPTH to 16, SLOTS_PER_ACCOUNT to 2 and MAX_SPILL_ACCOUNTS to 0
+ * QUEUE_DEPTH to 16, SLOTS_PER_ACCOUNT to 3 and MAX_SPILL_ACCOUNTS to 0
  * (backend/internal/config/config_load.go), so a stock install whose rows
  * are blank, whitespace, or unparseable still reads Balance instead of
  * Custom. Balance accepts any in-range threshold (not just the 60s preset),
@@ -35,9 +35,13 @@ export const STRATEGY_OWNED_KEYS = [
   "MAX_SPILL_ACCOUNTS",
 ];
 
+// All three presets carry the shipped slot cap (SLOTS_PER_ACCOUNT_DEFAULT
+// below): they differ in queue posture, not in concurrency. The badge and
+// pool-ceiling e2e tests pin that agreement, so a default bump that misses a
+// preset fails CI instead of reading Custom on a stock install.
 /** Exact values the MASQ preset writes (60s deferred scale-out). */
 export const STRATEGY_MASQ = {
-  SLOTS_PER_ACCOUNT: "2",
+  SLOTS_PER_ACCOUNT: "3",
   QUEUE_WAIT: "60s",
   QUEUE_DEPTH: "32",
   MAX_SPILL_ACCOUNTS: "0",
@@ -45,7 +49,7 @@ export const STRATEGY_MASQ = {
 
 /** Exact values the Drain preset writes (PIN_MODEL excluded by design). */
 export const STRATEGY_DRAIN = {
-  SLOTS_PER_ACCOUNT: "2",
+  SLOTS_PER_ACCOUNT: "3",
   QUEUE_WAIT: "300s",
   QUEUE_DEPTH: "1024",
   MAX_SPILL_ACCOUNTS: "0",
@@ -53,7 +57,7 @@ export const STRATEGY_DRAIN = {
 
 /** Exact values the Balance preset writes (fast 15s spill). */
 export const STRATEGY_BALANCE = {
-  SLOTS_PER_ACCOUNT: "2",
+  SLOTS_PER_ACCOUNT: "3",
   QUEUE_WAIT: "15s",
   QUEUE_DEPTH: "16",
   MAX_SPILL_ACCOUNTS: "0",
@@ -73,14 +77,14 @@ export const BALANCE_THRESHOLD_MAX_SECS = 300;
  * - QUEUE_WAIT is zero-tolerant: blank or non-positive → 30s.
  * - QUEUE_DEPTH defaults to 16 when absent or unparseable (0 is a real
  *   value: fail over at once, no queueing).
- * - SLOTS_PER_ACCOUNT defaults to 2 when absent or unparseable, floors
+ * - SLOTS_PER_ACCOUNT defaults to 3 when absent or unparseable, floors
  *   negative values to 0 (0 is a real value: unlimited, no slot gating).
  * - MAX_SPILL_ACCOUNTS defaults to 0 when absent or unparseable (0 is a
  *   real value: unbounded, the full index chain).
  */
 export const QUEUE_WAIT_DEFAULT_SECS = 30;
 export const QUEUE_DEPTH_DEFAULT = 16;
-export const SLOTS_PER_ACCOUNT_DEFAULT = 2;
+export const SLOTS_PER_ACCOUNT_DEFAULT = 3;
 export const MAX_SPILL_ACCOUNTS_DEFAULT = 0;
 
 /**
@@ -156,7 +160,7 @@ export function queueDepth(raw) {
 
 /**
  * SLOTS_PER_ACCOUNT as the loader would resolve it: blank or unparseable
- * values fall back to 2, negatives floor to 0 (unlimited, no slot gating).
+ * values fall back to 3, negatives floor to 0 (unlimited, no slot gating).
  */
 export function slotsPerAccount(raw) {
   const v = String(raw ?? "").trim();
@@ -181,7 +185,7 @@ export function maxSpillAccounts(raw) {
 /**
  * Detect the strategy badge from the owned values (raw form strings).
  * Missing keys and values the loader would not keep fall back to the same
- * defaults the gateway runs with: 2 slots, 30s wait, depth 16, unbounded
+ * defaults the gateway runs with: 3 slots, 30s wait, depth 16, unbounded
  * spill. PIN_MODEL never participates: pins are per-account routing owned
  * by the token drawer, not queue posture.
  *
@@ -195,7 +199,7 @@ export function detectStrategy(values = {}) {
   const waitSecs = queueWaitSecs(values.QUEUE_WAIT);
   const waitRaw = String(values.QUEUE_WAIT ?? "").trim();
   if (
-    slots === 2 &&
+    slots === SLOTS_PER_ACCOUNT_DEFAULT &&
     spill === 0 &&
     depth === 32 &&
     (waitRaw === "60s" ||
@@ -205,11 +209,16 @@ export function detectStrategy(values = {}) {
   ) {
     return "masq";
   }
-  if (slots === 2 && spill === 0 && depth === 1024 && waitSecs === 300) {
+  if (
+    slots === SLOTS_PER_ACCOUNT_DEFAULT &&
+    spill === 0 &&
+    depth === 1024 &&
+    waitSecs === 300
+  ) {
     return "drain";
   }
   if (
-    slots === 2 &&
+    slots === SLOTS_PER_ACCOUNT_DEFAULT &&
     spill === 0 &&
     depth === 16 &&
     waitSecs >= BALANCE_THRESHOLD_MIN_SECS &&

@@ -224,13 +224,14 @@ type Config struct {
 	// (REASONING_IN_CONTENT; default "" = off). See CompressPrompt.
 	ReasoningInContent string
 	// SlotsPerAccount caps concurrent live turns per pooled account-model
-	// lane (SLOTS_PER_ACCOUNT; default 2, the approved anti-ban pacing): a
-	// token leases a new turn for a model only while fewer than this many
-	// are live on that account for that model, so one account may hold 2
-	// turns of model A and 2 of model B at the same time. 0 = unlimited
-	// (no slot gating at all, for full operator control); negative values
-	// floor to 0. The strictest anti-ban posture is 1 (bunker: fully
-	// sequential turns per account-model lane).
+	// lane (SLOTS_PER_ACCOUNT; default 3): a token leases a new turn for a
+	// model only while fewer than this many are live on that account for
+	// that model, so one account may hold 3 turns of model A and 3 of
+	// model B at the same time. 2 was the default and the conservative
+	// pacing until 2026-09-22, when a ~5h live run at 3 drew no upstream
+	// flag; 1 is the strictest posture (bunker: fully sequential turns per
+	// account-model lane). 0 = unlimited (no slot gating at all, for full
+	// operator control); negative values floor to 0.
 	// Live-apply (read per Acquire).
 	SlotsPerAccount int
 	// QueueWait bounds how long one Acquire parks on a full token's FIFO

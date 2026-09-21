@@ -681,7 +681,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     // Custom, so the control seeds the preset it names.
     await mockSettingsOverlay(page, [], {
       seed: [
-        { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
+        { key: "SLOTS_PER_ACCOUNT", value: "3", source: "db" },
         { key: "QUEUE_WAIT", value: "60s", source: "db" },
         { key: "QUEUE_DEPTH", value: "16", source: "db" },
         { key: "MAX_SPILL_ACCOUNTS", value: "0", source: "db" },

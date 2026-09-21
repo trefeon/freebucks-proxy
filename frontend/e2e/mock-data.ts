@@ -219,10 +219,11 @@ export function quotaTrackerToken(
   });
 }
 
-// Strategy seed served by the settings overlay mock: Balance posture with a
-// bounded spill (1 continuation account), so the spill bound and the pool
-// ceiling render deterministically. source "db" is required: the settings
-// store only lets saved (db) rows win the row display.
+// Strategy seed served by the settings overlay mock: slot cap 2 — deliberately
+// not the shipped default, so the pool-ceiling arithmetic stays pinned
+// independently of it — with a bounded spill (1 continuation account), so the
+// spill bound and the pool ceiling render deterministically. source "db" is
+// required: the settings store only lets saved (db) rows win the row display.
 export const MASQ_STRATEGY_SEED: OverlaySeed[] = [
   { key: "SLOTS_PER_ACCOUNT", value: "2", source: "db" },
   { key: "QUEUE_WAIT", value: "30s", source: "db" },

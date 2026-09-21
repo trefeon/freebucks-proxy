@@ -93,7 +93,7 @@ type rawConfig struct {
 	// the smart prober (SMART_PROBE_BACKOFF_MAX; default "30m",
 	// zero-tolerant → 30m).
 	SmartProbeBackoffMax string `json:"SMART_PROBE_BACKOFF_MAX"`
-	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 2, floor
+	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 3, floor
 	// 0; 0 = unlimited live turns, no slot gating applies).
 	SlotsPerAccount *int `json:"SLOTS_PER_ACCOUNT"`
 	// QueueWait records QUEUE_WAIT (default "30s"): the FIFO slot-queue
@@ -163,7 +163,7 @@ func defaultRawConfig() rawConfig {
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
 		SmartProbeEnabled:      true,       // smart zero-cost quota prober on by default; set SMART_PROBE_ENABLED=false to disable
 		SmartProbeBackoffMax:   "30m",      // 429-backoff doubling ceiling
-		SlotsPerAccount:        ptrInt(2),  // per account-model live turns (floor 1; bunker strictness is 1)
+		SlotsPerAccount:        ptrInt(3),  // per account-model live turns (floor 1; bunker strictness is 1)
 		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
 		MaturityEnabled:        true,       // streak maintenance on by default; set MATURITY_ENABLED=false to disable
 		MaturityTouchModel:     "",         // "" = auto: cheapest unmetered catalog row

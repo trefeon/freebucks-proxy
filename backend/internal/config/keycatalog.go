@@ -272,8 +272,8 @@ var keyCatalog = []KeyDef{
 	},
 	{
 		Key: "SLOTS_PER_ACCOUNT", Group: GroupPool, Kind: "int",
-		Default:     "2",
-		Description: `Cap on concurrent live turns per account-model lane (default 2, the approved anti-ban pacing; 0 = unlimited, no slot gating at all). A lease is granted only while the account holds fewer live turns for that model; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload. BUNKER PRESET: 1 — fully sequential turns per account-model lane, zero parallel fingerprint.`,
+		Default:     "3",
+		Description: `Cap on concurrent live turns per account-model lane (default 3; 2 is the conservative posture and 1 the strictest — fully sequential turns per lane, zero parallel fingerprint; 0 = unlimited, no slot gating at all). A lease is granted only while the account holds fewer live turns for that model; excess waiters park FIFO until QUEUE_WAIT elapses. Applies live on reload.`,
 	},
 	{
 		Key: "SMART_PROBE_BACKOFF_MAX", Group: GroupPool, Kind: "text",

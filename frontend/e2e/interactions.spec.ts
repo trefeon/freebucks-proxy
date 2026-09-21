@@ -514,7 +514,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await page.getByRole("button", { name: "Controls" }).click();
     const drain = page.getByRole("radio", { name: "Drain" });
     const balance = page.getByRole("radio", { name: "Balance" });
-    // Catalog defaults (2 slots, 30s wait, depth 16, unbounded spill)
+    // Catalog defaults (3 slots, 30s wait, depth 16, unbounded spill)
     // classify as Balance.
     await expect(balance).toHaveAttribute("aria-checked", "true");
 
@@ -540,11 +540,11 @@ test.describe("operator interactions (hermetic mocks)", () => {
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10000 },
     );
-    await slots.fill("3");
+    await slots.fill("4");
     await slotsReq;
     await expect
       .poll(() => posted.find((p) => p.key === "SLOTS_PER_ACCOUNT")?.value)
-      .toBe("3");
+      .toBe("4");
 
     // The deleted rotation/failover keys are never written by this card.
     expect(posted.find((p) => p.key === "TOKEN_ROTATION")).toBeUndefined();
