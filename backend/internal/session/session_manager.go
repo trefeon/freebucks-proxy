@@ -57,8 +57,9 @@ type Manager struct {
 	// reAdmitLead (issue #99, SESSION_RE_ADMIT_LEAD default 60s): when the
 	// cached active session has less than this much time left, EnsureSession
 	// triggers a pre-emptive async re-admit (single-flight through the
-	// existing refreshing machinery) and rides the old session; the next
-	// request gets the new instance. 0 disables.
+	// existing refreshing machinery), provided the seat is idle (reAdmitGate
+	// below); the triggering request waits for and is served by the new
+	// instance. 0 disables.
 	reAdmitLead time.Duration
 	// reAdmitExpiry (issue #132) is the expiresAt of the session the last
 	// pre-emptive re-admit was triggered for. A failed re-admit must not be

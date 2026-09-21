@@ -111,8 +111,10 @@ type Config struct {
 	RunsDrainTTL      time.Duration
 	// SessionReAdmitLead is how long before session expiry a pre-emptive
 	// async re-admit is triggered (issue #99, SESSION_RE_ADMIT_LEAD default
-	// 60s): the request rides the old session while the refresh runs in the
-	// background; the next request gets the new instance.
+	// 60s). The rotation never supersedes an in-flight turn: while another
+	// request holds the account's seat the trigger defers and the session
+	// rides its grace drain, and the request that trips the trigger is
+	// served by the fresh instance. 0 disables.
 	SessionReAdmitLead time.Duration
 	// SessionProbeCacheTTL is how long the last successful session state is
 	// reused before a fresh upstream poll (issue #60, SESSION_PROBE_CACHE_TTL
