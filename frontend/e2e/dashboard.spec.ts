@@ -27,8 +27,8 @@ test.describe("dashboard hermetic mocks", () => {
       )
       .catch(() => {});
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
-    // Overview KPI row shows Pool total / Banned etc (rendered from fixture)
-    await expect(page.getByText("Pool total")).toBeVisible();
+    // Overview KPI row shows Fleet accounts / Banned etc (rendered from fixture)
+    await expect(page.getByText("Fleet accounts")).toBeVisible();
     // Pool status lives in the Pool Tokens table rows (the standalone At-risk
     // section is gone): overview must not render it anymore.
     await expect(

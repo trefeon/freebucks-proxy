@@ -848,6 +848,6 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
     await page.getByRole("button", { name: "Retry" }).click();
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
-    await expect(page.getByText("Pool total")).toBeVisible();
+    await expect(page.getByText("Fleet accounts")).toBeVisible();
   });
 });

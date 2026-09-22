@@ -318,27 +318,39 @@
       <!-- KPI row (pooled tokens active) -->
       <KpiGrid
         items={[
-          { label: $tr("Pool total"), value: poolTotal },
+          {
+            label: $tr("Fleet accounts"),
+            value: poolTotal,
+            hint: $tr("upstream accounts in pool"),
+          },
           {
             label: $tr("Busy"),
             value: busyTokens,
-            hint: $tr("tokens with active runs"),
+            hint: $tr("accounts with active leases"),
             tone: busyTokens > 0 ? "good" : "default",
           },
           {
             label: $tr("Cooldown"),
             value: cooldownTokens,
-            hint: cooldownTokens > 0 ? $tr("temporarily paused") : undefined,
+            hint: cooldownTokens > 0 ? $tr("temporarily cooling") : undefined,
             tone: cooldownTokens > 0 ? "warn" : "default",
           },
           {
             label: $tr("Banned"),
             value: bannedTokens,
-            hint: $tr("banned accounts"),
+            hint: $tr("banned by upstream"),
             tone: bannedTokens > 0 ? "bad" : "default",
           },
-          { label: $tr("Requests today"), value: requestsToday },
-          { label: $tr("Models"), value: data.model_count ?? 0 },
+          {
+            label: $tr("Requests today"),
+            value: requestsToday,
+            hint: $tr("served today"),
+          },
+          {
+            label: $tr("Models"),
+            value: data.model_count ?? 0,
+            hint: $tr("served models"),
+          },
         ]}
       />
       {#if worstAccount}
@@ -351,7 +363,7 @@
             <span class="text-[var(--fp-text)]">
               {#if isExhausted(w)}
                 {@const resetAt = resetTimeFor(w)}
-                {$tr("Account #{index} exhausted", { index: w.index })}
+                {$tr("Account #{index} exhausted", { index: w.index + 1 })}
                 {#if resetAt}
                   <span class="fp-num text-[var(--fp-warning)] font-medium">
                     · {$tr("resets at {time}", {
@@ -360,7 +372,7 @@
                   >
                 {/if}
               {:else}
-                {$tr("Account #{index} needs attention", { index: w.index })}
+                {$tr("Account #{index} needs attention", { index: w.index + 1 })}
               {/if}
             </span>
           </div>
@@ -474,7 +486,7 @@
               >{$tr("Pooled Mode (Ready):")}</strong
             >
             {$tr(
-              "Add FreeBuff accounts in Tokens (via Device Login or pasting tokens) to enable shared pool rotation, admission coercion, and Client API Key routing.",
+              "Add FreeBuff accounts in Accounts (via Device Login or pasting tokens) to enable shared pool rotation, admission coercion, and Client API Key routing.",
             )}
           </p>
         </div>

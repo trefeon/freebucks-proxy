@@ -316,7 +316,7 @@
                     {#if strike}
                       <s
                         class="fp-num text-[11px] text-[var(--fp-dim)]"
-                        title={$tr("Regular price")}>{strike}</s
+                        title={$tr("Regular list price; first-tab discount folded into effective price")}>{strike}</s
                       >
                     {/if}
                     <span

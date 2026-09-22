@@ -78,7 +78,7 @@ test.describe("operator UX journey (hermetic mocks)", () => {
     await page.waitForURL("**/admin", { timeout: 10_000 });
     await overviewResp;
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
-    await expect(page.getByText("Pool total")).toBeVisible();
+    await expect(page.getByText("Fleet accounts")).toBeVisible();
 
     // The login response granted the session + double-submit CSRF cookies.
     const cookies = await page.context().cookies("http://127.0.0.1:4173");

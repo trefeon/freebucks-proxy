@@ -20,7 +20,7 @@ test.describe("real-world data", () => {
     ).toISOString();
     await mockDashboard(page, { ...f, notices });
     await page.goto(admin("overview"));
-    await expect(page.getByText("Pool total")).toBeVisible();
+    await expect(page.getByText("Fleet accounts")).toBeVisible();
     await expect(page.getByText("548")).toBeVisible();
     await expect(
       page.getByText("Official Upstream Announcement"),
