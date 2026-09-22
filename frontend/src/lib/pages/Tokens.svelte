@@ -11,6 +11,7 @@
   import TokenTable from "./tokens/TokenTable.svelte";
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import MaturityPanel from "../components/MaturityPanel.svelte";
+  import AllowancesPanel from "../components/AllowancesPanel.svelte";
   import TrafficSettings from "./settings/TrafficSettings.svelte";
   import StrategyPresetCard from "./settings/StrategyPresetCard.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
@@ -438,7 +439,12 @@
       const want = sessionStorage.getItem("fp-page-tab:tokens");
       if (want !== null) {
         sessionStorage.removeItem("fp-page-tab:tokens");
-        if (want === "accounts" || want === "controls" || want === "warming")
+        if (
+          want === "accounts" ||
+          want === "allowances" ||
+          want === "controls" ||
+          want === "warming"
+        )
           tab = want;
       }
     } catch {
@@ -588,10 +594,10 @@
         bind:value={tab}
         options={[
           { id: "accounts", label: $tr("Accounts") },
+          { id: "allowances", label: $tr("Allowances") },
           { id: "warming", label: $tr("Warming") },
           { id: "controls", label: $tr("Controls") },
         ]}
-        ariaLabel={$tr("Tokens sections")}
       />
     </div>
   </div>
@@ -754,5 +760,7 @@
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
     />
+  {:else if tab === "allowances"}
+    <AllowancesPanel />
   {/if}
 </PageShell>
