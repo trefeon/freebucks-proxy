@@ -4,7 +4,6 @@
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import Alert from "../components/Alert.svelte";
   import ModelsPanel from "../components/ModelsPanel.svelte";
-  import AllowancesPanel from "../components/AllowancesPanel.svelte";
   import ModelRoutingSettings from "./settings/ModelRoutingSettings.svelte";
   import AdvancedSettings from "./settings/AdvancedSettings.svelte";
   import { tr } from "../i18n.js";
@@ -20,7 +19,7 @@
     overlaySaved as settingsOverlaySaved,
     setField as setSettingsField,
   } from "../stores/settings.js";
-  let tab = $state("accounts");
+  let tab = $state("models");
 
   onMount(() => {
     recordPageVisit("models");
@@ -29,13 +28,12 @@
     fetchSettings();
     try {
       const pending = sessionStorage.getItem("fp-page-tab:plans");
-      sessionStorage.removeItem("fp-page-tab:plans");
-      if (
-        pending === "models" ||
-        pending === "accounts" ||
-        pending === "controls"
-      )
-        tab = pending;
+      if (pending !== null) {
+        sessionStorage.removeItem("fp-page-tab:plans");
+        if (pending === "catalog" || pending === "models") tab = "models";
+        else if (pending === "routing" || pending === "controls")
+          tab = "controls";
+      }
     } catch {
       // storage unavailable — stay on the default tab
     }
@@ -43,19 +41,18 @@
 </script>
 
 <PageShell
-  crumb="freebucks-proxy / Admin / usage.conf"
-  title={$tr("Usage")}
-  description={$tr("Serving accounts and served models.")}
+  crumb="freebucks-proxy / Admin / models.conf"
+  title={$tr("Models")}
+  description={$tr("Served models catalog, list prices, and routing controls.")}
 >
   <div class="flex flex-wrap items-center gap-2">
     <SegmentedControl
       bind:value={tab}
       options={[
-        { id: "accounts", label: $tr("Accounts") },
-        { id: "models", label: $tr("Models") },
-        { id: "controls", label: $tr("Controls") },
+        { id: "models", label: $tr("Catalog") },
+        { id: "controls", label: $tr("Routing") },
       ]}
-      ariaLabel={$tr("Catalog section")}
+      ariaLabel={$tr("Models sections")}
     />
   </div>
 
@@ -92,11 +89,7 @@
     />
   {:else}
     <div class="flex flex-col gap-5">
-      {#if tab === "models"}
-        <ModelsPanel />
-      {:else}
-        <AllowancesPanel />
-      {/if}
+      <ModelsPanel />
     </div>
   {/if}
 </PageShell>

@@ -170,10 +170,10 @@ test.describe("real-world data", () => {
     page,
   }) => {
     await mockDashboard(page, loadFixtures(RW));
-    await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(admin("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),

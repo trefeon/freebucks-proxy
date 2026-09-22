@@ -430,8 +430,8 @@ test.describe("Pool accounts table geometry", () => {
     ]);
     await mockDashboard(page, f, { tokens: payload });
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto("/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     const rows = page.getByTestId("account-row");
     await expect(rows.first()).toBeVisible({ timeout: 15000 });
     expect(await rows.count()).toBe(4);
@@ -478,8 +478,8 @@ test.describe("Pool accounts table geometry", () => {
       tokens: tokensPayload([tokenRow(0), tokenRow(1)]),
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     const rows = page.getByTestId("account-row");
     await expect(rows.first()).toBeVisible({ timeout: 15000 });
     const boxes = await rows.evaluateAll((els) =>

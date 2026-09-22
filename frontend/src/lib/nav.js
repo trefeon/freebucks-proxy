@@ -1,7 +1,7 @@
 import {
   LayoutDashboard,
-  Database,
-  Gauge,
+  Users,
+  Cpu,
   Settings as SettingsIcon,
   ScrollText,
   FlaskConical,
@@ -40,8 +40,8 @@ export const NAV_ITEMS = [
     label: "Overview",
     icon: LayoutDashboard,
   },
-  { id: "tokens", component: Tokens, label: "Pool", icon: Database },
-  { id: "plans", component: Plans, label: "Usage", icon: Gauge },
+  { id: "tokens", component: Tokens, label: "Accounts", icon: Users },
+  { id: "plans", component: Plans, label: "Models", icon: Cpu },
   { id: "activity", component: Activity, label: "Logs", icon: ScrollText },
   {
     id: "settings",
@@ -79,13 +79,17 @@ export const NAV_ITEMS = [
  * (delivered one-shot via sessionStorage "fp-page-tab:<page>").
  */
 export const LEGACY_PAGE_REDIRECTS = {
+  pool: "tokens",
+  usage: "plans",
+  accounts: "tokens",
   setup: "overview",
-  maturity: { page: "tokens", tab: "warming" },
-  quota: { page: "plans", tab: "accounts" },
-  models: { page: "plans", tab: "models" },
+  maturity: { page: "tokens", tab: "streaks" },
+  quota: { page: "tokens", tab: "allowances" },
+  models: { page: "plans", tab: "catalog" },
   logs: "activity",
   metrics: { page: "activity", tab: "metrics" },
   traces: { page: "activity", tab: "traces" },
+  team: { page: "activity", tab: "keys" },
   playground: "devtools",
   config: "settings",
 };

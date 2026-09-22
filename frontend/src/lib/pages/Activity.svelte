@@ -50,8 +50,10 @@
     // consumed on mount so back-navigation keeps the operator's own tab.
     try {
       const t = sessionStorage.getItem("fp-page-tab:activity") || "";
-      if (t === "live" || t === "metrics" || t === "team" || t === "traces")
-        tab = t;
+      if (t === "live" || t === "requests") tab = "live";
+      else if (t === "metrics") tab = "metrics";
+      else if (t === "team" || t === "keys") tab = "team";
+      else if (t === "traces") tab = "traces";
     } catch {
       // Storage unavailable — stay on the default Live tab.
     }
@@ -68,9 +70,9 @@
       <SegmentedControl
         bind:value={tab}
         options={[
-          { id: "live", label: $tr("Live") },
+          { id: "live", label: $tr("Requests") },
           { id: "metrics", label: $tr("Metrics") },
-          { id: "team", label: $tr("Team") },
+          { id: "team", label: $tr("Client Keys") },
           { id: "traces", label: $tr("Traces") },
         ]}
         ariaLabel={$tr("Activity view")}

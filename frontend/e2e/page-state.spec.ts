@@ -54,7 +54,7 @@ test.describe("per-page persist", () => {
       .poll(() => new URL(page.url()).hash, { timeout: 10_000 })
       .toBe("#tokens");
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
   });
 
@@ -67,7 +67,7 @@ test.describe("per-page persist", () => {
     // (and the normalized hash wins over the stored lastHash).
     await page.goto(admin("models"));
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     expect(new URL(page.url()).hash).toBe("#plans");
   });
@@ -214,10 +214,10 @@ test.describe("settings saved values", () => {
     await mockPageState(page);
     await page.goto(admin("plans"));
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
-    // Controls live behind the Usage Controls tab now.
-    await page.getByRole("button", { name: "Controls" }).click();
+    // Controls live behind the Models Routing tab now.
+    await page.getByRole("button", { name: "Routing" }).click();
     const input = page.locator('input[aria-label="REASONING_IN_CONTENT"]');
     await expect(input).toBeVisible();
     await expect(
@@ -256,9 +256,9 @@ test.describe("settings saved values", () => {
     // Reload: the overlay GET reflects the POST, so the switch stays on.
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     await expect(
       page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
     ).toBeVisible();
@@ -358,9 +358,9 @@ test.describe("settings saved values", () => {
     await mockPageState(page);
     await page.goto(admin("plans"));
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     const input = page.locator('input[aria-label="REASONING_IN_CONTENT"]');
     await expect(input).toBeVisible();
     const row = page.locator("div.py-4", { has: input });

@@ -28,13 +28,13 @@ test.describe("dashboard shell a11y (mock backend)", () => {
       sidebar.locator('nav[aria-label="Main navigation"]'),
     ).toBeVisible();
     const overviewLink = sidebar.getByRole("link", { name: "Overview" });
-    const poolLink = sidebar.getByRole("link", { name: "Pool" });
+    const poolLink = sidebar.getByRole("link", { name: "Accounts" });
     await expect(overviewLink).toHaveAttribute("aria-current", "page");
     await expect(poolLink).not.toHaveAttribute("aria-current", "page");
 
     await poolLink.click();
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     await expect(poolLink).toHaveAttribute("aria-current", "page");
     await expect(overviewLink).not.toHaveAttribute("aria-current", "page");
@@ -178,7 +178,7 @@ test.describe("dashboard shell a11y (mock backend)", () => {
     });
     await page.goto(adminUrl("tokens"));
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
 
     // Fake timers from here: the 1.5s Copied flip-back is timer-driven.

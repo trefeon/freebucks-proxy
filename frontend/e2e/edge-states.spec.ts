@@ -131,7 +131,8 @@ test.describe("dashboard edge states (mock backend)", () => {
       tokens: tokensPayload([], { has_tokens: false, token_count: 0 }),
     });
     await mockSettingsOverlay(page, []);
-    await page.goto(adminUrl("plans"));
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "No tokens in pool" }),
     ).toBeVisible();
@@ -157,7 +158,10 @@ test.describe("dashboard edge states (mock backend)", () => {
         body: JSON.stringify(f.tokens),
       });
     });
-    await page.goto(adminUrl("plans"));
+    await page.addInitScript(() => {
+      sessionStorage.setItem("fp-page-tab:tokens", "allowances");
+    });
+    await page.goto(adminUrl("tokens"));
     await expect(page.getByRole("status", { name: "Loading" })).toBeVisible();
     await expect(page.getByText("Loading…").first()).toBeVisible();
     await expect(page.getByText("Account #1").first()).toBeVisible();
@@ -183,7 +187,10 @@ test.describe("dashboard edge states (mock backend)", () => {
         });
       }
     });
-    await page.goto(adminUrl("plans"));
+    await page.addInitScript(() => {
+      sessionStorage.setItem("fp-page-tab:tokens", "allowances");
+    });
+    await page.goto(adminUrl("tokens"));
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
     // The backend message renders inline in the panel, not toast-only.
     await expect(page.getByTestId("inline-error")).toContainText("boom");
@@ -193,7 +200,6 @@ test.describe("dashboard edge states (mock backend)", () => {
     await page.getByRole("button", { name: "Retry" }).click();
     await expect(page.getByText("Account #1").first()).toBeVisible();
   });
-
   // -- Models (#plans models tab: ModelsPanel) ------------------------------
 
   test("models loading announces itself instead of staying silent", async ({
@@ -214,8 +220,7 @@ test.describe("dashboard edge states (mock backend)", () => {
       });
     });
     await page.goto(adminUrl("plans"));
-    await expect(page.getByText("Account #1").first()).toBeVisible();
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await expect(page.getByRole("status", { name: "Loading" })).toBeVisible();
     await expect(
       page.getByText("deepseek/deepseek-v4-flash").first(),
@@ -243,7 +248,7 @@ test.describe("dashboard edge states (mock backend)", () => {
       }
     });
     await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     // The backend message renders inline in the panel, not toast-only.
     await expect(page.getByTestId("inline-error")).toContainText("boom");
     const retry = page.getByRole("button", { name: "Retry" });
@@ -407,7 +412,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     await mockDashboard(page, loadFixtures());
     await mockSettingsOverlay(page, []);
     await page.goto(adminUrl("activity"));
-    for (const name of ["Live", "Metrics", "Team", "Traces"]) {
+    for (const name of ["Requests", "Metrics", "Client Keys", "Traces"]) {
       await expect(
         page.getByRole("button", { name, exact: true }),
       ).toBeVisible();
@@ -425,7 +430,9 @@ test.describe("dashboard edge states (mock backend)", () => {
       });
     });
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Team usage" }),
     ).toBeVisible();
@@ -469,7 +476,9 @@ test.describe("dashboard edge states (mock backend)", () => {
       });
     });
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     const table = page.locator("table.fp-table");
     await expect(table.getByText("a1b2c3d4")).toBeVisible();
     await expect(table.getByText("deepseek/deepseek-v4-flash")).toBeVisible();
@@ -490,7 +499,9 @@ test.describe("dashboard edge states (mock backend)", () => {
       });
     });
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     await expect(page.getByText("Loading team usage")).toBeAttached();
     // Announced via role=status (pattern LiveConsole), not a bare live div.
     await expect(
@@ -517,7 +528,9 @@ test.describe("dashboard edge states (mock backend)", () => {
       }
     });
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
     // One failure renders exactly one toast (deduped by message): a second
     // fetch or a duplicate push would show up as a second live alert.
@@ -544,7 +557,9 @@ test.describe("dashboard edge states (mock backend)", () => {
       });
     });
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Team usage" }),
     ).toBeVisible();
@@ -701,7 +716,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     const posted: PostedSetting[] = [];
     await mockSettingsOverlay(page, posted, { postStatus: 400 });
     await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     const input = page.locator('input[aria-label="REASONING_IN_CONTENT"]');
     await expect(input).toBeVisible();
     const row = page.locator("div.py-4", { has: input });
@@ -740,7 +755,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     await page.goto(adminUrl("tokens"));
     await expect(page.getByText("2 pooled token(s)")).toBeVisible();
     // Pool section tabs: sleek desktop height, visible and operable.
-    for (const name of ["Accounts", "Warming", "Controls"]) {
+    for (const name of ["Fleet", "Allowances", "Streaks", "Strategy"]) {
       const btn = page.getByRole("button", { name, exact: true });
       await expect(btn).toBeVisible();
       await expect(btn).toBeEnabled();
@@ -760,7 +775,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     // Activity view tabs plus the small-button density (Refresh all and the
     // Activity tabs + inner views render sleek desktop controls.
     await page.goto(adminUrl("activity"));
-    for (const name of ["Live", "Metrics", "Team", "Traces"]) {
+    for (const name of ["Requests", "Metrics", "Client Keys", "Traces"]) {
       const btn = page.getByRole("button", { name, exact: true });
       await expect(btn).toBeVisible();
       await expect(btn).toBeEnabled();
@@ -810,7 +825,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     // Narrow viewports render stacked cards instead of the desktop table
     // (whose twin stays hidden), so gate on the visible card copy.
     await expect(page.getByText("2 pooled token(s)")).toBeVisible();
-    for (const name of ["Accounts", "Warming", "Controls"]) {
+    for (const name of ["Fleet", "Allowances", "Streaks", "Strategy"]) {
       await expect(
         page.getByRole("button", { name, exact: true }),
       ).toBeVisible();
@@ -819,7 +834,7 @@ test.describe("dashboard edge states (mock backend)", () => {
       page.getByRole("button", { name: "Device Login" }),
     ).toBeEnabled();
     await page.goto(adminUrl("activity"));
-    for (const name of ["Live", "Metrics", "Team", "Traces"]) {
+    for (const name of ["Requests", "Metrics", "Client Keys", "Traces"]) {
       await expect(
         page.getByRole("button", { name, exact: true }),
       ).toBeVisible();
@@ -843,7 +858,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     );
   });
 
-  test("keyboard reaches the Pool nav with a visible focus indicator", async ({
+  test("keyboard reaches the Accounts nav with a visible focus indicator", async ({
     page,
   }) => {
     await mockDashboard(page, loadFixtures());
@@ -858,7 +873,7 @@ test.describe("dashboard edge states (mock backend)", () => {
         const el = document.activeElement;
         return (
           el instanceof HTMLAnchorElement &&
-          (el.textContent ?? "").includes("Pool")
+          (el.textContent ?? "").includes("Accounts")
         );
       });
       if (atPool) {
@@ -883,7 +898,7 @@ test.describe("dashboard edge states (mock backend)", () => {
     expect(focusStyle?.outlineStyle).not.toBe("none");
     await page.keyboard.press("Enter");
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
   });
 

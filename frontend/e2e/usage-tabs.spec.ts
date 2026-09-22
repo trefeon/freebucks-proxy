@@ -57,7 +57,7 @@ test.describe("usage tabs (mock backend)", () => {
     await page.goto(adminUrl("plans"));
     // Models tab active (pressed) with a served model row on screen.
     await expect(
-      page.getByRole("button", { name: "Models", exact: true }),
+      page.getByRole("button", { name: "Catalog", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       page.getByText("deepseek/deepseek-v4-flash").first(),
@@ -82,7 +82,7 @@ test.describe("usage tabs (mock backend)", () => {
     });
     await page.goto(adminUrl("plans"));
     await expect(
-      page.getByRole("button", { name: "Controls", exact: true }),
+      page.getByRole("button", { name: "Routing", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       page.getByRole("heading", { name: "Usage Controls" }),
@@ -170,7 +170,9 @@ test.describe("usage tabs (mock backend)", () => {
     await expect(page.getByText("1 model request").first()).toBeVisible();
     await page.getByRole("button", { name: "Metrics", exact: true }).click();
     await expect(page.getByText("Requests served")).toBeVisible();
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Team usage" }),
     ).toBeVisible();
@@ -212,7 +214,9 @@ test.describe("usage tabs (mock backend)", () => {
       (r) => r.url().includes("/admin/api/usage") && r.status() === 200,
     );
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     const resp = await teamReq;
     // The panel asks for the per-client aggregation, not the range view.
     expect(resp.url()).toContain("group_by=key");
@@ -257,7 +261,9 @@ test.describe("usage tabs (mock backend)", () => {
         r.status() === 200,
     );
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Client Keys", exact: true })
+      .click();
     await teamReq;
     const table = page.locator("table.fp-table");
     await expect(table.getByText("b2c3d4e5f6a7b8c9")).toBeVisible();

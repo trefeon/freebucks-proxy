@@ -439,13 +439,10 @@
       const want = sessionStorage.getItem("fp-page-tab:tokens");
       if (want !== null) {
         sessionStorage.removeItem("fp-page-tab:tokens");
-        if (
-          want === "accounts" ||
-          want === "allowances" ||
-          want === "controls" ||
-          want === "warming"
-        )
-          tab = want;
+        if (want === "fleet" || want === "accounts") tab = "accounts";
+        else if (want === "allowances") tab = "allowances";
+        else if (want === "streaks" || want === "warming") tab = "warming";
+        else if (want === "strategy" || want === "controls") tab = "controls";
       }
     } catch {
       /* storage blocked: default tab stands */
@@ -493,13 +490,13 @@
 </script>
 
 <PageShell
-  crumb="freebucks-proxy / Admin / pool.conf"
-  title={$tr("Pool")}
+  crumb="freebucks-proxy / Admin / accounts.conf"
+  title={$tr("Accounts")}
   description={$tr(
-    "Upstream credentials, device login, and streak enrollment — allowances live on Usage",
+    "Upstream account fleet, allowances, daily streaks, and pool strategy.",
   )}
-  {loading}
-  {error}
+  loading={tab === "accounts" ? loading : false}
+  error={tab === "accounts" ? error : ""}
   onRetry={() => {
     error = "";
     refreshTokens();
@@ -593,11 +590,12 @@
       <SegmentedControl
         bind:value={tab}
         options={[
-          { id: "accounts", label: $tr("Accounts") },
+          { id: "accounts", label: $tr("Fleet") },
           { id: "allowances", label: $tr("Allowances") },
-          { id: "warming", label: $tr("Warming") },
-          { id: "controls", label: $tr("Controls") },
+          { id: "warming", label: $tr("Streaks") },
+          { id: "controls", label: $tr("Strategy") },
         ]}
+        ariaLabel={$tr("Accounts sections")}
       />
     </div>
   </div>

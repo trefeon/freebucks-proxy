@@ -195,8 +195,8 @@ test("usage accounts probe-all posts test-all once and toasts the summary", asyn
     });
   });
 
-  await page.goto("http://127.0.0.1:4173/admin/#plans");
-  await page.getByRole("button", { name: "Accounts" }).click();
+  await page.goto("http://127.0.0.1:4173/admin/#tokens");
+  await page.getByRole("button", { name: "Allowances" }).click();
   // Title-anchored: the accessible name flips to "Probing…" mid-flight,
   // so a name locator would go stale exactly when we assert on it.
   const probe = page.getByTitle(

@@ -58,7 +58,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     const table = page.locator("table.fp-table");
     await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
@@ -237,8 +237,8 @@ test.describe("dashboard hermetic mocks", () => {
       if (res.url().includes("/admin/api/tokens")) tokensCount++;
     });
 
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     await page
       .waitForResponse(
         (r) => r.url().includes("/admin/api/tokens") && r.status() === 200,
@@ -246,11 +246,10 @@ test.describe("dashboard hermetic mocks", () => {
       )
       .catch(() => {});
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     // Sidebar entry links to the merged page
-    await expect(page.getByRole("link", { name: "Usage" })).toBeVisible();
-
+    await expect(page.getByRole("link", { name: "Accounts" })).toBeVisible();
     // Per-account cards: one per pooled account (1-based Account # labels)
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -306,9 +305,9 @@ test.describe("dashboard hermetic mocks", () => {
     };
     await mockDashboard(page, f, { tokens: pricedTokens });
     await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     // Single shared note: live upstream values are identical for every
     // account in the region (no per-account model lists anymore).
@@ -336,10 +335,10 @@ test.describe("dashboard hermetic mocks", () => {
     staleTokens.tokens[0].quota_saved_at = "2026-09-03T10:00:00Z";
     await mockDashboard(page, f, { tokens: staleTokens });
 
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -366,8 +365,8 @@ test.describe("dashboard hermetic mocks", () => {
     };
     await mockDashboard(page, f, { tokens: meteredTokens });
 
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -400,8 +399,8 @@ test.describe("dashboard hermetic mocks", () => {
     };
     await mockDashboard(page, f, { tokens: discountTokens });
 
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -429,8 +428,8 @@ test.describe("dashboard hermetic mocks", () => {
     };
     await mockDashboard(page, f, { tokens: heldTokens });
 
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -457,8 +456,8 @@ test.describe("dashboard hermetic mocks", () => {
     refundTokens.tokens[0].pending_refund = "inst-abc-123";
     await mockDashboard(page, f, { tokens: refundTokens });
 
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -505,8 +504,8 @@ test.describe("dashboard hermetic mocks", () => {
         r.method() === "POST" &&
         r.url().includes("/admin/tokens/0/refund-refresh"),
     );
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     // The pending line fires one automatic refresh on first render (pinned
     // by the sibling test); the mock settles fast, so assert the replay
     // POST plus the settled line replacing the pending one.
@@ -526,8 +525,8 @@ test.describe("dashboard hermetic mocks", () => {
     const zeroTokens = JSON.parse(JSON.stringify(f.tokens));
     zeroTokens.tokens[0].last_refund = 0;
     await mockDashboard(page, f, { tokens: zeroTokens });
-    await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(page.getByTestId("refund-settled-line").first()).toContainText(
       "0 Freebucks returned to your wallet.",
     );
@@ -540,9 +539,9 @@ test.describe("dashboard hermetic mocks", () => {
     await mockDashboard(page, f);
 
     await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     // Vendor-catalog copy renders verbatim: the freshness marker, the
     // data-training warning, and the single-label reasoning chip.
@@ -643,12 +642,12 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     // Queue posture moved from Settings Traffic to the Pool page's Controls
     // tab: the slots-per-account stepper lives there; secrets never reach
     // the advanced list.
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     const slots = page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]');
     await expect(page.getByText("ADMIN_TOKEN", { exact: true })).toHaveCount(0);
     await expect(slots).toBeVisible();
@@ -669,7 +668,7 @@ test.describe("dashboard hermetic mocks", () => {
 
     // Reload keeps the row visible: GET reflects the POSTed overlay row.
     await page.reload();
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(
       page.locator('input[aria-label="SLOTS_PER_ACCOUNT"]'),
     ).toBeVisible();
@@ -686,12 +685,11 @@ test.describe("dashboard hermetic mocks", () => {
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await metaResp;
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
-    // Model routing moved from Settings Upstream to the Usage page's
     // Controls tab: the reasoning-format switch lives there, keyed by
     // badge; secrets never surface.
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     await expect(
       page.getByText("REASONING_IN_CONTENT", { exact: true }).first(),
     ).toBeVisible();
@@ -724,7 +722,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     // Pool-group keys moved from Settings Advanced to the Pool Controls
     // tab: pool-tuning rows render in the Pool Tuning card, while every
     // MATURITY_* key lives only on the Warming tab's Streak Maintenance
@@ -760,7 +758,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     // Catalog defaults (30s / 16) already read as Balance.
     const drain = page.getByRole("radio", { name: "Drain", exact: true });
     const balance = page.getByRole("radio", { name: "Balance", exact: true });
@@ -801,7 +799,7 @@ test.describe("dashboard hermetic mocks", () => {
         { timeout: 5000 },
       )
       .catch(() => {});
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(
       page.getByRole("radio", { name: "Drain", exact: true }),
     ).toHaveAttribute("aria-checked", "true");
@@ -828,7 +826,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     const slider = page.locator(
       'input[type="range"][aria-label="Balance threshold (QUEUE_WAIT)"]',
     );
@@ -877,7 +875,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(
       page.getByRole("radio", { name: "Balance", exact: true }),
     ).toHaveAttribute("aria-checked", "true");
@@ -944,7 +942,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     const drain = page.getByRole("radio", { name: "Drain", exact: true });
     const balance = page.getByRole("radio", { name: "Balance", exact: true });
     await expect(balance).toHaveAttribute("aria-checked", "true");
@@ -1002,7 +1000,7 @@ test.describe("dashboard hermetic mocks", () => {
         { timeout: 5000 },
       )
       .catch(() => {});
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(
       page.getByRole("radio", { name: "Balance", exact: true }),
     ).toHaveAttribute("aria-checked", "true");
@@ -1030,7 +1028,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(page.getByTestId("strategy-rows")).toBeVisible();
     await expect(
       page.getByRole("radio", { name: "Balance", exact: true }),
@@ -1061,7 +1059,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(
       page.getByRole("radio", { name: "Balance", exact: true }),
     ).toHaveAttribute("aria-checked", "true");
@@ -1080,7 +1078,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     const rows = page.getByTestId("strategy-rows");
     await expect(rows).toBeVisible();
     // One editor per owned key, anywhere on the Controls tab...
@@ -1149,7 +1147,7 @@ test.describe("dashboard hermetic mocks", () => {
     // The queue chip reports the posture from the same source as the card
     // badge (the tokens snapshot carries no posture field).
     await expect(queueChip).toHaveText("Balance");
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     const balance = page.getByRole("radio", { name: "Balance", exact: true });
     const drain = page.getByRole("radio", { name: "Drain", exact: true });
     await expect(balance).toHaveAttribute("aria-checked", "true");
@@ -1192,7 +1190,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     // SLOTS_PER_ACCOUNT ships at 3 and
     // the tokens snapshot reports the pooled account count.
     const snapshot = f.tokens;
@@ -1222,7 +1220,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(page.getByTestId("pool-ceiling")).toContainText(
       "unlimited per account",
     );
@@ -1239,7 +1237,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
     await page.goto("http://127.0.0.1:4173/admin/#plans");
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     // Upstream/quota-group keys moved from Settings Advanced to Usage.
     await expect(page.getByText("Upstream & Quota")).toBeVisible();
     await expect(
@@ -1704,7 +1702,7 @@ test.describe("dashboard hermetic mocks", () => {
     await mockDashboard(page, f);
 
     await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await page
       .waitForResponse(
         (r) => r.url().includes("/admin/api/models") && r.status() === 200,
@@ -1713,7 +1711,7 @@ test.describe("dashboard hermetic mocks", () => {
       .catch(() => {});
     // Models tab: table assertions stay, scoped to the merged page.
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
 
     // Served stat tells the truth about 14 rows: 6 served of 14 listed (the
@@ -1825,9 +1823,9 @@ test.describe("dashboard hermetic mocks", () => {
     await mockDashboard(page, f, { tokens: pricedTokens });
 
     await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     const rows = page.locator("table tbody tr");
     await expect(rows).toHaveCount(14);
@@ -1847,9 +1845,9 @@ test.describe("dashboard hermetic mocks", () => {
     await mockDashboard(page, f, { models });
 
     await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     // Live counts stay exact; the trial-used phrasing joins them.
     await expect(page.getByTestId("model-offer")).toHaveCount(2);
@@ -1869,9 +1867,9 @@ test.describe("dashboard hermetic mocks", () => {
     await mockDashboard(page, f, { models });
 
     await page.goto("http://127.0.0.1:4173/admin/#plans");
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     const table = page.getByRole("table");
     const row = table

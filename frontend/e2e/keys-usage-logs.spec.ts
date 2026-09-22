@@ -239,10 +239,10 @@ test.describe("keys, usage and logs (mock backend)", () => {
       { loginPage: true },
     );
 
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -273,8 +273,8 @@ test.describe("keys, usage and logs (mock backend)", () => {
       { loginPage: true },
     );
 
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -305,8 +305,8 @@ test.describe("keys, usage and logs (mock backend)", () => {
       { loginPage: true },
     );
 
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -328,8 +328,8 @@ test.describe("keys, usage and logs (mock backend)", () => {
       { tokens: tokensPayload([discountToken(0, false)]) },
       { loginPage: true },
     );
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -350,8 +350,8 @@ test.describe("keys, usage and logs (mock backend)", () => {
       { loginPage: true },
     );
 
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -377,8 +377,8 @@ test.describe("keys, usage and logs (mock backend)", () => {
         r.url().includes("/admin/tokens/0/refund-refresh"),
     );
 
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await replayed;
     // Vendor formatFreebucks rounds the 1.5 mock refund to 2.
     await expect(page.getByTestId("refund-settled-line")).toContainText(
@@ -396,8 +396,8 @@ test.describe("keys, usage and logs (mock backend)", () => {
       { loginPage: true },
     );
 
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(page.getByTestId("refund-settled-line").first()).toContainText(
       "0 Freebucks returned to your wallet.",
     );
@@ -414,9 +414,11 @@ test.describe("keys, usage and logs (mock backend)", () => {
     await page.goto(adminUrl("activity"));
     const tabs = page.getByRole("group", { name: "Activity view" });
     await expect(tabs.getByRole("button")).toHaveCount(4);
-    await expect(tabs.getByRole("button", { name: "Live" })).toBeVisible();
+    await expect(tabs.getByRole("button", { name: "Requests" })).toBeVisible();
     await expect(tabs.getByRole("button", { name: "Metrics" })).toBeVisible();
-    await expect(tabs.getByRole("button", { name: "Team" })).toBeVisible();
+    await expect(
+      tabs.getByRole("button", { name: "Client Keys" }),
+    ).toBeVisible();
     await expect(tabs.getByRole("button", { name: "Traces" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Logging" })).toHaveCount(0);
     await expect(page.locator('select[aria-label="LOG_LEVEL"]')).toHaveCount(0);
@@ -442,7 +444,7 @@ test.describe("keys, usage and logs (mock backend)", () => {
     ]);
 
     await page.goto(adminUrl("activity"));
-    await page.getByRole("button", { name: "Team" }).click();
+    await page.getByRole("button", { name: "Client Keys" }).click();
     await expect(
       page.getByRole("heading", { name: "Team usage" }),
     ).toBeVisible();

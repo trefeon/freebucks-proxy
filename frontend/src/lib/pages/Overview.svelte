@@ -368,7 +368,7 @@
             href="#tokens"
             class="text-[var(--fp-warning)] hover:underline shrink-0 font-medium"
           >
-            {$tr("Open Tokens")} →
+            {$tr("Open Accounts")} →
           </a>
         </div>
       {/if}
@@ -457,7 +457,7 @@
             href="#tokens"
             class="fp-btn fp-btn-secondary fp-btn-sm inline-flex items-center gap-1.5"
           >
-            <span>{$tr("Manage Tokens")}</span>
+            <span>{$tr("Manage Accounts")}</span>
           </a>
         {/snippet}
         <div class="text-xs text-[var(--fp-muted)] space-y-2">

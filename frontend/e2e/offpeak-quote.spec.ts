@@ -15,8 +15,8 @@ test.describe("off-peak quote (mock backend)", () => {
     const f = loadFixtures();
     await mockDashboard(page, f);
     await mockSettingsOverlay(page, []);
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
@@ -37,9 +37,9 @@ test.describe("off-peak quote (mock backend)", () => {
     await mockDashboard(page, f);
     await mockSettingsOverlay(page, []);
     await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { name: "Models", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText("deepseek/deepseek-v4-flash").first(),
@@ -63,8 +63,8 @@ test.describe("off-peak quote (mock backend)", () => {
     delete offer.end_hour_utc;
     await mockDashboard(page, f, { tokens });
     await mockSettingsOverlay(page, []);
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     // A windowless offer resolves to no copy (never an Invalid Date throw),
     // so the account still renders — minus the off-peak line — and Loading
     // clears instead of freezing the tab.
@@ -93,8 +93,8 @@ test.describe("off-peak quote (mock backend)", () => {
     };
     await mockDashboard(page, f, { tokens });
     await mockSettingsOverlay(page, []);
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     // The wire-camelCase twin of the fixture offer renders the same line:
     // assert the render, not the absence of a throw.
     await expect(

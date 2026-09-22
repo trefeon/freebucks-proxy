@@ -91,10 +91,10 @@ test.describe("MASQ mock-data scenarios (centralized factory)", () => {
     page,
   }) => {
     await mockMasqScenario(page, "quota-tracker");
-    await page.goto(adminUrl("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(adminUrl("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
-      page.getByRole("heading", { name: "Usage", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),

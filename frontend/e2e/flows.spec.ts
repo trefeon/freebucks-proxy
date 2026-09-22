@@ -51,8 +51,8 @@ test.describe("user flows", () => {
         t.freebucks.daily.reset_at = "2030-01-01T07:00:00Z";
     }
     await mockDashboard(page, f);
-    await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(admin("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await page.getByText("Account #1").first().waitFor();
     // One strip for the whole page (first account reset time, shared
     // countdown) — no per-row Refresh buttons remain here. One page-level
@@ -80,8 +80,8 @@ test.describe("user flows", () => {
         body: JSON.stringify(tokens),
       });
     });
-    await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Accounts" }).click();
+    await page.goto(admin("tokens"));
+    await page.getByRole("button", { name: "Allowances" }).click();
     await expect(page.getByText("quota exempt").first()).toBeVisible();
   });
   test("tokens: paywalled model disables spawn", async ({ page }) => {

@@ -26,7 +26,7 @@ test.describe("dashboard polling + merge (mock backend)", () => {
     });
     await page.goto(adminUrl("tokens"));
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
 
     // Fixture token 0 carries session_remaining_seconds 4620 (1h 17m).
@@ -67,7 +67,7 @@ test.describe("dashboard polling + merge (mock backend)", () => {
     });
     await page.goto(adminUrl("tokens"));
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
 
     // pagehide is the event pageState.js arms its keepalive flush on.
@@ -106,7 +106,7 @@ test.describe("dashboard polling + merge (mock backend)", () => {
     });
     await page.goto(adminUrl("tokens"));
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
 
     await page.clock.install();
@@ -134,7 +134,7 @@ test.describe("dashboard polling + merge (mock backend)", () => {
     await page.clock.install();
     await page.goto(adminUrl("tokens"));
     await expect(
-      page.getByRole("heading", { name: "Pool", exact: true }),
+      page.getByRole("heading", { name: "Accounts", exact: true }),
     ).toBeVisible();
 
     // Fixture pool: 3 active leases (tokens 0, 1, 4).
