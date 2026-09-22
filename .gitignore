@@ -42,6 +42,7 @@ bin/
 tmp/
 .playwright-mcp/
 /.drift-report.json
+/.exact-drift.json
 .ruff_cache/
 
 # ── build outputs (Go binaries) ──
