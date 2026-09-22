@@ -20,14 +20,20 @@ export function touchCandidates(modelRows) {
   ];
 }
 
-/** Server-reported cost class for one candidate row (never invented). */
-export function touchCostClass(m) {
+/** Server-reported cost class for one candidate row (never invented).
+ * Prefers the regular list price so nightly streak touch automation reflects
+ * the actual recurring rate rather than a temporary first-tab promotional discount. */
+export function touchCostClass(m, listPrices = null) {
   if (!m) return "";
-  return m.price_label || m.quota || "";
+  if (listPrices && listPrices[m.id] !== undefined) {
+    const p = listPrices[m.id];
+    return p === 0 ? "0 Freebucks/hr" : `${p} Freebucks/hr`;
+  }
+  return m.list_price_label || m.price_label || m.quota || "";
 }
 
-export function touchLabel(m) {
-  const cls = touchCostClass(m);
+export function touchLabel(m, listPrices = null) {
+  const cls = touchCostClass(m, listPrices);
   return cls ? `${m.id} (${cls})` : m.id;
 }
 

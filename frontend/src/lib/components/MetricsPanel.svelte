@@ -141,7 +141,9 @@
          toggle, five total cards, per-entry table in details mode. -->
     <Card
       title={$tr("Token usage")}
-      description={$tr("Session cost in Freebucks — not a billing figure.")}
+      description={$tr(
+        "LLM prompt and completion tokens, context caching, and session cost across all model requests.",
+      )}
       pad="none"
     >
       {#snippet actions()}
@@ -202,30 +204,39 @@
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             <Card class="p-4">
               <Stat
-                label={$tr("Total Requests")}
+                label={$tr("Total requests")}
                 value={Number(totals.requests ?? 0).toLocaleString()}
+                hint={$tr("in selected window")}
               />
             </Card>
             <Card class="p-4">
               <Stat
-                label={$tr("Total Input Tokens")}
+                label={$tr("Input tokens")}
                 value={Number(totals.input ?? 0).toLocaleString()}
+                hint={$tr("prompts processed")}
               />
             </Card>
             <Card class="p-4">
               <Stat
-                label={$tr("Cached Tokens")}
+                label={$tr("Cached tokens")}
                 value={Number(totals.cached ?? 0).toLocaleString()}
+                hint={$tr("prompt cache hits")}
+                tone={Number(totals.cached ?? 0) > 0 ? "good" : "default"}
               />
             </Card>
             <Card class="p-4">
               <Stat
-                label={$tr("Output Tokens")}
+                label={$tr("Output tokens")}
                 value={Number(totals.output ?? 0).toLocaleString()}
+                hint={$tr("model completions")}
               />
             </Card>
             <Card class="p-4">
-              <Stat label={$tr("Est. Cost")} value={formatCost(totals.cost)} />
+              <Stat
+                label={$tr("Session cost")}
+                value={formatCost(totals.cost)}
+                hint={$tr("Freebucks billed")}
+              />
             </Card>
           </div>
           {#if usageView === "details"}
@@ -295,14 +306,16 @@
         <Stat
           label={$tr("Requests served")}
           value={(data.requests_total ?? 0).toLocaleString()}
-          hint={$tr("{count} sample(s)", { count: data.sample_count ?? 0 })}
+          hint={$tr("gateway lifetime volume")}
         />
       </Card>
       <Card class="p-4">
         <Stat
           label={$tr("Transient retries")}
           value={(data.transient_retries ?? 0).toLocaleString()}
-          hint={$tr("trend {trend}", { trend: trendText(data.retries_trend) })}
+          hint={$tr("automatic failover recovery ({trend})", {
+            trend: trendText(data.retries_trend),
+          })}
           tone={(data.retries_trend?.direction ?? "flat") === "up"
             ? "warn"
             : "default"}
@@ -312,7 +325,8 @@
         <Stat
           label={$tr("Fingerprint rotations")}
           value={(data.fingerprint_rotations ?? 0).toLocaleString()}
-          tone={(data.fingerprint_rotations ?? 0) > 0 ? "warn" : "default"}
+          hint={$tr("anti-ban identity cycles")}
+          tone={(data.fingerprint_rotations ?? 0) > 0 ? "good" : "default"}
         />
       </Card>
     </div>
@@ -323,7 +337,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card
         title={$tr("Requests over time")}
-        description={$tr("Samples appended per poll — rolling window of 120.")}
+        description={$tr("Live request throughput over rolling 120 samples.")}
         pad="none"
       >
         <div class="px-5 py-4 h-16 w-full [&_svg]:w-full [&_svg]:h-full">
@@ -339,7 +353,9 @@
       </Card>
       <Card
         title={$tr("Retries over time")}
-        description={$tr("Transient retry activity across the same window.")}
+        description={$tr(
+          "Transient retry and failover activity across the same window.",
+        )}
         pad="none"
       >
         <div class="px-5 py-4 h-16 w-full [&_svg]:w-full [&_svg]:h-full">
@@ -355,24 +371,28 @@
       </Card>
     </div>
 
-    <!-- Per-token breakdown -->
+    <!-- Per-account breakdown -->
     <Card
-      title={$tr("Per-token metrics")}
-      description={$tr("24h request counts for every pool token.")}
+      title={$tr("Account fleet activity")}
+      description={$tr(
+        "24-hour request distribution across pooled upstream accounts.",
+      )}
       pad="none"
     >
       {#if data.per_tokens?.length}
         <div class="overflow-x-auto">
           <table class="fp-table">
             <caption class="sr-only"
-              >{$tr("Per-token metrics — requests")}</caption
+              >{$tr("Account fleet metrics — requests")}</caption
             >
             <thead>
               <tr>
-                <th scope="col">{$tr("Token")}</th>
-                <th scope="col" class="num w-[1%]">{$tr("Requests (24h)")}</th>
-                <th scope="col" class="text-right w-[1%]"
-                  ><span class="sr-only">{$tr("Links")}</span></th
+                <th scope="col">{$tr("Account")}</th>
+                <th scope="col" class="num w-[1%] whitespace-nowrap"
+                  >{$tr("Requests (24h)")}</th
+                >
+                <th scope="col" class="text-right w-[1%] whitespace-nowrap"
+                  ><span class="sr-only">{$tr("Actions")}</span></th
                 >
               </tr>
             </thead>
@@ -383,12 +403,18 @@
                     <button
                       type="button"
                       onclick={() => onOpenToken?.(p.token)}
-                      title={$tr("Open token {idx}", { idx: p.token })}
-                      class="fp-num font-mono text-xs text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0"
-                      >#{p.token}</button
+                      title={$tr("Open Account #{idx} in Fleet", {
+                        idx: p.token + 1,
+                      })}
+                      class="font-medium text-xs text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 flex items-center gap-1.5"
                     >
+                      <span
+                        class="fp-num font-mono text-[11px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] border border-[var(--fp-border)]"
+                        >Account #{p.token + 1}</span
+                      >
+                    </button>
                   </td>
-                  <td class="num"
+                  <td class="num font-mono text-xs"
                     >{Number(p.requests_24h ?? 0).toLocaleString()}</td
                   >
                   <td class="w-[1%] whitespace-nowrap text-right">
@@ -396,7 +422,7 @@
                       type="button"
                       onclick={() => onOpenLogs?.("")}
                       class="font-mono text-[11px] text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 whitespace-nowrap"
-                      >{$tr("Logs")}</button
+                      >{$tr("Logs →")}</button
                     >
                   </td>
                 </tr>
@@ -407,7 +433,7 @@
       {:else}
         <div class="px-5 py-6">
           <p class="text-sm text-[var(--fp-muted)]">
-            {$tr("No pool tokens yet.")}
+            {$tr("No pool accounts configured yet.")}
           </p>
         </div>
       {/if}

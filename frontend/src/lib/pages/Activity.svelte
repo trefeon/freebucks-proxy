@@ -63,7 +63,7 @@
 <PageShell
   crumb="freebucks-proxy / Admin / logs.conf"
   title={$tr("Logs")}
-  description={$tr("Live traffic, metrics, team usage, and traces.")}
+  description={$tr("Live traffic, metrics, client key usage, and traces.")}
 >
   {#snippet actions()}
     <div class="flex flex-wrap items-center gap-2">

@@ -321,16 +321,26 @@
             >
             <thead>
               <tr>
-                <th scope="col" class="w-[70px]">{$tr("Time")}</th>
-                <th scope="col" class="w-[44px]">{$tr("Account")}</th>
-                <th scope="col" class="w-[18%]">{$tr("Model")}</th>
-                <th scope="col" class="num w-[64px]">{$tr("Tokens")}</th>
-                <th scope="col" class="w-[160px] whitespace-nowrap"
+                <th scope="col" class="w-[96px] whitespace-nowrap"
+                  >{$tr("Time")}</th
+                >
+                <th scope="col" class="w-[64px] whitespace-nowrap"
+                  >{$tr("Account")}</th
+                >
+                <th scope="col" class="w-[22%] whitespace-nowrap"
+                  >{$tr("Model")}</th
+                >
+                <th scope="col" class="num w-[72px] whitespace-nowrap"
+                  >{$tr("Tokens")}</th
+                >
+                <th scope="col" class="w-[110px] whitespace-nowrap"
                   >{$tr("Status")}</th
                 >
-                <th scope="col" class="num w-[68px]">{$tr("Latency")}</th>
+                <th scope="col" class="num w-[80px] whitespace-nowrap"
+                  >{$tr("Latency")}</th
+                >
                 <th scope="col">{$tr("Phases")}</th>
-                <th scope="col" class="w-[44px] text-right"
+                <th scope="col" class="w-[54px] text-right whitespace-nowrap"
                   ><span class="sr-only">{$tr("Links")}</span></th
                 >
               </tr>

@@ -762,17 +762,19 @@ type modelsData struct {
 }
 
 type modelRow struct {
-	ID          string   `json:"id"`
-	DisplayName string   `json:"display_name,omitempty"`
-	Tagline     string   `json:"tagline,omitempty"`
-	Notice      string   `json:"notice,omitempty"`
-	Badges      []string `json:"badges,omitempty"`
-	Price       float64  `json:"price"`
-	PriceLabel  string   `json:"price_label,omitempty"`
-	Pool        string   `json:"pool,omitempty"`
-	Agent       string   `json:"agent"`
-	Quota       string   `json:"quota"`
-	Served      bool     `json:"served"`
+	ID             string   `json:"id"`
+	DisplayName    string   `json:"display_name,omitempty"`
+	Tagline        string   `json:"tagline,omitempty"`
+	Notice         string   `json:"notice,omitempty"`
+	Badges         []string `json:"badges,omitempty"`
+	Price          float64  `json:"price"`
+	PriceLabel     string   `json:"price_label,omitempty"`
+	ListPrice      float64  `json:"list_price,omitempty"`
+	ListPriceLabel string   `json:"list_price_label,omitempty"`
+	Pool           string   `json:"pool,omitempty"`
+	Agent          string   `json:"agent"`
+	Quota          string   `json:"quota"`
+	Served         bool     `json:"served"`
 	// Tiers lists the access levels that can admit the row (limited/full/
 	// paid/offer in canonical order); empty for withdrawn and god-only
 	// rows, so the SPA renders "no tier" instead of inventing one.
@@ -890,6 +892,20 @@ func (d *Dashboard) firstFreebucksPrices() map[string]float64 {
 	return nil
 }
 
+// firstFreebucksListPrices returns the first token snapshot's regular list
+// prices map before any first-tab promotional discount is applied.
+func (d *Dashboard) firstFreebucksListPrices() map[string]float64 {
+	if d.pool == nil {
+		return nil
+	}
+	for _, t := range d.pool.Snapshot() {
+		if t.Freebucks != nil && len(t.Freebucks.ListPrices) > 0 {
+			return t.Freebucks.ListPrices
+		}
+	}
+	return nil
+}
+
 // firstFreebucksPriceNotices returns the first token snapshot's effective
 // Freebucks price-notices map (live promo taglines, including due
 // repricing and off-peak copy resolved at read time). nil when absent.
@@ -962,6 +978,7 @@ func (d *Dashboard) modelsData() modelsData {
 	// withdrawal facts ride the row; the SPA decides what to render from
 	// them, this endpoint invents nothing.
 	livePrices := d.firstFreebucksPrices()
+	listPrices := d.firstFreebucksListPrices()
 	liveNotices := d.firstFreebucksPriceNotices()
 	offers := d.offerByModel()
 	effectivePrices := make(map[string]float64)
@@ -989,6 +1006,10 @@ func (d *Dashboard) modelsData() modelsData {
 			row.Price = p
 			effectivePrices[id] = p
 			row.PriceLabel = freebucksPriceLabel(p)
+		}
+		if lp, ok := listPrices[id]; ok {
+			row.ListPrice = lp
+			row.ListPriceLabel = freebucksPriceLabel(lp)
 		}
 		if id == modelcat.Glm52ModelID {
 			row.PriceLabel = "Referral grant"

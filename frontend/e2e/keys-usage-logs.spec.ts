@@ -488,7 +488,7 @@ test.describe("keys, usage and logs (mock backend)", () => {
     await page.getByRole("button", { name: "Metrics" }).click();
     await expect(page.getByText("Requests served")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Per-token metrics" }),
+      page.getByRole("heading", { name: "Account fleet activity" }),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Traces" }).click();

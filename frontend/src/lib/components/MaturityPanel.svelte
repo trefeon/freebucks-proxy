@@ -88,6 +88,12 @@
   );
   let maturityOff = $derived(globalLoaded && !globalEnabled);
   let modelRows = $state([]);
+  let liveListPrices = $derived.by(() => {
+    for (const t of data?.tokens ?? []) {
+      if (t.freebucks?.list_prices) return t.freebucks.list_prices;
+    }
+    return null;
+  });
   function touchOpts() {
     return sharedTouchOptions(modelRows, touchSelectVal);
   }
@@ -529,7 +535,7 @@
           >
             <option value="auto">Auto (cheapest unmetered)</option>
             {#each touchOpts() as opt (opt.id)}
-              <option value={opt.id}>{touchLabel(opt)}</option>
+              <option value={opt.id}>{touchLabel(opt, liveListPrices)}</option>
             {/each}
           </select>
           <span class="ml-auto">
