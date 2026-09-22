@@ -303,9 +303,7 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     ).toBeVisible();
   });
 
-  test("pool Fleet/Streaks/Strategy tabs switch panels", async ({
-    page,
-  }) => {
+  test("pool Fleet/Streaks/Strategy tabs switch panels", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, {}, { loginPage: true });
     await mockSettingsOverlay(page, []);
