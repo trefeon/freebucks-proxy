@@ -372,7 +372,9 @@
                   >
                 {/if}
               {:else}
-                {$tr("Account #{index} needs attention", { index: w.index + 1 })}
+                {$tr("Account #{index} needs attention", {
+                  index: w.index + 1,
+                })}
               {/if}
             </span>
           </div>

@@ -551,7 +551,9 @@
         </div>
       </div>
       <p class="fp-num text-[11px] leading-relaxed text-[var(--fp-dim)]">
-        {$tr("Nightly window 23:45–00:00 Pacific (06:45–07:00 UTC / 13:45–14:00 WIB)")}
+        {$tr(
+          "Nightly window 23:45–00:00 Pacific (06:45–07:00 UTC / 13:45–14:00 WIB)",
+        )}
         ·
         {$tr(
           "one touch per Pacific day, classified from 23:45 and fired in the final 5 minutes before reset to rescue the expiring day",
