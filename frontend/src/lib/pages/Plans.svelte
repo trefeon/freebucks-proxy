@@ -20,7 +20,7 @@
     overlaySaved as settingsOverlaySaved,
     setField as setSettingsField,
   } from "../stores/settings.js";
-  let tab = $state("models");
+  let tab = $state("accounts");
 
   onMount(() => {
     recordPageVisit("models");
