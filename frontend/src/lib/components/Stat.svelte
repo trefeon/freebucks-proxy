@@ -7,9 +7,18 @@
    * @prop {string} [hint]
    * @prop {'default'|'good'|'warn'|'bad'} [tone='default']
    * @prop {boolean} [big=false]
+   * @prop {boolean} [showLed] — whether to show the status LED. Defaults to
+   *   true when tone conveys state ('good'|'warn'|'bad'), false when 'default'
+   *   to obey DESIGN.md Rule 3 (LEDs are indicators, not bullets).
    */
-  let { label, value, hint, tone = "default", big = false } = $props();
-
+  let {
+    label,
+    value,
+    hint,
+    tone = "default",
+    big = false,
+    showLed = tone !== "default",
+  } = $props();
   const ledTones = {
     default: "led-idle",
     good: "led-good",
@@ -27,7 +36,9 @@
 
 <div class="flex flex-col gap-1">
   <div class="flex items-center gap-1.5">
-    <span class="led {ledTones[tone]}" aria-hidden="true"></span>
+    {#if showLed}
+      <span class="led {ledTones[tone]}" aria-hidden="true"></span>
+    {/if}
     <span class="text-xs text-[var(--fp-muted)]">{label}</span>
   </div>
   <span

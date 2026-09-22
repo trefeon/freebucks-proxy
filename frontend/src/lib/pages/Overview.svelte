@@ -323,10 +323,12 @@
             label: $tr("Busy"),
             value: busyTokens,
             hint: $tr("tokens with active runs"),
+            tone: busyTokens > 0 ? "good" : "default",
           },
           {
             label: $tr("Cooldown"),
             value: cooldownTokens,
+            hint: cooldownTokens > 0 ? $tr("temporarily paused") : undefined,
             tone: cooldownTokens > 0 ? "warn" : "default",
           },
           {
@@ -341,53 +343,84 @@
       />
       {#if worstAccount}
         {@const w = worstAccount}
-        <p class="text-xs text-[var(--fp-muted)]">
-          {#if isExhausted(w)}
-            {@const resetAt = resetTimeFor(w)}
-            {$tr("Account #{index} exhausted", { index: w.index })}
-            {#if resetAt}
-              <span class="fp-num text-[var(--fp-warning)]">
-                · {$tr("resets at {time}", {
-                  time: formatLocalDate(resetAt),
-                })}</span
-              >
-            {/if}
-          {:else}
-            {$tr("Account #{index} needs attention", { index: w.index })}
-          {/if} ·
-          <a href="#tokens" class="text-[var(--fp-accent)] hover:underline"
-            >{$tr("Open Tokens")}</a
+        <div
+          class="flex items-center justify-between gap-3 px-3 py-2 rounded-[3px] border border-[var(--fp-warning)]/30 bg-[var(--fp-warning)]/10 text-xs"
+        >
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="led led-warn shrink-0" aria-hidden="true"></span>
+            <span class="text-[var(--fp-text)]">
+              {#if isExhausted(w)}
+                {@const resetAt = resetTimeFor(w)}
+                {$tr("Account #{index} exhausted", { index: w.index })}
+                {#if resetAt}
+                  <span class="fp-num text-[var(--fp-warning)] font-medium">
+                    · {$tr("resets at {time}", {
+                      time: formatLocalDate(resetAt),
+                    })}</span
+                  >
+                {/if}
+              {:else}
+                {$tr("Account #{index} needs attention", { index: w.index })}
+              {/if}
+            </span>
+          </div>
+          <a
+            href="#tokens"
+            class="text-[var(--fp-warning)] hover:underline shrink-0 font-medium"
           >
-        </p>
+            {$tr("Open Tokens")} →
+          </a>
+        </div>
       {/if}
 
       <!-- Hybrid mode: pool summary above plus a compact bridge-relay card -->
       {#if data.mode === "hybrid"}
-        <Card title={$tr("Bridge relay")}>
-          <p class="text-sm text-[var(--fp-muted)]">
-            {$tr(
-              "{count} active bridge client(s) relaying their own FreeBuff tokens",
-              { count: data.bridge_tokens ?? 0 },
-            )}
-          </p>
-          {#if data.bridge_token_cards?.length}
-            <ul class="mt-2 flex flex-col gap-1.5">
-              {#each data.bridge_token_cards.slice(0, 4) as bc (bc.key)}
-                <li class="flex flex-wrap items-center gap-2 text-xs">
-                  <StatusBadge status={bc.status} />
-                  <code class="fp-num font-mono text-[var(--fp-text)]"
-                    >{bc.key}</code
-                  >
-                  {#if bc.model}
-                    <code class="fp-num font-mono text-[var(--fp-muted)]"
-                      >{bc.model}</code
+        {#if (data.bridge_tokens ?? 0) > 0 || data.bridge_token_cards?.length}
+          <Card title={$tr("Bridge relay")}>
+            <p class="text-sm text-[var(--fp-muted)]">
+              {$tr(
+                "{count} active bridge client(s) relaying their own FreeBuff tokens",
+                { count: data.bridge_tokens ?? 0 },
+              )}
+            </p>
+            {#if data.bridge_token_cards?.length}
+              <ul class="mt-2 flex flex-col gap-1.5">
+                {#each data.bridge_token_cards.slice(0, 4) as bc (bc.key)}
+                  <li class="flex flex-wrap items-center gap-2 text-xs">
+                    <StatusBadge status={bc.status} />
+                    <code class="fp-num font-mono text-[var(--fp-text)]"
+                      >{bc.key}</code
                     >
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </Card>
+                    {#if bc.model}
+                      <code class="fp-num font-mono text-[var(--fp-muted)]"
+                        >{bc.model}</code
+                      >
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </Card>
+        {:else}
+          <div
+            class="flex items-center justify-between px-3.5 py-2 rounded-[3px] border border-[var(--fp-border)] bg-[var(--fp-surface)] text-xs text-[var(--fp-muted)]"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="led led-idle shrink-0" aria-hidden="true"></span>
+              <span class="font-medium text-[var(--fp-text)]"
+                >{$tr("Bridge relay")}</span
+              >
+              <span class="text-[var(--fp-dim)]">·</span>
+              <span class="truncate"
+                >{$tr("0 active bridge clients (hybrid relay ready)")}</span
+              >
+            </div>
+            <span
+              class="text-[11px] font-mono text-[var(--fp-dim)] shrink-0 hidden sm:inline"
+              >{$tr("API_KEYS or token auth")}</span
+            >
+          </div>
+        {/if}
       {/if}
     {:else}
       <!-- Bridge mode / empty pool summary -->
@@ -492,7 +525,7 @@
           <div class="flex items-center gap-2">
             <div class="fp-inset flex-1 px-3 py-2 overflow-x-auto">
               <code
-                class="fp-num text-xs text-[var(--fp-accent)] font-mono font-semibold"
+                class="fp-num text-xs text-[var(--fp-text)] font-mono font-medium"
                 >{dynamicBaseURL}</code
               >
             </div>

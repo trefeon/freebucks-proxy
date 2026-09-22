@@ -7,8 +7,7 @@
    * (DESIGN.md layout grammar), 3-up from sm, and a full 6-up strip on
    * desktop when six KPIs render (Overview pool row); smaller grids stay
    * 3-up so short rows never stretch.
-   *
-   * @prop {Array<{ label: string, value: string|number, hint?: string, tone?: 'default'|'good'|'warn'|'bad' }>} [items=[]]
+   * @prop {Array<{ label: string, value: string|number, hint?: string, tone?: 'default'|'good'|'warn'|'bad', showLed?: boolean }>} [items=[]]
    */
   let { items = [] } = $props();
 </script>
@@ -25,6 +24,7 @@
         value={item.value}
         hint={item.hint}
         tone={item.tone ?? "default"}
+        showLed={item.showLed}
       />
     </Card>
   {/each}

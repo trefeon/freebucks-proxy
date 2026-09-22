@@ -21,6 +21,7 @@
   let peakHours = $state(null);
   let loaded = $state(false);
   let folded = new SvelteSet();
+  let bannerCollapsed = $state(false);
   // Ticks the peak badge once a second; the backend seeds next_window_in
   // once per fetch, so rendering that string verbatim froze the label.
   let nowMs = $state(Date.now());
@@ -131,7 +132,7 @@
           {$tr("Upstream Notices & Broadcasts")}
         </span>
         <span
-          class="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium bg-[var(--fp-accent)]/10 text-[var(--fp-accent)] shrink-0"
+          class="text-[10px] px-1.5 py-0.5 rounded-full font-mono font-medium bg-[var(--fp-accent)]/10 text-[var(--fp-accent)] shrink-0"
         >
           {notices.length}
         </span>
@@ -144,7 +145,7 @@
           <div
             class="flex min-w-0 w-fit max-w-full items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono break-words {peakHours.is_peak
               ? 'bg-[var(--fp-warning)]/15 text-[var(--fp-warning)] border border-[var(--fp-warning)]/30'
-              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}"
+              : 'bg-[var(--fp-accent)]/15 text-[var(--fp-accent)] border border-[var(--fp-accent)]/30'}"
             title={peakHours.is_peak
               ? $tr(
                   "Peak pricing ends {local} your time (Mon-Fri 00:00-10:00 UTC)",
@@ -169,103 +170,123 @@
             </span>
           </div>
         {/if}
+        <button
+          type="button"
+          class="inline-flex items-center justify-center p-1 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface)] transition-colors shrink-0"
+          onclick={() => (bannerCollapsed = !bannerCollapsed)}
+          title={bannerCollapsed
+            ? $tr("Expand announcements")
+            : $tr("Collapse announcements")}
+          aria-label={bannerCollapsed
+            ? $tr("Expand announcements")
+            : $tr("Collapse announcements")}
+        >
+          <ChevronDown
+            size={14}
+            class="transition-transform duration-150 {bannerCollapsed
+              ? '-rotate-90'
+              : ''}"
+          />
+        </button>
       </div>
     </div>
 
-    <!-- Notice items: X folds an item into the slim bar above; unfold
+    {#if !bannerCollapsed}
+      <!-- Notice items: X folds an item into the slim bar above; unfold
       restores it. Nothing is removed until reload. -->
-    <div class="p-3 flex flex-col gap-2.5">
-      {#each notices as notice (notice.id)}
-        {#if folded.has(notice.id)}
-          <div
-            class="px-3 py-1.5 rounded border border-[var(--fp-border)] bg-[var(--fp-surface-2)]/50 text-xs flex items-center justify-between gap-2"
-          >
-            <span class="font-medium text-[var(--fp-muted)] truncate">
-              {notice.title}
-            </span>
-            <button
-              type="button"
-              class="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
-              onclick={() => toggleFold(notice.id)}
-              title={$tr("Show notice")}
-              aria-label={$tr("Show {title}", { title: notice.title })}
-            >
-              <ChevronDown size={14} />
-            </button>
-          </div>
-        {:else}
-          <div
-            class="p-3 rounded border text-xs flex flex-row items-start justify-between gap-2 sm:items-center sm:gap-3 {notice.tone ===
-            'accent'
-              ? 'bg-[var(--fp-accent)]/10 border-[var(--fp-accent)]/25'
-              : notice.tone === 'warning'
-                ? 'bg-[var(--fp-warning)]/10 border-[var(--fp-warning)]/25'
-                : 'bg-[var(--fp-surface-2)]/70 border-[var(--fp-border)]'}"
-          >
-            <div class="flex items-start gap-2.5 min-w-0 flex-1">
-              <div class="shrink-0 mt-0.5">
-                {#if notice.type === "peak_hours"}
-                  <Clock size={15} class="text-[var(--fp-warning)]" />
-                {:else if notice.type === "announcement"}
-                  <Sparkles size={15} class="text-[var(--fp-accent)]" />
-                {:else}
-                  <Megaphone size={15} class="text-[var(--fp-muted)]" />
-                {/if}
-              </div>
-
-              <div class="flex flex-col gap-0.5 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-semibold text-[var(--fp-text)]">
-                    {notice.title}
-                  </span>
-                  {#if notice.badge}
-                    <span
-                      class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.2 rounded font-mono {notice.tone ===
-                      'accent'
-                        ? 'bg-[var(--fp-accent)]/20 text-[var(--fp-accent)]'
-                        : notice.tone === 'warning'
-                          ? 'bg-[var(--fp-warning)]/20 text-[var(--fp-warning)]'
-                          : 'bg-[var(--fp-surface)] text-[var(--fp-muted)]'}"
-                    >
-                      {notice.badge}
-                    </span>
-                  {/if}
-                </div>
-                <p
-                  class="text-[var(--fp-muted)] leading-relaxed break-words pr-2"
-                >
-                  {notice.message}
-                </p>
-              </div>
-            </div>
-
+      <div class="p-3 flex flex-col gap-2.5">
+        {#each notices as notice (notice.id)}
+          {#if folded.has(notice.id)}
             <div
-              class="flex items-center gap-1.5 shrink-0 self-start sm:self-center"
+              class="px-3 py-1.5 rounded border border-[var(--fp-border)] bg-[var(--fp-surface-2)]/50 text-xs flex items-center justify-between gap-2"
             >
-              {#if notice.url}
-                <a
-                  href={notice.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="fp-btn fp-btn-ghost fp-btn-sm inline-flex items-center gap-1 text-[var(--fp-accent)] hover:underline"
-                >
-                  <span>{$tr("Learn More")}</span>
-                  <ExternalLink size={11} />
-                </a>
-              {/if}
+              <span class="font-medium text-[var(--fp-muted)] truncate">
+                {notice.title}
+              </span>
               <button
                 type="button"
-                class="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)]"
+                class="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
                 onclick={() => toggleFold(notice.id)}
-                title={$tr("Fold notice")}
-                aria-label={$tr("Fold {title}", { title: notice.title })}
+                title={$tr("Show notice")}
+                aria-label={$tr("Show {title}", { title: notice.title })}
               >
-                <X size={14} />
+                <ChevronDown size={14} />
               </button>
             </div>
-          </div>
-        {/if}
-      {/each}
-    </div>
+          {:else}
+            <div
+              class="p-3 rounded border text-xs flex flex-row items-start justify-between gap-2 sm:items-center sm:gap-3 {notice.tone ===
+              'accent'
+                ? 'bg-[var(--fp-accent)]/10 border-[var(--fp-accent)]/25'
+                : notice.tone === 'warning'
+                  ? 'bg-[var(--fp-warning)]/10 border-[var(--fp-warning)]/25'
+                  : 'bg-[var(--fp-surface-2)]/70 border-[var(--fp-border)]'}"
+            >
+              <div class="flex items-start gap-2.5 min-w-0 flex-1">
+                <div class="shrink-0 mt-0.5">
+                  {#if notice.type === "peak_hours"}
+                    <Clock size={15} class="text-[var(--fp-warning)]" />
+                  {:else if notice.type === "announcement"}
+                    <Sparkles size={15} class="text-[var(--fp-accent)]" />
+                  {:else}
+                    <Megaphone size={15} class="text-[var(--fp-muted)]" />
+                  {/if}
+                </div>
+
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-semibold text-[var(--fp-text)]">
+                      {notice.title}
+                    </span>
+                    {#if notice.badge}
+                      <span
+                        class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded font-mono {notice.tone ===
+                        'accent'
+                          ? 'bg-[var(--fp-accent)]/20 text-[var(--fp-accent)]'
+                          : notice.tone === 'warning'
+                            ? 'bg-[var(--fp-warning)]/20 text-[var(--fp-warning)]'
+                            : 'bg-[var(--fp-surface)] text-[var(--fp-muted)]'}"
+                      >
+                        {notice.badge}
+                      </span>
+                    {/if}
+                  </div>
+                  <p
+                    class="text-[var(--fp-muted)] leading-relaxed break-words pr-2"
+                  >
+                    {notice.message}
+                  </p>
+                </div>
+              </div>
+
+              <div
+                class="flex items-center gap-1.5 shrink-0 self-start sm:self-center"
+              >
+                {#if notice.url}
+                  <a
+                    href={notice.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="fp-btn fp-btn-ghost fp-btn-sm inline-flex items-center gap-1 text-[var(--fp-accent)] hover:underline"
+                  >
+                    <span>{$tr("Learn More")}</span>
+                    <ExternalLink size={11} />
+                  </a>
+                {/if}
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center min-w-6 min-h-6 rounded text-[var(--fp-dim)] hover:text-[var(--fp-text)]"
+                  onclick={() => toggleFold(notice.id)}
+                  title={$tr("Fold notice")}
+                  aria-label={$tr("Fold {title}", { title: notice.title })}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          {/if}
+        {/each}
+      </div>
+    {/if}
   </div>
 {/if}

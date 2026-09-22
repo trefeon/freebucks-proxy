@@ -217,23 +217,24 @@
     </a>
 
     <ul class="mt-8 space-y-0.5">
-      {#each tabs as tab, ti (tab.id)}
+      {#each tabs as tab (tab.id)}
         <li>
           <a
             href={"#" + tab.id}
             onclick={() => switchTab(tab.id)}
             aria-current={activeTab === tab.id ? "page" : undefined}
-            class="relative flex items-center gap-2.5 pl-4 pr-3 py-2 rounded-[3px] text-xs font-medium transition-colors duration-150
+            class="relative flex items-center gap-2.5 pl-3.5 pr-3 py-2 rounded-[3px] text-xs font-medium transition-colors duration-150 border-l-2
               {activeTab === tab.id
-              ? 'bg-[var(--fp-accent)] text-[#0b0e14] font-semibold'
-              : 'text-[var(--fp-muted)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface)]'}"
+              ? 'bg-[var(--fp-surface-2)] text-[var(--fp-text)] font-semibold border-[var(--fp-accent)]'
+              : 'border-transparent text-[var(--fp-muted)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface)]'}"
           >
-            <tab.icon size={16} class="shrink-0" />
+            <tab.icon
+              size={16}
+              class="shrink-0 {activeTab === tab.id
+                ? 'text-[var(--fp-accent)]'
+                : ''}"
+            />
             <span class="font-mono text-xs">{$tr(tab.label)}</span>
-            <span
-              class="ml-auto font-mono text-[10px] opacity-60"
-              aria-hidden="true">_{String(ti + 1).padStart(2, "0")}</span
-            >
           </a>
         </li>
       {/each}
@@ -382,23 +383,24 @@
       </a>
 
       <ul class="space-y-0.5">
-        {#each tabs as tab, ti (tab.id)}
+        {#each tabs as tab (tab.id)}
           <li>
             <a
               href={"#" + tab.id}
               onclick={() => switchTab(tab.id)}
               aria-current={activeTab === tab.id ? "page" : undefined}
-              class="relative flex items-center gap-2.5 pl-4 pr-3 py-2.5 min-h-11 rounded-[3px] text-sm font-medium transition-colors
+              class="relative flex items-center gap-2.5 pl-3.5 pr-3 py-2.5 min-h-11 rounded-[3px] text-sm font-medium transition-colors border-l-2
                 {activeTab === tab.id
-                ? 'bg-[var(--fp-accent)] text-[#0b0e14] font-semibold'
-                : 'text-[var(--fp-muted)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface)]'}"
+                ? 'bg-[var(--fp-surface-2)] text-[var(--fp-text)] font-semibold border-[var(--fp-accent)]'
+                : 'border-transparent text-[var(--fp-muted)] hover:text-[var(--fp-text)] hover:bg-[var(--fp-surface)]'}"
             >
-              <tab.icon size={16} class="shrink-0" />
+              <tab.icon
+                size={16}
+                class="shrink-0 {activeTab === tab.id
+                  ? 'text-[var(--fp-accent)]'
+                  : ''}"
+              />
               <span class="font-mono text-xs">{$tr(tab.label)}</span>
-              <span
-                class="ml-auto font-mono text-[10px] opacity-60"
-                aria-hidden="true">_{String(ti + 1).padStart(2, "0")}</span
-              >
             </a>
           </li>
         {/each}
