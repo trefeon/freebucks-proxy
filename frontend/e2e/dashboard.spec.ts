@@ -1729,10 +1729,14 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByTestId("model-tier")).toHaveCount(28);
     // Plan-required rows (Gemini 3.8 Flash, MiMo 2.6 Pro) draw locked: the
     // "Paid plan" badge and upstream's sentence, never a served state.
-    await expect(page.getByTestId("model-plan-required")).toHaveCount(2);
-    await expect(page.getByTestId("model-plan-required").first()).toContainText(
-      "Included with a paid plan.",
-    );
+    // Scoped to the table: the mobile cards carry the same annotation, so an
+    // unscoped count is two renderings per row.
+    await expect(
+      page.getByRole("table").getByTestId("model-plan-required"),
+    ).toHaveCount(2);
+    await expect(
+      page.getByRole("table").getByTestId("model-plan-required").first(),
+    ).toContainText("Included with a paid plan.");
     await expect(
       page.getByRole("table").getByText("Paid plan", { exact: true }),
     ).toHaveCount(2);
