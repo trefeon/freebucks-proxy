@@ -116,11 +116,15 @@ func TestModelsEndpoint(t *testing.T) {
 	// 5→6 on 2026-08-29: upstage/solar-pro4 served (vendor 87ef664);
 	// 6→5 on 2026-08-31: z-ai/glm-5.2 paused, reward moved to glm-5.3-flash (vendor e557373, a5980e38e).
 	// 5→6 on 2026-09-05: meta/muse-spark-1.3-contributor served (upstream b14414d59).
-	// 6→8 on 2026-09-20 (tier-aware gate): the surface also carries the two
-	// tier rows (google/gemini-3.8-flash, anthropic/claude-fable-5.1) with the
-	// reason the pool cannot admit them. Withdrawn rows are never listed.
-	if len(out.Data) != 8 {
-		t.Errorf("models = %d, want 8 (6 served + 2 tier rows)", len(out.Data))
+	// 6→8 on 2026-09-20 (tier-aware gate): the surface also carries the
+	// tier rows with the reason the pool cannot admit them.
+	// 8→9 on 2026-09-22 (vendor 0.0.183): mimo/mimo-v2.6-pro joins them — a
+	// Pro-only row (paid plan on every surface, plan-required in the catalog),
+	// so the surface is 6 served + 3 tier rows (google/gemini-3.8-flash,
+	// mimo/mimo-v2.6-pro, anthropic/claude-fable-5.1). Withdrawn rows are
+	// never listed.
+	if len(out.Data) != 9 {
+		t.Errorf("models = %d, want 9 (6 served + 3 tier rows)", len(out.Data))
 	}
 	served := map[string]bool{
 		"deepseek/deepseek-v4-flash":      true,
@@ -792,10 +796,10 @@ func TestModelsAllowEmptyIsOpen(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("models is not JSON: %v: %s", err, data)
 	}
-	// 8 = the catalog surface (6 served + 2 tier rows); no id is pruned by
+	// 9 = the catalog surface (6 served + 3 tier rows); no id is pruned by
 	// MODELS_ALLOW or MODELS_HIDE_UNAVAILABLE here, and withdrawn rows are
 	// never listed.
-	if len(out.Data) != 8 {
+	if len(out.Data) != 9 {
 		t.Errorf("model count = %d, want 8 (served + tier rows)", len(out.Data))
 	}
 	var hasModelA, hasFlash bool
@@ -1023,8 +1027,8 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("unmarshal /v1/models: %v", err)
 	}
-	if len(out.Data) != 8 {
-		t.Fatalf("models count = %d, want 8 (6 served + 2 tier rows)", len(out.Data))
+	if len(out.Data) != 9 {
+		t.Fatalf("models count = %d, want 9 (6 served + 3 tier rows)", len(out.Data))
 	}
 	wantSet := map[string]bool{
 		"deepseek/deepseek-v4-flash":      true,
@@ -1039,6 +1043,7 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 	// the reason (counted above, so the set is fully pinned).
 	gatedSet := map[string]bool{
 		"google/gemini-3.8-flash":    true,
+		"mimo/mimo-v2.6-pro":         true,
 		"anthropic/claude-fable-5.1": true,
 	}
 	// Withdrawn rows are recognized but never advertised: the refusal copy
@@ -1472,8 +1477,8 @@ func TestModelsEndpointLimitedTier(t *testing.T) {
 	}
 	// 8 rows: the six served ids plus the two tier rows. Withdrawn rows are
 	// never listed, and MODELS_HIDE_UNAVAILABLE is off here.
-	if len(out.Data) != 8 {
-		t.Fatalf("models = %d, want 8 (6 served + 2 tier rows)", len(out.Data))
+	if len(out.Data) != 9 {
+		t.Fatalf("models = %d, want 9 (6 served + 3 tier rows)", len(out.Data))
 	}
 	for _, m := range out.Data {
 		if m.CurrentAccessTier != "limited" {
@@ -1489,8 +1494,8 @@ func TestModelsEndpointLimitedTier(t *testing.T) {
 			if m.Available || m.Status != "region_limited" {
 				t.Errorf("model %s = available %v/status %q, want false/region_limited", m.ID, m.Available, m.Status)
 			}
-		case "google/gemini-3.8-flash":
-			// Tier row: no plan reported, so the plan is what is missing.
+		case "google/gemini-3.8-flash", "mimo/mimo-v2.6-pro":
+			// Tier rows: no plan reported, so the plan is what is missing.
 			if m.Available || m.Status != "plan_required" {
 				t.Errorf("model %s = available %v/status %q, want false/plan_required", m.ID, m.Available, m.Status)
 			}

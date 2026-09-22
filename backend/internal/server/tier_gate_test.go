@@ -259,8 +259,8 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 		t.Cleanup(ts.Close)
 
 		rows, raw := fetchTierRows(t, ts)
-		if len(rows) != 8 {
-			t.Fatalf("rows = %d, want 8 (6 served + 2 tier rows)", len(rows))
+		if len(rows) != 9 {
+			t.Fatalf("rows = %d, want 9 (6 served + 3 tier rows)", len(rows))
 		}
 		luna := tierRowByID(t, rows, tierLuna)
 		if !luna.Available || luna.Status != "unknown" || !tierEqual(luna.Tiers, []string{"full", "paid"}) || luna.Offer != nil {
@@ -271,8 +271,8 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 			t.Errorf("flash tiers = %v, want canonical [limited full paid]", flash.Tiers)
 		}
 		gemini := tierRowByID(t, rows, tierGemini)
-		if gemini.Available || gemini.Status != "plan_required" || !tierEqual(gemini.Tiers, []string{"paid"}) {
-			t.Errorf("gemini row = %+v, want unavailable/plan_required tiers [paid]", gemini)
+		if gemini.Available || gemini.Status != "plan_required" || !tierEqual(gemini.Tiers, []string{"full", "paid"}) {
+			t.Errorf("gemini row = %+v, want unavailable/plan_required tiers [full paid]", gemini)
 		}
 		fable := tierRowByID(t, rows, tierFable)
 		if fable.Available || fable.Status != "offer_unavailable" || !tierEqual(fable.Tiers, []string{"offer"}) || fable.Offer != nil {
@@ -317,8 +317,14 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 
 		rows, _ := fetchTierRows(t, ts)
 		gemini := tierRowByID(t, rows, tierGemini)
-		if !gemini.Available || gemini.Status != "unknown" || !tierEqual(gemini.Tiers, []string{"paid"}) {
-			t.Errorf("gemini row with a plan = %+v, want available/unknown tiers [paid]", gemini)
+		if !gemini.Available || gemini.Status != "unknown" || !tierEqual(gemini.Tiers, []string{"full", "paid"}) {
+			t.Errorf("gemini row with a plan = %+v, want available/unknown tiers [full paid]", gemini)
+		}
+		// 2026-09-22 (vendor 0.0.183): the other Pro-only row behaves the same
+		// way, without a plan.
+		pro := tierRowByID(t, rows, "mimo/mimo-v2.6-pro")
+		if !pro.Available || pro.Status != "unknown" || !tierEqual(pro.Tiers, []string{"full", "paid"}) {
+			t.Errorf("mimo pro row with a plan = %+v, want available/unknown tiers [full paid]", pro)
 		}
 		// The offered-only row is unaffected by a plan.
 		fable := tierRowByID(t, rows, tierFable)

@@ -70,24 +70,29 @@ func EmitCatalog(upstreamSHA, registryDir string, out io.Writer) error {
 
 // catalogInputs are the parsed snapshot facts every row and scalar derives from.
 type catalogInputs struct {
-	commit      string
-	ids         map[string]string   // const/member refs -> wire id or bool word
-	bools       map[string]bool     // UI flag consts
-	strArrays   map[string][]string // effort ladders (SUPPORTED/MODELS/PAUSED kept separate)
-	rowNames    []string            // SUPPORTED_FREEBUFF_MODELS order
-	served      map[string]bool     // FREEBUFF_MODELS membership by row name
-	limitedIDs  []string            // LIMITED_FREEBUFF_MODEL_IDS wire ids
-	paidIDs     []string            // FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS wire ids
-	offerIDs    []string            // FREEBUFF_LIMITED_OFFER_MODEL_IDS wire ids
-	pausedNames []string            // FREEBUFF_PAUSED_FREE_MODEL_IDS row refs
-	fields      map[string]map[string]string
-	ctx         map[string]int // wire id -> context window
-	defaultID   string
-	fallbackID  string
-	glm52ID     string
-	glm53ID     string
-	solarID     string
-	defaultCtx  int
+	commit    string
+	ids       map[string]string   // const/member refs -> wire id or bool word
+	bools     map[string]bool     // UI flag consts
+	strArrays map[string][]string // effort ladders (SUPPORTED/MODELS/PAUSED kept separate)
+	rowNames  []string            // SUPPORTED_FREEBUFF_MODELS order
+	served    map[string]bool     // FREEBUFF_MODELS membership by row name
+	// planRequiredIDs is FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS: rows a paid
+	// plan is required for on CLI and Desktop, which the server refuses to
+	// admit on every surface. They stay in the catalog (the picker draws them
+	// locked) but never in the served set.
+	planRequiredIDs []string
+	limitedIDs      []string // LIMITED_FREEBUFF_MODEL_IDS wire ids
+	paidIDs         []string // FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS wire ids
+	offerIDs        []string // FREEBUFF_LIMITED_OFFER_MODEL_IDS wire ids
+	pausedNames     []string // FREEBUFF_PAUSED_FREE_MODEL_IDS row refs
+	fields          map[string]map[string]string
+	ctx             map[string]int // wire id -> context window
+	defaultID       string
+	fallbackID      string
+	glm52ID         string
+	glm53ID         string
+	solarID         string
+	defaultCtx      int
 }
 
 func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
@@ -186,6 +191,7 @@ func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
 		{&c.limitedIDs, "LIMITED_FREEBUFF_MODEL_IDS"},
 		{&c.paidIDs, "FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS"},
 		{&c.offerIDs, "FREEBUFF_LIMITED_OFFER_MODEL_IDS"},
+		{&c.planRequiredIDs, "FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS"},
 	} {
 		v, err := parseTierList(models, c.ids, l.name, commit)
 		if err != nil {
@@ -262,10 +268,12 @@ func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
 }
 
 // Pinned display policy: wire ids whose picker copy the proxy drops.
-// Withdrawn rows with no surfacing copy (ox/pro/minimax) plus rows served on
-// no proxy surface (gemini is Pro-paywalled, fable is a paid-API trial row).
-// A future SUPPORTED row defaults to trimmed unless served; restoring a row
-// to FREEBUFF_MODELS automatically restores its copy.
+// Withdrawn rows with no surfacing copy (ox/pro/minimax) plus fable, a
+// paid-API trial row. Gemini's entry is now inert — its row rejoined
+// FREEBUFF_MODELS on 2026-09-21, and PlanRequired rows keep their copy so the
+// picker can draw them locked. A future SUPPORTED row defaults to trimmed
+// unless served; restoring a row to FREEBUFF_MODELS automatically restores
+// its copy.
 var catalogDisplayTrimmed = map[string]bool{
 	"stealth/ox-alpha":           true,
 	"deepseek/deepseek-v4-pro":   true,
@@ -300,6 +308,7 @@ type catalogRow struct {
 	badges                       []string
 	tiers                        []string
 	served, premium              bool
+	planRequired                 bool
 	pausedReplacement            string
 	ctx                          int
 	efforts                      []string
@@ -325,6 +334,7 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 		paused[id] = true
 	}
 	limited, paid, offer := idSet(c.limitedIDs), idSet(c.paidIDs), idSet(c.offerIDs)
+	proOnly := idSet(c.planRequiredIDs)
 	rows := make([]catalogRow, 0, len(c.rowNames))
 	for _, n := range c.rowNames {
 		f := c.fields[n]
@@ -335,7 +345,13 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 			return nil, fmt.Errorf("wiregen: freebuff-models.ts: row %s has no displayName literal at upstream commit %s", n, c.commit)
 		}
 		r.display = d
-		r.served = c.served[n]
+		// Picker membership (FREEBUFF_MODELS) decides Full-tier membership;
+		// admission additionally refuses the Pro-only rows, mirroring upstream
+		// ("the server refuses the admission on every surface regardless" —
+		// freebuff-model-selection.ts, FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS).
+		inPicker := c.served[n]
+		r.planRequired = proOnly[id]
+		r.served = inPicker && !r.planRequired
 		if paused[id] {
 			r.pausedReplacement = c.defaultID
 		}
@@ -346,7 +362,7 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 		if limited[id] {
 			r.tiers = append(r.tiers, "TierLimited")
 		}
-		if r.served {
+		if inPicker {
 			r.tiers = append(r.tiers, "TierFull")
 		}
 		if paid[id] {
@@ -395,7 +411,7 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 		} else if pin, ok := effortsPinned[id]; ok {
 			r.efforts, r.hasEfforts = append([]string(nil), pin...), true
 		}
-		if catalogDisplayTrimmed[id] && !r.served {
+		if catalogDisplayTrimmed[id] && !r.served && !r.planRequired {
 			rows = append(rows, r)
 			continue
 		}
@@ -695,70 +711,41 @@ func stripTSComment(line string) string {
 	return line
 }
 
-// parseModelsList reads FREEBUFF_MODELS, evaluating `...(FLAG ? [ROW] : [])`
-// spreads against the parsed bool consts.
+// parseModelsList reads FREEBUFF_MODELS, evaluating
+// `...(FLAG ? [ROW, ...] : [])` spreads against the parsed bool consts. The
+// spread is read as one item, so a gated run of rows wrapped across lines
+// (upstream's FREEBUFF_ENABLE_MIMO_MODELS_IN_UI gate) lands as the same item
+// a single-line spread would.
 func parseModelsList(src string, bools map[string]bool, commit string) ([]string, error) {
 	re := regexp.MustCompile(`export const FREEBUFF_MODELS[^\n]*?=\s*\[`)
 	loc := re.FindStringIndex(src)
 	if loc == nil {
 		return nil, fmt.Errorf("wiregen: freebuff-models.ts: no FREEBUFF_MODELS list at upstream commit %s", commit)
 	}
-	depth := 0
-	end := -1
-	var q byte
-	i := loc[1] - 1
-	for ; i < len(src); i++ {
-		ch := src[i]
-		if q != 0 {
-			if ch == q {
-				q = 0
-			}
-			continue
-		}
-		switch {
-		case ch == '\'' || ch == '"' || ch == '`':
-			q = ch
-		case ch == '/' && i+1 < len(src) && src[i+1] == '/':
-			for i < len(src) && src[i] != '\n' {
-				i++
-			}
-		case ch == '[':
-			depth++
-		case ch == ']':
-			depth--
-			if depth == 0 {
-				end = i
-			}
-		}
-		if end >= 0 {
-			break
-		}
+	body, err := bracketBody(src, loc[1]-1, "FREEBUFF_MODELS", commit)
+	if err != nil {
+		return nil, err
 	}
-	if end < 0 {
-		return nil, fmt.Errorf("wiregen: freebuff-models.ts: FREEBUFF_MODELS brackets unbalanced at upstream commit %s", commit)
-	}
-	spread := regexp.MustCompile(`^\.\.\.\((\w+) \? \[(\w+)\] : \[\]\)$`)
 	var out []string
-	for ln, line := range strings.Split(src[loc[1]:end], "\n") {
-		t := strings.TrimSpace(stripTSComment(line))
-		t = strings.TrimSpace(strings.TrimSuffix(t, ","))
-		if t == "" {
-			continue
-		}
-		if m := spread.FindStringSubmatch(t); m != nil {
-			v, ok := bools[m[1]]
+	for _, item := range splitListItems(body) {
+		if strings.HasPrefix(item.text, "...") {
+			flag, refs, ok := splitConditionalSpread(item.text)
 			if !ok {
-				return nil, fmt.Errorf("wiregen: freebuff-models.ts: FREEBUFF_MODELS:%d: unknown flag %q at upstream commit %s", ln+1, m[1], commit)
+				return nil, fmt.Errorf("wiregen: freebuff-models.ts: FREEBUFF_MODELS:%d: unsupported spread %q at upstream commit %s", item.line, item.text, commit)
+			}
+			v, known := bools[flag]
+			if !known {
+				return nil, fmt.Errorf("wiregen: freebuff-models.ts: FREEBUFF_MODELS:%d: unknown flag %q at upstream commit %s", item.line, flag, commit)
 			}
 			if v {
-				out = append(out, m[2])
+				out = append(out, refs...)
 			}
 			continue
 		}
-		if !isIdent(t) {
-			return nil, fmt.Errorf("wiregen: freebuff-models.ts: FREEBUFF_MODELS:%d: unexpected item %q at upstream commit %s", ln+1, t, commit)
+		if !isIdent(item.text) {
+			return nil, fmt.Errorf("wiregen: freebuff-models.ts: FREEBUFF_MODELS:%d: unexpected item %q at upstream commit %s (want a plain row name)", item.line, item.text, commit)
 		}
-		out = append(out, t)
+		out = append(out, item.text)
 	}
 	return out, nil
 }
@@ -781,15 +768,14 @@ func parseTierList(src string, ids map[string]string, name, commit string) ([]st
 	if err != nil {
 		return nil, err
 	}
-	spread := regexp.MustCompile(`^\.\.\.\(([\w.]+) \? \[([\w.]+)\] : \[\]\)$`)
 	var out []string
-	for _, item := range tierItems(body) {
-		if strings.HasPrefix(item, "...") {
-			m := spread.FindStringSubmatch(item)
-			if m == nil {
-				return nil, fmt.Errorf("wiregen: freebuff-models.ts: %s: unsupported spread %q at upstream commit %s", name, item, commit)
+	for _, item := range splitListItems(body) {
+		if strings.HasPrefix(item.text, "...") {
+			flagName, refs, ok := splitConditionalSpread(item.text)
+			if !ok {
+				return nil, fmt.Errorf("wiregen: freebuff-models.ts: %s:%d: unsupported spread %q at upstream commit %s", name, item.line, item.text, commit)
 			}
-			flag, err := resolveCatalogRef(ids, m[1], name+" spread flag", commit)
+			flag, err := resolveCatalogRef(ids, flagName, name+" spread flag", commit)
 			if err != nil {
 				return nil, err
 			}
@@ -797,17 +783,19 @@ func parseTierList(src string, ids map[string]string, name, commit string) ([]st
 			case "false":
 				continue
 			case "true":
-				id, err := resolveCatalogRef(ids, m[2], name+" spread id", commit)
-				if err != nil {
-					return nil, err
+				for _, ref := range refs {
+					id, err := resolveCatalogRef(ids, ref, name+" spread id", commit)
+					if err != nil {
+						return nil, err
+					}
+					out = append(out, id)
 				}
-				out = append(out, id)
 			default:
-				return nil, fmt.Errorf("wiregen: freebuff-models.ts: %s: spread flag %s is %q, not a bool, at upstream commit %s", name, m[1], flag, commit)
+				return nil, fmt.Errorf("wiregen: freebuff-models.ts: %s: spread flag %s is %q, not a bool, at upstream commit %s", name, flagName, flag, commit)
 			}
 			continue
 		}
-		id, err := resolveCatalogRef(ids, item, name+" item", commit)
+		id, err := resolveCatalogRef(ids, item.text, name+" item", commit)
 		if err != nil {
 			return nil, err
 		}
@@ -816,45 +804,99 @@ func parseTierList(src string, ids map[string]string, name, commit string) ([]st
 	return out, nil
 }
 
-// tierItems splits a list body into items at top-level commas, with line
-// comments dropped and whitespace collapsed, so a spread broken across lines
-// reads as the single item it is.
+// tierItems is splitListItems without the line numbers, for callers that
+// report by list name rather than by position.
 func tierItems(body string) []string {
-	lines := strings.Split(body, "\n")
-	for i := range lines {
-		lines[i] = stripTSComment(lines[i])
+	items := splitListItems(body)
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.text)
 	}
-	flat := strings.Join(lines, "\n")
-	var out []string
-	add := func(s string) {
-		if s = strings.Join(strings.Fields(s), " "); s != "" {
-			out = append(out, s)
+	return out
+}
+
+// listItem is one entry of an upstream list literal: the item's collapsed
+// text, and the 1-based body line it starts on, so a parse failure names it.
+type listItem struct {
+	text string
+	line int
+}
+
+// conditionalSpread matches upstream's gated-list idiom
+// `...(FLAG ? [REF, ...] : [])`. The true branch carries any number of refs —
+// FREEBUFF_ENABLE_MIMO_MODELS_IN_UI gates two rows — and the whole spread may
+// be wrapped across lines, which splitListItems has already joined.
+var conditionalSpread = regexp.MustCompile(`^\.\.\.\(([\w.]+) \? \[([^\]]*)\] : \[\]\)$`)
+
+// splitConditionalSpread parses one spread item into its flag and its refs.
+func splitConditionalSpread(item string) (string, []string, bool) {
+	m := conditionalSpread.FindStringSubmatch(item)
+	if m == nil {
+		return "", nil, false
+	}
+	var refs []string
+	for _, r := range strings.Split(m[2], ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			refs = append(refs, r)
 		}
 	}
+	return m[1], refs, true
+}
+
+// splitListItems splits a list body into items at top-level commas, dropping
+// line comments and collapsing each item's own whitespace. An item whose
+// brackets or parens are still open at the end of a line continues on the
+// next one, so a wrapped conditional spread stays the single item it is.
+func splitListItems(body string) []listItem {
+	var out []listItem
+	var buf []string
 	depth := 0
 	var q byte
-	start := 0
-	for i := range len(flat) {
-		ch := flat[i]
-		if q != 0 {
-			if ch == q {
-				q = 0
-			}
+	startLine := 0
+	flush := func() {
+		text := strings.Join(strings.Fields(strings.Join(buf, " ")), " ")
+		text = strings.TrimSpace(strings.TrimSuffix(text, ","))
+		if text != "" {
+			out = append(out, listItem{text: text, line: startLine})
+		}
+		buf = nil
+		depth = 0
+		q = 0
+		startLine = 0
+	}
+	for i, raw := range strings.Split(body, "\n") {
+		line := stripTSComment(raw)
+		if strings.TrimSpace(line) == "" && len(buf) == 0 {
 			continue
 		}
-		switch {
-		case ch == '\'' || ch == '"' || ch == '`':
-			q = ch
-		case ch == '[' || ch == '(' || ch == '{':
-			depth++
-		case ch == ']' || ch == ')' || ch == '}':
-			depth--
-		case ch == ',' && depth == 0:
-			add(flat[start:i])
-			start = i + 1
+		if len(buf) == 0 {
+			startLine = i + 1
+		}
+		buf = append(buf, line)
+		for j := 0; j < len(line); j++ {
+			ch := line[j]
+			if q != 0 {
+				if ch == q {
+					q = 0
+				}
+				continue
+			}
+			switch ch {
+			case '\'', '"', '`':
+				q = ch
+			case '[', '(', '{':
+				depth++
+			case ']', ')', '}':
+				depth--
+			case ',':
+				if depth == 0 {
+					flush()
+					j = len(line)
+				}
+			}
 		}
 	}
-	add(flat[start:])
+	flush()
 	return out
 }
 
@@ -980,6 +1022,7 @@ func renderCatalog(commit string, c *catalogInputs, rows []catalogRow) []byte {
 package modelcat
 
 import (
+	"strings"
 	"time"
 )
 
@@ -1006,6 +1049,11 @@ type ModelInfo struct {
 	// own global pool (FREEBUFF_LIMITED_OFFER_MODEL_IDS), not the shared
 	// pool, so it is NOT marked Premium here.
 	Premium bool
+	// PlanRequired marks FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS membership:
+	// a paid plan is required and the upstream server refuses the admission on
+	// every surface. The picker draws the row locked (PlanRequiredLabel, no
+	// price) instead of hiding it, so a client can see what a plan buys.
+	PlanRequired bool
 	// ContextWindow mirrors FREEBUFF_MODEL_CONTEXT_WINDOWS in tokens; 0
 	// means upstream falls back to DefaultContextWindow.
 	ContextWindow int
@@ -1050,6 +1098,9 @@ var Catalog = []ModelInfo{
 		if r.hasEfforts {
 			fmt.Fprintf(&b, ",\n\t\tEfforts: []string{%s}", quotedList(r.efforts))
 		}
+		if r.planRequired {
+			b.WriteString(",\n\t\tPlanRequired: true")
+		}
 		if r.pausedReplacement != "" {
 			fmt.Fprintf(&b, ",\n\t\tPausedReplacement: %q", r.pausedReplacement)
 		}
@@ -1074,12 +1125,38 @@ const FallbackModelID = %q
 // deliberately, never on sync.
 const LimitedModelID = %q
 
+// PlanRequiredLabel / PlanRequiredLine mirror upstream
+// FREEBUFF_PLAN_REQUIRED_LABEL and FREEBUFF_PLAN_REQUIRED_LINE
+// (common/src/util/freebuff-model-selection.ts): the locked row's badge and
+// sentence, the same copy the CLI prints.
+const (
+	PlanRequiredLabel = "Paid plan"
+	PlanRequiredLine  = "Included with a paid plan."
+)
+
+// SubscriptionProModelIDs mirrors upstream FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS
+// (re-exported as FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS): the rows that require a
+// paid plan on CLI and Desktop, refused by the server on every surface.
+var SubscriptionProModelIDs = []string{%s}
+
+// IsSubscriptionPro mirrors upstream isFreebuffSubscriptionProModelId:
+// suffix-tolerant, so a dated provider snapshot (mimo-mimo-v2.6-pro-<date>)
+// cannot dodge the plan gate.
+func IsSubscriptionPro(id string) bool {
+	for _, pro := range SubscriptionProModelIDs {
+		if id == pro || strings.HasPrefix(id, pro+"-") {
+			return true
+		}
+	}
+	return false
+}
+
 // DeepSeekV4FlashModelID mirrors upstream FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID.
 const DeepSeekV4FlashModelID = "deepseek/deepseek-v4-flash"
 
 // LimitedTierModelIDs mirrors upstream LIMITED_FREEBUFF_MODEL_IDS: the four models
 // available to limited-access tier accounts (GLM 5.3 Flash, DeepSeek V4 Flash,
-// MiMo 2.5, Solar Pro 4).
+// MiMo 2.6 Flash — the wire id keeps its v2.5 spelling —, Solar Pro 4).
 var LimitedTierModelIDs = []string{
 	Glm53ModelID,
 	DeepSeekV4FlashModelID,
@@ -1118,7 +1195,7 @@ const GLMSessionLength = time.Hour
 // DefaultContextWindow mirrors upstream FREEBUFF_DEFAULT_CONTEXT_WINDOW:
 // assumed for any model absent from FREEBUFF_MODEL_CONTEXT_WINDOWS.
 const DefaultContextWindow = %d
-`, c.defaultID, c.fallbackID, c.fallbackID, c.glm52ID, c.glm53ID, c.solarID, c.defaultCtx)
+`, c.defaultID, c.fallbackID, c.fallbackID, quotedList(c.planRequiredIDs), c.glm52ID, c.glm53ID, c.solarID, c.defaultCtx)
 	return []byte(b.String())
 }
 

@@ -139,9 +139,8 @@ func TestChatCompletionsEnvelope(t *testing.T) {
 	if sent["stream"] != true {
 		t.Errorf("stream not forced: %v", sent["stream"])
 	}
-	stop, ok := sent["stop"].([]any)
-	if !ok || len(stop) != 1 || stop[0] != `"cb_easp"` {
-		t.Errorf("stop sentinel not injected (JSON-quoted form): %v", sent["stop"])
+	if stop, ok := sent["stop"]; ok {
+		t.Errorf("stop injected into the envelope: %v (the CLI sends none since vendor 0.0.183)", stop)
 	}
 	if sent["temperature"] != 0.7 {
 		t.Errorf("temperature lost in envelope: %v", sent["temperature"])
@@ -633,7 +632,7 @@ func TestInjectEnvelopeBranchMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("no stop adds quoted cb_easp", func(t *testing.T) {
+	t.Run("no stop stays absent", func(t *testing.T) {
 		out, err := injectEnvelope([]byte(`{"model":"m"}`), "free", ChatOptions{RunID: "r"})
 		if err != nil {
 			t.Fatal(err)
@@ -642,9 +641,9 @@ func TestInjectEnvelopeBranchMatrix(t *testing.T) {
 		if err := json.Unmarshal(out, &payload); err != nil {
 			t.Fatal(err)
 		}
-		stop, ok := payload["stop"].([]any)
-		if !ok || len(stop) != 1 || stop[0] != `"cb_easp"` {
-			t.Errorf(`stop = %v, want ["\"cb_easp\""] (JSON-quoted, agent-runtime constants.ts:3)`, payload["stop"])
+		if stop, ok := payload["stop"]; ok {
+			t.Errorf("stop = %v, want absent: upstream dropped the global stop sequence "+
+				"(agent-runtime constants.ts / prompt-agent-stream.ts, vendor 0.0.183)", stop)
 		}
 	})
 

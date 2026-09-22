@@ -114,10 +114,10 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal(data, &ml); err != nil {
 			t.Fatalf("/v1/models not JSON: %v: %s", err, data)
 		}
-		// 8 = the catalog surface (6 served + 2 tier rows) since the tier-aware
+		// 9 = the catalog surface (6 served + 3 tier rows) since the tier-aware
 		// gate; withdrawn rows stay unlisted and healthz still counts the 6
 		// served ids.
-		if len(ml.Data) != 8 {
+		if len(ml.Data) != 9 {
 			t.Fatalf("/v1/models count = %d, want 8 (served + tier rows)", len(ml.Data))
 		}
 		found := false

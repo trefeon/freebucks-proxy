@@ -69,6 +69,9 @@ var expectedFallback = map[string]string{
 	"z-ai/glm-5.3":                     "base2-free-glm-5-3",
 	"anthropic/claude-fable-5.1-test":  "base2-free-fable-test",
 	"openai/gpt-6-astra-discount-test": "base2-free-astra-discount-test",
+	// Supplier addition in the 0.0.183 registry snapshot: MiMo 2.6 Pro, which
+	// takes its own wire id and its own root agent (one id per entitlement).
+	"mimo/mimo-v2.6-pro": "base2-free-mimo-2-6-pro",
 }
 
 func TestFallbackMap(t *testing.T) {

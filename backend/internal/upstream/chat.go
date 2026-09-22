@@ -384,8 +384,11 @@ func ensureCliSystemMarker(payload map[string]any, agentID string) {
 
 // injectEnvelope merges the CLI fingerprint into the request body without
 // disturbing client-supplied fields: codebuff_metadata, provider
-// data_collection=deny, stream=true, and the cb_easp stop sentinel when the
-// request has no stop of its own.
+// data_collection=deny, and forced streaming. The envelope carries no stop
+// sequence: upstream deleted globalStopSequence and the stopSequences
+// argument that passed it (agent-runtime constants.ts, prompt-agent-stream.ts
+// at vendor 0.0.183), so the real CLI now sends none and a request only ever
+// carries a stop list the client supplied itself.
 func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -475,16 +478,6 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	payload["codebuff_metadata"] = metadata
 	payload["provider"] = map[string]any{"data_collection": "deny"}
 	payload["stream"] = true
-	if _, hasStop := payload["stop"]; !hasStop {
-		// The CLI's global stop sequence is the JSON-ENCODED token, not the
-		// bare one (agent-runtime/src/constants.ts:3:
-		// globalStopSequence = `${JSON.stringify(endsAgentStepParam)}` =
-		// `"cb_easp"` with the quotes; prompt-agent-stream.ts:100 passes it
-		// as stopSequences). endsAgentStepParam itself is a tool-param name
-		// (common/src/tools/constants.ts:7).
-		payload["stop"] = []string{`"cb_easp"`}
-	}
-
 	out, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("re-marshal envelope: %w", err)

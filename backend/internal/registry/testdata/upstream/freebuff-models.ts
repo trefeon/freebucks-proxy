@@ -126,6 +126,13 @@ export interface FreebuffModelOption {
    *  in the picker as a "TEST" badge with a tooltip so users know it is not
    *  yet production-grade. */
   experimental?: boolean
+  /** A caveat about this row's PRICE, rendered as a warning-coloured "Price"
+   *  badge whose tooltip is this text (the CLI, which has no tooltips, prints
+   *  it inline). For a row whose Freebucks price is provisional — a launch
+   *  rate card the vendor has not committed to — so a user does not build a
+   *  habit on a number that may move. Distinct from `warning` (data use) and
+   *  `experimental` (reliability): a row can be dependable and still repriced. */
+  priceWarning?: string
   /** Tooltip attached to the tagline, for a tagline that names a behavior the
    *  word alone cannot explain (e.g. "Queue"). Rendered with the same
    *  dotted-underline affordance as the data-use "Data" label, so a row can
@@ -164,7 +171,18 @@ export const FREEBUFF_DEEPSEEK_V4_FLASH_FIREWORKS_MODEL_ID =
 // its paid lane, and the `tencent/hy3*` model-config entries have all been
 // deleted. Nothing routes these slugs now — a request for one falls through to
 // the ordinary unknown-model path.
+/** The MiMo row's wire id. Serves MiMo 2.6 FLASH since 2026-09-21 — the
+ *  `v2.5` in the id is history, not the model. Kept rather than minted anew for
+ *  the reason DeepSeek V4.1 kept its undated id: every installed binary, saved
+ *  pick, allowlist, fallback and the limited catalog already names this one,
+ *  and a new id would strand all of them on a row that no longer exists. The
+ *  upstream name is chosen in web/src/llm-api/mimo-request-body.ts. */
 export const FREEBUFF_MIMO_V25_MODEL_ID = mimoModels.mimoV25
+/** MiMo 2.6 Pro (2026-09-21), paid-only on every surface, 30 Freebucks. Unlike the MiMo
+ *  row above it has its own id: it is a different, dearer model, and one wire
+ *  id per entitlement is the rule (a Pro served under the Flash id would be a
+ *  30-Freebuck model sold at 10). */
+export const FREEBUFF_MIMO_V26_PRO_MODEL_ID = mimoModels.mimoV26Pro
 /** GLM 5.2, served by CrofAI's direct OpenAI-compatible API (moved off
  *  Fireworks serverless 2026-07-29, at ~4x less than Fireworks' list price).
  *  The `z-ai/` prefix is a wire id inherited from the Fireworks era — nothing
@@ -254,6 +272,22 @@ export const FREEBUFF_GLM_V53_FLASH_MODEL_ID = 'z-ai/glm-5.3-flash'
  * (verified live: a `z-ai`-only request under this ceiling 404s). The endpoints
  * that fail in ways a ceiling cannot express are refused by name — see
  * GLM_V53_FLASH_OPENROUTER_IGNORED.
+ *
+ * HELD AT $0.14/$0.45 ON 2026-09-20, after a raise to $0.16/$0.55 was written
+ * and then rejected on cost. That raise would have admitted the ~$0.15/$0.50
+ * commodity band — twenty live probes spread over fourteen hosts, which is
+ * real capacity — but blended at the hit rate this lane's traffic actually
+ * runs at, it is ~1.9x the hosts this ceiling admits and several times the
+ * lane in front. The capacity problem it was solving is better solved by a
+ * cheaper SECOND LANE than by paying the commodity band on the third one.
+ * GLM_V53_FLASH_CHEAPER_INFERENCE_PROVIDER_ROUTE carries that comparison;
+ * this file is exported publicly, so the measured rates stay there.
+ *
+ * What stays under $0.14/$0.45, after GLM_V53_FLASH_OPENROUTER_IGNORED: Novita
+ * ($0.132/$0.44), GMICloud ($0.105/$0.35) and DeepInfra fp4 ($0.075/$0.25).
+ * Three hosts is thin, and the answer to that is NOT this number — see the
+ * emptied order on GLM_V53_FLASH_OPENROUTER_UPSTREAM_ORDER, which is what
+ * stopped all three being funnelled into whichever one was listed first.
  */
 export const FREEBUFF_GLM_V53_FLASH_MAX_PRICE = {
   prompt: 0.14,
@@ -1298,7 +1332,11 @@ const DEEPSEEK_V4_PRO_MODEL = {
 
 const MIMO_V25_MODEL = {
   id: FREEBUFF_MIMO_V25_MODEL_ID,
-  displayName: 'MiMo 2.5',
+  // MiMo 2.6 Flash since 2026-09-21, under the unchanged wire id (see
+  // FREEBUFF_MIMO_V25_MODEL_ID). Same Xiaomi rate card as 2.5 to the cent
+  // ($0.14 in / $0.28 out / $0.0028 cache read per M), so nothing about this
+  // row's economics or its unmetered/fallback role moved with the name.
+  displayName: 'MiMo 2.6 Flash',
   tagline: 'Balanced',
   availability: 'always',
   dataUse: 'service',
@@ -1324,6 +1362,31 @@ const MIMO_V25_MODEL = {
   //
   // Restore it together with Flash leaving FREEBUFF_PREMIUM_MODEL_IDS, not
   // before: the argument returns only when Flash is free again.
+  //
+  // NEW because the model under this row changed (2.5 -> 2.6 Flash) while its
+  // id did not — exactly the returning user the badge exists for.
+  isNew: true,
+} as const satisfies FreebuffModelOption
+
+const MIMO_V26_PRO_MODEL = {
+  id: FREEBUFF_MIMO_V26_PRO_MODEL_ID,
+  displayName: 'MiMo 2.6 Pro',
+  // Full access only: deliberately absent from LIMITED_FREEBUFF_MODEL_IDS.
+  tagline: 'Strong reasoning',
+  availability: 'always',
+  // Same host and terms as the MiMo row: Xiaomi's API, reached through
+  // OpenRouter's `xiaomi/fp8` endpoint with Xiaomi direct as the backup lane.
+  dataUse: 'service',
+  // Premium, like Gemini 3.8 Flash: a paid-only row must not be read as a
+  // STANDARD (free, unmetered) model — FREEBUFF_STANDARD_MODEL_IDS is derived
+  // from `!premium`. Freebucks is still the meter that prices it.
+  premium: true,
+  // OpenRouter lists text + image (+ audio, video) input; verified with a real
+  // image against both lanes before shipping.
+  multimodal: true,
+  // Like MiMo 2.6 Flash, no effort ladder: Xiaomi exposes thinking on/off
+  // only, and the product has no separate control for that.
+  isNew: true,
 } as const satisfies FreebuffModelOption
 
 const DEEPSEEK_V4_FLASH_MODEL = {
@@ -2021,6 +2084,7 @@ export const SUPPORTED_FREEBUFF_MODELS = [
   GLM_V53_FLASH_MODEL,
   DEEPSEEK_V4_FLASH_MODEL,
   MIMO_V25_MODEL,
+  MIMO_V26_PRO_MODEL,
   FABLE_5_1_MODEL,
 ] as const satisfies readonly FreebuffModelOption[]
 
@@ -2097,7 +2161,9 @@ export const FREEBUFF_MODELS = [
   GLM_V53_FLASH_MODEL,
   DEEPSEEK_V4_FLASH_MODEL,
   GPT_5_6_LUNA_MODEL,
-  ...(FREEBUFF_ENABLE_MIMO_MODELS_IN_UI ? [MIMO_V25_MODEL] : []),
+  ...(FREEBUFF_ENABLE_MIMO_MODELS_IN_UI
+    ? [MIMO_V25_MODEL, MIMO_V26_PRO_MODEL]
+    : []),
   // OX ALPHA LEFT THIS LIST on 2026-08-27, when its anonymous host ended the
   // free promotion the row existed for. MiMo is the sole UNMETERED row again.
   //
@@ -2108,11 +2174,9 @@ export const FREEBUFF_MODELS = [
   // coercible for the installed binaries that still hold it.
   SOLAR_PRO_4_MODEL,
   // GEMINI 3.8 FLASH LEFT THIS LIST on 2026-09-03, hours after joining it, when
-  // the row was withdrawn (FREEBUFF_PAUSED_FREE_MODEL_IDS). Dropping it here is
-  // what takes it out of every picker on every surface — FREEBUFF_WEB_MODELS
-  // reaches it only by spreading this list — but it is NOT what stops it being
-  // served; the pause is. Its row stays in SUPPORTED_FREEBUFF_MODELS so the id
-  // stays recognisable and coercible for the installed binaries that hold it.
+  // the row was withdrawn, and came back to Web alone behind the paywall on
+  // 09-04. It returned to this list on 2026-09-21 — see the note above Muse
+  // Spark 1.2 below.
   //
   // MUSE SPARK 1.3 LEFT on 2026-09-07, three days after joining. It is not
   // busy or flapping any more, it is GONE at Meta: probed that day, all four
@@ -2133,6 +2197,14 @@ export const FREEBUFF_MODELS = [
   // only thing that kept it browser-bound. That is the same argument that
   // widened 1.3 three days ago; it did not depend on the version.
   //
+  // GEMINI 3.8 FLASH IS BACK IN THIS LIST since 2026-09-21, on every surface,
+  // and still a PAID-ONLY row (FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS). What kept
+  // it Web-only was that its paywall ran on Web alone; it is now in
+  // FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS beside MiMo 2.6 Pro, so listing
+  // it here no longer hands the dearest row out free. The CLI and Desktop pickers draw it LOCKED
+  // for an account without a plan (`freebuffPlanRequired`): no price, a "paid
+  // plan" note, and a press that opens the plans page.
+  GEMINI_38_FLASH_MODEL,
   // Last in the list on purpose, as 1.3 was: this is still the one row that
   // may answer as another model when Meta's team-wide ceiling is full, and a
   // row carrying that caveat should not outrank one without it.
@@ -2316,11 +2388,10 @@ export const FREEBUFF_PAUSED_FREE_MODEL_IDS: readonly string[] = [
   //
   // It comes back BEHIND THE PAYWALL rather than to where it was:
   // FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS, listed to everyone without a price and
-  // openable only on a paid session. It is also Web-only now — it is in
-  // FREEBUFF_WEB_MODELS and deliberately NOT back in FREEBUFF_MODELS, because
-  // Pro is enforced on Web alone (FREEBUFF_PRO_ENFORCED_SURFACES) and listing
-  // the dearest row in the catalog on a surface that cannot charge for it would
-  // hand it out free.
+  // openable only on a paid session. It was Web-only until 2026-09-21, while
+  // its paywall ran on Web alone; it now runs on every surface
+  // (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS) and the row is in
+  // FREEBUFF_MODELS.
 ]
 
 /**
@@ -2452,14 +2523,9 @@ export const FREEBUFF_WEB_MODELS = [
   // Muse Spark 1.2 reaches this list by spreading FREEBUFF_MODELS again,
   // as it did before its 2026-09-02 retirement; naming it here too would
   // duplicate the row.
-  // Gemini 3.8 Flash is listed HERE rather than in FREEBUFF_MODELS, and the
-  // difference is the whole gate. It is a Pro row
-  // (FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS), and Pro is enforced on Freebuff Web
-  // alone; naming it in FREEBUFF_MODELS would put it in the CLI and Desktop
-  // pickers too, where `checkProOnlyModel` does not run and the row would be
-  // served free. Web-only listing and Web-only enforcement are the same
-  // decision written in two places, and they must move together.
-  GEMINI_38_FLASH_MODEL,
+  // Gemini 3.8 Flash reaches this list by spreading FREEBUFF_MODELS since
+  // 2026-09-21. It was named here alone while the paywall ran on Web alone;
+  // naming it here too would now duplicate the row.
   // GLM 5.2 LEFT on 2026-08-31, when the reward it backed moved to GLM 5.3
   // Flash and the row was withdrawn (FREEBUFF_PAUSED_FREE_MODEL_IDS). It
   // reached this list, and only this list, as the earned row the browser picker
@@ -2795,8 +2861,7 @@ export const DEFAULT_FREEBUFF_MODEL_ID: FreebuffModelId =
  *  inherited, not chosen. Bump both together at the next flip. */
 export const PREVIOUS_DEFAULT_FREEBUFF_MODEL_ID: FreebuffModelId =
   FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID
-export const FREEBUFF_DEFAULT_MODEL_MIGRATION_ID =
-  'glm-5.3-flash-2026-09-05'
+export const FREEBUFF_DEFAULT_MODEL_MIGRATION_ID = 'glm-5.3-flash-2026-09-05'
 
 /** What new Freebuff Web/Cloud users see selected in the browser pickers, and
  *  the model a new Cloud thread starts on. DeepSeek V4.1 Flash as of
@@ -3105,7 +3170,43 @@ export const FREEBUFF_CLOUD_PLANNER_TURN_LIMIT = 12
  * limited-tier restriction.
  */
 export const FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS: readonly string[] =
-  Object.freeze([FREEBUFF_GEMINI_38_FLASH_MODEL_ID])
+  Object.freeze([
+    FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
+    // MiMo 2.6 Pro, paid-only from 2026-09-21. Both rows are paid-only on
+    // EVERY surface since that day (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS).
+    FREEBUFF_MIMO_V26_PRO_MODEL_ID,
+  ])
+
+/**
+ * Pro-only rows whose paywall is enforced on CLI and Desktop too, not only on
+ * Freebuff Web (FREEBUFF_PRO_ENFORCED_SURFACES).
+ *
+ * Both are in the CLI/Desktop catalog (FREEBUFF_MODELS): MiMo 2.6 Pro since it
+ * shipped, Gemini 3.8 Flash since 2026-09-21 (it was Web-only before, which is
+ * what kept it paid there). Two things carry the gate on those surfaces:
+ * session admission refuses a non-paying account (`checkProOnlyModel` in
+ * web/src/server/free-session/public-api.ts), and the CLI and Desktop pickers
+ * draw the row LOCKED for an account without a live plan
+ * (`freebuffPlanRequired`): listed, with no price, and a press opens the plans
+ * page instead of starting a session. The first is the gate; the second only
+ * stops the picker offering what admission would refuse.
+ */
+export const FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS: readonly string[] =
+  Object.freeze([
+    FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
+    FREEBUFF_MIMO_V26_PRO_MODEL_ID,
+  ])
+
+export function isFreebuffProOnlyEverySurfaceModelId(
+  id: string | null | undefined,
+): boolean {
+  return (
+    !!id &&
+    FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS.some((pro) =>
+      freebuffModelIdMatches(id, pro),
+    )
+  )
+}
 
 /** Whether the catalog marks `id` openable only on a paid session. Exact match:
  *  the suffix-tolerant public predicate is
@@ -3126,6 +3227,8 @@ export function isFreebuffProOnlyCatalogModelId(id: string): boolean {
 export const FREEBUFF_LIMITED_TIER_PLAN_ONLY_MODEL_IDS: readonly string[] =
   Object.freeze([
     FREEBUFF_GPT_5_6_LUNA_MODEL_ID,
+    // MiMo 2.6 Pro arrives through the spread below: it is paid-only at every
+    // tier, which includes this one.
     ...FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS,
   ])
 
@@ -3209,6 +3312,12 @@ export function getFreebuffModelsForAccessTier(
    *  offer rows admission then refuses. */
   hasPaidSubscription = false,
 ): readonly FreebuffModelOption[] {
+  // At full access a paid-only row is LISTED to every account, and the CLI and
+  // Desktop pickers draw it LOCKED for one without a plan
+  // (`freebuffPlanRequired`): no price, and a press opens the plans page.
+  // Listed rather than hidden (a product call, 2026-09-21) because the thing
+  // between the user and the row is a plan we sell. Admission refuses a
+  // planless start regardless (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS).
   if (accessTier !== 'limited') return FREEBUFF_MODELS
   if (!hasPaidSubscription) return LIMITED_FREEBUFF_MODELS
   // Plan rows are appended rather than merged in catalog order: the limited
@@ -3392,6 +3501,9 @@ export const FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS: readonly string[] =
     FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID,
     FREEBUFF_KIMI_K3_ECO_MODEL_ID,
     FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
+    // With Luna: this list is what widens the limited tier for a subscriber,
+    // so a plan-only row missing here would be offered and then coerced away.
+    FREEBUFF_MIMO_V26_PRO_MODEL_ID,
   ])
 
 /**

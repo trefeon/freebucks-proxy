@@ -58,6 +58,7 @@ var pinnedRowIDs = map[string]string{
 	"GLM_V53_FLASH_MODEL":     "z-ai/glm-5.3-flash",
 	"DEEPSEEK_V4_FLASH_MODEL": "deepseek/deepseek-v4-flash",
 	"MIMO_V25_MODEL":          "mimo/mimo-v2.5",
+	"MIMO_V26_PRO_MODEL":      "mimo/mimo-v2.6-pro",
 	"FABLE_5_1_MODEL":         "anthropic/claude-fable-5.1",
 	"SOLAR_PRO_4_MODEL":       "upstage/solar-pro4",
 	"GEMINI_38_FLASH_MODEL":   "google/gemini-3.8-flash",
@@ -463,13 +464,14 @@ var wantTiers = map[string][]string{
 	"minimax/minimax-m3":              nil,
 	"openai/gpt-5.6-luna":             {TierFull, TierPaid},
 	"upstage/solar-pro4":              {TierLimited, TierFull},
-	"google/gemini-3.8-flash":         {TierPaid},
+	"google/gemini-3.8-flash":         {TierFull, TierPaid},
 	"meta/muse-spark-1.3-contributor": nil,
 	"meta/muse-spark-1.2-contributor": {TierFull},
 	"z-ai/glm-5.2":                    nil,
 	"z-ai/glm-5.3-flash":              {TierLimited, TierFull, TierPaid},
 	"deepseek/deepseek-v4-flash":      {TierLimited, TierFull, TierPaid},
 	"mimo/mimo-v2.5":                  {TierLimited, TierFull},
+	"mimo/mimo-v2.6-pro":              {TierFull, TierPaid},
 	"anthropic/claude-fable-5.1":      {TierOffer},
 }
 
