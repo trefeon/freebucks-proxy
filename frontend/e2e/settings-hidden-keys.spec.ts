@@ -170,7 +170,7 @@ test.describe("settings hidden keys", () => {
     // disclosure row there, while the rest of the Controls tab still paints
     // (the absence check is not vacuous).
     await page.goto(TOKENS);
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(
       page.getByRole("radiogroup", { name: "Pool strategy" }),
     ).toBeVisible();

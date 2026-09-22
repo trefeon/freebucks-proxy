@@ -8,7 +8,7 @@ test.describe("user flows", () => {
   test("models: copy model ID confirms Copied", async ({ page }) => {
     await mockDashboard(page, loadFixtures());
     await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await page.getByText("deepseek/deepseek-v4-flash").first().waitFor();
     await page.getByRole("button", { name: "Copy model ID" }).first().click();
     await expect(page.getByText("Copied").first()).toBeVisible();
@@ -32,7 +32,7 @@ test.describe("user flows", () => {
       }
     });
     await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Models" }).click();
+    await page.getByRole("button", { name: "Catalog" }).click();
     await page.getByRole("button", { name: "Retry" }).click();
     await expect(
       page.getByText("deepseek/deepseek-v4-flash").first(),

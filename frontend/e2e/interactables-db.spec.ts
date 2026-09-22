@@ -303,7 +303,7 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     ).toBeVisible();
   });
 
-  test("pool Accounts/Warming/Controls tabs switch panels", async ({
+  test("pool Fleet/Streaks/Strategy tabs switch panels", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -328,7 +328,7 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
       page.getByRole("radio", { name: "Drain", exact: true }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await page.getByRole("button", { name: "Fleet", exact: true }).click();
     await expect(page.getByText("Account #1").first()).toBeVisible();
   });
 

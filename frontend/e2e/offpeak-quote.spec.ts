@@ -39,7 +39,7 @@ test.describe("off-peak quote (mock backend)", () => {
     await page.goto(adminUrl("plans"));
     await page.getByRole("button", { name: "Catalog" }).click();
     await expect(
-      page.getByRole("heading", { name: "Models", exact: true }),
+      page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText("deepseek/deepseek-v4-flash").first(),

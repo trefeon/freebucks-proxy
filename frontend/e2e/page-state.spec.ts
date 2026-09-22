@@ -278,7 +278,7 @@ test.describe("settings saved values", () => {
     await mockSettingsOverlay(page, posted, { postStatus: 400 });
     await mockPageState(page);
     await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     const input = page.locator('input[aria-label="REASONING_IN_CONTENT"]');
     await expect(input).toBeVisible({ timeout: 10_000 });
     // Row-anchored like the save test: the rejection must surface on the
@@ -331,7 +331,7 @@ test.describe("settings saved values", () => {
     );
     await expect(page.getByText("saved value", { exact: true })).toHaveCount(1);
     await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     await expect(
       page.locator('input[aria-label="REASONING_IN_CONTENT"]'),
     ).toBeVisible({ timeout: 10_000 });

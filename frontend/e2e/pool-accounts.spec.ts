@@ -385,7 +385,7 @@ test.describe("pool accounts (mock roster)", () => {
     await expect(headB.getByText("leased", { exact: true })).toBeVisible();
     await expect(headB.getByText(MODEL_B)).toBeVisible();
     // Honest ceiling: 2 per account x 22 accounts = 44 concurrent turns.
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(page.getByTestId("pool-ceiling")).toContainText(
       /2 per account.*22 accounts.*44 concurrent turns/,
     );

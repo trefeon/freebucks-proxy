@@ -249,8 +249,8 @@ export async function mockSettingsMatrix(
   return { fixtures, posted, deleted };
 }
 
-// Navigate to a Controls tab (Pool or Usage): waits for the key catalog,
-// then opens the tab. The settings store hydrates from the same mocks.
+// Navigate to a Strategy/Routing tab (Accounts or Models): waits for the key
+// catalog, then opens the tab. The settings store hydrates from the same mocks.
 export async function gotoControls(
   page: Page,
   hash: "tokens" | "plans",
@@ -261,7 +261,9 @@ export async function gotoControls(
   );
   await page.goto(adminUrl(hash));
   await metaResp;
-  await page.getByRole("button", { name: "Controls" }).click();
+  await page
+    .getByRole("button", { name: hash === "tokens" ? "Strategy" : "Routing" })
+    .click();
 }
 
 // Navigate to the Settings page with the catalog loaded.

@@ -24,7 +24,7 @@ test.describe("MASQ mock-data scenarios (centralized factory)", () => {
       timeout: 10000,
     });
     await expect(table.getByText("Account #2")).toBeVisible();
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     // Bounded spill from the scenario seed: 1 continuation account.
     await expect(
       page.locator('input[aria-label="MAX_SPILL_ACCOUNTS"]'),
@@ -119,7 +119,7 @@ test.describe("MASQ mock-data scenarios (centralized factory)", () => {
     );
     await page.goto(adminUrl("tokens"));
     await metaResp;
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     // Seed cap 2 x 3 scenario accounts = 6 concurrent turns.
     await expect(page.getByTestId("pool-ceiling")).toContainText(
       /2 per account.*3 accounts.*6 concurrent turns/,

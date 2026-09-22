@@ -47,14 +47,14 @@ test.describe("instant-save dashboard", () => {
     await assertNoBatchSaveButtons(page);
 
     await page.goto(admin("tokens"));
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Strategy" }).click();
     await expect(
       page.getByRole("heading", { name: "Pool Controls" }),
     ).toBeVisible();
     await assertNoBatchSaveButtons(page);
 
     await page.goto(admin("plans"));
-    await page.getByRole("button", { name: "Controls" }).click();
+    await page.getByRole("button", { name: "Routing" }).click();
     await expect(
       page.getByRole("heading", { name: "Usage Controls" }),
     ).toBeVisible();
