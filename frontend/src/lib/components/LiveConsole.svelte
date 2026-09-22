@@ -1028,7 +1028,7 @@
         <div
           bind:this={consoleEl}
           onscroll={handleConsoleScroll}
-          class="bg-[var(--fp-inset)] rounded-b-lg p-2 sm:p-4 font-mono text-[11px] sm:text-xs h-[60vh] min-h-[320px] sm:h-[calc(100vh-280px)] sm:min-h-[420px] overflow-x-hidden overflow-y-auto space-y-1.5 select-text border-t border-[var(--fp-border)] max-w-full"
+          class="bg-black rounded-b-lg p-2 sm:p-4 font-mono text-[11px] sm:text-xs h-[60vh] min-h-[320px] sm:h-[calc(100vh-280px)] sm:min-h-[420px] overflow-x-hidden overflow-y-auto space-y-1.5 select-text border-t border-[var(--fp-border)] max-w-full"
         >
           {#if requestGroups.length === 0}
             <div
