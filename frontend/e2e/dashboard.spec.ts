@@ -1697,7 +1697,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
   });
 
-  test("Models lists 13 rows with tiers, withdrawals, and the live offer", async ({
+  test("Models lists 14 rows with tiers, withdrawals, and the live offer", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -1762,7 +1762,7 @@ test.describe("dashboard hermetic mocks", () => {
       ],
       ["openai/gpt-5.6-luna", ["full", "paid plan"], "served"],
       ["upstage/solar-pro4", ["limited", "full"], "served"],
-      ["google/gemini-3.8-flash", ["paid plan"], "unserved"],
+      ["google/gemini-3.8-flash", ["full", "paid plan"], "Paid plan"],
       ["meta/muse-spark-1.2-contributor", ["full"], "served"],
       [
         "z-ai/glm-5.2",
@@ -1776,6 +1776,7 @@ test.describe("dashboard hermetic mocks", () => {
         "served",
       ],
       ["mimo/mimo-v2.5", ["limited", "full"], "served"],
+      ["mimo/mimo-v2.6-pro", ["full", "paid plan"], "Paid plan"],
       [
         "anthropic/claude-fable-5.1",
         ["limited trial", "3 of 10 sessions left"],

@@ -185,7 +185,7 @@ const DeepSeekV4FlashModelID = "deepseek/deepseek-v4-flash"
 
 // LimitedTierModelIDs mirrors upstream LIMITED_FREEBUFF_MODEL_IDS: the four models
 // available to limited-access tier accounts (GLM 5.3 Flash, DeepSeek V4 Flash,
-// MiMo 2.5, Solar Pro 4).
+// MiMo 2.6 Flash — the wire id keeps its v2.5 spelling —, Solar Pro 4).
 var LimitedTierModelIDs = []string{
 	Glm53ModelID,
 	DeepSeekV4FlashModelID,
