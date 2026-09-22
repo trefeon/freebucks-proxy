@@ -804,17 +804,6 @@ func parseTierList(src string, ids map[string]string, name, commit string) ([]st
 	return out, nil
 }
 
-// tierItems is splitListItems without the line numbers, for callers that
-// report by list name rather than by position.
-func tierItems(body string) []string {
-	items := splitListItems(body)
-	out := make([]string, 0, len(items))
-	for _, it := range items {
-		out = append(out, it.text)
-	}
-	return out
-}
-
 // listItem is one entry of an upstream list literal: the item's collapsed
 // text, and the 1-based body line it starts on, so a parse failure names it.
 type listItem struct {
