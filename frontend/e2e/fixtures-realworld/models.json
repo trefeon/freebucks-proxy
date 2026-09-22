@@ -1,7 +1,7 @@
 {
-  "agents": 49,
-  "count": 13,
-  "hint": "13 models · 49 agents",
+  "agents": 50,
+  "count": 14,
+  "hint": "14 models · 50 agents",
   "models": [
     {
       "agent": "base2-free-solar-pro4",
@@ -33,8 +33,8 @@
     },
     {
       "agent": "base2-free-mimo",
-      "badges": ["Images"],
-      "display_name": "MiMo 2.5",
+      "badges": ["Images", "NEW"],
+      "display_name": "MiMo 2.6 Flash",
       "efforts": ["high"],
       "id": "mimo/mimo-v2.5",
       "pool": "unlimited",
@@ -44,6 +44,21 @@
       "served": true,
       "tagline": "Balanced",
       "tiers": ["limited", "full"],
+      "withdrawn": false
+    },
+    {
+      "agent": "base2-free-mimo-2-6-pro",
+      "badges": ["Images", "NEW"],
+      "display_name": "MiMo 2.6 Pro",
+      "id": "mimo/mimo-v2.6-pro",
+      "plan_required": true,
+      "pool": "unlimited",
+      "price": 30,
+      "price_label": "30 Freebucks/hr",
+      "quota": "30 Freebucks/hr",
+      "served": false,
+      "tagline": "Strong reasoning",
+      "tiers": ["full", "paid"],
       "withdrawn": false
     },
     {
@@ -122,8 +137,9 @@
       "price": 0,
       "quota": "",
       "served": false,
-      "tiers": ["paid"],
-      "withdrawn": false
+      "tiers": ["full", "paid"],
+      "withdrawn": false,
+      "plan_required": true
     },
     {
       "agent": "base2-free-muse-spark-1-3",

@@ -237,8 +237,8 @@ test.describe("real-world data", () => {
     await expect(page.getByText("paid plan").first()).toBeVisible();
     await expect(page.getByText("limited trial").first()).toBeVisible();
     // Served stat tells the truth about 13 rows.
-    await expect(page.getByText("6 of 13")).toBeVisible();
-    await expect(page.getByText("13 registered · 49 agents")).toBeVisible();
+    await expect(page.getByText("6 of 14")).toBeVisible();
+    await expect(page.getByText("14 registered · 50 agents")).toBeVisible();
     // Five withdrawn rows name their replacement in both renderings.
     await expect(page.getByTestId("model-withdrawn")).toHaveCount(10);
     // The offer row shows the live campaign counts in both renderings.

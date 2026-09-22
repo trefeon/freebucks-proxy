@@ -44,6 +44,17 @@ export function spawnIntent(token, modelId) {
   return { kind: "allow", price, walletSpend: 0 };
 }
 
+/** Upstream FREEBUFF_PLAN_REQUIRED_LABEL / _LINE: the badge and sentence a
+ * plan-locked row draws (common/src/util/freebuff-model-selection.ts). The
+ * row stays visible, carries no price, and the server refuses admission. */
+export const PLAN_REQUIRED_LABEL = "Paid plan";
+export const PLAN_REQUIRED_LINE = "Included with a paid plan.";
+
+/** Whether a catalog row (or a model id, via the served set) is plan-locked. */
+export function isPlanRequired(row) {
+  return Boolean(row?.plan_required ?? row?.planRequired);
+}
+
 /** Confirm-dialog line for a confirm intent (mirrors askLineFor). */
 export function intentAskLine(intent, activeModel) {
   if (intent.kind !== "confirm") return null;
@@ -63,10 +74,12 @@ export const MODEL_METADATA = {
     tagline: "Deep reasoning",
     badges: ["Reasoning: max*", "Images", "NEW"],
   },
+  // The wire id keeps its v2.5 spelling; upstream serves MiMo 2.6 Flash under
+  // it (freebuff-models.ts: the row's displayName moved 2026-09-21).
   "mimo/mimo-v2.5": {
-    displayName: "MiMo 2.5",
+    displayName: "MiMo 2.6 Flash",
     tagline: "Balanced",
-    badges: ["Images"],
+    badges: ["Images", "NEW"],
   },
   "deepseek/deepseek-v4-flash": {
     displayName: "DeepSeek V4.1 Flash",

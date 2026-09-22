@@ -782,6 +782,11 @@ type modelRow struct {
 	// copy recommends instead.
 	Withdrawn   bool   `json:"withdrawn"`
 	Replacement string `json:"replacement,omitempty"`
+	// PlanRequired marks FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS rows: a
+	// paid plan is required and upstream refuses the admission on every
+	// surface. Such a row is never Served, so the spawn pickers skip it; the
+	// catalog view annotates it as plan-locked instead of unserved-by-default.
+	PlanRequired bool `json:"plan_required"`
 	// Offer carries the live capacity-limited campaign state when a token
 	// snapshot reports the row (only rows admitted by TierOffer).
 	Offer   *modelOfferRow `json:"offer,omitempty"`
@@ -965,12 +970,13 @@ func (d *Dashboard) modelsData() modelsData {
 	for _, info := range modelcat.Catalog {
 		id := info.ID
 		row := modelRow{
-			ID:          id,
-			Served:      info.Served,
-			Withdrawn:   info.PausedReplacement != "",
-			Replacement: info.PausedReplacement,
-			Tiers:       modelcat.Tiers(id),
-			Efforts:     modelcat.Efforts(id),
+			ID:           id,
+			Served:       info.Served,
+			Withdrawn:    info.PausedReplacement != "",
+			Replacement:  info.PausedReplacement,
+			PlanRequired: info.PlanRequired,
+			Tiers:        modelcat.Tiers(id),
+			Efforts:      modelcat.Efforts(id),
 		}
 		row.DisplayName = modelcat.DisplayName(id)
 		row.Tagline = modelcat.Tagline(id)

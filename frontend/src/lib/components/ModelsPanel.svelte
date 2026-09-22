@@ -18,6 +18,9 @@
     formatFreebucks,
     firstTabListPriceFor,
     offPeakCopy,
+    isPlanRequired,
+    PLAN_REQUIRED_LABEL,
+    PLAN_REQUIRED_LINE,
   } from "../utils/freebucks.js";
   import { tr } from "../i18n.js";
   // Cheapest-first order on the meter (upstream picker revamp): merge the
@@ -67,6 +70,11 @@
   // the served flag) stay "unbound".
   function modelState(m) {
     if (m.withdrawn) return "withdrawn";
+    // Plan-required rows (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS) are never
+    // served: upstream refuses the admission on every surface and draws the row
+    // locked. Classified before the served check so the row reads "Paid plan"
+    // rather than a bare "unserved".
+    if (isPlanRequired(m)) return "plan";
     if (!m.agent) return "unbound";
     if (m.served !== false) return "served";
     if ((m.pool ?? "") === "referral") return "referral";
@@ -74,6 +82,7 @@
   }
   function modelTone(state) {
     if (state === "served") return "good";
+    if (state === "plan") return "warn";
     if (state === "referral" || state === "unserved") return "info";
     return "idle";
   }
@@ -289,7 +298,10 @@
                 </div>
               </td>
               <td class="w-[1%] whitespace-nowrap">
-                <StatusBadge status={$tr(st)} tone={modelTone(st)} />
+                <StatusBadge
+                  status={st === "plan" ? $tr(PLAN_REQUIRED_LABEL) : $tr(st)}
+                  tone={modelTone(st)}
+                />
               </td>
               <td class="w-[1%] whitespace-nowrap">
                 {#if bound}
@@ -358,6 +370,14 @@
                       class="mt-1 fp-num text-[11px] whitespace-normal text-[var(--fp-muted)]"
                     >
                       {offerLine(m)}
+                    </p>
+                  {/if}
+                  {#if isPlanRequired(m)}
+                    <p
+                      data-testid="model-plan-required"
+                      class="mt-1 text-[11px] whitespace-normal text-[var(--fp-muted)]"
+                    >
+                      {$tr(PLAN_REQUIRED_LINE)}
                     </p>
                   {/if}
                 {/if}
@@ -493,6 +513,13 @@
               class="fp-num text-xs text-[var(--fp-muted)]"
             >
               {offerLine(m)}
+            </p>
+          {:else if isPlanRequired(m)}
+            <p
+              data-testid="model-plan-required"
+              class="text-xs text-[var(--fp-muted)]"
+            >
+              {$tr(PLAN_REQUIRED_LINE)}
             </p>
           {/if}
           <div class="flex items-center justify-between gap-2 text-xs min-w-0">
