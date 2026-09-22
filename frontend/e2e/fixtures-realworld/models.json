@@ -133,13 +133,13 @@
       "display_name": "Gemini 3.8 Flash",
       "efforts": ["low", "medium", "high", "xhigh", "max"],
       "id": "google/gemini-3.8-flash",
+      "plan_required": true,
       "pool": "unlimited",
       "price": 0,
       "quota": "",
       "served": false,
       "tiers": ["full", "paid"],
-      "withdrawn": false,
-      "plan_required": true
+      "withdrawn": false
     },
     {
       "agent": "base2-free-muse-spark-1-3",
