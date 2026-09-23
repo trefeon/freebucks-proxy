@@ -309,7 +309,7 @@ func TestLifecycleFullJourney(t *testing.T) {
 		// After add-token, 4 requests should have gone to the new token "1" (drain rotation picks least-used)
 		// but if they went to "0" we accept either as long as total is 4
 		for _, want := range []string{
-			"freebucks_proxy_models_total 6",
+			"freebucks_proxy_models_total 7",
 			"freebucks_proxy_tokens_total 2",
 		} {
 			if !strings.Contains(body, want) {
@@ -502,7 +502,7 @@ func TestLifecycleFullJourney(t *testing.T) {
 		}
 		metrics := string(data)
 		for _, want := range []string{
-			"freebucks_proxy_models_total 6",
+			"freebucks_proxy_models_total 7",
 			"freebucks_proxy_tokens_total 1",
 			"freebucks_proxy_token_requests_total{token=\"1\"} 0",
 		} {

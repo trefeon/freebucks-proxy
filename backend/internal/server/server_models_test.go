@@ -686,7 +686,7 @@ func TestModelsAllowRejectsChat(t *testing.T) {
 	if out.Error.Code != "model_unavailable" {
 		t.Errorf("error.code = %q, want model_unavailable", out.Error.Code)
 	}
-	if !strings.Contains(out.Error.Message, "Supported models: openai") {
+	if !strings.Contains(out.Error.Message, "Supported models: stealth") {
 		t.Errorf("error.message = %q, want supported models notice", out.Error.Message)
 	}
 	if len(mock.RecordedChatHeaders) != 0 {
@@ -1112,7 +1112,7 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 		}
 		want := wantCopy[dm]
 		if want == "" {
-			want = "Supported models: openai"
+			want = "Supported models: stealth"
 		}
 		if !strings.Contains(errChat.Error.Message, want) {
 			t.Errorf("chat %s message = %q, want %q", dm, errChat.Error.Message, want)
@@ -1497,7 +1497,7 @@ func TestModelsEndpointLimitedTier(t *testing.T) {
 			if !m.Available {
 				t.Errorf("model %s available = false, want true on limited tier", m.ID)
 			}
-		case "openai/gpt-6-luna", "meta/muse-spark-1.2-contributor":
+		case "openai/gpt-6-luna", "meta/muse-spark-1.2-contributor", "stealth/space-bunny-alpha":
 			// Served, but the limited tier demotes the full-tier rows.
 			if m.Available || m.Status != "region_limited" {
 				t.Errorf("model %s = available %v/status %q, want false/region_limited", m.ID, m.Available, m.Status)
