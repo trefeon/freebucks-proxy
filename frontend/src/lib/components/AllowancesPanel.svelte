@@ -22,6 +22,7 @@
     formatAllowanceUsd,
     freebucksResetCountdown,
     offPeakCopy,
+    streakBonusNote,
   } from "../utils/freebucks.js";
   import { formatLocalDateTime } from "../utils/format.js";
 
@@ -309,6 +310,7 @@
       {@const daily = dailyWin(token)}
       {@const monthly = monthlyWin(token)}
       {@const balance = token.freebucks?.balance ?? token.freebucks?.Balance}
+      {@const perk = streakBonusNote(token)}
       <li
         class="rounded border border-[var(--fp-border)] bg-[var(--fp-surface-2)]/30 px-3 py-2.5 flex flex-col gap-1.5 min-w-0"
         data-testid="account-row"
@@ -344,6 +346,18 @@
               <span class="text-[var(--fp-accent)]"
                 >{formatFreebucks(balance)}</span
               >
+            </p>
+          {/if}
+          {#if perk}
+            <!-- Streak perk (vendor freebuff-streak-line.ts, Freebucks-meter
+                 copy): the server decides the amount and credits it to this
+                 account's wallet every Pacific day, so the daily limit above
+                 legitimately stays put while this line shows the gain. -->
+            <p
+              class="text-[11px] text-[var(--fp-accent)]"
+              data-testid="streak-perk"
+            >
+              {perk}
             </p>
           {/if}
           {#if token.freebucks?.first_tab_discount}

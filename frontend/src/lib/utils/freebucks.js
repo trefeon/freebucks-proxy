@@ -339,7 +339,9 @@ export function streakBonusNote(token) {
   const days = Number(token?.streak) || 0;
   if (days <= 0) return null;
   const perk =
-    bonus > 0 ? `+${bonus} Freebucks every day` : "+1 bonus session every day";
+    bonus > 0
+      ? `+${bonus} Freebucks every Pacific day`
+      : "+1 bonus session every day";
   if (days < 7) {
     const remaining = 7 - days;
     return `🎁 ${remaining} more ${remaining === 1 ? "day" : "days"} to unlock ${perk}`;

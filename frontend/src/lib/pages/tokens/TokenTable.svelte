@@ -108,12 +108,18 @@
 
 <Card
   title={$tr("Pool Tokens")}
-  description={tokenCount
-    ? $tr(
-        "{count} pooled token(s) · Drag handle to reorder priority · Expand the row's chevron for session & quota details",
-        { count: tokenCount },
-      )
-    : $tr("Add a token, then expand its chevron for session & quota details")}
+  description={loading
+    ? $tr("Loading pool tokens…")
+    : error
+      ? $tr("Pool tokens unavailable")
+      : tokenCount
+        ? $tr(
+            "{count} pooled token(s) · Drag handle to reorder priority · Expand the row's chevron for session & quota details",
+            { count: tokenCount },
+          )
+        : $tr(
+            "Add a token, then expand its chevron for session & quota details",
+          )}
 >
   {#if loading}
     <div class="flex flex-col gap-3">

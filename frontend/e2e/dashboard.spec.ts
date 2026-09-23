@@ -124,6 +124,26 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(second.getByLabel("No streak")).toBeVisible();
   });
 
+  test("Accounts row renders the streak perk line beside the wallet", async ({
+    page,
+  }) => {
+    const f = loadFixtures();
+    await mockDashboard(page, f);
+
+    await page.goto("http://127.0.0.1:4173/admin/#tokens");
+    await page.getByRole("button", { name: "Allowances" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Account #1" }),
+    ).toBeVisible();
+    // The perk line the operator reads next to the wallet: full vendor copy,
+    // and it does NOT inflate the server's daily limit on the header line.
+    const line = page.getByTestId("streak-perk");
+    await expect(line).toHaveCount(1);
+    await expect(line).toContainText(
+      "🎁 Streak perk: +15 Freebucks every Pacific day",
+    );
+  });
+
   test("Tokens active rows carry Drop Session in the Instance cell; idle rows carry none", async ({
     page,
   }) => {

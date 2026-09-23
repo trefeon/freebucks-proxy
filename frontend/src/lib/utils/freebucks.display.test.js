@@ -235,17 +235,17 @@ describe("freebucksResetLine (absolute instant vs vendor display string)", () =>
 });
 
 describe("streakBonusNote (bonus branches only with a value present)", () => {
-  it("7+ days: '+N Freebucks every day' perk line", () => {
+  it("7+ days: '+N Freebucks every Pacific day' perk line", () => {
     assert.equal(
       streakBonusNote({ streak: 7, freebucks_daily_bonus: 3 }),
-      "🎁 Streak perk: +3 Freebucks every day",
+      "🎁 Streak perk: +3 Freebucks every Pacific day",
     );
   });
 
   it("below the week: unlock countdown", () => {
     assert.equal(
       streakBonusNote({ streak: 3, freebucks_daily_bonus: 3 }),
-      "🎁 4 more days to unlock +3 Freebucks every day",
+      "🎁 4 more days to unlock +3 Freebucks every Pacific day",
     );
   });
 
