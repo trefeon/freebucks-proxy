@@ -279,9 +279,14 @@ test.describe("keys, usage and logs (mock backend)", () => {
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
     const header = page.getByTestId("freebucks-header").first();
-    await expect(header).toContainText("30/75 Freebucks daily");
-    await expect(header).toContainText("20 in wallet");
+    await expect(header).toContainText("50 Freebucks spendable");
+    await expect(header).toContainText("= 30 daily + 20 wallet");
     await expect(header).not.toContainText("resets in");
+    // Daily pool + wallet, each stated once below the headline.
+    const row = page.getByTestId("account-row").first();
+    await expect(row).toContainText("Used 45 / 75");
+    await expect(row).toContainText("30 left");
+    await expect(row).toContainText("Wallet 20");
     // Daily usage ring: 45 of 75 spent = 60%.
     const ring = page.getByRole("progressbar", { name: /Daily usage/ });
     await expect(ring).toBeVisible();
@@ -355,9 +360,14 @@ test.describe("keys, usage and logs (mock backend)", () => {
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
+    const row = page.getByTestId("account-row").first();
+    await expect(row).toContainText("FULL");
     const header = page.getByTestId("freebucks-header").first();
-    await expect(header).toContainText("FULL");
-    await expect(header).toContainText("95/100 Freebucks daily");
+    await expect(header).toContainText("50 Freebucks spendable");
+    // 95 + 2.5 ≠ 50: no decomposition is claimed for figures that diverge.
+    await expect(header).not.toContainText("daily +");
+    await expect(row).toContainText("Used 5 / 100");
+    await expect(row).toContainText("Wallet 3");
     const refund = page.getByTestId("refund-line");
     await expect(refund).toHaveCount(1);
     await expect(refund).toContainText("awaiting final usage");

@@ -117,6 +117,37 @@ export function meteredToken(
   });
 }
 
+// The live production pair (2026-09-23): akmalrzn15 = balance 40,
+// daily 15 left of 25 with 10 spent, wallet 25; hermescresioa = 30 with the
+// same daily pool and a 15 wallet. `balance` IS
+// `daily.remaining + wallet.balance`, the streak perk's 15/day is already
+// inside the wallet figure, and the daily limit stays the server's 25.
+export function liveAllowanceToken(
+  idx: number,
+  over: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return tokenRow(idx, {
+    email: "akmalrzn15@gmail.com",
+    streak: 8,
+    today_used: true,
+    freebucks_daily_bonus: 15,
+    freebucks: {
+      balance: 40,
+      daily: {
+        limit: 25,
+        spent: 10,
+        remaining: 15,
+        percent_used: 40,
+        reset_at: "2030-01-01T00:00:00Z",
+        reset_time_zone: "UTC",
+      },
+      wallet: { balance: 25 },
+      prices: {},
+    },
+    ...over,
+  });
+}
+
 export function discountToken(
   idx: number,
   available: boolean,

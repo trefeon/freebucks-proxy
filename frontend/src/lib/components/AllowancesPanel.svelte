@@ -1,5 +1,6 @@
 <script>
   import { onMount } from "svelte";
+  import { Flame } from "@lucide/svelte";
   import { recordPageVisit } from "../stores/pageState.js";
   import Button from "./Button.svelte";
   import {
@@ -21,9 +22,10 @@
     formatFreebucks,
     formatAllowanceUsd,
     freebucksResetCountdown,
+    freebucksDisplayModel,
     offPeakCopy,
-    streakBonusNote,
   } from "../utils/freebucks.js";
+  import { streakBadgeFor } from "../utils/tokenStatus.js";
   import { formatLocalDateTime } from "../utils/format.js";
 
   let data = $state(null);
@@ -127,22 +129,6 @@
   // printed raw — "resets in 4h 12m" alone hides which day it lands on.
   const resetLocal = $derived(resetAt ? formatLocalDateTime(resetAt) : "");
 
-  // Daily window math mirrors FreebucksQuotaBar: spent defaults to
-  // limit − remaining when the server only sends the remainder.
-  function dailyWin(token) {
-    const d = token.freebucks?.daily;
-    if (d == null) return null;
-    const limit = Number(d.limit ?? 0);
-    const remaining = Number(
-      d.remaining ?? Math.max(0, limit - Number(d.spent ?? 0)),
-    );
-    const spent = Number(d.spent ?? Math.max(0, limit - remaining));
-    let pct = Number(d.percent_used ?? (limit > 0 ? (spent / limit) * 100 : 0));
-    if (!Number.isFinite(pct)) pct = 0;
-    pct = Math.min(100, Math.max(0, pct));
-    return { limit, remaining, spent, pct };
-  }
-
   function monthlyWin(token) {
     const m = token.freebucks?.monthly;
     if (m == null) return null;
@@ -151,33 +137,11 @@
       m.remaining ?? Math.max(0, limit - Number(m.spent ?? 0)),
     );
     const spent = Number(m.spent ?? Math.max(0, limit - remaining));
-    return { limit, remaining, spent };
+    // The wire's own remainder decides whether the $ figure is stated at
+    // all; the arithmetic fallback above is a meter input, not a balance.
+    return { limit, remaining, spent, hasRemaining: m.remaining != null };
   }
 
-  // One-line account summary: access tier (server-driven per account —
-  // full vs limited pools differ in cap and price), daily fraction,
-  // wallet, monthly remainder. The "resets in" countdown is intentionally
-  // absent here — it renders once in the global strip above, shared for
-  // all accounts.
-  function accountHeaderLine(token) {
-    const fb = token.freebucks;
-    if (!fb?.daily) return "";
-    const parts = [];
-    if (token.access_tier) parts.push(String(token.access_tier).toUpperCase());
-    parts.push(
-      `${formatFreebucks(fb.daily.remaining)}/${formatFreebucks(fb.daily.limit)} ${$tr("Freebucks daily")}`,
-    );
-    const walletBalance = fb.wallet?.balance ?? 0;
-    if (walletBalance > 0) {
-      parts.push(`${formatFreebucks(walletBalance)} ${$tr("in wallet")}`);
-    }
-    if (fb.monthly != null && fb.monthly.remaining != null) {
-      parts.push(
-        `${formatAllowanceUsd(fb.monthly.remaining)} ${$tr("monthly usage left")}`,
-      );
-    }
-    return parts.join(" · ");
-  }
   // First-tab offer line (vendor 6cd8970 firstTabDiscountCopy, condensed
   // for the account card): the server already folds an available offer
   // into prices, so this is display state only.
@@ -307,10 +271,9 @@
   >
     {#each data.tokens as token, ti (token.index ?? ti)}
       {@const idx = token.index ?? ti}
-      {@const daily = dailyWin(token)}
+      {@const fb = freebucksDisplayModel(token, now)}
       {@const monthly = monthlyWin(token)}
-      {@const balance = token.freebucks?.balance ?? token.freebucks?.Balance}
-      {@const perk = streakBonusNote(token)}
+      {@const streak = streakBadgeFor(token)}
       <li
         class="rounded border border-[var(--fp-border)] bg-[var(--fp-surface-2)]/30 px-3 py-2.5 flex flex-col gap-1.5 min-w-0"
         data-testid="account-row"
@@ -324,6 +287,12 @@
               >{token.email}</span
             >
           {/if}
+          {#if token.access_tier}
+            <span
+              class="text-[10px] font-mono px-1.5 py-0.5 rounded border border-[var(--fp-border)] bg-[var(--fp-surface)] text-[var(--fp-dim)]"
+              >{String(token.access_tier).toUpperCase()}</span
+            >
+          {/if}
           {#if quotaExempt(token)}
             <span
               class="text-[10px] font-mono px-1.5 py-0.5 rounded border text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
@@ -332,32 +301,102 @@
               )}>{$tr("quota exempt")}</span
             >
           {/if}
-        </div>
-        {#if token.freebucks}
-          <p
-            class="text-xs text-[var(--fp-muted)] font-mono"
-            data-testid="freebucks-header"
+          <!-- Streak day count — the same Lucide-chipped label the account
+               cards draw (never an emoji); it is what funds the perk note on
+               the wallet line below. -->
+          <span
+            class="fp-num inline-flex items-center gap-1 text-[11px] tabular-nums whitespace-nowrap shrink-0 {streak.active
+              ? 'text-[var(--fp-accent)]'
+              : 'text-[var(--fp-dim)]'}"
+            aria-label={streak.aria}
           >
-            {accountHeaderLine(token)}
-          </p>
-          {#if balance != null}
-            <p class="fp-num text-xs text-[var(--fp-text)] tabular-nums">
-              {$tr("Balance")}
-              <span class="text-[var(--fp-accent)]"
-                >{formatFreebucks(balance)}</span
+            <Flame size={11} aria-hidden="true" />
+            {streak.label}
+          </span>
+        </div>
+        {#if fb}
+          {#if fb.spendable != null}
+            <!-- Spendable right now (vendor: daily.remaining + wallet.balance).
+                 The decomposition states that identity inline and is dropped
+                 when the served figures do not add up, because the difference
+                 would be a bucket the wire never names. -->
+            <p
+              class="fp-num text-xs text-[var(--fp-text)] tabular-nums"
+              data-testid="freebucks-header"
+            >
+              <span class="text-[var(--fp-accent)] font-semibold"
+                >{formatFreebucks(fb.spendable)}</span
               >
+              {$tr("Freebucks spendable")}
+              {#if fb.decomposition}<span class="text-[var(--fp-muted)]">
+                  · = {fb.decomposition}</span
+                >{/if}
             </p>
           {/if}
-          {#if perk}
-            <!-- Streak perk (vendor freebuff-streak-line.ts, Freebucks-meter
-                 copy): the server decides the amount and credits it to this
-                 account's wallet every Pacific day, so the daily limit above
-                 legitimately stays put while this line shows the gain. -->
+          {#if fb.dailyLimit != null || fb.dailyLeft != null}
+            <!-- The daily pool, stated once: meter, used/left line, and this
+                 account's own refill stamp (the shared strip above carries the
+                 all-accounts countdown; this one names the zone). -->
+            <div class="flex flex-col gap-1">
+              <div
+                class="h-[5px] w-full rounded-full bg-[var(--fp-inset)] overflow-hidden"
+                role="progressbar"
+                aria-valuenow={Math.round(fb.dailyPct)}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-label={$tr("Daily usage {pct}%", {
+                  pct: Math.round(fb.dailyPct),
+                })}
+              >
+                <div
+                  class="h-full rounded-full transition-all duration-300 bg-emerald-500"
+                  style="width: {fb.dailyPct}%"
+                ></div>
+              </div>
+              <p class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
+                {$tr("Daily")}
+                {$tr("Used")}
+                <span class="text-[var(--fp-text)] font-medium"
+                  >{formatFreebucks(fb.dailySpent)}</span
+                >
+                / {formatFreebucks(fb.dailyLimit)}
+                ·
+                <span class="text-[var(--fp-text)] font-medium"
+                  >{formatFreebucks(fb.dailyLeft)}</span
+                >
+                {$tr("left")}
+              </p>
+              {#if fb.resetLine}
+                <p class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
+                  {#if fb.resetLine.shape === "pending"}
+                    {$tr("Updating balance…")}
+                  {:else if fb.resetLine.shape === "countdown"}
+                    {$tr("Resets in")}
+                    {fb.resetLine.rel} — {fb.resetLine.clock}
+                  {:else}
+                    {fb.resetLine.clock}
+                  {/if}
+                </p>
+              {/if}
+            </div>
+          {/if}
+          {#if fb.wallet != null || fb.perkNote}
+            <!-- The wallet line, with the streak perk attached to it: the
+                 server credits the bonus HERE every Pacific day (vendor
+                 freebuff-streak.ts), which is why the daily limit above stays
+                 put while the wallet grows. -->
             <p
-              class="text-[11px] text-[var(--fp-accent)]"
+              class="fp-num text-[11px] text-[var(--fp-muted)] tabular-nums"
               data-testid="streak-perk"
             >
-              {perk}
+              {$tr("Wallet")}
+              {#if fb.wallet != null}<span
+                  class="text-[var(--fp-text)] font-medium"
+                  >{formatFreebucks(fb.wallet)}</span
+                >{/if}
+              {#if fb.perkNote}<span class="text-[var(--fp-accent)]"
+                  >— {fb.perkNote}</span
+                >{/if}
             </p>
           {/if}
           {#if token.freebucks?.first_tab_discount}
@@ -376,37 +415,6 @@
               {line}
             </p>
           {/each}
-          {#if daily}
-            <div class="flex flex-col gap-1">
-              <div
-                class="h-[5px] w-full rounded-full bg-[var(--fp-inset)] overflow-hidden"
-                role="progressbar"
-                aria-valuenow={Math.round(daily.pct)}
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-label={$tr("Daily usage {pct}%", {
-                  pct: Math.round(daily.pct),
-                })}
-              >
-                <div
-                  class="h-full rounded-full transition-all duration-300 bg-emerald-500"
-                  style="width: {daily.pct}%"
-                ></div>
-              </div>
-              <p class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
-                {$tr("Daily")}
-                {$tr("Used")}
-                <span class="text-[var(--fp-text)] font-medium"
-                  >{formatFreebucks(daily.spent)}</span
-                >
-                / {formatFreebucks(daily.limit)}
-                • {$tr("Remaining")}
-                <span class="text-[var(--fp-text)] font-medium"
-                  >{formatFreebucks(daily.remaining)}</span
-                >
-              </p>
-            </div>
-          {/if}
           {#if monthly}
             <p class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
               {$tr("Monthly")}
@@ -415,6 +423,10 @@
                 >{formatFreebucks(monthly.spent)}</span
               >
               / {formatFreebucks(monthly.limit)}
+              {#if monthly.hasRemaining}· {formatAllowanceUsd(
+                  monthly.remaining,
+                )}
+                {$tr("monthly usage left")}{/if}
             </p>
           {/if}
         {:else}

@@ -100,12 +100,18 @@ test.describe("MASQ mock-data scenarios (centralized factory)", () => {
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
     await expect(page.getByText("dev@example.com").first()).toBeVisible();
-    // Vendor formatFreebucks rounds (2.5 -> 3, 7.5 -> 8).
+    // Vendor formatFreebucks rounds (2.5 -> 3, 7.5 -> 8). 7.5 + 5 ≠ 7.5, so
+    // the spendable headline stands alone; the daily pool, wallet and monthly
+    // remainder each render once below it.
     await expect(page.getByText("Used 3 / 10")).toBeVisible();
     await expect(page.getByText("Used 42 / 300")).toBeVisible();
+    const row = page.getByTestId("account-row").first();
+    await expect(row).toContainText("8 Freebucks spendable");
+    await expect(row).toContainText("8 left");
+    await expect(row).toContainText("Wallet 5");
     await expect(
       page.locator('[data-testid="freebucks-header"]').first(),
-    ).toContainText(/8\/10 Freebucks daily/);
+    ).not.toContainText("daily +");
     await expect(page.getByTestId("reset-strip")).toContainText("resets in");
   });
 

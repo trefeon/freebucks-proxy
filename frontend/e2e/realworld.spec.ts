@@ -180,18 +180,20 @@ test.describe("real-world data", () => {
     ).toBeVisible();
     await expect(page.getByText("dev@example.com").first()).toBeVisible();
     // Vendor formatFreebucks rounds (7.5 -> 8); the archived Sept-6 reset_at
-    // is stale, so the strip shows the refill-pending copy, not a countdown.
-    await expect(page.getByText("Balance 8")).toBeVisible();
+    // is stale, so the row's own refill line and the shared strip both read
+    // the refill-pending copy, never a countdown.
     await expect(page.getByText("Used 3 / 10")).toBeVisible();
     await expect(page.getByText("Used 42 / 300")).toBeVisible();
-    // Row header line (issue #364): daily fraction · wallet · monthly.
-    // The countdown renders once in the shared strip, never per row —
-    // here the pending copy, since the archived reset already passed.
-    await expect(
-      page.locator('[data-testid="freebucks-header"]').first(),
-    ).toContainText(
-      /8\/10 Freebucks daily · 5 in wallet · \$258 monthly usage left/,
-    );
+    const header = page.locator('[data-testid="freebucks-header"]').first();
+    await expect(header).toContainText("8 Freebucks spendable");
+    // 7.5 + 5 ≠ 7.5: the spendable total stands alone, no invented bucket.
+    await expect(header).not.toContainText("daily +");
+    // One figure per fact below the headline: the daily pool's own left/refill
+    // line, the wallet, the monthly remainder.
+    const row = page.getByTestId("account-row").first();
+    await expect(row).toContainText("8 left");
+    await expect(row).toContainText("Wallet 5");
+    await expect(row).toContainText("$258 monthly usage left");
     await expect(page.getByTestId("reset-strip")).toContainText(
       "Updating balance…",
     );

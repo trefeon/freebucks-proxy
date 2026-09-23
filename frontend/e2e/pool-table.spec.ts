@@ -453,7 +453,16 @@ test.describe("Pool accounts table geometry", () => {
       boxes[0].bottom,
     );
     // Cards themselves unchanged: every inner fact still renders.
-    await expect(rows.first().getByTestId("freebucks-header")).toBeVisible();
+    const firstCard = rows.first();
+    await expect(firstCard.getByTestId("freebucks-header")).toBeVisible();
+    // The remade card states the spendable total once, with its decomposition;
+    // the daily pool and the wallet follow it exactly once each.
+    await expect(firstCard.getByTestId("freebucks-header")).toContainText(
+      "50 Freebucks spendable · = 30 daily + 20 wallet",
+    );
+    await expect(firstCard).toContainText("Used 45 / 75");
+    await expect(firstCard).toContainText("30 left");
+    await expect(firstCard).toContainText("Wallet 20");
     // Roughly halves the list height vs the old single-column stack.
     const heights = await page.evaluate(() => {
       const ul = document.querySelector('ul[aria-label="Accounts"]');

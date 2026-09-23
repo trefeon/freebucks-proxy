@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
 import type { PostedSetting } from "./mocks.js";
+import { liveAllowanceToken } from "./mock-usage.js";
 
 test.describe("dashboard hermetic mocks", () => {
   // The Settings tests render the 58-key catalog; under parallel workers on
@@ -135,19 +136,30 @@ test.describe("dashboard hermetic mocks", () => {
     page,
   }) => {
     const f = loadFixtures();
-    await mockDashboard(page, f);
+    // The live pair (akmalrzn15): the perk is credited to the WALLET every
+    // Pacific day, so it rides the wallet line verbatim and never inflates
+    // the server's daily pool.
+    const tokens = JSON.parse(JSON.stringify(f.tokens));
+    tokens.tokens[0] = liveAllowanceToken(0);
+    await mockDashboard(page, f, { tokens });
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     await page.getByRole("button", { name: "Allowances" }).click();
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
-    // The perk line the operator reads next to the wallet: full vendor copy,
-    // and it does NOT inflate the server's daily limit on the header line.
     const line = page.getByTestId("streak-perk");
     await expect(line).toHaveCount(1);
+    await expect(line).toContainText("Wallet 25");
     await expect(line).toContainText(
       "🎁 Streak perk: +15 Freebucks every Pacific day",
+    );
+    const header = page.getByTestId("freebucks-header").first();
+    await expect(header).toContainText("40 Freebucks spendable");
+    await expect(header).toContainText("= 15 daily + 25 wallet");
+    // The daily pool is the server's own 25, never 25 + the 15 bonus.
+    await expect(page.getByTestId("account-row").first()).toContainText(
+      "Used 10 / 25",
     );
   });
 
@@ -379,9 +391,9 @@ test.describe("dashboard hermetic mocks", () => {
     page,
   }) => {
     const f = loadFixtures();
-    // Metered account (issue #364): the row keeps the daily figures and
-    // wallet; the live "resets in" countdown renders once in the global
-    // strip, shared for all accounts.
+    // Metered account (issue #364): the row states its own spendable total,
+    // daily pool and wallet once each; the all-accounts "resets in" countdown
+    // stays in the global strip.
     const meteredTokens = JSON.parse(JSON.stringify(f.tokens));
     meteredTokens.tokens[0].freebucks = {
       balance: 50,
@@ -398,9 +410,17 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
     const header = page.getByTestId("freebucks-header").first();
-    await expect(header).toContainText("30/75 Freebucks daily");
-    await expect(header).toContainText("20 in wallet");
+    // One figure per fact: the headline states the spendable total and, when
+    // the served figures add up, its own decomposition; the daily pool and
+    // the wallet below carry the rest exactly once.
+    await expect(header).toContainText("50 Freebucks spendable");
+    await expect(header).toContainText("= 30 daily + 20 wallet");
+    await expect(header).not.toContainText("30/75");
     await expect(header).not.toContainText("resets in");
+    const row = page.getByTestId("account-row").first();
+    await expect(row).toContainText("Used 45 / 75");
+    await expect(row).toContainText("30 left");
+    await expect(row).toContainText("Wallet 20");
     await expect(page.getByTestId("reset-strip")).toContainText("resets in");
   });
 
@@ -469,9 +489,10 @@ test.describe("dashboard hermetic mocks", () => {
     page,
   }) => {
     const f = loadFixtures();
-    // Full-tier account with a parked release: the header carries the
-    // server-driven tier plus the daily fraction, and the refund line
-    // renders once for the parked account only.
+    // Full-tier account with a parked release: the identity row carries the
+    // server-driven tier badge, the parked release renders once, and a
+    // payload whose wallet does NOT add up to the served spendable total
+    // claims no decomposition.
     const refundTokens = JSON.parse(JSON.stringify(f.tokens));
     refundTokens.tokens[0].access_tier = "full";
     refundTokens.tokens[0].freebucks = {
@@ -488,9 +509,14 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
+    const row = page.getByTestId("account-row").first();
+    await expect(row).toContainText("FULL");
     const header = page.getByTestId("freebucks-header").first();
-    await expect(header).toContainText("FULL");
-    await expect(header).toContainText("95/100 Freebucks daily");
+    await expect(header).toContainText("50 Freebucks spendable");
+    // 95 + 2.5 ≠ 50: the card states the total and invents no bucket.
+    await expect(header).not.toContainText("daily +");
+    await expect(row).toContainText("Used 5 / 100");
+    await expect(row).toContainText("Wallet 3");
     const refund = page.getByTestId("refund-line");
     await expect(refund).toHaveCount(1);
     await expect(refund).toContainText("awaiting final usage");

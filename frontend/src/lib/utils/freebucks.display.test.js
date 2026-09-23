@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   formatFreebucks,
   firstTabListPriceFor,
+  freebucksDisplayModel,
   freebucksResetLine,
   offPeakCopy,
   streakBonusNote,
@@ -262,5 +263,149 @@ describe("streakBonusNote (bonus branches only with a value present)", () => {
       streakBonusNote({ streak: 0, freebucks_daily_bonus: 3 }),
       null,
     );
+  });
+});
+
+describe("freebucksDisplayModel (allowances card, one figure per fact)", () => {
+  const NOW = Date.parse("2026-09-23T12:00:00Z");
+  // The served daily pool both live accounts carried on 2026-09-23.
+  const DAILY = {
+    limit: 25,
+    spent: 10,
+    remaining: 15,
+    percent_used: 40,
+    reset_at: "2026-09-24T00:00:00Z",
+    reset_time_zone: "UTC",
+  };
+  // Live pair: akmalrzn15 40 = 15 daily + 25 wallet; hermescresioa
+  // 30 = 15 daily + 15 wallet — the streak perk's 15/day is already inside
+  // the wallet figure, so the daily limit stays at the server's 25.
+  const AKMAL = {
+    streak: 8,
+    freebucks_daily_bonus: 15,
+    freebucks: { balance: 40, daily: DAILY, wallet: { balance: 25 } },
+  };
+  const HERMES = {
+    streak: 7,
+    freebucks_daily_bonus: 15,
+    freebucks: { balance: 30, daily: DAILY, wallet: { balance: 15 } },
+  };
+
+  it("akmalrzn15: spendable 40 = 15 daily + 25 wallet", () => {
+    const m = freebucksDisplayModel(AKMAL, NOW);
+    assert.equal(m.spendable, 40);
+    assert.equal(m.dailyLeft, 15);
+    assert.equal(m.dailyLimit, 25);
+    assert.equal(m.dailySpent, 10);
+    assert.equal(m.dailyPct, 40);
+    assert.equal(m.wallet, 25);
+    assert.equal(m.decomposition, "15 daily + 25 wallet");
+  });
+
+  it("hermescresioa: spendable 30 = 15 daily + 15 wallet", () => {
+    const m = freebucksDisplayModel(HERMES, NOW);
+    assert.equal(m.spendable, 30);
+    assert.equal(m.wallet, 15);
+    assert.equal(m.decomposition, "15 daily + 15 wallet");
+  });
+
+  it("never folds the perk into the daily limit", () => {
+    // The bonus is credited to the wallet, so the pool the card draws stays
+    // the server's own: 25, not 25 + 15.
+    const m = freebucksDisplayModel(AKMAL, NOW);
+    assert.equal(m.dailyLimit, 25);
+    assert.equal(m.dailySpent, 10);
+    assert.equal(m.dailyLeft, 15);
+  });
+
+  it("drops the decomposition when the served figures do not add up", () => {
+    // Spendable includes a bucket this card cannot name (claimable grants are
+    // excluded from spendable) — state the total, invent nothing.
+    const diverging = {
+      freebucks: { balance: 40, daily: DAILY, wallet: { balance: 20 } },
+    };
+    const m = freebucksDisplayModel(diverging, NOW);
+    assert.equal(m.spendable, 40);
+    assert.equal(m.decomposition, null);
+  });
+
+  it("no freebucks block at all renders nothing (older payloads)", () => {
+    assert.equal(freebucksDisplayModel({ streak: 4 }, NOW), null);
+    assert.equal(freebucksDisplayModel(null, NOW), null);
+  });
+
+  it("gap-fills only the missing spent figure, from the served pair", () => {
+    const m = freebucksDisplayModel(
+      {
+        freebucks: {
+          balance: 40,
+          daily: { limit: 25, remaining: 15 },
+          wallet: { balance: 25 },
+        },
+      },
+      NOW,
+    );
+    assert.equal(m.dailySpent, 10);
+    assert.equal(m.dailyPct, 40);
+    assert.equal(m.decomposition, "15 daily + 25 wallet");
+  });
+
+  it("a missing figure never becomes a stated zero", () => {
+    const m = freebucksDisplayModel(
+      { freebucks: { daily: { limit: 25, spent: 10, remaining: 15 } } },
+      NOW,
+    );
+    assert.equal(m.spendable, null);
+    assert.equal(m.wallet, null);
+    assert.equal(m.decomposition, null);
+  });
+
+  it("daily reset line: absolute instant counts down in the reset zone", () => {
+    const { resetLine } = freebucksDisplayModel(AKMAL, NOW);
+    assert.equal(resetLine.shape, "countdown");
+    assert.equal(resetLine.rel, "12h 0m");
+    assert.equal(resetLine.clock, "2026-09-24T00:00:00Z (UTC)");
+  });
+
+  it("daily reset line: no stamp renders no line", () => {
+    const m = freebucksDisplayModel(
+      { freebucks: { balance: 40, daily: { limit: 25, remaining: 15 } } },
+      NOW,
+    );
+    assert.equal(m.resetLine, null);
+  });
+
+  it("perk note: the vendor copy verbatim, only with a positive bonus", () => {
+    assert.equal(
+      freebucksDisplayModel(AKMAL, NOW).perkNote,
+      "🎁 Streak perk: +15 Freebucks every Pacific day",
+    );
+    // Below the week the vendor unlock countdown rides the same note.
+    const early = { ...HERMES, streak: 3 };
+    assert.equal(
+      freebucksDisplayModel(early, NOW).perkNote,
+      "🎁 4 more days to unlock +15 Freebucks every Pacific day",
+    );
+    // No bonus on the meter (or a session-only bonus): nothing lands on the
+    // wallet line at all.
+    assert.equal(
+      freebucksDisplayModel({ freebucks: AKMAL.freebucks }, NOW).perkNote,
+      null,
+    );
+    assert.equal(
+      freebucksDisplayModel({ ...AKMAL, freebucks_daily_bonus: 0 }, NOW)
+        .perkNote,
+      null,
+    );
+  });
+
+  it("keeps the perk note when the wallet figure is absent", () => {
+    const m = freebucksDisplayModel(
+      { streak: 8, freebucks_daily_bonus: 15, freebucks: { daily: DAILY } },
+      NOW,
+    );
+    assert.equal(m.wallet, null);
+    assert.equal(m.decomposition, null);
+    assert.equal(m.perkNote, "🎁 Streak perk: +15 Freebucks every Pacific day");
   });
 });

@@ -184,6 +184,101 @@ export function freebucksResetLine(win, nowMs) {
   return { shape: "countdown", rel: freebucksWindowRel(at, nowMs), clock };
 }
 
+/** A wire figure, kept as a number only when the server actually sent one:
+ * an absent figure must never become the 0 the card then states as fact. */
+function wireNum(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The Allowances card's display model for one account's `freebucks` block:
+ * every figure the card draws, resolved once from the wire so no number is
+ * derived twice, plus the identity of the spendable total.
+ *
+ * `balance` IS the spendable figure — vendor
+ * common/src/types/freebuff-session.ts defines it as
+ * `daily.remaining + wallet.balance` — and `decomposition` states that
+ * relationship in words. It renders only when the three served figures
+ * cohere after rounding: a mismatch means the server counts something this
+ * card cannot name (claimable grants are deliberately excluded from
+ * spendable), so the card states the total alone rather than inventing a
+ * bucket for the difference.
+ *
+ * `resetLine` is the daily pool's own refill stamp: only a parseable instant
+ * carries a countdown, a vendor display string renders as a clock with the
+ * zone it was formatted in. `perkNote` is the streak perk — server-credited
+ * to the WALLET every Pacific day, never folded into `dailyLimit` — and stays
+ * null unless a positive Freebucks bonus is served, so the session-bonus copy
+ * never lands on a wallet line.
+ *
+ * @param {{ freebucks?: object|null }} token pooled-token row
+ * @param {number} nowMs clock for the reset line (tests pin it)
+ * @returns {null | {
+ *   spendable: number|null, dailyLeft: number|null, dailyLimit: number|null,
+ *   dailySpent: number|null, dailyPct: number, wallet: number|null,
+ *   decomposition: string|null, resetLine: object|null, perkNote: string|null,
+ * }} null for a token with no freebucks block (older payloads)
+ */
+export function freebucksDisplayModel(token, nowMs = Date.now()) {
+  const fb = token?.freebucks ?? null;
+  if (fb == null) return null;
+  const daily = fb.daily ?? null;
+  const dailyLimit = wireNum(daily?.limit);
+  const dailyLeft = wireNum(daily?.remaining);
+  // Gap-fill only — the served figures stay authoritative. Older payloads
+  // send `remaining` without `spent`; the daily window's own meter mirrors
+  // this in FreebucksQuotaBar.
+  const dailySpent =
+    wireNum(daily?.spent) ??
+    (dailyLimit != null && dailyLeft != null
+      ? Math.max(0, dailyLimit - dailyLeft)
+      : null);
+  const pctRaw =
+    wireNum(daily?.percent_used) ??
+    (dailyLimit > 0 && dailySpent != null
+      ? (dailySpent / dailyLimit) * 100
+      : 0);
+  const dailyPct = Math.min(100, Math.max(0, pctRaw));
+  const wallet = wireNum(fb.wallet?.balance);
+  const spendable = wireNum(fb.balance);
+  const coheres =
+    spendable != null &&
+    dailyLeft != null &&
+    wallet != null &&
+    Math.round(spendable) === Math.round(dailyLeft) + Math.round(wallet);
+  const decomposition = coheres
+    ? `${formatFreebucks(dailyLeft)} daily + ${formatFreebucks(wallet)} wallet`
+    : null;
+  const resetAt = daily?.reset_at ?? "";
+  const resetLine = resetAt
+    ? freebucksResetLine(
+        {
+          resetAt,
+          resetZone: daily?.reset_time_zone ?? daily?.resetTimeZone ?? null,
+          resetAbsolute: Number.isFinite(Date.parse(resetAt)),
+        },
+        nowMs,
+      )
+    : null;
+  const bonus = wireNum(
+    token?.freebucks_daily_bonus ?? token?.freebucksDailyBonus,
+  );
+  const perkNote = bonus != null && bonus > 0 ? streakBonusNote(token) : null;
+  return {
+    spendable,
+    dailyLeft,
+    dailyLimit,
+    dailySpent,
+    dailyPct,
+    wallet,
+    decomposition,
+    resetLine,
+    perkNote,
+  };
+}
+
 // "$25", "$4.20", "$0" — whole dollars until the figure is small enough
 // that the cents are the story. Port of upstream formatAllowanceUsd
 // (issue #354).
