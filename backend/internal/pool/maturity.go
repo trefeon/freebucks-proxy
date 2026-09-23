@@ -220,13 +220,17 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchOverride string, idx in
 
 	// 3. Client traffic check
 	if p.dayRequestCount(idx) > 0 {
-		p.recordMaturitySkip(tok, idx, "skip:client-active", today)
+		if inWindow {
+			p.recordMaturitySkip(tok, idx, "skip:client-active", today)
+		}
 		return false
 	}
 
 	// 4. Upstream TodayUsed check
 	if cached != nil && cached.TodayUsed {
-		p.recordMaturitySkip(tok, idx, "skip:today-used", today)
+		if inWindow {
+			p.recordMaturitySkip(tok, idx, "skip:today-used", today)
+		}
 		return false
 	}
 

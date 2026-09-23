@@ -281,6 +281,11 @@
     // Touched only when the touch belongs to the current Pacific day:
     // last night's touch is history (Pending), not today's status.
     if (m?.touch_day) return m.touch_day === pacificDayKey(nowMs);
+    // Day-less preview (no touch stamp this run): upstream today_used means
+    // the account was used elsewhere, not touched here — never report it
+    // as Touched (which would render with an empty time). Only a stamped
+    // touch may fall back to the upstream flag.
+    if (!m?.last_touch) return false;
     return !!t?.today_used;
   }
   // Single shared skipped definition for rows AND the header count: a
@@ -402,26 +407,32 @@
   }
 
   // Last-run ledger summary across covered accounts: latest touch time,
-  // touch count, and skip counts grouped by exact reason. Fully
-  // historical on purpose: no result_day filter here — stale skips stay
-  // visible with the Pacific day they belong to (latestDay).
+  // touch count, and skip counts grouped by exact reason. Scoped to the
+  // latest stamped Pacific day on purpose: midday previews carry no
+  // result_day (pending, pre-run) and must never read as run outcomes, so
+  // only entries stamped with the latest day count. Day-less previews stay
+  // invisible here and eligible in the header; an empty ledger reads
+  // touched 0 skipped 0 with no day label.
   function ledgerSummary(list) {
+    let latestDay = "";
+    for (const t of list) {
+      const day = t.maturity?.result_day;
+      if (day && (!latestDay || day > latestDay)) latestDay = day;
+    }
     let touched = 0;
     let latest = "";
-    let latestDay = "";
     const skips = {};
-    for (const t of list) {
-      const m = t.maturity;
-      if (!m) continue;
-      if (m.last_result === "ok") touched += 1;
-      else if ((m.last_result ?? "").startsWith("skip:")) {
-        skips[m.last_result] = (skips[m.last_result] ?? 0) + 1;
-      }
-      if (m.last_touch && (!latest || m.last_touch > latest)) {
-        latest = m.last_touch;
-      }
-      if (m.result_day && (!latestDay || m.result_day > latestDay)) {
-        latestDay = m.result_day;
+    if (latestDay) {
+      for (const t of list) {
+        const m = t.maturity;
+        if (!m || m.result_day !== latestDay) continue;
+        if (m.last_result === "ok") touched += 1;
+        else if ((m.last_result ?? "").startsWith("skip:")) {
+          skips[m.last_result] = (skips[m.last_result] ?? 0) + 1;
+        }
+        if (m.last_touch && (!latest || m.last_touch > latest)) {
+          latest = m.last_touch;
+        }
       }
     }
     const skipped = Object.values(skips).reduce((a, b) => a + b, 0);
