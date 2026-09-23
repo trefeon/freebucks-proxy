@@ -110,10 +110,10 @@
   title={$tr("Pool Tokens")}
   description={tokenCount
     ? $tr(
-        "{count} pooled token(s) · Drag handle to reorder priority · Tap for details",
+        "{count} pooled token(s) · Drag handle to reorder priority · Expand the row's chevron for session & quota details",
         { count: tokenCount },
       )
-    : $tr("Tap a card to see session & quota details")}
+    : $tr("Add a token, then expand its chevron for session & quota details")}
 >
   {#if loading}
     <div class="flex flex-col gap-3">
