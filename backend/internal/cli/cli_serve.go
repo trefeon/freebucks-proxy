@@ -427,6 +427,14 @@ func Serve(configPath string, verbose bool, version string) int {
 	// or any real host zone, always wins. Started here, never in a server
 	// constructor, so tests stay hermetic; it stops with the same shutdown
 	// context as the pool.
+	//
+	// #123 had two reasons and only the first is answered by that consumer:
+	// the probe now has one, but the gateway does gain a recurring outbound
+	// request (one cdn-cgi/trace GET every egress.DefaultTTL, fixed cadence,
+	// SESSION_TIMEZONE does not disable it) that the official CLI never makes.
+	// It carries no credentials and never touches upstream visibility — only
+	// Cloudflare learns the egress IP — and docs/decisions/locality-timezone.md
+	// records the reversal.
 	egressTracker := egress.NewTracker(egress.NewCache(), egress.Path{
 		Key:    "direct",
 		Dialer: egress.DirectDialer(egress.ProbeTimeout),

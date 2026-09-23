@@ -83,6 +83,21 @@ An unrecognised-but-well-formed country, a malformed one, or a failed probe all
 reach the same place: the host zone when it is real, else UTC. The country is
 reported as `""` when unknown, and the zone branch reports `utc`.
 
+The probe runs on its fixed `DefaultTTL` cadence **regardless of whether
+`SESSION_TIMEZONE` is set** — it is the same unauthenticated `cdn-cgi/trace`
+GET `-doctor` already used, it carries no credentials and no token material,
+and only its country is ever consulted. Setting the override does not stop it
+(the region branch simply never wins); nothing but the serve path starts it.
+An operator with a strict egress policy should know the gateway now makes a
+recurring outbound request it previously made only on demand.
+
+That knowingly reverses half of #123, which refused startup probing for two
+reasons: the result had no consumer, and the official CLI never talks to
+`cloudflare.com`. The first is answered by the locality rule. The second still
+stands and is accepted: the gateway gains one outbound request the vendor client
+does not make, and it never touches upstream visibility (`cloudflare.com` learns
+the egress IP; Codebuff learns nothing).
+
 ## Privacy: country on `/healthz`, never the IP
 
 `/healthz` is **unauthenticated**, so it gains three additive fields —
