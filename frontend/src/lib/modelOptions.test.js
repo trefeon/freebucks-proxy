@@ -11,7 +11,15 @@ import { touchCandidates, touchOptions } from "./utils/touchModels.js";
 // Tier-catalog shaped rows: served rows pickable, withdrawn and tier-only
 // rows (paid plan, limited trial) listed but never served.
 const ROWS = [
-  { id: "upstage/solar-pro4", agent: "a", served: true, pool: "unlimited" },
+  { id: "upstage/solar-mini4", agent: "a", served: true, pool: "unlimited" },
+  // Served experimental rows stay pickable: the BETA gate only keeps them
+  // out of automatic defaults, never out of the picker list.
+  {
+    id: "stealth/space-bunny-alpha",
+    agent: "a",
+    served: true,
+    pool: "unlimited",
+  },
   { id: "openai/gpt-6-luna", agent: "a", served: true, pool: "premium" },
   { id: "stealth/ox-alpha", agent: "a", served: false, withdrawn: true },
   { id: "google/gemini-3.8-flash", agent: "a", served: false },
@@ -33,10 +41,17 @@ describe("fallbackModelOptions (offline pickers)", () => {
     assert.ok(!ids.includes("anthropic/claude-fable-5.1"));
   });
 
-  it("still defaults to a free row", () => {
+  it("retired Solar Pro 4 is out, Mini 4 and Bunny are in", () => {
+    const ids = fallbackModelOptions.map((m) => m.id);
+    assert.ok(!ids.includes("upstage/solar-pro4"));
+    assert.ok(ids.includes("upstage/solar-mini4"));
+    assert.ok(ids.includes("stealth/space-bunny-alpha"));
+  });
+
+  it("still defaults to a free row, never the BETA row", () => {
     assert.equal(
       cheapestFreeOption(fallbackModelOptions),
-      "upstage/solar-pro4",
+      "upstage/solar-mini4",
     );
   });
 });
@@ -55,14 +70,22 @@ describe("fetchModelOptions (live pickers)", () => {
 
   it("drops withdrawn and tier-only rows, keeps served", async () => {
     const ids = (await fetchModelOptions()).map((m) => m.id);
-    assert.deepEqual(ids, ["upstage/solar-pro4", "openai/gpt-6-luna"]);
+    assert.deepEqual(ids, [
+      "upstage/solar-mini4",
+      "stealth/space-bunny-alpha",
+      "openai/gpt-6-luna",
+    ]);
   });
 });
 
 describe("touchCandidates (streak select)", () => {
   it("keeps served rows, premium last, drops the rest", () => {
     const ids = touchCandidates(ROWS).map((m) => m.id);
-    assert.deepEqual(ids, ["upstage/solar-pro4", "openai/gpt-6-luna"]);
+    assert.deepEqual(ids, [
+      "upstage/solar-mini4",
+      "stealth/space-bunny-alpha",
+      "openai/gpt-6-luna",
+    ]);
   });
 
   it("fail-open keeps the saved value when the catalog omits it", () => {

@@ -130,7 +130,7 @@ test.describe("user flows", () => {
     ).toBeDisabled();
   });
   test("tokens: spawn picker lists only served models", async ({ page }) => {
-    // The 15-row catalog lists withdrawn and tier-only rows the gateway
+    // The 17-row catalog lists withdrawn and tier-only rows the gateway
     // never serves; the spawn picker must offer exactly the served set.
     await mockDashboard(page, loadFixtures());
     await page.goto(admin("tokens"));
@@ -159,7 +159,8 @@ test.describe("user flows", () => {
     expect(options.sort()).toEqual(
       [
         "openai/gpt-6-luna",
-        "upstage/solar-pro4",
+        "upstage/solar-mini4",
+        "stealth/space-bunny-alpha",
         "meta/muse-spark-1.2-contributor",
         "z-ai/glm-5.3-flash",
         "deepseek/deepseek-v4-flash",

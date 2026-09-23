@@ -206,9 +206,9 @@ test.describe("real-world data", () => {
     const tokens = JSON.parse(JSON.stringify(f.tokens));
     const list = tokens.tokens ?? tokens;
     const first = Array.isArray(list) ? list[0] : tokens;
-    first.freebucks.prices["upstage/solar-pro4"] = 0;
+    first.freebucks.prices["upstage/solar-mini4"] = 0;
     tokens.unmetered_models = [
-      { id: "upstage/solar-pro4", name: "Solar Pro 4" },
+      { id: "upstage/solar-mini4", name: "Solar Mini 4" },
     ];
     await mockDashboard(page, f, { tokens });
     await page.goto(admin("plans"));
@@ -220,7 +220,7 @@ test.describe("real-world data", () => {
     await expect(page.getByText("Free", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Premium", { exact: true })).toHaveCount(0);
     // Bare ids render with the priced Freebucks suffix where a price exists.
-    await expect(page.getByText("upstage/solar-pro4").first()).toBeVisible();
+    await expect(page.getByText("upstage/solar-mini4").first()).toBeVisible();
     await expect(page.getByText("0 Freebucks/hr").first()).toBeVisible();
   });
   test("models/logs/traces/metrics render production rows", async ({
@@ -238,10 +238,11 @@ test.describe("real-world data", () => {
     await expect(page.getByText("Referral only").first()).toBeVisible();
     await expect(page.getByText("paid plan").first()).toBeVisible();
     await expect(page.getByText("limited trial").first()).toBeVisible();
-    // Served stat tells the truth about 15 rows: 6 served, GPT-5.6 Luna
-    // listed as a recognized row its sessions still drain on.
-    await expect(page.getByText("6 of 15")).toBeVisible();
-    await expect(page.getByText("15 registered · 50 agents")).toBeVisible();
+    // Served stat tells the truth about 17 rows: 7 served; GPT-5.6 Luna
+    // and Solar Pro 4 stay listed as recognized rows their sessions
+    // still drain on.
+    await expect(page.getByText("7 of 17")).toBeVisible();
+    await expect(page.getByText("17 registered · 50 agents")).toBeVisible();
     // Five withdrawn rows name their replacement in both renderings.
     await expect(page.getByTestId("model-withdrawn")).toHaveCount(10);
     // The offer row shows the live campaign counts in both renderings.

@@ -20,7 +20,7 @@ Options:
                       api-keys.local; a relative path resolves against the repo
                       root, so the tool works from any working directory)
   --key TOKEN         Direct Bearer token (overrides key-file)
-  --model MODEL       Model to test (default: upstage/solar-pro4,z-ai/glm-5.3-flash)
+  --model MODEL       Model to test (default: upstage/solar-mini4,z-ai/glm-5.3-flash)
   --skip-chat         Skip live chat completion requests
   --concurrency N     Number of concurrent requests to test slot ledger (default: 2)
   --watch             Continuous monitoring mode (refreshes every N seconds)
@@ -629,7 +629,7 @@ def main():
     parser.add_argument("--url", default=default_url)
     parser.add_argument("--key-file", default=os.environ.get("MONITOR_KEY_FILE", "api-keys.local"))
     parser.add_argument("--key", default="")
-    parser.add_argument("--model", default="upstage/solar-pro4,z-ai/glm-5.3-flash")
+    parser.add_argument("--model", default="upstage/solar-mini4,z-ai/glm-5.3-flash")
     parser.add_argument("--skip-chat", action="store_true")
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--watch", action="store_true")

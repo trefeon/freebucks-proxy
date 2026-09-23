@@ -338,7 +338,7 @@ test.describe("dashboard hermetic mocks", () => {
       wallet: { balance: 0 },
       monthly: { remaining: 9.63, limit: 10 },
       prices: {
-        "upstage/solar-pro4": 0,
+        "upstage/solar-mini4": 0,
         "deepseek/deepseek-v4-flash": 15,
       },
     };
@@ -353,13 +353,13 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(page.getByTestId("models-note")).toContainText(
       "identical for every account in the region",
     );
-    await expect(page.getByText("upstage/solar-pro4").first()).toBeVisible();
+    await expect(page.getByText("upstage/solar-mini4").first()).toBeVisible();
     await expect(
       page.getByText("deepseek/deepseek-v4-flash").first(),
     ).toBeVisible();
     // Cheapest first: the 0-price row sorts above the priced row.
     const ids = await page.locator("table.fp-table td code").allTextContents();
-    expect(ids.indexOf("upstage/solar-pro4")).toBeLessThan(
+    expect(ids.indexOf("upstage/solar-mini4")).toBeLessThan(
       ids.indexOf("deepseek/deepseek-v4-flash"),
     );
   });
@@ -1748,7 +1748,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
   });
 
-  test("Models lists 15 rows with tiers, withdrawals, and the live offer", async ({
+  test("Models lists 17 rows with tiers, withdrawals, and the live offer", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -1767,18 +1767,19 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
 
-    // Served stat tells the truth about 15 rows: 6 served of 15 listed (the
-    // two Pro-only rows are plan-locked, never served; GPT-5.6 Luna stays
-    // listed as a recognized row the gateway no longer puts in a picker).
-    await expect(page.getByText("6 of 15")).toBeVisible();
-    await expect(page.getByText("15 registered · 50 agents")).toBeVisible();
+    // Served stat tells the truth about 17 rows: 7 served of 17 listed (the
+    // two Pro-only rows are plan-locked, never served; GPT-5.6 Luna and
+    // Solar Pro 4 stay listed as recognized rows the gateway no longer
+    // puts in a picker).
+    await expect(page.getByText("7 of 17")).toBeVisible();
+    await expect(page.getByText("17 registered · 50 agents")).toBeVisible();
     // Tier column renders; the pool column stays gone.
     await expect(page.getByText("Tier").first()).toBeVisible();
     await expect(page.locator("table").getByText("Pool")).toHaveCount(0);
-    // 15 rows in the desktop table; tier cells render in both the table
+    // 17 rows in the desktop table; tier cells render in both the table
     // and the mobile cards.
-    await expect(page.locator("table tbody tr")).toHaveCount(15);
-    await expect(page.getByTestId("model-tier")).toHaveCount(30);
+    await expect(page.locator("table tbody tr")).toHaveCount(17);
+    await expect(page.getByTestId("model-tier")).toHaveCount(34);
     // Plan-required rows (Gemini 3.8 Flash, MiMo 2.6 Pro) draw locked: the
     // "Paid plan" badge and upstream's sentence, never a served state.
     // Scoped to the table: the mobile cards carry the same annotation, so an
@@ -1820,7 +1821,13 @@ test.describe("dashboard hermetic mocks", () => {
       // GPT-5.6 Luna left every picker on 2026-09-22: still a recognized
       // row (draining sessions) listed with no tier, never served.
       ["openai/gpt-5.6-luna", [], "unserved"],
-      ["upstage/solar-pro4", ["limited", "full"], "served"],
+      // Solar Pro 4 left every picker on 2026-09-23: still a recognized
+      // row (draining sessions) listed with no tier, never served.
+      ["upstage/solar-pro4", [], "unserved"],
+      ["upstage/solar-mini4", ["limited", "full"], "served"],
+      // Space Bunny Alpha is a served BETA row: full tier only, with its
+      // prompt-retention warning inline.
+      ["stealth/space-bunny-alpha", ["full"], "served"],
       ["google/gemini-3.8-flash", ["full", "paid plan"], "Paid plan"],
       ["meta/muse-spark-1.2-contributor", ["full"], "served"],
       [
@@ -1850,6 +1857,11 @@ test.describe("dashboard hermetic mocks", () => {
         await expect(row.getByTestId("model-tier")).toContainText(chip);
       }
     }
+    // The BETA stealth row carries its prompt-retention warning inline
+    // (table scope: the mobile cards carry the same copy).
+    await expect(
+      table.getByText("Anonymous provider retains prompts").first(),
+    ).toBeVisible();
     await expect(page.getByTestId("model-offer").first()).toContainText(
       "3 of 10 sessions left",
     );
@@ -1885,7 +1897,7 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     const rows = page.locator("table tbody tr");
-    await expect(rows).toHaveCount(15);
+    await expect(rows).toHaveCount(17);
     await expect(rows.first()).toContainText("openai/gpt-6-luna");
   });
   test("Models offer row names the spent trial", async ({ page }) => {

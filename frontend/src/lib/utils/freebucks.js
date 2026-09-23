@@ -64,10 +64,29 @@ export function intentAskLine(intent, activeModel) {
 }
 
 export const MODEL_METADATA = {
+  // Solar Pro 4 left every picker on 2026-09-23 (replaced by Solar Mini 4 in
+  // FREEBUFF_MODELS, supersededBy Mini 4) but stays recognized: sessions
+  // admitted before the swap drain on it, so its copy stays for the rows
+  // that still name it. Never a picker row.
   "upstage/solar-pro4": {
     displayName: "Solar Pro 4",
     tagline: "0 Freebucks",
     badges: [],
+  },
+  "upstage/solar-mini4": {
+    displayName: "Solar Mini 4",
+    tagline: "Fast and light",
+    badges: ["NEW"],
+  },
+  // Space Bunny Alpha is served but experimental (BETA): upstream renders the
+  // experimental flag as a badge chip, and the row retains prompts on an
+  // anonymous host — hence the BETA chip and the disclaimer, mirroring the
+  // backend Notice. Never the automatic default (backend Experimental gate).
+  "stealth/space-bunny-alpha": {
+    displayName: "Space Bunny Alpha",
+    tagline: "1M context",
+    badges: ["Reasoning: high", "Images", "NEW", "BETA"],
+    disclaimer: "Anonymous provider retains prompts",
   },
   "z-ai/glm-5.3-flash": {
     displayName: "GLM 5.3 Flash",

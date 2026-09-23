@@ -1,7 +1,7 @@
 {
   "agents": 50,
-  "count": 15,
-  "hint": "15 models · 50 agents",
+  "count": 17,
+  "hint": "17 models · 50 agents",
   "models": [
     {
       "agent": "base2-free-solar-pro4",
@@ -11,9 +11,38 @@
       "price": 0,
       "price_label": "0 Freebucks/hr",
       "quota": "0 Freebucks/hr",
-      "served": true,
+      "served": false,
       "tagline": "0 Freebucks",
+      "withdrawn": false
+    },
+    {
+      "agent": "base2-free-solar-mini4",
+      "badges": ["NEW"],
+      "display_name": "Solar Mini 4",
+      "id": "upstage/solar-mini4",
+      "pool": "unlimited",
+      "price": 0,
+      "price_label": "0 Freebucks/hr",
+      "quota": "0 Freebucks/hr",
+      "served": true,
+      "tagline": "Fast and light",
       "tiers": ["limited", "full"],
+      "withdrawn": false
+    },
+    {
+      "agent": "base2-free-space-bunny-alpha",
+      "badges": ["Reasoning: high", "Images", "NEW"],
+      "display_name": "Space Bunny Alpha",
+      "efforts": ["low", "medium", "high", "xhigh", "max"],
+      "id": "stealth/space-bunny-alpha",
+      "notice": "Anonymous provider retains prompts",
+      "pool": "unlimited",
+      "price": 10,
+      "price_label": "10 Freebucks/hr",
+      "quota": "10 Freebucks/hr",
+      "served": true,
+      "tagline": "1M context",
+      "tiers": ["full"],
       "withdrawn": false
     },
     {
