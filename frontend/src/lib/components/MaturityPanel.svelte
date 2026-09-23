@@ -85,12 +85,19 @@
     try {
       const res = await postAPI("/admin/tokens/streak-touch", {});
       if (res && res.ok) {
-        const touched = (res.results ?? []).filter((r) => r.status === "touched").length;
-        const skipped = (res.results ?? []).filter((r) => r.status === "skipped").length;
+        const touched = (res.results ?? []).filter(
+          (r) => r.status === "touched",
+        ).length;
+        const skipped = (res.results ?? []).filter(
+          (r) => r.status === "skipped",
+        ).length;
         pushToast({
           tone: "success",
           title: $tr("Streak maintenance complete"),
-          body: $tr("{touched} account(s) touched, {skipped} skipped", { touched, skipped }),
+          body: $tr("{touched} account(s) touched, {skipped} skipped", {
+            touched,
+            skipped,
+          }),
         });
       } else {
         pushToast({
@@ -521,7 +528,9 @@
           disabled={touchingNow || !globalEnabled}
           loading={touchingNow}
           onclick={runTouchNow}
-          title={$tr("Trigger streak touch turn now for accounts needing maintenance")}
+          title={$tr(
+            "Trigger streak touch turn now for accounts needing maintenance",
+          )}
         >
           {touchingNow ? $tr("Touching…") : $tr("Touch now")}
         </Button>
