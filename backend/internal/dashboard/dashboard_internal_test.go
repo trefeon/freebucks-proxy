@@ -380,10 +380,17 @@ func TestLiveCardPerDayDisplay(t *testing.T) {
 	}
 }
 
-// retiredPickerModel is the catalog row the c2d2958b regen retired from
+// A retired-from-picker row is a catalog row an upstream regen retired from
 // picking without pausing it: upstream left it recognized (released clients
 // still get a coercion) but it is no longer served and no tier admits it.
-const retiredPickerModel = "openai/gpt-5.6-luna"
+// retiredPickerModels are the retired-from-picker rows: still recognized
+// (released clients get a coercion) but served by nothing and admitted by
+// no tier. 5.6 lost its slot to GPT-6 Luna (c2d2958b); Solar Pro 4 lost its
+// slot to Solar Mini 4 (40c75256).
+var retiredPickerModels = map[string]bool{
+	"openai/gpt-5.6-luna": true,
+	"upstage/solar-pro4":  true,
+}
 
 // TestModelsDataCatalogTierFacts pins the full-catalog models view: every
 // modelcat row appears exactly once with the tier sets that admit it and its
@@ -391,9 +398,10 @@ const retiredPickerModel = "openai/gpt-5.6-luna"
 // Served rows keep served=true; withdrawn rows carry served=false +
 // withdrawn=true + the refusal copy and no tiers; tier-only rows (paid,
 // offer) are unserved but carry the tier that admits them; the
-// retired-from-picker row (openai/gpt-5.6-luna, whose slot moved to
-// openai/gpt-6-luna with the c2d2958b catalog) is unserved, not withdrawn
-// and tierless, because no tier admits it any more. God-only/eval registry
+// retired-from-picker rows (openai/gpt-5.6-luna, whose slot moved to
+// openai/gpt-6-luna with the c2d2958b catalog; upstage/solar-pro4, whose
+// slot moved to upstage/solar-mini4 with the 40c75256 catalog) are unserved,
+// not withdrawn and tierless, because no tier admits them any more. God-only/eval registry
 // rows (luna-es) stay out. Count is the row count.
 func TestModelsDataCatalogTierFacts(t *testing.T) {
 	cfg := &config.Config{
@@ -451,7 +459,7 @@ func TestModelsDataCatalogTierFacts(t *testing.T) {
 				t.Errorf("withdrawn row %q suggests unserved replacement %q", row.ID, row.Replacement)
 			}
 		case !row.Served:
-			if row.ID == retiredPickerModel {
+			if retiredPickerModels[row.ID] {
 				// Retired-from-picker row: still a recognized catalog row
 				// (upstream did not pause it, so released clients get a
 				// coercion), but no tier admits it and the picker must not
@@ -512,7 +520,7 @@ func TestModelsDataCatalogTierFacts(t *testing.T) {
 		t.Error("models view missing withdrawn rows")
 	}
 	if !sawRetired {
-		t.Errorf("models view missing the retired-from-picker row (%s)", retiredPickerModel)
+		t.Errorf("models view missing a retired-from-picker row (want %v)", retiredPickerModels)
 	}
 	if !sawOffer {
 		t.Error("models view missing the offer row (anthropic/claude-fable-5.1)")
@@ -612,8 +620,12 @@ func TestUnmeteredModelsDerivation(t *testing.T) {
 			t.Errorf("shared-premium model %q listed as unmetered", premium)
 		}
 	}
+	// Solar Mini 4 holds the solar slot from the 40c75256 catalog; Pro 4
+	// stays listed but self-skips below (no longer served). Bunny is served
+	// and unmetered too — the dashboard stage decides its display.
 	for _, want := range []string{
 		modelcat.Glm53ModelID,
+		modelcat.SolarMini4ModelID,
 		modelcat.SolarPro4ModelID,
 		"deepseek/deepseek-v4-flash",
 		"mimo/mimo-v2.5",

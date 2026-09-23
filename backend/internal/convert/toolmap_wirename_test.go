@@ -165,6 +165,7 @@ func TestUniversalClientToolNamesRoundTrip(t *testing.T) {
 				"bash",                  // mapped -> run_terminal_command
 				"Bash",                  // foreign harness name -> virtualized
 				"hub",                   // unknown but legal -> verbatim
+				"complete_compaction",   // new upstream custom tool -> verbatim
 				"web.run",               // Codewhale dotted name -> legalized
 				"web fetch",             // space -> legalized
 				"a/b",                   // slash -> legalized

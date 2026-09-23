@@ -36,7 +36,7 @@ func TestSetupAiderConfigPreservesUserConfig(t *testing.T) {
 		"some-other-setting: true",
 		"openai-api-base: http://localhost:3457/v1",
 		"openai-api-key: not-needed",
-		"model: openai/upstage/solar-pro4",
+		"model: openai/upstage/solar-mini4",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q; got:\n%s", want, got)
@@ -79,13 +79,13 @@ func TestSetupAiderConfigAppendsMissingKeys(t *testing.T) {
 		"custom-setting: keep-me",
 		"openai-api-base: http://localhost:3457/v1",
 		"openai-api-key: not-needed",
-		"model: openai/upstage/solar-pro4",
+		"model: openai/upstage/solar-mini4",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q; got:\n%s", want, got)
 		}
 	}
-	if !strings.HasSuffix(strings.TrimRight(got, "\n"), "model: openai/upstage/solar-pro4") {
+	if !strings.HasSuffix(strings.TrimRight(got, "\n"), "model: openai/upstage/solar-mini4") {
 		t.Errorf("missing proxy keys should be appended at the end; got:\n%s", got)
 	}
 }
@@ -109,7 +109,7 @@ func TestSetupAiderConfigFreshFile(t *testing.T) {
 	for _, want := range []string{
 		"openai-api-base: http://localhost:3457/v1",
 		"openai-api-key: not-needed",
-		"model: openai/upstage/solar-pro4",
+		"model: openai/upstage/solar-mini4",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q; got:\n%s", want, got)
@@ -120,7 +120,7 @@ func TestSetupAiderConfigFreshFile(t *testing.T) {
 func TestSetupAiderConfigShortCircuitsWhenAlreadyConfigured(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, ".aider.conf.yml")
-	original := "theme: dracula\nopenai-api-base: http://localhost:3457/v1\nopenai-api-key: not-needed\nmodel: openai/upstage/solar-pro4\ncustom: keep-me\n"
+	original := "theme: dracula\nopenai-api-base: http://localhost:3457/v1\nopenai-api-key: not-needed\nmodel: openai/upstage/solar-mini4\ncustom: keep-me\n"
 	if err := os.WriteFile(cfgPath, []byte(original), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestMergeAiderConfigPreservesLineEndings(t *testing.T) {
 	lines := []string{
 		"openai-api-base: http://localhost:3457/v1",
 		"openai-api-key: not-needed",
-		"model: openai/upstage/solar-pro4",
+		"model: openai/upstage/solar-mini4",
 	}
 	got := mergeAiderConfig(original, lines)
 	if !strings.Contains(got, "\r\n") {
@@ -152,7 +152,7 @@ func TestMergeAiderConfigPreservesLineEndings(t *testing.T) {
 	if !strings.Contains(got, "theme: dracula\r\n") {
 		t.Errorf("unrelated CRLF line not preserved:\n%q", got)
 	}
-	if !strings.Contains(got, "model: openai/upstage/solar-pro4\r\n") {
+	if !strings.Contains(got, "model: openai/upstage/solar-mini4\r\n") {
 		t.Errorf("replaced model line missing or wrong line ending:\n%q", got)
 	}
 }
@@ -190,7 +190,7 @@ func TestSetupContinueYamlConfigMergesIntoExistingModels(t *testing.T) {
 		"agents:",
 		`  - name: "Agent"`,
 		`  - title: "FreeBuff Solar"`,
-		`    model: "upstage/solar-pro4"`,
+		`    model: "upstage/solar-mini4"`,
 		`    apiBase: "http://localhost:3457/v1"`,
 	} {
 		if !strings.Contains(got, want) {
@@ -341,7 +341,7 @@ func TestSetupOpencodeConfigAddsFreebuffProvider(t *testing.T) {
 // mergeContinueYamlModels tests (setupContinueYamlConfig builds its own).
 var continueItems = []string{
 	`  - title: "FreeBuff Solar"`,
-	`    model: "upstage/solar-pro4"`,
+	`    model: "upstage/solar-mini4"`,
 }
 
 var continueSnippet = "\nmodels:\n" + strings.Join(continueItems, "\n") + "\n"
@@ -572,7 +572,7 @@ func TestSetupContinueConfigPreservesParsableConfig(t *testing.T) {
 	if _, ok := models[0].(map[string]any)["apiKey"]; !ok {
 		t.Errorf("existing model's apiKey lost:\n%s", out)
 	}
-	if !strings.Contains(string(out), "upstage/solar-pro4") {
+	if !strings.Contains(string(out), "upstage/solar-mini4") {
 		t.Errorf("freebuff model missing:\n%s", out)
 	}
 }
@@ -641,9 +641,9 @@ func TestSetupAiderConfigUnreadableAborts(t *testing.T) {
 // but the helper is directly testable.)
 func TestMergeAiderConfigColonlessKey(t *testing.T) {
 	existing := "theme: dracula\nmodel: gpt-4o\n"
-	lines := []string{"openai-api-key", "model: openai/upstage/solar-pro4"}
+	lines := []string{"openai-api-key", "model: openai/upstage/solar-mini4"}
 	got := mergeAiderConfig(existing, lines)
-	want := "openai-api-key\nmodel: openai/upstage/solar-pro4\n"
+	want := "openai-api-key\nmodel: openai/upstage/solar-mini4\n"
 	if got != want {
 		t.Errorf("mergeAiderConfig = %q, want %q", got, want)
 	}
@@ -653,9 +653,9 @@ func TestMergeAiderConfigColonlessKey(t *testing.T) {
 // FIRST occurrence of an existing key is replaced; later duplicates stay.
 func TestMergeAiderConfigDuplicateKey(t *testing.T) {
 	existing := "model: gpt-4o\nmodel: gpt-4o-2\n"
-	lines := []string{"model: openai/upstage/solar-pro4"}
+	lines := []string{"model: openai/upstage/solar-mini4"}
 	got := mergeAiderConfig(existing, lines)
-	want := "model: openai/upstage/solar-pro4\nmodel: gpt-4o-2\n"
+	want := "model: openai/upstage/solar-mini4\nmodel: gpt-4o-2\n"
 	if got != want {
 		t.Errorf("mergeAiderConfig = %q, want %q", got, want)
 	}

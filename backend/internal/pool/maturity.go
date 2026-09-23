@@ -4,7 +4,7 @@
 // Pacific-midnight reset (23:45–00:00 Pacific, as pinned by upstream vendor
 // FREEBUFF_STREAK_TIME_ZONE).
 // Ensures accounts maintain active streaks by sending a zero-cost touch turn
-// on served unmetered models (such as upstage/solar-pro4), never consuming
+// on served unmetered models (such as upstage/solar-mini4), never consuming
 // user Freebucks quota.
 package pool
 
@@ -111,7 +111,7 @@ func (p *Pool) maturityResolveModel(tok *tokenEntry, override string) (string, e
 	}
 
 	// 3. Known served unmetered fallbacks
-	for _, candidate := range []string{"upstage/solar-pro4", "z-ai/glm-5.3-flash"} {
+	for _, candidate := range []string{"upstage/solar-mini4", "z-ai/glm-5.3-flash"} {
 		if p.reg != nil {
 			if _, err := p.reg.AgentForModel(candidate); err == nil {
 				return candidate, nil
@@ -324,7 +324,7 @@ func (p *Pool) maturityTouchRun(ctx context.Context, tok *tokenEntry, model stri
 		}
 	}
 	if agentID == "" {
-		agentID = "base2-free-solar-pro4"
+		agentID = "base2-free-solar-mini4"
 	}
 
 	runID, err := tok.client.StartRun(ctx, agentID)

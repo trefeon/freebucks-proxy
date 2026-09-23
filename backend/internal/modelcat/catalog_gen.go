@@ -37,6 +37,11 @@ type ModelInfo struct {
 	// every surface. The picker draws the row locked (PlanRequiredLabel, no
 	// price) instead of hiding it, so a client can see what a plan buys.
 	PlanRequired bool
+	// Experimental mirrors upstream FreebuffModelOption.experimental (the BETA
+	// badge): the row stays user-pickable but is never the automatic default
+	// (auto-touch, smoke probe, session fallback), because an anonymous host
+	// can reprice, rename or withdraw it without notice.
+	Experimental bool
 	// ContextWindow mirrors FREEBUFF_MODEL_CONTEXT_WINDOWS in tokens; 0
 	// means upstream falls back to DefaultContextWindow.
 	ContextWindow int
@@ -62,6 +67,16 @@ var Catalog = []ModelInfo{
 		ContextWindow:     1000000,
 		Efforts:           []string{"low", "high", "max"},
 		PausedReplacement: "z-ai/glm-5.3-flash"},
+	{ID: "stealth/space-bunny-alpha", DisplayName: "Space Bunny Alpha",
+		Tagline:        "1M context",
+		TaglineTooltip: "A stealth model from an anonymous provider. It may change or be withdrawn without notice.",
+		Badges:         []string{"Reasoning: high", "Images", "NEW"},
+		Notice:         "Anonymous provider retains prompts",
+		Served:         true,
+		Tiers:          []string{TierFull},
+		ContextWindow:  1000000,
+		Efforts:        []string{"low", "medium", "high", "xhigh", "max"},
+		Experimental:   true},
 	{ID: "deepseek/deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro",
 		ContextWindow:     1048576,
 		Efforts:           []string{"low", "high", "max"},
@@ -83,9 +98,14 @@ var Catalog = []ModelInfo{
 		Tiers:          []string{TierFull, TierPaid},
 		Premium:        true,
 		ContextWindow:  1000000,
-		Efforts:        []string{"low", "medium", "high", "xhigh", "max"}},
+		Efforts:        []string{"low", "medium", "high", "xhigh", "max"},
+		Experimental:   true},
 	{ID: "upstage/solar-pro4", DisplayName: "Solar Pro 4",
 		Tagline:       "0 Freebucks",
+		ContextWindow: 500000},
+	{ID: "upstage/solar-mini4", DisplayName: "Solar Mini 4",
+		Tagline:       "Fast and light",
+		Badges:        []string{"NEW"},
 		Served:        true,
 		Tiers:         []string{TierLimited, TierFull},
 		ContextWindow: 500000},
@@ -198,19 +218,20 @@ const DeepSeekV4FlashModelID = "deepseek/deepseek-v4-flash"
 
 // LimitedTierModelIDs mirrors upstream LIMITED_FREEBUFF_MODEL_IDS: the four models
 // available to limited-access tier accounts (GLM 5.3 Flash, DeepSeek V4 Flash,
-// MiMo 2.6 Flash — the wire id keeps its v2.5 spelling —, Solar Pro 4).
+// MiMo 2.6 Flash — the wire id keeps its v2.5 spelling —, Solar Mini 4, which
+// took Solar Pro 4's slot on 2026-09-23).
 var LimitedTierModelIDs = []string{
 	Glm53ModelID,
 	DeepSeekV4FlashModelID,
 	LimitedModelID,
-	SolarPro4ModelID,
+	SolarMini4ModelID,
 }
 
 // IsLimitedTierAllowed reports whether the model is available on the limited tier
 // without requiring special referral grants (matches upstream LIMITED_FREEBUFF_MODEL_IDS).
 func IsLimitedTierAllowed(id string) bool {
 	switch id {
-	case Glm53ModelID, DeepSeekV4FlashModelID, LimitedModelID, SolarPro4ModelID:
+	case Glm53ModelID, DeepSeekV4FlashModelID, LimitedModelID, SolarMini4ModelID:
 		return true
 	default:
 		return false
@@ -224,8 +245,17 @@ const Glm52ModelID = "z-ai/glm-5.2"
 // Glm53ModelID is the unmetered standard row and the proxy default.
 const Glm53ModelID = "z-ai/glm-5.3-flash"
 
-// SolarPro4ModelID mirrors FREEBUFF_SOLAR_PRO_4_MODEL_ID: the Upstage row,
-// unmetered at full access (entitlement fullAccess.premium=false).
+// SolarMini4ModelID mirrors FREEBUFF_SOLAR_MINI_4_MODEL_ID: the Upstage row
+// that took Solar Pro 4's slot on every surface on 2026-09-23, unmetered at
+// full access (entitlement fullAccess.premium=false) and offered at limited
+// access.
+const SolarMini4ModelID = "upstage/solar-mini4"
+
+// SolarPro4ModelID mirrors FREEBUFF_SOLAR_PRO_4_MODEL_ID: RETIRED from every
+// picker on 2026-09-23 (superseded by Solar Mini 4) but still SUPPORTED and
+// admissible, so sessions admitted before the swap drain and released
+// binaries keep working. Kept for the retired-row pins; new picks use
+// SolarMini4ModelID.
 const SolarPro4ModelID = "upstage/solar-pro4"
 
 // GLMSessionLength mirrors upstream FREEBUFF_REWARD_SESSION_LENGTH_MS (the

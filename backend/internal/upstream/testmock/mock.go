@@ -186,10 +186,10 @@ func mockSessionState(token string, requestedModel string, consume bool) *upstre
 				Pool:        "premium",
 				PoolLabel:   "Premium",
 			},
-			"upstage/solar-pro4": {
-				Model:       modelcat.SolarPro4ModelID,
+			"upstage/solar-mini4": {
+				Model:       modelcat.SolarMini4ModelID,
 				Limit:       unlimited,
-				RecentCount: st.recentCounts["upstage/solar-pro4"],
+				RecentCount: st.recentCounts["upstage/solar-mini4"],
 				ResetAt:     pacMidnight,
 				Period:      "pacific_day",
 				Pool:        "premium",

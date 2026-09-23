@@ -96,9 +96,13 @@ var ForeignHarnessPromptMarkers = []string{
 
 // CustomSignatureToolNames mirrors upstream FREEBUFF_CUSTOM_TOOL_NAMES:
 // tools defined outside toolNames with no schema to check, taken at face
-// value like before.
+// value like before. Vendor 40c75256 adds complete_compaction (the
+// model-compaction tool shipped in the same commit as the detector): a legal
+// wire name, so resolveUpstreamTool already passes it through — the entry
+// owns the verbatim path past any future harness collision.
 var CustomSignatureToolNames = map[string]bool{
-	"decide": true,
+	"decide":              true,
+	"complete_compaction": true,
 }
 
 // ZeroParamSignatureTools are the signature tools defined WITHOUT
@@ -348,4 +352,31 @@ func WireForeignSignal(v WireToolVerdict) ForeignSignal {
 		return ForeignToolset
 	}
 	return ""
+}
+
+// IsNowRecognisedToolset mirrors upstream isNowRecognisedToolset (vendor
+// 40c75256): whether a toolset an older build flagged foreign_toolset would
+// clear on the new one, judged from stored names alone. Names are all a
+// ban_event row keeps, so only a custom tool can vouch for a row (face
+// value); a harness name still convicts. Pass the full toolset.
+// Diagnostic-only here: the proxy keeps no ban_event rows and never
+// enforces; it exists so a stored observe row can be re-judged the way the
+// new detector judges it.
+func IsNowRecognisedToolset(names []string) bool {
+	hasCustom := false
+	for _, n := range names {
+		if CustomSignatureToolNames[n] {
+			hasCustom = true
+			break
+		}
+	}
+	if !hasCustom {
+		return false
+	}
+	for _, n := range names {
+		if ForeignHarnessToolNames[n] {
+			return false
+		}
+	}
+	return true
 }
