@@ -891,49 +891,31 @@
   {:else if data}
     {#if viewMode === "console"}
       <Card pad="none">
-        <!-- Console View Top Bar: stacks on mobile so 4 actions never overflow -->
+        <!-- Console Top Bar: one row. Scope (count + the window pills that
+             define it) on the left, view switch and stream controls on the
+             right; the clusters wrap only when the width cannot hold both. -->
         <div
-          class="p-2.5 sm:p-3 bg-[var(--fp-surface)] border-b border-[var(--fp-border)] flex flex-col gap-2.5"
+          class="p-2.5 sm:p-3 bg-[var(--fp-surface)] border-b border-[var(--fp-border)] flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
         >
-          <!-- Row 1: Context & View Mode Switcher -->
-          <div class="flex items-center justify-between gap-2 min-w-0">
-            <div class="flex items-center gap-2 min-w-0">
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
+            <span
+              class="led {requestGroups.length > 0
+                ? 'led-good'
+                : 'led-idle'} shrink-0"
+            ></span>
+            <span
+              class="font-mono text-xs text-[var(--fp-text)] font-medium truncate"
+              >{requestGroups.length}
+              {requestGroups.length === 1
+                ? $tr("model request")
+                : $tr("model requests")}</span
+            >
+            {#if windowLabel}
               <span
-                class="led {requestGroups.length > 0
-                  ? 'led-good'
-                  : 'led-idle'} shrink-0"
-              ></span>
-              <span
-                class="font-mono text-xs text-[var(--fp-text)] font-medium truncate"
-                >{requestGroups.length}
-                {requestGroups.length === 1
-                  ? $tr("model request")
-                  : $tr("model requests")}</span
+                class="font-mono text-[11px] text-[var(--fp-dim)] whitespace-nowrap hidden sm:inline"
+                >{$tr("last {window}", { window: windowLabel })}</span
               >
-              {#if windowLabel}
-                <span
-                  class="font-mono text-[11px] text-[var(--fp-dim)] whitespace-nowrap hidden sm:inline"
-                  >{$tr("last {window}", { window: windowLabel })}</span
-                >
-              {/if}
-            </div>
-
-            <SegmentedControl
-              bind:value={viewMode}
-              options={[
-                { id: "console", label: $tr("Console") },
-                { id: "table", label: $tr("Table") },
-              ]}
-              size="xs"
-              ariaLabel={$tr("Log view")}
-              onchange={() => fetchLogs()}
-            />
-          </div>
-
-          <!-- Row 2: Time Window & Quick Action Toolbar -->
-          <div
-            class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[var(--fp-border)]/40 sm:border-0 sm:pt-0"
-          >
+            {/if}
             <SegmentedControl
               bind:value={logWindow}
               options={LOG_WINDOW_OPTIONS}
@@ -944,9 +926,25 @@
                 fetchLogs();
               }}
             />
+          </div>
+
+          <!-- View switch, then the stream controls: Refresh (secondary)
+               closes the row, Clear stays the dimmest target. -->
+          <div class="flex flex-wrap items-center gap-2">
+            <SegmentedControl
+              bind:value={viewMode}
+              options={[
+                { id: "console", label: $tr("Console") },
+                { id: "table", label: $tr("Table") },
+              ]}
+              size="xs"
+              ariaLabel={$tr("Log view")}
+              onchange={() => fetchLogs()}
+            />
             <Button
               variant="ghost"
               size="sm"
+              aria-label={$tr("Clear")}
               onclick={async () => {
                 const ok = await confirmAction({
                   title: $tr("Clear Request Console"),
@@ -980,7 +978,12 @@
                 state: autoScroll ? $tr("on") : $tr("off"),
               })}
             </Button>
-            <Button variant="ghost" size="sm" onclick={copyConsoleLogs}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={copiedConsole ? $tr("Copied") : $tr("Copy")}
+              onclick={copyConsoleLogs}
+            >
               {#if copiedConsole}
                 <Check size={13} class="text-[var(--fp-success)]" />
                 <span class="text-[var(--fp-success)]">{$tr("Copied")}</span>
@@ -1005,6 +1008,7 @@
             <Button
               variant="secondary"
               size="sm"
+              aria-label={$tr("Refresh")}
               loading={manualRefresh}
               onclick={refresh}
               disabled={loading && !data}
@@ -1182,14 +1186,16 @@
       </Card>
     {:else}
       <Card pad="none">
-        <!-- Integrated Top Toolbar Header for Table -->
+        <!-- Integrated Top Toolbar Header for Table: same single-row grammar
+             as the console — scope, window pills and table filters on the
+             left, view switch and live controls on the right. -->
         <div
-          class="p-2.5 sm:p-3 bg-[var(--fp-surface)] border-b border-[var(--fp-border)] flex flex-col gap-2.5"
+          class="p-2.5 sm:p-3 bg-[var(--fp-surface)] border-b border-[var(--fp-border)] flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
         >
-          <!-- Row 1: Context & View Mode Switcher -->
-          <div class="flex items-center justify-between gap-2 min-w-0">
+          <!-- Scope + Filters (Left Group) -->
+          <div class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
             <span
-              class="inline-flex items-center gap-1.5 text-xs font-mono text-[var(--fp-muted)]"
+              class="inline-flex items-center gap-1.5 text-xs font-mono text-[var(--fp-muted)] shrink-0"
             >
               <span
                 class="led {filteredEntries.length > 0
@@ -1200,7 +1206,86 @@
                 >{filteredEntries.length} {$tr("entries")}</span
               >
             </span>
+            {#if windowLabel}
+              <span
+                class="font-mono text-[11px] text-[var(--fp-dim)] whitespace-nowrap hidden sm:inline"
+                >{$tr("last {window}", { window: windowLabel })}</span
+              >
+            {/if}
+            <SegmentedControl
+              bind:value={logWindow}
+              options={LOG_WINDOW_OPTIONS}
+              size="xs"
+              ariaLabel={$tr("Log time window")}
+              onchange={() => {
+                page = 0;
+                fetchLogs();
+              }}
+            />
 
+            <!-- Level Select -->
+            <label for="log-level" class="sr-only">{$tr("Log level")}</label>
+            <select
+              id="log-level"
+              class="fp-input !text-xs !py-1 !pl-2.5 !h-8 !w-auto !inline-block"
+              bind:value={filterLevel}
+              onchange={handleFilterChange}
+            >
+              <option value="">{$tr("All levels")}</option>
+              <option value="debug">{$tr("Debug")}</option>
+              <option value="info">{$tr("Info")}</option>
+              <option value="warn">{$tr("Warn")}</option>
+              <option value="error">{$tr("Error")}</option>
+            </select>
+
+            <!-- Search Input with Search Icon -->
+            <div class="relative flex-1 min-w-[180px] max-w-[15rem]">
+              <Search
+                size={13}
+                class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] pointer-events-none"
+              />
+              <label for="log-msg" class="sr-only"
+                >{$tr("Filter by message")}</label
+              >
+              <input
+                id="log-msg"
+                type="text"
+                class="fp-input !text-xs !pl-8 !pr-2.5 !py-1 !h-8 !w-full"
+                bind:value={filterMsg}
+                oninput={handleFilterChange}
+                placeholder={$tr("Filter message…")}
+              />
+            </div>
+
+            <!-- Hide admin toggle -->
+            <Button
+              variant={hideAdmin ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={hideAdmin}
+              onclick={() => {
+                hideAdmin = !hideAdmin;
+                page = 0;
+              }}
+              class="shrink-0"
+            >
+              <EyeOff size={13} />
+              <span>{$tr("Hide admin")}</span>
+            </Button>
+
+            {#if hasActiveFilter}
+              <Button
+                variant="ghost"
+                size="sm"
+                onclick={clearFilters}
+                class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
+              >
+                {$tr("Clear filters")}
+              </Button>
+            {/if}
+          </div>
+
+          <!-- View Switch + Live Controls (Right Group) -->
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
             <SegmentedControl
               bind:value={viewMode}
               options={[
@@ -1211,113 +1296,32 @@
               ariaLabel={$tr("Log view")}
               onchange={() => fetchLogs()}
             />
-          </div>
 
-          <!-- Row 2: Filter Controls & Actions -->
-          <div
-            class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1 border-t border-[var(--fp-border)]/40 sm:border-0 sm:pt-0"
-          >
-            <!-- Filter Controls (Left Group) -->
-            <div class="flex flex-wrap items-center gap-2 flex-1">
-              <!-- Level Select -->
-              <label for="log-level" class="sr-only">{$tr("Log level")}</label>
-              <select
-                id="log-level"
-                class="fp-input !text-xs !py-1 !pl-2.5 !h-8 !w-auto !inline-block"
-                bind:value={filterLevel}
-                onchange={handleFilterChange}
-              >
-                <option value="">{$tr("All levels")}</option>
-                <option value="debug">{$tr("Debug")}</option>
-                <option value="info">{$tr("Info")}</option>
-                <option value="warn">{$tr("Warn")}</option>
-                <option value="error">{$tr("Error")}</option>
-              </select>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={autoPoll}
+              onclick={() => (autoPoll = !autoPoll)}
+              title={autoPoll
+                ? $tr("Auto-refreshing every 1s")
+                : $tr("Auto-refresh paused")}
+            >
+              {$tr("Auto {state}", {
+                state: autoPoll ? "1s" : $tr("off"),
+              })}
+            </Button>
 
-              <!-- Search Input with Search Icon -->
-              <div class="relative flex-1 min-w-[180px] max-w-xs">
-                <Search
-                  size={13}
-                  class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--fp-dim)] pointer-events-none"
-                />
-                <label for="log-msg" class="sr-only"
-                  >{$tr("Filter by message")}</label
-                >
-                <input
-                  id="log-msg"
-                  type="text"
-                  class="fp-input !text-xs !pl-8 !pr-2.5 !py-1 !h-8 !w-full"
-                  bind:value={filterMsg}
-                  oninput={handleFilterChange}
-                  placeholder={$tr("Filter message…")}
-                />
-              </div>
-
-              <!-- Hide admin toggle -->
-              <Button
-                variant={hideAdmin ? "secondary" : "ghost"}
-                size="sm"
-                aria-pressed={hideAdmin}
-                onclick={() => {
-                  hideAdmin = !hideAdmin;
-                  page = 0;
-                }}
-                class="shrink-0"
-              >
-                <EyeOff size={13} />
-                <span>{$tr("Hide admin")}</span>
-              </Button>
-
-              {#if hasActiveFilter}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onclick={clearFilters}
-                  class="text-[var(--fp-dim)] hover:text-[var(--fp-text)] shrink-0"
-                >
-                  {$tr("Clear filters")}
-                </Button>
-              {/if}
-            </div>
-
-            <!-- Live Controls (Right Group) -->
-            <div class="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-              <span
-                class="inline-flex items-center gap-1.5 text-xs font-mono text-[var(--fp-muted)] mr-1"
-              >
-                <span
-                  class="led {filteredEntries.length > 0
-                    ? 'led-good'
-                    : 'led-idle'}"
-                ></span>
-                <span>{filteredEntries.length} {$tr("entries")}</span>
-              </span>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-pressed={autoPoll}
-                onclick={() => (autoPoll = !autoPoll)}
-                title={autoPoll
-                  ? $tr("Auto-refreshing every 1s")
-                  : $tr("Auto-refresh paused")}
-              >
-                {$tr("Auto {state}", {
-                  state: autoPoll ? "1s" : $tr("off"),
-                })}
-              </Button>
-
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={manualRefresh}
-                onclick={refresh}
-                disabled={loading && !data}
-              >
-                <RefreshCw size={13} />
-                <span>{$tr("Refresh")}</span>
-              </Button>
-            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label={$tr("Refresh")}
+              loading={manualRefresh}
+              onclick={refresh}
+              disabled={loading && !data}
+            >
+              <RefreshCw size={13} />
+              <span class="hidden min-[480px]:inline">{$tr("Refresh")}</span>
+            </Button>
           </div>
         </div>
 
