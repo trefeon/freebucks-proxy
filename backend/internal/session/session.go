@@ -13,10 +13,11 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"freebucks-proxy/backend/internal/modelcat"
-	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"time"
+
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 const (
@@ -161,6 +162,8 @@ type snapshotState struct {
 	savedSubscriptionTierID string
 	savedLimitedModelOffers []upstream.LimitedModelOffer
 	savedLimitedOfferReason string
+	savedCountryCode        string
+	savedCountryBlockReason string
 	invalidationEvents      []invalidationEvent
 	reAdmitTriggers         []time.Time
 	lastStormAt             time.Time
@@ -449,6 +452,8 @@ func (m *Manager) Snapshot() SessionSnapshot {
 			SubscriptionTierID: m.snap.savedSubscriptionTierID,
 			LimitedModelOffers: m.snap.savedLimitedModelOffers,
 			LimitedOfferReason: m.snap.savedLimitedOfferReason,
+			CountryCode:        m.snap.savedCountryCode,
+			CountryBlockReason: m.snap.savedCountryBlockReason,
 		}
 	}
 	quota := make(map[string]QuotaSnapshot, len(m.state.quotaByModel))
@@ -630,6 +635,14 @@ func (m *Manager) UpdateQuotaFromProbe(st *upstream.SessionState) {
 		m.snap.savedLimitedOfferReason = st.LimitedOfferReason
 		if m.state != nil {
 			m.state.limitedOfferReason = st.LimitedOfferReason
+		}
+	}
+	if st.CountryCode != "" {
+		m.snap.savedCountryCode = st.CountryCode
+		m.snap.savedCountryBlockReason = st.CountryBlockReason
+		if m.state != nil {
+			m.state.countryCode = st.CountryCode
+			m.state.countryBlockReason = st.CountryBlockReason
 		}
 	}
 }

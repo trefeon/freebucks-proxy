@@ -23,17 +23,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/notify"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/runs"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
-	"io"
-	"log/slog"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 // usageWindow is the rolling window of per-token successful chat history:
@@ -884,6 +885,7 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 	}
 	entry.session.SetReAdmitGate(entry.seat.idle)
 	go p.asyncAccountInfoFetch(entry)
+	go p.asyncStreakFetch(entry)
 	return entry, nil
 }
 

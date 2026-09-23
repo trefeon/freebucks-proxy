@@ -1,7 +1,8 @@
 // maturity.go — automated streak maintenance and on-demand streak touch.
 //
 // Automatically evaluates pooled accounts during the nightly window before
-// daily reset (default: 15 minutes before Pacific midnight).
+// Pacific-midnight reset (23:45–00:00 Pacific, as pinned by upstream vendor
+// FREEBUFF_STREAK_TIME_ZONE).
 // Ensures accounts maintain active streaks by sending a zero-cost touch turn
 // on served unmetered models (such as upstage/solar-pro4), never consuming
 // user Freebucks quota.
@@ -12,11 +13,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/modelcat"
-	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 const (
@@ -24,9 +26,9 @@ const (
 	maturityThrottle = 6 * time.Hour
 	// maturityStreakFresh bounds streak-cache age for touch decisions.
 	maturityStreakFresh = time.Hour
-	// maturityRunWindow is the fixed nightly maintenance window: 15 minutes before reset.
+	// maturityRunWindow is the fixed nightly maintenance window: 15 minutes before reset (23:45–00:00 Pacific).
 	maturityRunWindow = 15 * time.Minute
-	// maturityFireGate is the firing tail of the nightly window: touches fire in the last 5 minutes.
+	// maturityFireGate is the firing tail of the nightly window: touches fire in the last 5 minutes (T-5m→T-1m).
 	maturityFireGate = 5 * time.Minute
 	// maturitySlotEndBuffer reserves the final minute before the reset.
 	maturitySlotEndBuffer = time.Minute
@@ -233,6 +235,9 @@ func (p *Pool) maturityTickOne(ctx context.Context, touchOverride string, idx in
 	if m != nil && m.TouchDay == today && !m.LastTouch.IsZero() && !strings.HasPrefix(m.LastResult, "skip:") {
 		return false
 	}
+	if m != nil && !m.LastTouch.IsZero() && now.Sub(m.LastTouch) < maturityThrottle {
+		return false
+	}
 
 	// 6. Timing window check
 	if !forceNow {
@@ -436,6 +441,12 @@ func (p *Pool) ForceMaturityTouch(ctx context.Context, forceAll bool) []Maturity
 			if m != nil && m.TouchDay == today && !m.LastTouch.IsZero() && m.LastResult == "ok" {
 				res.Status = "skipped"
 				res.Reason = "skip:already-touched"
+				results = append(results, res)
+				continue
+			}
+			if m != nil && !m.LastTouch.IsZero() && now.Sub(m.LastTouch) < maturityThrottle {
+				res.Status = "skipped"
+				res.Reason = "skip:throttle"
 				results = append(results, res)
 				continue
 			}
