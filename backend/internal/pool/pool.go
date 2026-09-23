@@ -247,6 +247,12 @@ type TokenSnapshot struct {
 	TodayUsed       bool      `json:"today_used,omitempty"`
 	LastUsageDate   string    `json:"last_usage,omitempty"`
 	StreakUpdatedAt time.Time `json:"streak_updated_at,omitempty"`
+	// FreebucksDailyBonus mirrors upstream.StreakInfo.FreebucksDailyBonus:
+	// Freebucks a day of a 7+ day streak credits to this account's wallet,
+	// nil when the account is not on the meter or the server omits it.
+	// Rides the cached hourly streak fetch; display only, never read by
+	// admission or cost.
+	FreebucksDailyBonus *float64 `json:"freebucks_daily_bonus,omitempty"`
 	// Maturity is the streak-maturity automation view. The automation is
 	// excised (Fase E): the snapshot always leaves it nil and the
 	// dashboard renders no card. The type is kept so historical payloads

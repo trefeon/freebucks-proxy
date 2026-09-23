@@ -127,8 +127,7 @@ func TestListPricesNeverGates(t *testing.T) {
 
 // TestTokenCardDailyBonusOmitted pins the streak-payload floor: without a
 // freebucks_daily_bonus value the key omits (nil) and the SPA falls back
-// to the session copy with no Freebucks bonus note. No poller or admission
-// wiring populates it in this wave.
+// to the session copy with no Freebucks bonus note.
 func TestTokenCardDailyBonusOmitted(t *testing.T) {
 	card := cardFromSnapshot(pool.TokenSnapshot{Token: 0, Streak: 7})
 	if card.FreebucksDailyBonus != nil {
@@ -140,5 +139,39 @@ func TestTokenCardDailyBonusOmitted(t *testing.T) {
 	}
 	if strings.Contains(string(raw), `"freebucks_daily_bonus"`) {
 		t.Errorf("token JSON contains freebucks_daily_bonus, want absent: %s", raw)
+	}
+}
+
+// TestTokenCardDailyBonusSet pins the populated path: a snapshot bonus
+// rides the full card so the SPA renders the streak perk note.
+func TestTokenCardDailyBonusSet(t *testing.T) {
+	bonus := 15.0
+	card := cardFromSnapshot(pool.TokenSnapshot{Token: 0, Streak: 7, FreebucksDailyBonus: &bonus})
+	if card.FreebucksDailyBonus == nil || *card.FreebucksDailyBonus != 15 {
+		t.Fatalf("FreebucksDailyBonus = %v, want 15", card.FreebucksDailyBonus)
+	}
+	raw, err := json.Marshal(card)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded struct {
+		Bonus *float64 `json:"freebucks_daily_bonus"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Bonus == nil || *decoded.Bonus != 15 {
+		t.Errorf("decoded freebucks_daily_bonus = %v, want 15 in %s", decoded.Bonus, raw)
+	}
+}
+
+// TestLiveCardDailyBonusRidesHotPoll pins that the hot-poll card shape
+// carries the bonus too: the SPA merges live cards over the static cache,
+// and TokenCardMobile reads the merged view.
+func TestLiveCardDailyBonusRidesHotPoll(t *testing.T) {
+	bonus := 15.0
+	live := liveCardFromSnapshot(pool.TokenSnapshot{Token: 0, Streak: 7, FreebucksDailyBonus: &bonus})
+	if live.FreebucksDailyBonus == nil || *live.FreebucksDailyBonus != 15 {
+		t.Fatalf("live FreebucksDailyBonus = %v, want 15", live.FreebucksDailyBonus)
 	}
 }

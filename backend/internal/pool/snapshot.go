@@ -206,11 +206,13 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 		var todayUsed bool
 		var lastUsage string
 		var streakUpdated time.Time
+		var freebucksDailyBonus *float64
 		if st := tok.Streak(); st != nil {
 			streak = st.Streak
 			todayUsed = st.TodayUsed
 			lastUsage = st.LastUsageDate
 			streakUpdated = st.UpdatedAt
+			freebucksDailyBonus = st.FreebucksDailyBonus
 		}
 
 		liveTurns, queuedWaiters, oldestWait := p.slotEntryStats(tok)
@@ -258,6 +260,7 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			TodayUsed:               todayUsed,
 			LastUsageDate:           lastUsage,
 			StreakUpdatedAt:         streakUpdated,
+			FreebucksDailyBonus:     freebucksDailyBonus,
 			Maturity:                tok.MaturitySnapshot(),
 			UpgradeHint:             ss.UpgradeHint,
 			ServerMessage:           ss.ServerMessage,

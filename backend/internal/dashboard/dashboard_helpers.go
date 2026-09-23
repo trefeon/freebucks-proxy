@@ -82,6 +82,7 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 		card.Streak = t.Streak
 		card.TodayUsed = t.TodayUsed
 		card.LastUsage = t.LastUsageDate
+		card.FreebucksDailyBonus = t.FreebucksDailyBonus
 		if !t.StreakUpdatedAt.IsZero() {
 			card.StreakUpdatedAt = t.StreakUpdatedAt.Format(time.RFC3339)
 		}
@@ -164,14 +165,15 @@ type tokenLiveCard struct {
 	// LastRefund / PendingRefund ride the hot poll like Freebucks: a
 	// release or replay can settle or park a refund between full fetches,
 	// and the account card reads the merged view.
-	LastRefund      *float64       `json:"last_refund,omitempty"`
-	PendingRefund   string         `json:"pending_refund,omitempty"`
-	Freebucks       *freebucksCard `json:"freebucks,omitempty"`
-	Streak          int            `json:"streak,omitempty"`
-	TodayUsed       bool           `json:"today_used,omitempty"`
-	LastUsage       string         `json:"last_usage,omitempty"`
-	StreakUpdatedAt string         `json:"streak_updated_at,omitempty"`
-	Maturity        *maturityCard  `json:"maturity,omitempty"`
+	LastRefund          *float64       `json:"last_refund,omitempty"`
+	PendingRefund       string         `json:"pending_refund,omitempty"`
+	Freebucks           *freebucksCard `json:"freebucks,omitempty"`
+	Streak              int            `json:"streak,omitempty"`
+	TodayUsed           bool           `json:"today_used,omitempty"`
+	LastUsage           string         `json:"last_usage,omitempty"`
+	StreakUpdatedAt     string         `json:"streak_updated_at,omitempty"`
+	FreebucksDailyBonus *float64       `json:"freebucks_daily_bonus,omitempty"`
+	Maturity            *maturityCard  `json:"maturity,omitempty"`
 }
 
 // liveCardFromSnapshot builds the hot-poll card for one token snapshot.
@@ -217,6 +219,7 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 		card.Streak = t.Streak
 		card.TodayUsed = t.TodayUsed
 		card.LastUsage = t.LastUsageDate
+		card.FreebucksDailyBonus = t.FreebucksDailyBonus
 		if !t.StreakUpdatedAt.IsZero() {
 			card.StreakUpdatedAt = t.StreakUpdatedAt.Format(time.RFC3339)
 		}

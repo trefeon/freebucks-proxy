@@ -142,10 +142,10 @@ type tokenCard struct {
 	// FreebucksDailyBonus mirrors FreebuffStreakResponse.freebucksDailyBonus:
 	// Freebucks a day of a 7+ day streak credits to this account's wallet,
 	// or null when the account is not on the meter and the streak still
-	// pays sessions. Nil/omitted on data that predates it (older servers
-	// omit the field) — the SPA falls back to the session copy and draws
-	// no Freebucks bonus note. No streak poller and no admission wiring
-	// read it; display state only.
+	// pays sessions. Fed from the cached hourly streak fetch (upstream
+	// GetStreak -> pool snapshot); nil/omitted when that fetch has not
+	// seen the field, and the SPA then draws no bonus note. No admission
+	// or cost wiring reads it; display state only.
 	FreebucksDailyBonus *float64 `json:"freebucks_daily_bonus,omitempty"`
 	// Maturity is the streak-maturity automation view (nil until maturity
 	// is first enabled for the token).

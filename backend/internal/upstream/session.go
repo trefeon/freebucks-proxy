@@ -222,11 +222,16 @@ func localIANATimezone() string {
 
 // StreakInfo is the upstream streak position (docs/maturity-plan.md PR1).
 type StreakInfo struct {
-	Streak        int       `json:"streak"`
-	TodayUsed     bool      `json:"todayUsed"`
-	LastUsageDate string    `json:"lastUsageDate,omitempty"`
-	TimeZone      string    `json:"timeZone,omitempty"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	Streak        int    `json:"streak"`
+	TodayUsed     bool   `json:"todayUsed"`
+	LastUsageDate string `json:"lastUsageDate,omitempty"`
+	TimeZone      string `json:"timeZone,omitempty"`
+	// FreebucksDailyBonus is the Freebucks a 7+ day streak credits to this
+	// account's wallet each Pacific day (vendor freebuff-streak.ts). Nil
+	// means the account is not on the Freebucks meter, or the server
+	// predates the field — the streak still pays sessions either way.
+	FreebucksDailyBonus *float64  `json:"freebucksDailyBonus,omitempty"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // GetStreak calls GET /api/v1/freebuff/streak with the caller's auth token.
@@ -264,20 +269,22 @@ func (c *Client) GetStreak(ctx context.Context) (*StreakInfo, error) {
 		return nil, fmt.Errorf("streak endpoint returned status %d", resp.StatusCode)
 	}
 	var raw struct {
-		Streak        int    `json:"streak"`
-		TodayUsed     bool   `json:"todayUsed"`
-		LastUsageDate string `json:"lastUsageDate"`
-		TimeZone      string `json:"timeZone"`
+		Streak              int      `json:"streak"`
+		TodayUsed           bool     `json:"todayUsed"`
+		LastUsageDate       string   `json:"lastUsageDate"`
+		TimeZone            string   `json:"timeZone"`
+		FreebucksDailyBonus *float64 `json:"freebucksDailyBonus"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
 	return &StreakInfo{
-		Streak:        raw.Streak,
-		TodayUsed:     raw.TodayUsed,
-		LastUsageDate: raw.LastUsageDate,
-		TimeZone:      raw.TimeZone,
-		UpdatedAt:     time.Now(),
+		Streak:              raw.Streak,
+		TodayUsed:           raw.TodayUsed,
+		LastUsageDate:       raw.LastUsageDate,
+		TimeZone:            raw.TimeZone,
+		FreebucksDailyBonus: raw.FreebucksDailyBonus,
+		UpdatedAt:           time.Now(),
 	}, nil
 }
 
