@@ -122,6 +122,13 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(first.getByLabel("Streak 7 days")).toContainText("7d streak");
     const second = table.locator("tbody tr").filter({ hasText: "Account #2" });
     await expect(second.getByLabel("No streak")).toBeVisible();
+    // The Freebucks perk sentence is NOT part of the Fleet row: it renders on
+    // the Allowances tab (its own test below). Fixture token 0 carries
+    // freebucks_daily_bonus 15, so this asserts the removal, not absent data.
+    await expect(first.locator('[title*="Streak perk"]')).toHaveCount(0);
+    await expect(first.locator('[title*="more days to unlock"]')).toHaveCount(
+      0,
+    );
   });
 
   test("Accounts row renders the streak perk line beside the wallet", async ({
