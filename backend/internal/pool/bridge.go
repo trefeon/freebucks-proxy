@@ -466,6 +466,7 @@ func (p *Pool) ProbeNewToken(ctx context.Context, token string) (*upstream.Sessi
 	if err != nil {
 		return nil, fmt.Errorf("pool: probe token: %w", err)
 	}
+	p.applyLocality(client)
 	return client.ProbeAccount(ctx)
 }
 

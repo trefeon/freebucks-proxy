@@ -35,6 +35,16 @@ func egressRegionRow(cache *egress.Cache) (line string, warn bool) {
 	return fmt.Sprintf("Egress region: %s (%s)", r.Country, r.IP), false
 }
 
+// sessionTimezoneRow renders the doctor's session-locality line: the IANA zone
+// the gateway declares on every session call (x-fb-timezone, the zone the
+// upstream server derives the account's daily reset zone from) and the rule
+// that picked it (override|host|region|utc). It reads the same resolver the
+// serving path installs, so the doctor shows exactly what will be declared.
+func sessionTimezoneRow(cfg config.Config, country string) string {
+	zone, source := egress.SessionTimezone(cfg.SessionTimezone, upstream.HostZone(), country)
+	return fmt.Sprintf("Session timezone: %s (%s)", zone, source)
+}
+
 // doctorTargetHost derives the host the doctor's DNS/TLS reachability
 // checks probe, from the upstream base URL. An explicit port on the URL is
 // stripped: LookupHost and tls.Dial take a bare host, and "host:8443" would
@@ -220,6 +230,8 @@ func Run(configPath string) {
 	} else {
 		ok(line)
 	}
+	// Session locality: which zone the gateway declares on session calls.
+	ok(sessionTimezoneRow(cfg, res.Country))
 
 	// Registry test
 	reg := registry.New(&cfg, &http.Client{Timeout: 10 * time.Second})

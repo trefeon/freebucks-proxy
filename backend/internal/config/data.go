@@ -113,6 +113,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return c.SessionProbeCacheTTL.String(), false
 	case "SESSION_RE_ADMIT_LEAD":
 		return c.SessionReAdmitLead.String(), false
+	case "SESSION_TIMEZONE":
+		return c.SessionTimezone, false
 	case "RUN_FINISH_QUEUE_SIZE":
 		return strconv.Itoa(c.RunFinishQueueSize), false
 	case "RUN_FINISH_INLINE_TIMEOUT":

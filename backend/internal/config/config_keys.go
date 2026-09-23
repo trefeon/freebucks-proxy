@@ -63,6 +63,7 @@ type rawConfig struct {
 	RunFinishInlineTimeout   string          `json:"RUN_FINISH_INLINE_TIMEOUT"`
 	RunsDrainQueueCap        *int            `json:"RUNS_DRAIN_QUEUE_CAP"`
 	RunsDrainTTL             string          `json:"RUNS_DRAIN_TTL"`
+	SessionTimezone          string          `json:"SESSION_TIMEZONE"`
 	SessionReAdmitLead       string          `json:"SESSION_RE_ADMIT_LEAD"`
 	SessionProbeCacheTTL     string          `json:"SESSION_PROBE_CACHE_TTL"`
 	ModelUnavailableCacheTTL string          `json:"MODEL_UNAVAILABLE_CACHE_TTL"`

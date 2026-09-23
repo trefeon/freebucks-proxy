@@ -22,6 +22,7 @@ import (
 	"freebucks-proxy/backend/internal/cli/port"
 	"freebucks-proxy/backend/internal/clicreds"
 	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/egress"
 	"freebucks-proxy/backend/internal/logring"
 	"freebucks-proxy/backend/internal/notify"
 	"freebucks-proxy/backend/internal/pool"
@@ -416,13 +417,20 @@ func Serve(configPath string, verbose bool, version string) int {
 	// Prewarm + the 60s maintain loop run until ctx is canceled (shutdown).
 	p.Start(ctx)
 
-	// Egress probing is deliberately NOT wired into startup (#123): the
-	// official CLI never talks to cloudflare.com (the probe target), and
-	// the background loop's risk-engine feed has no consumer (Score()
-	// reads only upstream privacy signals + ip-cap ratios, never the
-	// probe's IP/country). The probe still runs on demand — `-doctor`
-	// re-probes with its own cache — so operators keep the "Egress region"
-	// readout without an extra recurring request the CLI would never make.
+	// Egress probing is NOT a risk-engine feed (#123): nothing in the request
+	// path consults the probe's IP/country. It IS wired into startup now, with
+	// exactly one consumer — the session-locality rule: the gateway declares
+	// an IANA zone on every session call (x-fb-timezone) and the upstream
+	// server derives the account's daily reset zone from it. The detected
+	// egress region supplies that zone ONLY when the host zone carries no
+	// locality (UTC/Local — egress.BoringZone); an explicit SESSION_TIMEZONE,
+	// or any real host zone, always wins. Started here, never in a server
+	// constructor, so tests stay hermetic; it stops with the same shutdown
+	// context as the pool.
+	egressTracker := egress.NewTracker(egress.NewCache(), egress.Path{
+		Key:    "direct",
+		Dialer: egress.DirectDialer(egress.ProbeTimeout),
+	}, egress.DefaultTTL)
 
 	// Issue #62: the dashboard login wizard drives the same headless OAuth
 	// flow as the CLI against the proxy's own transport/stealth wiring; the
@@ -439,6 +447,15 @@ func Serve(configPath string, verbose bool, version string) int {
 	serverOpts = append(serverOpts, server.WithVersion(version, updatecheck.New(updatecheck.DefaultRepo, nil)))
 
 	srv := server.New(&cfg, p, reg, logger, logringHandler, configPath, serverOpts...)
+	// Session locality: install the resolver on the pooled clients and wire
+	// the tracker, then start the probe loop (immediate first probe, then
+	// every interval) on the process context. /healthz reports the live
+	// zone/source/region (session_timezone, session_timezone_source,
+	// egress_region).
+	srv.SetEgressTracker(egressTracker)
+	go egressTracker.Start(ctx)
+	logger.Info("session locality enabled: session calls declare x-fb-timezone (SESSION_TIMEZONE > real host zone > detected egress region > UTC; see /healthz session_timezone)",
+		"probe_interval", egress.DefaultTTL.String())
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           srv.Handler(),

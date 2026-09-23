@@ -118,6 +118,9 @@ func (p *Pool) bridgeEntryFor(clientToken string) (*bridgeEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bridge: %w", err)
 	}
+	// Before the validation probe below: the probe is a session call, so it
+	// must already carry the locality header.
+	p.applyLocality(client)
 
 	probeCfg := p.cfg.Load()
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), probeCfg.SessionCallTimeout)

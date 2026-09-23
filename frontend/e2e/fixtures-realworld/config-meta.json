@@ -560,6 +560,16 @@
     "description": "Session call timeout."
   },
   {
+    "key": "SESSION_TIMEZONE",
+    "group": "upstream",
+    "kind": "text",
+    "default": "",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "IANA zone the gateway declares on session reads (x-fb-timezone); the upstream server picks the account's daily reset zone from it. Empty = auto: the host zone when it is a real non-UTC zone, else the detected egress region's zone, else UTC. An invalid value falls back to auto with a WARN."
+  },
+  {
     "key": "TLS_FINGERPRINT",
     "group": "upstream",
     "kind": "select",

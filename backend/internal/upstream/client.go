@@ -71,6 +71,12 @@ type Client struct {
 	// branch on this narrow interface, never on the token prefix.
 	mock MockUpstream
 
+	// localityMu guards localityFn, the session-locality zone resolver
+	// installed by SetLocalityResolver (nil = the host zone). Read on every
+	// session call, so it is a mutex rather than a plain field.
+	localityMu sync.RWMutex
+	localityFn func() string
+
 	// Counters surfaced via the pool snapshot for /metrics.
 	transientRetries     atomic.Int64 // transient transport failures retried
 	fingerprintRotations atomic.Int64 // pinned fingerprint swaps ahead of a retry
@@ -415,3 +421,28 @@ func (c *Client) FingerprintRotations() int64 { return c.fingerprintRotations.Lo
 // test seam for retry-injection tests (substituting a flaky RoundTripper);
 // production code never calls it.
 func (c *Client) SetTransport(rt http.RoundTripper) { c.http.Transport = rt }
+
+// SetLocalityResolver installs fn as the session-locality zone resolver: the
+// IANA zone declared in x-fb-timezone on every session call. nil restores the
+// host-zone behaviour (localIANATimezone). A resolver returning "" (or only
+// whitespace) also falls back to the host zone, so a resolver wired before its
+// region probe lands can never blank the header.
+func (c *Client) SetLocalityResolver(fn func() string) {
+	c.localityMu.Lock()
+	c.localityFn = fn
+	c.localityMu.Unlock()
+}
+
+// sessionTimezone returns the zone to declare on session calls: the installed
+// resolver's zone, else the host IANA zone (localIANATimezone).
+func (c *Client) sessionTimezone() string {
+	c.localityMu.RLock()
+	fn := c.localityFn
+	c.localityMu.RUnlock()
+	if fn != nil {
+		if zone := strings.TrimSpace(fn()); zone != "" {
+			return zone
+		}
+	}
+	return localIANATimezone()
+}

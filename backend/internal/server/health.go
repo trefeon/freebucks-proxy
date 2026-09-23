@@ -10,7 +10,8 @@ import (
 )
 
 // handleHealthz reports uptime, model count, the per-token snapshot, the
-// cached bridge entries (bridge mode), and the effective routing mode.
+// cached bridge entries (bridge mode), the effective routing mode, and the
+// resolved session-locality zone + source + detected egress region.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	snaps := s.pool.Snapshot()
 	cfg := s.cfg.Load()
@@ -114,14 +115,23 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		}
 		bridgeEntries = append(bridgeEntries, entry)
 	}
+	// Session locality (feat/session-locality-region): which IANA zone the
+	// gateway declares on session reads, which rule picked it, and the
+	// detected egress country. Additive fields; the egress IP is deliberately
+	// NOT exposed here — /healthz is unauthenticated and the doctor keeps the
+	// IP readout.
+	sessionTimezone, sessionTimezoneSource, egressRegion := s.sessionLocality()
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":         "ok",
-		"mode":           cfg.EffectiveMode(),
-		"uptime_seconds": time.Since(s.started).Seconds(),
-		"models":         s.servedModelCount(),
-		"tokens":         tokens,
-		"bridge_tokens":  s.pool.BridgeCount(),
-		"bridge_entries": bridgeEntries,
+		"status":                  "ok",
+		"mode":                    cfg.EffectiveMode(),
+		"uptime_seconds":          time.Since(s.started).Seconds(),
+		"models":                  s.servedModelCount(),
+		"tokens":                  tokens,
+		"bridge_tokens":           s.pool.BridgeCount(),
+		"bridge_entries":          bridgeEntries,
+		"session_timezone":        sessionTimezone,
+		"session_timezone_source": sessionTimezoneSource,
+		"egress_region":           egressRegion,
 	})
 }
 

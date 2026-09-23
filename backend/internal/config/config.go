@@ -94,6 +94,13 @@ type Config struct {
 	TransientRetries int    // max additional attempts after a transient transport failure (0 = disabled; default 1)
 	SessionPersist   bool   // true = persist session state to disk so restart resumes unexpired sessions (SESSION_PERSIST)
 	SessionStateFile string // path to the session state file (SESSION_STATE_FILE; default .freebuff-session-state.json)
+	// SessionTimezone is the IANA zone the gateway declares on session reads
+	// (SESSION_TIMEZONE, the x-fb-timezone header): the upstream server picks
+	// the account's daily reset zone from it. Empty = auto — the host zone
+	// when it is a real non-UTC zone, else the detected egress region's zone,
+	// else UTC. A value that does not load as an IANA zone falls back to auto
+	// with a warning (never a load error).
+	SessionTimezone string
 	// RunFinishQueueSize is the bounded deferred-FINISH worker queue size
 	// (issue #90, RUN_FINISH_QUEUE_SIZE default 64): rotated/drained runs
 	// are FINISHed by a background worker; when the queue is full the caller

@@ -410,6 +410,7 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"TRANSIENT_RETRIES":           strconv.Itoa(cfg.TransientRetries),
 		"SESSION_PERSIST":             strconv.FormatBool(cfg.SessionPersist),
 		"SESSION_STATE_FILE":          cfg.SessionStateFile,
+		"SESSION_TIMEZONE":            cfg.SessionTimezone,
 		"HTTP2_UPSTREAM":              strconv.FormatBool(cfg.HTTP2Upstream),
 		"DASHBOARD_ENABLED":           strconv.FormatBool(cfg.DashboardEnabled),
 		"RUN_FINISH_QUEUE_SIZE":       strconv.Itoa(cfg.RunFinishQueueSize),

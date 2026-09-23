@@ -14,14 +14,10 @@
 package server
 
 import (
-	"log/slog"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/egress"
 	"freebucks-proxy/backend/internal/logring"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/ratelimit"
@@ -31,6 +27,11 @@ import (
 	"freebucks-proxy/backend/internal/tokenestimate"
 	"freebucks-proxy/backend/internal/updatecheck"
 	"freebucks-proxy/backend/internal/upstream"
+	"log/slog"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const (
@@ -90,6 +91,19 @@ type Server struct {
 	// rateLimitRejections tracks total client requests rejected by the
 	// local rate limiter.
 	rateLimitRejections atomic.Int64
+
+	// egressTracker, when set, supplies the detected egress country for the
+	// session-locality resolver and the /healthz region field. nil means no
+	// region detection: the resolver falls back to the host zone. Set via
+	// SetEgressTracker; the tracker itself is started by the CLI serve path,
+	// never by a constructor.
+	egressTracker atomic.Pointer[egress.Tracker]
+	// hostZoneSource, when set, replaces upstream.HostZone in the
+	// session-locality rule (a test seam, see SetHostZoneSource).
+	hostZoneSource atomic.Pointer[func() string]
+	// warnedTimezone is the last invalid SESSION_TIMEZONE value warned about,
+	// so a dashboard save (or a reload with the same bad value) warns once.
+	warnedTimezone atomic.Pointer[string]
 
 	// admin owns the /admin surface (issue #250): the admin handlers are
 	// methods on *adminHandlers, not *Server, so the API surface and the
@@ -160,6 +174,91 @@ func WithHistory(st *store.Store) Option {
 	}
 }
 
+// SetEgressTracker wires the background egress tracker that feeds the
+// session-locality resolver and /healthz's region field. Callers start the
+// tracker themselves (Tracker.Start) from the process boot path — never from
+// here — so tests that build a Server stay hermetic (no probe traffic). A nil
+// tracker clears region detection; the resolver then declares the host zone.
+func (s *Server) SetEgressTracker(t *egress.Tracker) {
+	if t == nil {
+		s.egressTracker.Store(nil)
+		return
+	}
+	s.egressTracker.Store(t)
+	if s.pool != nil {
+		s.pool.SetLocalityResolver(s.sessionTimezone)
+	}
+}
+
+// applyConfig swaps in a reloaded configuration and reports a bad
+// SESSION_TIMEZONE once: the loader accepts any text and the resolver silently
+// falls back to auto, so the warn log is the only operator-visible signal.
+func (s *Server) applyConfig(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	s.cfg.Store(cfg)
+	s.warnInvalidSessionTimezone(cfg.SessionTimezone)
+}
+
+// warnInvalidSessionTimezone logs once per distinct invalid zone value. An
+// unset or resolvable value is silent.
+func (s *Server) warnInvalidSessionTimezone(zone string) {
+	zone = strings.TrimSpace(zone)
+	if zone == "" || egress.ValidZone(zone) {
+		return
+	}
+	if prev := s.warnedTimezone.Load(); prev != nil && *prev == zone {
+		return
+	}
+	s.warnedTimezone.Store(&zone)
+	s.logger.Warn("SESSION_TIMEZONE is not a valid IANA zone; falling back to auto", "value", zone)
+}
+
+// sessionLocality resolves the zone the gateway declares on session reads,
+// the rule that picked it (override|host|region|utc), and the detected egress
+// region ("" when unknown), all from the LIVE config plus the tracker's
+// cached country. It never probes: the tracker serves its last known region.
+func (s *Server) sessionLocality() (zone, source, region string) {
+	override := ""
+	if cfg := s.cfg.Load(); cfg != nil {
+		override = cfg.SessionTimezone
+	}
+	if t := s.egressTracker.Load(); t != nil {
+		region = t.Country()
+	}
+	// upstream.HostZone, not time.Local.String(): the Go "Local" placeholder
+	// must reach the rule as unset, never as the literal zone "Local".
+	host := upstream.HostZone()
+	if fn := s.hostZoneSource.Load(); fn != nil {
+		host = (*fn)()
+	}
+	zone, source = egress.SessionTimezone(override, host, region)
+	return zone, source, region
+}
+
+// SetHostZoneSource installs the source of the host's configured IANA zone for
+// the session-locality rule ("" when the host carries none, as on a container
+// whose clock reports the bare "Local" placeholder). nil restores
+// upstream.HostZone, which reads time.Local. This is a test seam of the same
+// kind as SetTransport: a test needs a deterministically boring or real host
+// zone, and mutating the process-global time.Local races with the httptest
+// server's own timestamp formatting under -race.
+func (s *Server) SetHostZoneSource(fn func() string) {
+	if fn == nil {
+		s.hostZoneSource.Store(nil)
+		return
+	}
+	s.hostZoneSource.Store(&fn)
+}
+
+// sessionTimezone is the resolver installed on every upstream client: the
+// zone to declare as x-fb-timezone. Never blocks (see sessionLocality).
+func (s *Server) sessionTimezone() string {
+	zone, _, _ := s.sessionLocality()
+	return zone
+}
+
 // Option configures optional server features (release-version badge).
 type Option func(*Server)
 
@@ -175,7 +274,7 @@ func New(cfg *config.Config, p *pool.Pool, reg *registry.Registry, logger *slog.
 		logger = slog.Default()
 	}
 	s := &Server{pool: p, reg: reg, logger: logger, started: time.Now(), configPath: configPath, loginFlows: make(map[string]*loginFlow), logs: logs, gates: newAccessGates()}
-	s.cfg.Store(cfg)
+	s.applyConfig(cfg)
 	s.rateLimiter = ratelimit.New(cfg.RateLimitPerIP, cfg.RateLimitBurst, 10000)
 	// The token estimator shares one o200k_base codec process-wide, so
 	// count_tokens requests never rebuild the vocabulary.
@@ -204,7 +303,7 @@ func New(cfg *config.Config, p *pool.Pool, reg *registry.Registry, logger *slog.
 		pool:           p,
 		reg:            reg,
 		cfgLoad:        s.cfg.Load,
-		cfgStore:       s.cfg.Store,
+		cfgStore:       s.applyConfig,
 		configPath:     configPath,
 		settings:       s.hist,
 		adminAuth:      s.adminAuth,

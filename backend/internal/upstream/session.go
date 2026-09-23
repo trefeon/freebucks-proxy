@@ -30,12 +30,15 @@ const (
 	WalletSpendLimitHeader = "x-freebuff-wallet-spend-limit"
 	// DefaultWalletSpendLimit is the unset spend limit the proxy sends.
 	DefaultWalletSpendLimit = "0"
-	// FreebucksTimezoneHeader carries the host IANA timezone on session
-	// reads (vendor 3420c99,
-	// common/src/util/freebucks-timezone.ts FREEBUCKS_TIMEZONE_HEADER):
-	// the server picks the account reset zone for daily.resetAt from it.
-	// A timezone is a scheduling preference, never proof of country or
-	// access.
+	// FreebucksTimezoneHeader carries the declared IANA timezone on every
+	// session call — admission POST, poll GET, probe GET, and the DELETE/refund
+	// (vendor 3420c99, common/src/util/freebucks-timezone.ts
+	// FREEBUCKS_TIMEZONE_HEADER; vendor cli/src/utils/freebuff-session-api.ts
+	// spreads freebucksTimeZoneHeaders() into all of them): the server picks
+	// the account reset zone for daily.resetAt from it. The value comes from
+	// SetLocalityResolver when installed (the session-locality rule), else the
+	// host zone (localIANATimezone). A timezone is a scheduling preference,
+	// never proof of country or access.
 	FreebucksTimezoneHeader = "x-fb-timezone"
 	// FirstTabDiscountHeader folds the first-tab offer into the quoted
 	// prices (vendor 3420c99,
@@ -77,7 +80,8 @@ func (c *Client) CreateSession(ctx context.Context) (*SessionState, error) {
 // Content-Type (#120): the CLI's session POST is a bare fetch with
 // Authorization + the optional x-freebuff-model header plus the wallet
 // spend-limit header (upstream/freebuff freebuff-session-api.ts
-// callFreebuffSession; codebuff-api.ts sets the same request shape).
+// callFreebuffSession; codebuff-api.ts sets the same request shape), plus the
+// locality header sessionCall stamps on every session call.
 func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.CreateSession(c.token, model)
@@ -105,7 +109,8 @@ func (c *Client) GetSession(ctx context.Context, instanceID string) (*SessionSta
 // response header. There is deliberately NO heartbeat option: the CLI never
 // sends x-freebuff-heartbeat (Desktop-only, upstream/freebuff
 // freebuff-models.ts:1212-1215); liveness comes from the recurring compact
-// GET itself.
+// GET itself. The locality header rides every session call (sessionCall),
+// the poll included.
 func (c *Client) GetSessionWithOpts(ctx context.Context, instanceID string, compact bool) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.GetSession(c.token, "")
@@ -126,9 +131,10 @@ func (c *Client) GetSessionWithOpts(ctx context.Context, instanceID string, comp
 // ProbeAccount validates the token with a zero-cost GET /api/v1/freebuff/session
 // that carries NO x-freebuff-instance-id header, so unlike CreateSession it
 // claims no session slot and burns none of the daily session allowance. The
-// probe carries the CLI-parity read headers (x-fb-timezone with the host
-// IANA zone, x-freebuff-first-tab-discount "0" claiming no discount), and
-// the response carries the live pre-join meter — Freebucks, Referral,
+// probe carries the CLI-parity read headers (x-fb-timezone with the declared
+// locality zone — the resolver's when installed, else the host zone — and
+// x-freebuff-first-tab-discount "0" claiming no discount), and the response
+// carries the live pre-join meter — Freebucks, Referral,
 // RateLimitsByModel, Standing — plus the account/session state, which
 // callers surface for token checks and doctor diagnostics.
 //
@@ -157,11 +163,10 @@ func (c *Client) ProbeAccount(ctx context.Context) (*SessionState, error) {
 	if err != nil {
 		return nil, err
 	}
-	// CLI-parity read headers (callFreebuffSession GET): the host IANA
-	// timezone picks the account reset zone for daily.resetAt, and the
-	// first-tab flag folds the offer into prices. Still zero-cost: no
+	// The locality + first-tab read headers ride sessionCall now
+	// (x-fb-timezone from the installed resolver, else the host zone; the
+	// first-tab flag folds the offer into prices). Still zero-cost: no
 	// instance header is set, so no slot is claimed.
-	req.Header.Set(FreebucksTimezoneHeader, localIANATimezone())
 	req.Header.Set(FirstTabDiscountHeader, "0")
 	state, err := c.sessionCall(req)
 	if err != nil {
@@ -186,13 +191,28 @@ func (c *Client) ProbeAccount(ctx context.Context) (*SessionState, error) {
 	return state, nil
 }
 
+// HostZone reports the host's own IANA zone name for the session-locality
+// declaration, or "" when the host carries no usable name: the Go "Local"
+// placeholder means "whatever the host is set to" (on a server, usually UTC,
+// never a decision), so callers must treat it as unset rather than declare the
+// literal string "Local" upstream. It does NOT check that the name loads as an
+// IANA zone — egress.ValidZone owns that judgement for the locality rule;
+// localIANATimezone owns it for the no-resolver fallback.
+func HostZone() string {
+	name := time.Local.String()
+	if name == "" || name == "Local" {
+		return ""
+	}
+	return name
+}
+
 // localIANATimezone reports the host IANA timezone name for the probe
 // timezone header (vendor freebucksTimeZoneHeaders: the Intl-resolved host
 // zone, evaluated per request so travel needs no restart). A name that
 // does not load as an IANA zone (including bare "Local") falls back to
 // UTC — always valid, always boring.
 func localIANATimezone() string {
-	if name := time.Local.String(); name != "" && name != "Local" {
+	if name := HostZone(); name != "" {
 		if _, err := time.LoadLocation(name); err == nil {
 			return name
 		}
@@ -281,6 +301,11 @@ func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRef
 	if instanceID != "" {
 		req.Header.Set("x-freebuff-instance-id", instanceID)
 	}
+	// The DELETE does not route through sessionCall (it parses a release
+	// receipt, not a SessionState), so the locality header is stamped here
+	// too: the vendor spreads freebucksTimeZoneHeaders() into the refund
+	// call exactly like the poll and the probe.
+	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
 
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
@@ -447,8 +472,14 @@ func (c *Client) FinishRun(ctx context.Context, runID, status string, totalSteps
 // --- internals ---
 
 // sessionCall performs a session control call: parse the JSON body into a
-// SessionState; errors are classified through the standard matrix.
+// SessionState; errors are classified through the standard matrix. Every
+// session call funnels through here (admission POST, poll GET, probe GET), so
+// this is where the locality header is stamped: the vendor's
+// callFreebuffSession spreads freebucksTimeZoneHeaders() into EVERY session
+// call, and the upstream server derives the account's daily reset zone from
+// it at admission time — the call where it matters most.
 func (c *Client) sessionCall(req *http.Request) (*SessionState, error) {
+	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
 		return nil, classErr

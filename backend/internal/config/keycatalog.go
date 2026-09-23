@@ -348,6 +348,11 @@ var keyCatalog = []KeyDef{
 		Description: `Session call timeout.`,
 	},
 	{
+		Key: "SESSION_TIMEZONE", Group: GroupUpstream, Kind: "text",
+		Default:     "",
+		Description: `IANA zone the gateway declares on session reads (x-fb-timezone); the upstream server picks the account's daily reset zone from it. Empty = auto: the host zone when it is a real non-UTC zone, else the detected egress region's zone, else UTC. An invalid value falls back to auto with a WARN.`,
+	},
+	{
 		Key: "TLS_FINGERPRINT", Group: GroupUpstream, Kind: "select",
 		Enum:        []string{"auto", "chrome120", "chrome126", "safari17", "safari18", "firefox120", "firefox128", "edge126", "random"},
 		RestartOnly: true, Default: "", Hidden: true,
