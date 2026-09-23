@@ -1,3 +1,9 @@
+<script module>
+  // Per-instance counter: Settings.svelte mounts this card twice on one page,
+  // so the timezone <datalist> id must be unique per mount, not hardcoded.
+  let advancedSettingsInstances = 0;
+</script>
+
 <script>
   import { onMount } from "svelte";
   import SettingsCard from "../../components/SettingsCard.svelte";
@@ -169,6 +175,102 @@
     if (/go duration|duration/i.test(entry.description ?? "")) return true;
     return TEMPORAL_KEY_RE.test(entry.key ?? "");
   }
+  // SESSION_TIMEZONE suggestions: the browser's full IANA list when available
+  // (Intl.supportedValuesOf, Chrome 99+), else the gateway's own region-table
+  // zones plus UTC and the multi-zone extras the table collapses (ID/US/AU).
+  // Rendered as a <datalist> combobox: free text stays valid, empty stays auto.
+  const FALLBACK_TIMEZONES = [
+    "UTC",
+    "Africa/Accra",
+    "Africa/Algiers",
+    "Africa/Cairo",
+    "Africa/Casablanca",
+    "Africa/Johannesburg",
+    "Africa/Lagos",
+    "Africa/Nairobi",
+    "Africa/Tunis",
+    "America/Argentina/Buenos_Aires",
+    "America/Bogota",
+    "America/Chicago",
+    "America/Denver",
+    "America/Lima",
+    "America/Los_Angeles",
+    "America/Mexico_City",
+    "America/New_York",
+    "America/Santiago",
+    "America/Sao_Paulo",
+    "America/Toronto",
+    "Asia/Almaty",
+    "Asia/Baghdad",
+    "Asia/Bangkok",
+    "Asia/Colombo",
+    "Asia/Dhaka",
+    "Asia/Dubai",
+    "Asia/Ho_Chi_Minh",
+    "Asia/Hong_Kong",
+    "Asia/Jakarta",
+    "Asia/Jayapura",
+    "Asia/Jerusalem",
+    "Asia/Karachi",
+    "Asia/Kolkata",
+    "Asia/Kuala_Lumpur",
+    "Asia/Kuwait",
+    "Asia/Makassar",
+    "Asia/Manila",
+    "Asia/Qatar",
+    "Asia/Riyadh",
+    "Asia/Seoul",
+    "Asia/Shanghai",
+    "Asia/Singapore",
+    "Asia/Taipei",
+    "Asia/Tehran",
+    "Asia/Tokyo",
+    "Australia/Melbourne",
+    "Australia/Sydney",
+    "Europe/Amsterdam",
+    "Europe/Athens",
+    "Europe/Berlin",
+    "Europe/Bratislava",
+    "Europe/Brussels",
+    "Europe/Bucharest",
+    "Europe/Budapest",
+    "Europe/Copenhagen",
+    "Europe/Dublin",
+    "Europe/Helsinki",
+    "Europe/Istanbul",
+    "Europe/Kyiv",
+    "Europe/Lisbon",
+    "Europe/London",
+    "Europe/Madrid",
+    "Europe/Moscow",
+    "Europe/Oslo",
+    "Europe/Paris",
+    "Europe/Prague",
+    "Europe/Riga",
+    "Europe/Rome",
+    "Europe/Sofia",
+    "Europe/Stockholm",
+    "Europe/Tallinn",
+    "Europe/Vienna",
+    "Europe/Vilnius",
+    "Europe/Warsaw",
+    "Europe/Zurich",
+    "Pacific/Auckland",
+  ];
+  const TIMEZONE_OPTIONS = (() => {
+    try {
+      const fn = Intl.supportedValuesOf;
+      if (typeof fn === "function") {
+        const zones = fn.call(Intl, "timeZone");
+        if (Array.isArray(zones) && zones.length > 0) return zones;
+      }
+    } catch {
+      /* below */
+    }
+    return FALLBACK_TIMEZONES;
+  })();
+  advancedSettingsInstances += 1;
+  const tzListId = `tz-list-${advancedSettingsInstances}`;
   // Deep-link focus from cross-page jump links: a link stashes a catalog
   // key in sessionStorage, then routes here.
   let pendingFocusKey = $state("");
@@ -299,6 +401,23 @@
                   placeholder={entry.default ?? ""}
                   oninput={(v) => onField(entry.key, v)}
                 />
+              {:else if entry.key === "SESSION_TIMEZONE"}
+                <input
+                  type="text"
+                  class="fp-input fp-mono"
+                  list={tzListId}
+                  value={val(entry.key, entry)}
+                  title={val(entry.key, entry)}
+                  aria-label={entry.key}
+                  placeholder="Auto"
+                  autocomplete="off"
+                  oninput={(e) => onField(entry.key, e.currentTarget.value)}
+                />
+                <datalist id={tzListId}>
+                  {#each TIMEZONE_OPTIONS as tz (tz)}
+                    <option value={tz}></option>
+                  {/each}
+                </datalist>
               {:else}
                 <input
                   type="text"
