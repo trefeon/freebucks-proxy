@@ -82,6 +82,13 @@ func TestIsGenuineSignatureTool(t *testing.T) {
 			t.Error("custom decide has no schema to check and counts by name")
 		}
 	})
+	t.Run("custom complete_compaction counts by name", func(t *testing.T) {
+		// Vendor 40c75256 adds complete_compaction to
+		// FREEBUFF_CUSTOM_TOOL_NAMES: no schema to check, counts by name.
+		if !IsGenuineSignatureTool("complete_compaction", nil) {
+			t.Error("custom complete_compaction has no schema to check and counts by name")
+		}
+	})
 	t.Run("unknown names never count", func(t *testing.T) {
 		if IsGenuineSignatureTool("test_tool", map[string]any{
 			"type": "object", "properties": map[string]any{"a": map[string]any{}},
@@ -307,4 +314,31 @@ func TestWireForeignSignal(t *testing.T) {
 			t.Errorf("signal = %q, want clear for no tools", s)
 		}
 	})
+}
+
+// TestIsNowRecognisedToolset mirrors upstream isNowRecognisedToolset (vendor
+// 40c75256, the 2026-09-23 complete_compaction beat detector): a stored
+// foreign_toolset observe row carrying a custom tool clears unless a harness
+// name convicts it. Guards the sweep class the detector exists for: the
+// stale build banned observe rows the new one would have cleared.
+func TestIsNowRecognisedToolset(t *testing.T) {
+	cases := []struct {
+		name  string
+		names []string
+		want  bool
+	}{
+		{name: "complete_compaction alone clears", names: []string{"complete_compaction"}, want: true},
+		{name: "decide alone clears", names: []string{"decide"}, want: true},
+		{name: "custom plus official clears", names: []string{"complete_compaction", "read_files"}, want: true},
+		{name: "harness name convicts", names: []string{"complete_compaction", "Task"}, want: false},
+		{name: "no custom tool never clears", names: []string{"read_files"}, want: false},
+		{name: "empty never clears", names: nil, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsNowRecognisedToolset(tc.names); got != tc.want {
+				t.Errorf("IsNowRecognisedToolset(%q) = %v, want %v", tc.names, got, tc.want)
+			}
+		})
+	}
 }
