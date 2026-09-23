@@ -532,7 +532,7 @@
             "Trigger streak touch turn now for accounts needing maintenance",
           )}
         >
-          {touchingNow ? $tr("Touching…") : $tr("Touch now")}
+          {touchingNow ? $tr("Running…") : $tr("Run maintenance")}
         </Button>
       </span>
     {/snippet}
