@@ -41,7 +41,7 @@
 <div
   role="group"
   aria-label={ariaLabel || undefined}
-  class="inline-flex items-center gap-1 bg-[var(--fp-surface-2)] p-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] {className}"
+  class="inline-flex items-center gap-1 bg-[var(--fp-surface-2)] p-0.5 rounded-[var(--fp-radius-sm)] border border-[var(--fp-border)] shrink-0 {className}"
 >
   {#each normalizedOptions as opt (opt.id)}
     {@const active = value === opt.id}
@@ -49,9 +49,9 @@
       type="button"
       aria-pressed={active}
       class="{sizeClasses[size] ||
-        sizeClasses.sm} font-mono rounded transition-colors flex items-center gap-1.5 {active
-        ? 'bg-[var(--fp-accent-dim)] text-[var(--fp-accent)] font-semibold border border-[var(--fp-accent)]/30'
-        : 'text-[var(--fp-muted)] hover:text-[var(--fp-text)]'}"
+        sizeClasses.sm} font-mono font-medium rounded transition-colors flex items-center gap-1.5 whitespace-nowrap tabular-nums shrink-0 {active
+        ? 'bg-[var(--fp-accent-dim)] text-[var(--fp-accent)] border border-[var(--fp-accent)]/30'
+        : 'text-[var(--fp-muted)] hover:text-[var(--fp-text)] border border-transparent'}"
       onclick={() => select(opt.id)}
     >
       {#if opt.icon}
