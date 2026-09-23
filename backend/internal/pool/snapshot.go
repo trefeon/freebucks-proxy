@@ -71,6 +71,8 @@ type MaturitySnapshot struct {
 	LastAction   string `json:"last_action,omitempty"`
 	LastResult   string `json:"last_result,omitempty"`
 	LastAdvanced string `json:"last_advanced,omitempty"`
+	// StreakAtTouch was the account's streak right before the last touch.
+	StreakAtTouch int `json:"streak_at_touch,omitempty"`
 	// ResultDay is the Pacific calendar day ("2006-01-02") the last
 	// ledger write belongs to.
 	ResultDay string `json:"result_day,omitempty"`
@@ -256,6 +258,7 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			TodayUsed:               todayUsed,
 			LastUsageDate:           lastUsage,
 			StreakUpdatedAt:         streakUpdated,
+			Maturity:                tok.MaturitySnapshot(),
 			UpgradeHint:             ss.UpgradeHint,
 			ServerMessage:           ss.ServerMessage,
 			Locked:                  tok.locked.Load(),

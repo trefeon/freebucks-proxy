@@ -77,8 +77,41 @@
   let globalEnabled = $state(true);
   let globalLoaded = $state(false);
   let savingGlobal = $state(false);
+  let touchingNow = $state(false);
+
+  async function runTouchNow() {
+    if (touchingNow) return;
+    touchingNow = true;
+    try {
+      const res = await postAPI("/admin/tokens/streak-touch", {});
+      if (res && res.ok) {
+        const touched = (res.results ?? []).filter((r) => r.status === "touched").length;
+        const skipped = (res.results ?? []).filter((r) => r.status === "skipped").length;
+        pushToast({
+          tone: "success",
+          title: $tr("Streak maintenance complete"),
+          body: $tr("{touched} account(s) touched, {skipped} skipped", { touched, skipped }),
+        });
+      } else {
+        pushToast({
+          tone: "error",
+          title: $tr("Streak touch failed"),
+          body: res?.message || $tr("Request was rejected by server"),
+        });
+      }
+      await refreshTokens();
+    } catch (e) {
+      pushToast({
+        tone: "error",
+        title: $tr("Streak touch failed"),
+        body: e?.message || $tr("Network error"),
+      });
+    } finally {
+      touchingNow = false;
+    }
+  }
+
   // Editable tuning row (instant overlay save beside the control):
-  // touch-model defaults "" (= auto, cheapest unmetered). The select shows
   // "auto" for both "" and a literal "auto" (older overlays stored the
   // word), while edits canonicalize Auto back to "" so the draft always
   // matches the catalog default. The row dims while the kill-switch is off.
@@ -482,6 +515,16 @@
         {#if globalLoaded && !globalEnabled}
           <StatusBadge tone="bad" status={$tr("Off")} />
         {/if}
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={touchingNow || !globalEnabled}
+          loading={touchingNow}
+          onclick={runTouchNow}
+          title={$tr("Trigger streak touch turn now for accounts needing maintenance")}
+        >
+          {touchingNow ? $tr("Touching…") : $tr("Touch now")}
+        </Button>
       </span>
     {/snippet}
     <div class="flex flex-col gap-2.5">

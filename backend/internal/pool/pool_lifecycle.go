@@ -320,6 +320,9 @@ func (p *Pool) maintainTick(ctx context.Context) {
 	// anything else costs just the timestamp checks. Idle passes above
 	// return before this line, so quiet pools stay quiet.
 	p.smartProbeTick(ctx)
+	// Automated streak maintenance (maturity.go): evaluates accounts during the
+	// nightly window before reset and touches accounts needing active streak turns.
+	p.maturityTick(ctx)
 }
 
 // sessionPollTick runs the per-token session-liveness polls on their own

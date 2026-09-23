@@ -398,6 +398,9 @@ type Pool struct {
 	// stagger worker still running suppresses the next maintain tick's
 	// dispatch. In-memory only like the slot ledger: a restart resets it.
 	smartProbeInflight atomic.Bool
+	// Maturity backoff (maturity.go): pauses nightly touch walk after a 429.
+	maturityBackoffUntil time.Time
+	maturityBackoffMu    sync.Mutex
 }
 
 type tokenEntry struct {
@@ -469,6 +472,8 @@ type tokenEntry struct {
 	quarantine  atomic.Pointer[quarantineState]
 	streak      atomic.Pointer[upstream.StreakInfo]
 	streakFetch atomic.Bool
+	maturityMu  sync.Mutex
+	maturity    *MaturitySnapshot
 }
 
 func (e *tokenEntry) Email() string {
@@ -505,6 +510,53 @@ func (e *tokenEntry) SetStreak(s *upstream.StreakInfo) {
 	if s != nil {
 		e.streak.Store(s)
 	}
+}
+
+func (e *tokenEntry) MaturitySnapshot() *MaturitySnapshot {
+	e.maturityMu.Lock()
+	defer e.maturityMu.Unlock()
+	if e.maturity == nil {
+		today := pacificDayKey(time.Now())
+		result := "pending"
+		if st := e.streak.Load(); st != nil && st.TodayUsed {
+			result = "skip:today-used"
+		}
+		return &MaturitySnapshot{
+			Enabled:    true,
+			Target:     7,
+			Mode:       "unmetered",
+			SlotDay:    today,
+			TouchDay:   today,
+			LastResult: result,
+			ResultDay:  today,
+		}
+	}
+	cp := *e.maturity
+	return &cp
+}
+
+func (e *tokenEntry) SetMaturitySnapshot(m *MaturitySnapshot) {
+	e.maturityMu.Lock()
+	defer e.maturityMu.Unlock()
+	if m == nil {
+		e.maturity = nil
+		return
+	}
+	cp := *m
+	e.maturity = &cp
+}
+
+func (p *Pool) emitMaturity(idx int, kind, detail string) {
+	sinkPtr := p.histSink.Load()
+	if sinkPtr == nil || *sinkPtr == nil {
+		return
+	}
+	(*sinkPtr).RecordMaturity(MaturityHistoryEvent{
+		TS:       time.Now().UnixMilli(),
+		TokenIdx: idx,
+		Kind:     kind,
+		Detail:   detail,
+	})
 }
 
 func (p *Pool) asyncStreakFetch(e *tokenEntry) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"freebucks-proxy/backend/internal/upstream"
@@ -50,6 +51,25 @@ func (a *adminHandlers) handleTokensTestAll(w http.ResponseWriter, r *http.Reque
 	}
 	a.logfunc().Info("dashboard tokens probe-all ok", "tokens", len(outcomes))
 	a.dash.RenderProbeAllResults(w, r, outcomes)
+}
+
+// handleTokensStreakTouch runs on-demand streak touches for eligible accounts.
+func (a *adminHandlers) handleTokensStreakTouch(w http.ResponseWriter, r *http.Request) {
+	if a.pool == nil {
+		a.dash.RenderConfigResult(w, r, false, "Pool is not running")
+		return
+	}
+	forceAll := r.URL != nil && r.URL.Query().Get("force") == "true"
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	results := a.pool.ForceMaturityTouch(ctx, forceAll)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":      true,
+		"results": results,
+		"total":   len(results),
+	})
 }
 
 func (a *adminHandlers) probeTokenGate(ctx context.Context, token string) (*upstream.SessionState, error) {

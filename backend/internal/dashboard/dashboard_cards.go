@@ -558,6 +558,13 @@ func (d *Dashboard) tokensData() tokensData {
 		SlotsPerAccount:  cfg.SlotsPerAccount,
 		MaxSpillAccounts: cfg.MaxSpillAccounts,
 	}
+	if d.pool != nil {
+		wStart, wEnd := d.pool.MaturityWindow()
+		if !wStart.IsZero() && !wEnd.IsZero() {
+			td.MaturityWindowStart = wStart.Format(time.RFC3339)
+			td.MaturityWindowEnd = wEnd.Format(time.RFC3339)
+		}
+	}
 	// client cards. Pure bridge hides the (empty) pooled table; pure pooled
 	// has no bridge cards.
 	td.ShowBridge = td.Mode == "bridge" || td.Mode == "hybrid"

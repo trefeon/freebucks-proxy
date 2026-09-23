@@ -3,13 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"freebucks-proxy/backend/internal/dashboard"
 	"io/fs"
 	"math"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebucks-proxy/backend/internal/dashboard"
 )
 
 // registerAdminRoutes mounts every dashboard.AdminRoutes row on the mux.
@@ -150,6 +149,8 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return http.HandlerFunc(s.admin.handleTokenTest)
 	case "POST /admin/tokens/test-all":
 		return http.HandlerFunc(s.admin.handleTokensTestAll)
+	case "POST /admin/tokens/streak-touch":
+		return http.HandlerFunc(s.admin.handleTokensStreakTouch)
 	case "POST /admin/tokens/{id}/session":
 		return http.HandlerFunc(s.admin.handleTokenSpawnSession)
 	case "POST /admin/tokens/add":
