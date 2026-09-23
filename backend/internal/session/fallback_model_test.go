@@ -8,17 +8,17 @@ import "testing"
 // quota-exempt, and the picker-lead default (never "") when everything is
 // priced without an exemption.
 func TestDefaultFallbackModelCheapestFirst(t *testing.T) {
-	if got := DefaultFallbackModel(); got != "upstage/solar-pro4" {
-		t.Errorf("DefaultFallbackModel() = %q, want upstage/solar-pro4 (first static unmetered served row)", got)
+	if got := DefaultFallbackModel(); got != "upstage/solar-mini4" {
+		t.Errorf("DefaultFallbackModel() = %q, want upstage/solar-mini4 (first static unmetered served row, BETA rows never win)", got)
 	}
-	if got := DefaultFallbackModelFor(map[string]float64{"upstage/solar-pro4": 5}, false); got != "z-ai/glm-5.3-flash" {
+	if got := DefaultFallbackModelFor(map[string]float64{"upstage/solar-mini4": 5}, false); got != "z-ai/glm-5.3-flash" {
 		t.Errorf("DefaultFallbackModelFor(priced solar) = %q, want z-ai/glm-5.3-flash", got)
 	}
-	if got := DefaultFallbackModelFor(map[string]float64{"upstage/solar-pro4": 5}, true); got != "upstage/solar-pro4" {
-		t.Errorf("DefaultFallbackModelFor(exempt) = %q, want upstage/solar-pro4", got)
+	if got := DefaultFallbackModelFor(map[string]float64{"upstage/solar-mini4": 5}, true); got != "upstage/solar-mini4" {
+		t.Errorf("DefaultFallbackModelFor(exempt) = %q, want upstage/solar-mini4", got)
 	}
 	allPriced := map[string]float64{
-		"upstage/solar-pro4":         5,
+		"upstage/solar-mini4":        5,
 		"z-ai/glm-5.3-flash":         2,
 		"deepseek/deepseek-v4-flash": 3,
 		"mimo/mimo-v2.5":             1,

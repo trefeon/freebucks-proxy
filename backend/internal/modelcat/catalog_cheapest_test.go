@@ -6,8 +6,8 @@ import "testing"
 // registry allowlist: catalog order decides, membership filters.
 func TestCheapestFreeIn(t *testing.T) {
 	full := ServedIDs()
-	if got := CheapestFreeIn(full, nil, false); got != "upstage/solar-pro4" {
-		t.Errorf("CheapestFreeIn(full) = %q, want upstage/solar-pro4 (first static unmetered served row)", got)
+	if got := CheapestFreeIn(full, nil, false); got != "upstage/solar-mini4" {
+		t.Errorf("CheapestFreeIn(full) = %q, want upstage/solar-mini4 (first static unmetered served row, BETA rows never win)", got)
 	}
 	// Without the cheapest row, the next unmetered served row wins — never
 	// an unlisted id and never the alphabetically-first gated row.
@@ -16,7 +16,7 @@ func TestCheapestFreeIn(t *testing.T) {
 		t.Errorf("CheapestFreeIn(restricted) = %q, want mimo/mimo-v2.5", got)
 	}
 	// Live-priced cheapest loses to the next price-0 row in the set.
-	if got := CheapestFreeIn(full, map[string]float64{"upstage/solar-pro4": 5}, false); got != "z-ai/glm-5.3-flash" {
+	if got := CheapestFreeIn(full, map[string]float64{"upstage/solar-mini4": 5}, false); got != "z-ai/glm-5.3-flash" {
 		t.Errorf("CheapestFreeIn(priced solar) = %q, want z-ai/glm-5.3-flash", got)
 	}
 	// Empty registry means no candidate, never an invented id.

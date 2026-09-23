@@ -24,7 +24,8 @@ import {
   type FreebuffModelDataUse,
 } from './freebuff-data-use'
 import {
-  FREEBUFF_SOLAR_PRO_4_ENTITLEMENT,
+  FREEBUFF_SOLAR_MINI_4_ENTITLEMENT,
+  FREEBUFF_SOLAR_MINI_4_MODEL_ID,
   FREEBUFF_SOLAR_PRO_4_MODEL_ID,
   type FreebuffAccessTier,
 } from './freebuff-model-entitlements'
@@ -36,6 +37,7 @@ export {
   FREEBUFF_MINIMAX_M3_MODEL_ID,
 } from './freebuff-model-ids'
 export {
+  FREEBUFF_SOLAR_MINI_4_MODEL_ID,
   FREEBUFF_SOLAR_PRO_4_MODEL_ID,
   type FreebuffAccessTier,
 } from './freebuff-model-entitlements'
@@ -511,8 +513,16 @@ export const FREEBUFF_GEMINI_38_FLASH_MODEL_ID = 'google/gemini-3.8-flash'
  * The price ceiling Gemini 3.8 Flash routes under, in dollars per MILLION
  * tokens (OpenRouter's `provider.max_price` unit).
  *
- * Sits strictly BETWEEN the flex band ($0.375/$1.875) and the standard band
- * ($0.75/$3.75), and both halves of "strictly" are load-bearing:
+ * RAISED 2026-09-23 from {0.5, 2.5} (between flex and standard) to sit
+ * strictly between the STANDARD band ($0.75/$3.75) and priority
+ * ($1.35/$6.75): OpenRouter delisted AI Studio flex, the only endpoint under
+ * the old ceiling that was not the BYOK Vertex pair, and every request 404'd.
+ * The fence against priority is kept; the fence against standard is given up
+ * until flex returns (the order still tries flex first). The reasoning below
+ * describes the original flex-only fence.
+ *
+ * Originally strictly BETWEEN the flex band ($0.375/$1.875) and the standard
+ * band ($0.75/$3.75), and both halves of "strictly" were load-bearing:
  *
  *   - Strictly ABOVE flex. A ceiling equal to list is an outage: verified
  *     against the live API 2026-09-03, `max_price` of exactly
@@ -528,8 +538,8 @@ export const FREEBUFF_GEMINI_38_FLASH_MODEL_ID = 'google/gemini-3.8-flash'
  * this number.
  */
 export const FREEBUFF_GEMINI_38_FLASH_MAX_PRICE = {
-  prompt: 0.5,
-  completion: 2.5,
+  prompt: 0.8,
+  completion: 4.0,
 } as const
 /**
  * Kimi K3 (Eco), served by CrofAI. God-only on Freebuff Web, for testing.
@@ -786,6 +796,48 @@ export const FREEBUFF_OX_ALPHA_MODEL_ID = 'stealth/ox-alpha'
  * change: the two are one decision.
  */
 export const FREEBUFF_OX_ALPHA_MAX_PRICE = {
+  prompt: 0,
+  completion: 0,
+} as const
+
+/**
+ * Space Bunny Alpha — a stealth model on OpenRouter, joined every surface on
+ * 2026-09-23 as a BETA row priced 10 Freebucks.
+ *
+ * The id is OpenRouter's own slug and falls through to the default OpenRouter
+ * route, like Ox Alpha, with the same zero-price fence
+ * (FREEBUFF_SPACE_BUNNY_ALPHA_MAX_PRICE). What was true of Ox Alpha is true
+ * here, and was measured again rather than inherited (2026-09-23, prod key):
+ *
+ *  - ONE endpoint, `stealth`, listed at $0 in and out.
+ *  - REASONING IS MANDATORY (`reasoning.mandatory`): `effort: 'none'` answers
+ *    400 "Reasoning is mandatory for this endpoint and cannot be disabled",
+ *    and the provider's own default is `max`. On a debugging prompt, n=3 per
+ *    rung, every rung answered correctly; output grew from ~420 tokens / 3.3s
+ *    at `low` to ~860 / 6.8s at `high` and ~1,260 / 10s at `max`. The row
+ *    pins `high`, as Ox Alpha did, and the ladder stops at none of the rungs
+ *    the endpoint lists.
+ *  - No `stop` in `supported_parameters`, so no `require_parameters`.
+ *  - Implicit prompt caching works on the wire: a repeated 18k prefix came
+ *    back 18,418/18,420 cached.
+ *  - CAPACITY is the reason it can go on every surface at once. 200
+ *    concurrent requests, a sustained 10 req/s for 60s and 2 req/s of ~20k
+ *    token prompts all completed with ZERO 429s (TTFT p50 ~0.7-1.1s). That is
+ *    unlike the earlier stealth pool that refused two thirds of requests at
+ *    10 req/s. It is still a host we cannot see; re-measure before making it a
+ *    default.
+ *  - Prompts and completions are retained by the anonymous host, per
+ *    OpenRouter's stealth terms — the row warns about it.
+ */
+export const FREEBUFF_SPACE_BUNNY_ALPHA_MODEL_ID = 'stealth/space-bunny-alpha'
+/**
+ * Price ceiling for Space Bunny Alpha — ZERO, for the reason given on
+ * FREEBUFF_OX_ALPHA_MAX_PRICE: a stealth host may reprice or swap the model
+ * behind the slug without notice, and a zero `max_price` turns that into a
+ * loud 404 before the first billed token rather than an invoice. The row is
+ * metered by its Freebucks price, not by what the host charges.
+ */
+export const FREEBUFF_SPACE_BUNNY_ALPHA_MAX_PRICE = {
   prompt: 0,
   completion: 0,
 } as const
@@ -1086,7 +1138,7 @@ export const FREEBUFF_REWARD_SESSION_WINDOW_HOURS = 24
  * Restored on 2026-08-25. Between 2026-07-30 and that date the pool was
  * effectively unbounded: the old `FREEBUFF_GLM_V52_REFERRAL_CAP = 10` was
  * removed, so entitlement scaled 1:1 with qualified referrals up to
- * FREEBUFF_REFERRAL_SIGNUP_LIMIT (100), and a referral farm converted
+ * the then per-referrer signup limit (100), and a referral farm converted
  * directly into a hundred paid hours a day.
  *
  * IT IS A CEILING ON THE SUM, NOT ON THE REFERRAL TERM. Capping only the
@@ -1288,6 +1340,10 @@ export const FREEBUFF_MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   [FREEBUFF_GLM_V53_FLASH_MODEL_ID]: 1_000_000,
   // Solar Pro 4: 524,288 published, entered low for the same reason.
   [FREEBUFF_SOLAR_PRO_4_MODEL_ID]: 500_000,
+  // Solar Mini 4 publishes the same 524,288.
+  [FREEBUFF_SOLAR_MINI_4_MODEL_ID]: 500_000,
+  // OpenRouter publishes 1,000,000 for Space Bunny Alpha's one endpoint.
+  [FREEBUFF_SPACE_BUNNY_ALPHA_MODEL_ID]: 1_000_000,
 }
 
 /** Window assumed for any model missing from FREEBUFF_MODEL_CONTEXT_WINDOWS.
@@ -1798,6 +1854,13 @@ const GPT_6_LUNA_MODEL = {
     'Runs on OpenAI flex capacity: half the token price, the same speed in our measurements, and a standard-tier backup when flex is busy.',
 } as const satisfies FreebuffModelOption
 
+/**
+ * RETIRED FROM EVERY PICKER on 2026-09-23, replaced by Solar Mini 4 on the
+ * same Upstage lane. Like GPT-5.6 Luna, this is the picker-only first stage:
+ * the row stays in SUPPORTED_FREEBUFF_MODELS and admissible, so sessions
+ * admitted before the swap drain on it and the released binaries that still
+ * list it keep working at its own price.
+ */
 const SOLAR_PRO_4_MODEL = {
   id: FREEBUFF_SOLAR_PRO_4_MODEL_ID,
   displayName: 'Solar Pro 4',
@@ -1806,9 +1869,50 @@ const SOLAR_PRO_4_MODEL = {
   // Provider-side debugging logs are allowed; this is not a ZDR promise or
   // permission for AI training. Keep our own training traces disabled.
   dataUse: 'service',
-  // Limited access still uses its tier-specific metering.
-  premium: FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.fullAccess.premium,
+  premium: false,
   multimodal: false,
+  // The one live use of the pointer: the row is in no picker, so the notice
+  // renders nowhere, but migrateSupersededFreebuffModelPreference moves a
+  // SAVED Pro 4 pick onto Solar Mini 4 the next time a surface reads it.
+  supersededBy: {
+    modelId: FREEBUFF_SOLAR_MINI_4_MODEL_ID,
+    notice: 'Solar Mini 4 replaces Solar Pro 4',
+    actionLabel: 'Switch to Solar Mini 4',
+  },
+} as const satisfies FreebuffModelOption
+
+/**
+ * Solar Mini 4 (Upstage), a 35B mixture-of-experts with 3B active. It takes
+ * Solar Pro 4's slot on every surface from 2026-09-23 and rides the same
+ * route: OpenRouter, pinned to Upstage's `upstage` endpoint with no fallbacks
+ * (applyOpenRouterProviderRouting), BYOK on our Upstage key.
+ *
+ * Measured 2026-09-23 on the prod key: tool calls with our stop sequence,
+ * TTFT ~350ms alone and ~530ms p50 at 60 concurrent, a sustained 5 req/s
+ * with no errors, and implicit caching on ~5 of 6 repeats of a 35k prefix —
+ * the same shape as Pro 4.
+ *
+ * PRICE: OpenRouter lists $0.05 in / $0.005 cached / $0.20 out per M with
+ * `discount: 0.5`, i.e. a $0.10/$0.40 LIST card, and its BYOK
+ * `upstream_inference_cost` is computed at that list card. The OpenRouter
+ * lane records this row at the LOW END of that range, the discounted card
+ * (web/src/llm-api/openrouter-price-overrides.ts), by operator decision; a
+ * list-price invoice from Upstage would be the reason to add a phase there.
+ *
+ * Reasoning is OFF by default at Upstage (`default_enabled: false`) and the
+ * row runs bare, as Pro 4 did.
+ */
+const SOLAR_MINI_4_MODEL = {
+  id: FREEBUFF_SOLAR_MINI_4_MODEL_ID,
+  displayName: 'Solar Mini 4',
+  tagline: 'Fast and light',
+  availability: 'always',
+  // Same Upstage endpoint as Pro 4, so the same claim: provider-side debugging
+  // logs are allowed; no training permission; our traces stay off.
+  dataUse: 'service',
+  premium: FREEBUFF_SOLAR_MINI_4_ENTITLEMENT.fullAccess.premium,
+  multimodal: false,
+  isNew: true,
 } as const satisfies FreebuffModelOption
 
 /**
@@ -2166,8 +2270,39 @@ const OX_ALPHA_MODEL = {
   // thing seen if the pause were ever lifted without re-reading this row.
 } as const satisfies FreebuffModelOption
 
+/**
+ * The Space Bunny Alpha picker row (see FREEBUFF_SPACE_BUNNY_ALPHA_MODEL_ID).
+ * STANDARD rather than premium: it sits in no premium pool, because it costs
+ * us nothing and the zero-price fence keeps it that way; its Freebucks price
+ * is the meter. BETA (`experimental`) for the reason Ox Alpha carried the
+ * badge: an anonymous host can reprice, rename or withdraw it without notice,
+ * and Ox Alpha's host did exactly that a week after launch.
+ */
+const SPACE_BUNNY_ALPHA_MODEL = {
+  id: FREEBUFF_SPACE_BUNNY_ALPHA_MODEL_ID,
+  displayName: 'Space Bunny Alpha',
+  tagline: '1M context',
+  availability: 'always',
+  // Same wording and the same reasoning as Ox Alpha: the host keeps prompts
+  // and does not train on them, so `dataUse` stays 'service' and the warning
+  // says what a user wants to know before pasting a private repo.
+  warning: 'Anonymous provider retains prompts',
+  dataUse: 'service',
+  premium: false,
+  // text + image + video in, text out.
+  multimodal: true,
+  reasoningEffort: 'high',
+  efforts: EFFORTS_THROUGH_MAX,
+  defaultEffort: 'high',
+  experimental: true,
+  isNew: true,
+  taglineTooltip:
+    'A stealth model from an anonymous provider. It may change or be withdrawn without notice.',
+} as const satisfies FreebuffModelOption
+
 export const SUPPORTED_FREEBUFF_MODELS = [
   OX_ALPHA_MODEL,
+  SPACE_BUNNY_ALPHA_MODEL,
   DEEPSEEK_V4_PRO_MODEL,
   MINIMAX_M3_MODEL,
   // 5.6 stays SUPPORTED after its 2026-09-22 retirement so the server still
@@ -2175,7 +2310,10 @@ export const SUPPORTED_FREEBUFF_MODELS = [
   // released binaries that still hold it get a coercion instead of a refusal.
   GPT_5_6_LUNA_MODEL,
   GPT_6_LUNA_MODEL,
+  // Solar Pro 4 stays SUPPORTED after its 2026-09-23 retirement for the same
+  // reason 5.6 does.
   SOLAR_PRO_4_MODEL,
+  SOLAR_MINI_4_MODEL,
   GEMINI_38_FLASH_MODEL,
   MUSE_SPARK_13_CONTRIBUTOR_MODEL,
   MUSE_SPARK_12_CONTRIBUTOR_MODEL,
@@ -2274,7 +2412,15 @@ export const FREEBUFF_MODELS = [
   // what stops it being served. FREEBUFF_PAUSED_FREE_MODEL_IDS is, and the row
   // stays in SUPPORTED_FREEBUFF_MODELS so the id remains recognisable and
   // coercible for the installed binaries that still hold it.
-  SOLAR_PRO_4_MODEL,
+  //
+  // SOLAR MINI 4 TAKES SOLAR PRO 4'S SLOT (2026-09-23): same Upstage lane, at
+  // half Pro 4's Freebucks price. Pro 4 left this list in the same change and
+  // stays admissible for the binaries that still hold it.
+  SOLAR_MINI_4_MODEL,
+  // SPACE BUNNY ALPHA (2026-09-23), a BETA stealth row. Placed after the
+  // named-vendor rows: a row carrying the stealth caveat should not outrank
+  // ones without it.
+  SPACE_BUNNY_ALPHA_MODEL,
   // GEMINI 3.8 FLASH LEFT THIS LIST on 2026-09-03, hours after joining it, when
   // the row was withdrawn, and came back to Web alone behind the paywall on
   // 09-04. It returned to this list on 2026-09-21 — see the note above Muse
@@ -3136,6 +3282,7 @@ export const LIMITED_FREEBUFF_HERO_MODEL_ID: FreebuffModelId =
 //
 // Solar Pro 4 joined on 2026-09-03. Limited access is still metered by the
 // regional pool, so this widens the catalog without making that tier unmetered.
+// Solar Mini 4 took its place on 2026-09-23, as it did in every picker.
 export const LIMITED_FREEBUFF_MODEL_IDS = [
   // Hero first (LIMITED_FREEBUFF_HERO_MODEL_ID). GLM 5.3 Flash since
   // 2026-09-07 — see LIMITED_FREEBUFF_MODEL_ID for why the coercion target
@@ -3143,8 +3290,8 @@ export const LIMITED_FREEBUFF_MODEL_IDS = [
   FREEBUFF_GLM_V53_FLASH_MODEL_ID,
   FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID,
   FREEBUFF_MIMO_V25_MODEL_ID,
-  ...(FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.limitedAccess
-    ? [FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.modelId]
+  ...(FREEBUFF_SOLAR_MINI_4_ENTITLEMENT.limitedAccess
+    ? [FREEBUFF_SOLAR_MINI_4_ENTITLEMENT.modelId]
     : []),
 ] as const
 export const LIMITED_FREEBUFF_MODELS = LIMITED_FREEBUFF_MODEL_IDS.map(
@@ -4051,6 +4198,23 @@ export function isFreebuffOxAlphaModelId(
   id: string | null | undefined,
 ): boolean {
   return freebuffModelIdMatches(id, FREEBUFF_OX_ALPHA_MODEL_ID)
+}
+
+/** Whether `id` names Space Bunny Alpha, including any dated build of it —
+ *  the OpenRouter lane's zero-price fence keys off this, for the reason given
+ *  on isFreebuffOxAlphaModelId. */
+export function isFreebuffSpaceBunnyAlphaModelId(
+  id: string | null | undefined,
+): boolean {
+  return freebuffModelIdMatches(id, FREEBUFF_SPACE_BUNNY_ALPHA_MODEL_ID)
+}
+
+/** Whether `id` names one of the Solar rows served on Upstage's lane. */
+export function isFreebuffSolarModelId(id: string | null | undefined): boolean {
+  return (
+    freebuffModelIdMatches(id, FREEBUFF_SOLAR_PRO_4_MODEL_ID) ||
+    freebuffModelIdMatches(id, FREEBUFF_SOLAR_MINI_4_MODEL_ID)
+  )
 }
 
 /** The catalog's reasoning effort for the requested model, tolerating dated

@@ -259,8 +259,8 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 		t.Cleanup(ts.Close)
 
 		rows, raw := fetchTierRows(t, ts)
-		if len(rows) != 9 {
-			t.Fatalf("rows = %d, want 9 (6 served + 3 tier rows)", len(rows))
+		if len(rows) != 10 {
+			t.Fatalf("rows = %d, want 10 (7 served + 3 tier rows)", len(rows))
 		}
 		luna := tierRowByID(t, rows, tierLuna)
 		if !luna.Available || luna.Status != "unknown" || !tierEqual(luna.Tiers, []string{"full", "paid"}) || luna.Offer != nil {
@@ -374,7 +374,8 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 		served := map[string]bool{
 			"deepseek/deepseek-v4-flash":      true,
 			"openai/gpt-6-luna":               true,
-			"upstage/solar-pro4":              true,
+			"upstage/solar-mini4":             true,
+			"stealth/space-bunny-alpha":       true,
 			"meta/muse-spark-1.2-contributor": true,
 			"z-ai/glm-5.3-flash":              true,
 			"mimo/mimo-v2.5":                  true,

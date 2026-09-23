@@ -704,6 +704,6 @@ func TestProbeModelNeverGated(t *testing.T) {
 		t.Errorf("probeModel = %q, want the cheapest served free model %q", got, want)
 	}
 	if got == "deepseek/deepseek-v4-flash" {
-		t.Errorf("probeModel = %q, want cheapest-first (solar-pro4), never the old pinned id", got)
+		t.Errorf("probeModel = %q, want cheapest-first (solar-mini4), never the old pinned id", got)
 	}
 }

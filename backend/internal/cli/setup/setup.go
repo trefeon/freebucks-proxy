@@ -63,7 +63,7 @@ func Run(autoYes bool) {
 		} else {
 			fmt.Println("    [skipped] Left Continue config untouched.")
 			fmt.Println("    Manual snippet for ~/.continue/config.yaml:")
-			fmt.Println("    models:\n      - title: \"FreeBuff Solar\"\n        provider: \"openai\"\n        model: \"upstage/solar-pro4\"\n        apiBase: \"http://localhost:3457/v1\"\n        apiKey: \"not-needed\"")
+			fmt.Println("    models:\n      - title: \"FreeBuff Solar\"\n        provider: \"openai\"\n        model: \"upstage/solar-mini4\"\n        apiBase: \"http://localhost:3457/v1\"\n        apiKey: \"not-needed\"")
 		}
 	} else {
 		fmt.Println("[-] Continue (~/.continue/) not found on this system")
@@ -184,7 +184,7 @@ func setupContinueYamlConfig(p string) bool {
 	freebuffModel := []string{
 		`  - title: "FreeBuff Solar"`,
 		`    provider: "openai"`,
-		`    model: "upstage/solar-pro4"`,
+		`    model: "upstage/solar-mini4"`,
 		`    apiBase: "http://localhost:3457/v1"`,
 		`    apiKey: "not-needed"`,
 	}
@@ -304,7 +304,7 @@ func setupContinueConfig(p string) bool {
 		newModel := map[string]any{
 			"title":    "FreeBuff Solar",
 			"provider": "openai",
-			"model":    "upstage/solar-pro4",
+			"model":    "upstage/solar-mini4",
 			"apiBase":  "http://localhost:3457/v1",
 			"apiKey":   "not-needed",
 		}
@@ -357,7 +357,7 @@ func setupOpencodeConfig(p string) bool {
 			"apiKey":  "not-needed",
 		},
 		"models": []map[string]any{
-			{"id": "upstage/solar-pro4", "name": "Solar Pro 4"},
+			{"id": "upstage/solar-mini4", "name": "Solar Mini 4"},
 			{"id": "z-ai/glm-5.2", "name": "GLM 5.2"},
 		},
 	}
@@ -374,7 +374,7 @@ func setupAiderConfig(p string) bool {
 	newLines := []string{
 		"openai-api-base: http://localhost:3457/v1",
 		"openai-api-key: not-needed",
-		"model: openai/upstage/solar-pro4",
+		"model: openai/upstage/solar-mini4",
 	}
 	if fileExists(p) {
 		existing, err := os.ReadFile(p)

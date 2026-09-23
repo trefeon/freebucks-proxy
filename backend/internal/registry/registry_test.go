@@ -37,13 +37,18 @@ func fileSource(t *testing.T, path string) string {
 // first-seen assignment (exactly like a live refresh). The six base models
 // route to their per-model roots (not the generic base2-free), the gemini
 // helper models belong to file-picker / file-picker-max, and every upstream-
-// retired id is absent.
+// retired id is absent. Supplier additions in the 0.0.188 snapshot:
+// Solar Mini 4 takes Solar Pro 4's picker slot on the same Upstage lane
+// (own root base2-free-solar-mini4); stealth Space Bunny Alpha joins every
+// surface (own root base2-free-space-bunny-alpha).
 var expectedFallback = map[string]string{
 	"minimax/minimax-m3": "base2-free-minimax-m3",
 	// base2-free-luna is retired upstream (free_mode_legacy_luna_agent);
 	// retiredRootOverrides remaps it — see parse.go.
 	"openai/gpt-5.6-luna":             "base3-free-luna",
 	"upstage/solar-pro4":              "base2-free-solar-pro4",
+	"upstage/solar-mini4":             "base2-free-solar-mini4",
+	"stealth/space-bunny-alpha":       "base2-free-space-bunny-alpha",
 	"deepseek/deepseek-v4-pro":        "base2-free-deepseek",
 	"deepseek/deepseek-v4-flash":      "base2-free-deepseek-flash",
 	"mimo/mimo-v2.5":                  "base2-free-mimo",
@@ -874,8 +879,11 @@ func TestResolveModelMaxUpgradeRemoved(t *testing.T) {
 // deepseek-v4-pro + ox-alpha and keeping claude-fable-5 gated, and by 87ef664
 // (2026-08-28) serving upstage/solar-pro4, and by upstream 92c4f5e
 // (2026-09-07) withdrawing meta/muse-spark-1.3-contributor (404
-// model_not_found) and serving meta/muse-spark-1.2-contributor in its place:
-// ServedModels contains ONLY the 6 operational FreeBuff models. openai/gpt-5.6-luna-es was removed
+// model_not_found) and serving meta/muse-spark-1.2-contributor in its place,
+// and by 40c75256 (2026-09-23) retiring upstage/solar-pro4 from every picker
+// while serving upstage/solar-mini4 in its slot and adding
+// stealth/space-bunny-alpha:
+// ServedModels contains ONLY the 7 operational FreeBuff models. openai/gpt-5.6-luna-es was removed
 // after the vendor moved it into FREEBUFF_WEB_GOD_ONLY_MODELS ("Codex
 // (test)" — Novita route, evaluation only; hidden from the CLI picker and
 // SUPPORTED_FREEBUFF_MODELS in snapshot 0603bc1) — not the documented
@@ -887,13 +895,14 @@ func TestStrictServedModelsPinned(t *testing.T) {
 	wantModels := []string{
 		"deepseek/deepseek-v4-flash",
 		"openai/gpt-6-luna",
-		"upstage/solar-pro4",
+		"upstage/solar-mini4",
+		"stealth/space-bunny-alpha",
 		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.3-flash",
 		"mimo/mimo-v2.5",
 	}
-	if len(modelcat.ServedMap()) != 6 {
-		t.Fatalf("len(modelcat.ServedMap()) = %d, want exactly 6", len(modelcat.ServedMap()))
+	if len(modelcat.ServedMap()) != 7 {
+		t.Fatalf("len(modelcat.ServedMap()) = %d, want exactly 7", len(modelcat.ServedMap()))
 	}
 	for _, m := range wantModels {
 		if !modelcat.IsServed(m) {

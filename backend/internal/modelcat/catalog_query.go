@@ -246,16 +246,20 @@ func IsAutoTouchSentinel(s string) bool {
 }
 
 // AutoUnmeteredTouchModel resolves the cheapest unmetered served row in
-// catalog order: the first Served, non-premium row whose live Freebucks
-// price is 0 (or whose account is quota-exempt). Honeypot, god-only, eval,
-// paused, and priced rows can never win: unserved ids fail the IsServed
-// gate, premium-pool rows fail the IsPremium gate, and live-priced rows
-// fail the price gate — never a naive price sort. prices is the token's
-// live Freebucks price map (nil = no live meter yet: every static
-// unmetered served row is a candidate). It returns "" with reason
-// "fallback:no-unmetered-served" when no candidate exists so the caller
-// falls back to the configured MATURITY_TOUCH_MODEL (or fails closed when
-// that is itself the auto sentinel).
+// catalog order: the first Served, non-premium, non-experimental row whose
+// live Freebucks price is 0 (or whose account is quota-exempt). Honeypot,
+// god-only, eval, paused, priced, and BETA rows can never win: unserved ids
+// fail the IsServed gate, premium-pool rows fail the IsPremium gate,
+// live-priced rows fail the price gate, and experimental rows fail the BETA
+// gate — an anonymous host can reprice, rename or withdraw the row without
+// notice, and retains prompts (upstream carries the row as experimental for
+// exactly this reason), so it must never become the automatic touch,
+// fallback, or probe model. Explicit user picks still reach it through the
+// Served gate. prices is the token's live Freebucks price map (nil = no
+// live meter yet: every static unmetered served row is a candidate). It
+// returns "" with reason "fallback:no-unmetered-served" when no candidate
+// exists so the caller falls back to the configured MATURITY_TOUCH_MODEL
+// (or fails closed when that is itself the auto sentinel).
 func AutoUnmeteredTouchModel(prices map[string]float64, exempt bool) (string, string) {
 	for i := range Catalog {
 		id := Catalog[i].ID
@@ -263,6 +267,9 @@ func AutoUnmeteredTouchModel(prices map[string]float64, exempt bool) (string, st
 			continue
 		}
 		if Catalog[i].Premium {
+			continue
+		}
+		if Catalog[i].Experimental {
 			continue
 		}
 		if prices != nil {
@@ -277,10 +284,11 @@ func AutoUnmeteredTouchModel(prices map[string]float64, exempt bool) (string, st
 
 // CheapestFreeIn resolves the cheapest served unmetered row present in
 // models (the registry allowlist intersection), in catalog order: the same
-// Served, non-premium, and live-price gates as AutoUnmeteredTouchModel plus
-// membership in models. It returns "" when no candidate exists so the
-// caller continues down its default chain (picker-lead default, then first
-// SERVED) — never an invented or unregistered id.
+// Served, non-premium, non-experimental, and live-price gates as
+// AutoUnmeteredTouchModel plus membership in models. It returns "" when no
+// candidate exists so the caller continues down its default chain
+// (picker-lead default, then first SERVED) — never an invented or
+// unregistered id.
 func CheapestFreeIn(models []string, prices map[string]float64, exempt bool) string {
 	if len(models) == 0 {
 		return ""
@@ -298,6 +306,9 @@ func CheapestFreeIn(models []string, prices map[string]float64, exempt bool) str
 			continue
 		}
 		if Catalog[i].Premium {
+			continue
+		}
+		if Catalog[i].Experimental {
 			continue
 		}
 		if prices != nil {

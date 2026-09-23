@@ -61,6 +61,7 @@ var pinnedRowIDs = map[string]string{
 	"MIMO_V26_PRO_MODEL":      "mimo/mimo-v2.6-pro",
 	"FABLE_5_1_MODEL":         "anthropic/claude-fable-5.1",
 	"SOLAR_PRO_4_MODEL":       "upstage/solar-pro4",
+	"SOLAR_MINI_4_MODEL":      "upstage/solar-mini4",
 	"GEMINI_38_FLASH_MODEL":   "google/gemini-3.8-flash",
 }
 
@@ -71,6 +72,9 @@ var idAliases = map[string]string{
 	// FREEBUFF_SOLAR_PRO_4_MODEL_ID is now
 	// FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.modelId (entitlements file).
 	"FREEBUFF_SOLAR_PRO_4_MODEL_ID": "upstage/solar-pro4",
+	// FREEBUFF_SOLAR_MINI_4_MODEL_ID lives in the entitlements file too
+	// (re-exported through freebuff-models.ts, no literal for the parser).
+	"FREEBUFF_SOLAR_MINI_4_MODEL_ID": "upstage/solar-mini4",
 }
 
 // resolveModelRef resolves a FREEBUFF_*_MODEL_ID constant name OR a model
@@ -371,8 +375,9 @@ func catalogIDs() []string {
 func TestCatalogFactsPinned(t *testing.T) {
 	// Served set, catalog order.
 	wantServed := []string{
+		"stealth/space-bunny-alpha",
 		"openai/gpt-6-luna",
-		"upstage/solar-pro4",
+		"upstage/solar-mini4",
 		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.3-flash",
 		"deepseek/deepseek-v4-flash",
@@ -418,6 +423,8 @@ func TestCatalogFactsPinned(t *testing.T) {
 		"deepseek/deepseek-v4-flash":      {"low", "high", "max"},
 		"mimo/mimo-v2.5":                  {"high"},
 		"upstage/solar-pro4":              nil,
+		"upstage/solar-mini4":             nil,
+		"stealth/space-bunny-alpha":       {"low", "medium", "high", "xhigh", "max"},
 		"z-ai/glm-5.2":                    nil,
 		"z-ai/glm-5.3-flash":              {"low", "high", "max"},
 	}
@@ -433,7 +440,7 @@ func TestLimitedTierModelsPinned(t *testing.T) {
 		"z-ai/glm-5.3-flash",
 		"deepseek/deepseek-v4-flash",
 		"mimo/mimo-v2.5",
-		"upstage/solar-pro4",
+		"upstage/solar-mini4",
 	}
 	for _, id := range wantAllowed {
 		if !IsLimitedTierAllowed(id) {
@@ -441,6 +448,8 @@ func TestLimitedTierModelsPinned(t *testing.T) {
 		}
 	}
 	wantDisallowed := []string{
+		"upstage/solar-pro4",
+		"stealth/space-bunny-alpha",
 		"openai/gpt-5.6-luna",
 		"openai/gpt-6-luna",
 		"meta/muse-spark-1.2-contributor",
@@ -465,7 +474,9 @@ var wantTiers = map[string][]string{
 	"minimax/minimax-m3":              nil,
 	"openai/gpt-5.6-luna":             nil,
 	"openai/gpt-6-luna":               {TierFull, TierPaid},
-	"upstage/solar-pro4":              {TierLimited, TierFull},
+	"upstage/solar-pro4":              nil,
+	"upstage/solar-mini4":             {TierLimited, TierFull},
+	"stealth/space-bunny-alpha":       {TierFull},
 	"google/gemini-3.8-flash":         {TierFull, TierPaid},
 	"meta/muse-spark-1.3-contributor": nil,
 	"meta/muse-spark-1.2-contributor": {TierFull},
