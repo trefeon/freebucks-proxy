@@ -1,4 +1,5 @@
 import { contextPrunerBudgetForModel } from '@codebuff/common/constants/model-config'
+import { modelCompactionThreshold } from '@codebuff/common/constants/compaction-policy'
 import {
   supportsAssistantPrefill,
   supportsCacheControl,
@@ -25,7 +26,8 @@ import { type ToolSet } from 'ai'
 import { cloneDeep, mapValues } from 'lodash'
 import z from 'zod/v4'
 
-import { maybeCompactHistory } from './compact-history'
+import { evaluateCompactionTrigger } from './compact-history'
+import { compactWithModelOrFallback, compactionTools } from './model-compaction'
 import { CACHE_DEBUG_FULL_LOGGING } from './constants'
 import { getMCPToolData } from './mcp'
 import { getAgentStreamFromTemplate } from './prompt-agent-stream'
@@ -64,7 +66,12 @@ import {
   buildUserMessageContent,
   expireMessages,
 } from './util/messages'
-import { recountContextTokens } from './util/context-token-count'
+import {
+  estimateContextTokens,
+  recordContextUsage,
+  recountContextTokens,
+} from './util/context-token-count'
+import { assertUserContentSize } from './util/context-size-guard'
 import {
   countTokens,
   countTokensJson,
@@ -147,6 +154,14 @@ export function toTokenCountInputSchema(
     jsonSchema.type = 'object'
   }
   return jsonSchema
+}
+
+function toolsForContextEstimate(definitions: AgentState['toolDefinitions']) {
+  return Object.entries(definitions).map(([name, def]) => ({
+    name,
+    ...(def.description && { description: def.description }),
+    input_schema: toTokenCountInputSchema(def.inputSchema),
+  }))
 }
 
 async function additionalToolDefinitions(
@@ -523,6 +538,17 @@ export const runAgentStep = async (
   // (a runaway response it has decided to stop reading).
   const streamStop = new AbortController()
 
+  // The parser appends model output AND tool results before returning. Only
+  // the former is covered by outputTokens. The persisted anchor is scalar;
+  // this request-local snapshot neither copies text nor tokenizes it.
+  const inputHistory = [...agentState.messageHistory]
+  const contextTools = toolsForContextEstimate(agentState.toolDefinitions)
+  const estimatedInputTokens =
+    countTokensMessages(inputHistory) +
+    countTokens(system) +
+    countTokensJson(contextTools)
+  let contextUsage: ModelUsageData | undefined
+
   // Raw stream from AI SDK
   const stream = getAgentStreamFromTemplate({
     ...params,
@@ -536,14 +562,14 @@ export const runAgentStep = async (
     messages: [systemMessage(system), ...agentState.messageHistory],
     onCacheDebugProviderRequestBuilt,
     onCacheDebugUsageReceived,
-    onUsageReceived: params.onAgentUsageReceived
-      ? (usage: ModelUsageData) =>
-          params.onAgentUsageReceived?.({
-            ...usage,
-            isRoot: !agentState.parentId,
-            agentId: agentState.agentId,
-          })
-      : undefined,
+    onUsageReceived: (usage: ModelUsageData) => {
+      contextUsage = usage
+      params.onAgentUsageReceived?.({
+        ...usage,
+        isRoot: !agentState.parentId,
+        agentId: agentState.agentId,
+      })
+    },
     onUsageIncomplete: params.onAgentUsageIncomplete,
     template: agentTemplate,
     onCostCalculated,
@@ -567,6 +593,31 @@ export const runAgentStep = async (
     stream,
     onCostCalculated,
     stopStream: () => streamStop.abort(),
+  }).finally(() => {
+    // Inline agents can replace history (set_messages). A receipt for the old
+    // request is not a baseline for a replacement summary.
+    if (
+      contextUsage &&
+      inputHistory.every((m, i) => agentState.messageHistory[i] === m)
+    ) {
+      recordContextUsage({
+        agentState,
+        model,
+        usage: contextUsage,
+        estimatedInputTokens,
+        estimatedOutputTokens: countTokensMessages(
+          agentState.messageHistory
+            .slice(inputHistory.length)
+            .filter((m) => m.role === 'assistant'),
+        ),
+      })
+    }
+    agentState.contextTokenCount = estimateContextTokens({
+      agentState,
+      model,
+      systemPrompt: system,
+      toolsForTokenCount: contextTools,
+    })
   })
 
   toolResults.push(...newToolResults)
@@ -616,34 +667,6 @@ export const runAgentStep = async (
     agentState.messageHistory,
     'agentStep',
   )
-
-  // Handle the compact command: replace message history with the summary. The
-  // trigger is COUPLED to the instruction injection (isCompactCommandPrompt
-  // reads the same map that injected compactPrompt above), so it cannot match
-  // a prompt that never received the summarize instruction — a divergence
-  // (the old lowercased comparison matched `/Compact`, which the exact-key
-  // injection did not) replaced the whole history with an ordinary answer.
-  const wasCompacted = isCompactCommandPrompt(prompt)
-  if (wasCompacted) {
-    if (fullResponse.trim().length > 0 && !isThinkOnlyResponse(fullResponse)) {
-      agentState.messageHistory = [
-        userMessage(
-          withSystemTags(
-            `The following is a summary of the conversation between you and the user. The conversation continues after this summary:\n\n${fullResponse}`,
-          ),
-        ),
-      ]
-      logger.debug({ summary: fullResponse }, 'Compacted messages')
-    } else {
-      // An interrupted, tool-only, or think-only response would replace the
-      // history with a non-summary — total, unrecoverable amnesia. Keep the
-      // history instead.
-      logger.warn(
-        { messageCount: agentState.messageHistory.length },
-        'Skipped compact: model returned no summary text',
-      )
-    }
-  }
 
   const hasNoToolResults =
     toolCalls.filter(
@@ -906,6 +929,7 @@ export async function loopAgentSteps(
   const useParentTools =
     agentTemplate.inheritParentSystemPrompt && parentTools !== undefined
 
+  const manualCompaction = isCompactCommandPrompt(prompt)
   // Initialize message history with user prompt and instructions on first iteration
   const instructionsPrompt = await getAgentPrompt({
     ...params,
@@ -927,7 +951,9 @@ export async function loopAgentSteps(
   // Build the initial message history with user prompt and instructions
   // Generate system prompt once, using parent's if inheritParentSystemPrompt is true
   let system: string
-  if (agentTemplate.inheritParentSystemPrompt && parentSystemPrompt) {
+  if (manualCompaction && initialAgentState.systemPrompt) {
+    system = initialAgentState.systemPrompt
+  } else if (agentTemplate.inheritParentSystemPrompt && parentSystemPrompt) {
     system = parentSystemPrompt
   } else {
     const systemPrompt = await getAgentPrompt({
@@ -977,11 +1003,13 @@ export async function loopAgentSteps(
         skills: fileContext.skills ?? {},
       })
 
-  const hasUserMessage = Boolean(
-    prompt ||
-    (spawnParams && Object.keys(spawnParams).length > 0) ||
-    (content && content.length > 0),
-  )
+  const hasUserMessage =
+    !manualCompaction &&
+    Boolean(
+      prompt ||
+      (spawnParams && Object.keys(spawnParams).length > 0) ||
+      (content && content.length > 0),
+    )
 
   const initialMessages = buildArray<Message>(
     ...initialAgentState.messageHistory,
@@ -1020,11 +1048,14 @@ export async function loopAgentSteps(
   )
 
   // Convert tools to a serializable format for context-pruner token counting
-  const toolDefinitions = mapValues(tools, (tool) => ({
-    description:
-      typeof tool.description === 'string' ? tool.description : undefined,
-    inputSchema: tool.inputSchema as {},
-  }))
+  const toolDefinitions =
+    manualCompaction && initialAgentState.toolDefinitions
+      ? initialAgentState.toolDefinitions
+      : mapValues(tools, (tool) => ({
+          description:
+            typeof tool.description === 'string' ? tool.description : undefined,
+          inputSchema: tool.inputSchema as {},
+        }))
 
   const additionalToolDefinitionsWithCache = async () => {
     if (!cachedAdditionalToolDefinitions) {
@@ -1043,53 +1074,19 @@ export async function loopAgentSteps(
   initialAgentState.systemPrompt = system
   initialAgentState.toolDefinitions = toolDefinitions
   let currentAgentState: AgentState = initialAgentState
+  if (currentAgentState.contextTokenBaseline?.model !== agentTemplate.model) {
+    currentAgentState.contextTokenBaseline = undefined
+  }
 
-  // Convert tool definitions to Anthropic format for accurate token counting.
-  // Tool definitions are stored as { [name]: { description, inputSchema } },
-  // where inputSchema is a Zod schema. Anthropic's count_tokens API expects
-  // [{ name, description, input_schema }] with input_schema being real JSON
-  // Schema (with a top-level `type: 'object'`) — see toTokenCountInputSchema.
-  const toolsForTokenCount = Object.entries(toolDefinitions).map(
-    ([name, def]) => {
-      const input_schema = toTokenCountInputSchema(def.inputSchema)
-      return {
-        name,
-        ...(def.description && { description: def.description }),
-        ...(input_schema && { input_schema }),
-      }
-    },
-  )
+  // Estimate the wire schemas, not Zod's internal object graph.
+  const toolsForTokenCount = toolsForContextEstimate(toolDefinitions)
 
-  // Recount against the history the turn actually ends with.
-  //
-  // Inside the loop the count is taken BEFORE the model call, so the last
-  // step's assistant response and every tool result it produced are missing
-  // from it — systematically the most recently added content, and on a step
-  // that read several files easily tens of thousands of tokens. That was
-  // harmless while the number only fed the compaction check, which runs again
-  // at the top of the next step anyway. It stops being harmless now that hosts
-  // persist it and show it to the user between turns.
-  //
-  // Same formula as estimateContextTokensLocally below, minus the step prompt:
-  // `system` and `toolsForTokenCount` are loop-invariant, and the step prompt
-  // is per-step scaffolding rather than part of the history the next turn is
-  // sent on top of. Once per turn against once per step is not a hot-path cost.
-  //
-  // Root agents only, which is the whole reason the count lives in its own
-  // module with a test: a subagent's final count is discarded with the
-  // subagent, and recounting it tokenizes that agent's entire history for
-  // nobody.
+  // Keep the persisted/displayed count aligned after cancellation and TTL edits.
+  // Uses the latest receipt plus cheap deltas; never re-tokenizes the history.
   const recountContextTokensForTurnEnd = () => {
     currentAgentState.contextTokenCount = recountContextTokens({
-      agentState: {
-        // `initialAgentState` is the same object `currentAgentState` points at
-        // (every reassignment below assigns it), so this is exactly the
-        // predicate the compaction callback already uses two hundred lines
-        // down: nothing a subagent computes here leaves the subagent.
-        parentId: initialAgentState.parentId,
-        messageHistory: currentAgentState.messageHistory,
-        contextTokenCount: currentAgentState.contextTokenCount,
-      },
+      agentState: currentAgentState,
+      model: agentTemplate.model,
       systemPrompt: system,
       toolsForTokenCount,
     })
@@ -1108,6 +1105,17 @@ export async function loopAgentSteps(
       totalSteps++
       if (signal.aborted) {
         throw new AbortError()
+      }
+
+      if (totalSteps === 1 && hasUserMessage) {
+        assertUserContentSize(
+          [
+            userMessage({
+              content: buildUserMessageContent(prompt, spawnParams, content),
+            }),
+          ],
+          agentTemplate,
+        )
       }
 
       const startTime = new Date()
@@ -1130,68 +1138,117 @@ export async function loopAgentSteps(
           }),
       )
 
-      // Count structured message content (not JSON.stringify, which inflates the
-      // count and counts image base64 as text); system is a plain string; tool
-      // schemas stay JSON since that's roughly how the model sees them.
-      const estimateContextTokensLocally = () =>
-        countTokensMessages(messagesWithStepPrompt) +
-        countTokens(system) +
-        countTokensJson(toolsForTokenCount)
+      // Each completed response supplies the baseline. Only content added or
+      // removed since then (tools, steering, step scaffolding) is estimated.
+      currentAgentState.contextTokenCount = estimateContextTokens({
+        agentState: {
+          ...currentAgentState,
+          messageHistory: messagesWithStepPrompt,
+        },
+        model: agentTemplate.model,
+        systemPrompt: system,
+        toolsForTokenCount,
+      })
 
-      // Always count locally. The token-count web API round-trip (full
-      // history + tools shipped to the server, which relays to Anthropic)
-      // added seconds of serial overhead to every step; there is no paid mode
-      // anymore that needs Anthropic-exact counts, and context-limit checks
-      // only need an estimate.
-      currentAgentState.contextTokenCount = estimateContextTokensLocally()
-
-      // Mechanical compaction: no model call, so it costs nothing but the
-      // prompt-cache break that rewriting the history forces anyway. The
-      // budget is sized to the model in use, including fixed request overhead.
-      // Preserve the fresh tool exchange; only older history becomes a summary.
-      //
-      // Cache expiry fires once per turn. Size-triggered compaction can fire
-      // again after any tool batch, so its output must fit without erasing the
-      // results the model has not had a chance to consume yet.
-      if (agentTemplate.compactContext) {
-        const compacted = maybeCompactHistory({
-          // The option object is exactly the tunable subset, so it forwards
-          // whole. Spread first: the fields below are not the agent's to set.
-          ...(typeof agentTemplate.compactContext === 'object'
+      if (
+        (agentTemplate.compactContext && !shouldEndTurn) ||
+        manualCompaction
+      ) {
+        const policy =
+          typeof agentTemplate.compactContext === 'object'
             ? agentTemplate.compactContext
-            : {}),
-          messages: currentAgentState.messageHistory,
-          contextTokenCount: currentAgentState.contextTokenCount,
-          fixedTokenCount:
-            countTokens(system) +
-            countTokensJson(toolsForTokenCount) +
-            (stepPrompt
-              ? countTokensMessages([userMessage({ content: stepPrompt })])
-              : 0),
-          maxContextLength:
-            (typeof agentTemplate.compactContext === 'object'
-              ? agentTemplate.compactContext.maxContextLength
-              : undefined) ?? contextPrunerBudgetForModel(agentTemplate.model),
-          logger,
-          runId,
-          onCompaction: (trigger) => {
-            if (initialAgentState.parentId) return
-            params.onCompaction?.({
-              trigger,
-              thresholdTokens:
-                (typeof agentTemplate.compactContext === 'object'
-                  ? agentTemplate.compactContext.maxContextLength
-                  : undefined) ??
-                contextPrunerBudgetForModel(agentTemplate.model),
-            })
-          },
-        })
-        if (compacted) {
-          currentAgentState.messageHistory = compacted
-          currentAgentState.contextTokenCount =
-            countTokensMessages(compacted) +
-            countTokens(system) +
-            countTokensJson(toolsForTokenCount)
+            : {}
+        const maxContextLength =
+          policy.maxContextLength ??
+          contextPrunerBudgetForModel(agentTemplate.model)
+        const thresholdTokens = modelCompactionThreshold(maxContextLength)
+        const trigger = manualCompaction
+          ? 'manual'
+          : evaluateCompactionTrigger({
+              ...policy,
+              messages: currentAgentState.messageHistory,
+              contextTokenCount: currentAgentState.contextTokenCount,
+              maxContextLength: thresholdTokens,
+            }).trigger
+        if (trigger) {
+          const before = currentAgentState.directCreditsUsed
+          const started = Date.now()
+          // A compaction failure must never fail the turn: a summarizer error
+          // or malformed handoff falls back to the mechanical pass.
+          const compacted = await compactWithModelOrFallback({
+            messages: currentAgentState.messageHistory,
+            system,
+            maxContextLength,
+            fixedTokenCount:
+              countTokens(system) +
+              countTokensJson(toolsForTokenCount) +
+              (stepPrompt
+                ? countTokensMessages([userMessage({ content: stepPrompt })])
+                : 0),
+            signal,
+            logger,
+            runId,
+            model: agentTemplate.model,
+            trigger,
+            stream: (messages, maxOutputTokens) =>
+              getAgentStreamFromTemplate({
+                ...params,
+                agentId: agentType,
+                template: agentTemplate,
+                runId,
+                messages,
+                tools: compactionTools,
+                toolChoice: 'required',
+                maxOutputTokens,
+                onCostCalculated: async (credits) => {
+                  currentAgentState.creditsUsed += credits
+                  currentAgentState.directCreditsUsed += credits
+                },
+                // Compaction usage is spend, not the next root request's context.
+                onUsageReceived: (usage) =>
+                  params.onAgentUsageReceived?.({
+                    ...usage,
+                    isRoot: false,
+                    agentId: currentAgentState.agentId,
+                  }),
+                onUsageIncomplete: params.onAgentUsageIncomplete,
+              }),
+          })
+          await addAgentStep({
+            ...params,
+            agentRunId: runId,
+            stepNumber: totalSteps,
+            credits: currentAgentState.directCreditsUsed - before,
+            childRunIds: [],
+            messageId: null,
+            status: 'completed',
+            startTime,
+          })
+          if (compacted) {
+            currentAgentState.messageHistory = compacted.messages
+            currentAgentState.contextTokenBaseline = undefined
+            currentAgentState.contextTokenCount = compacted.postTokens
+            if (!initialAgentState.parentId)
+              params.onCompaction?.({
+                trigger,
+                thresholdTokens,
+                summary: compacted.summary,
+                preTokens: compacted.preTokens,
+                postTokens: compacted.postTokens,
+                durationMs: Date.now() - started,
+              })
+          }
+          // A manual request is a maintenance operation, never a coding turn.
+          if (manualCompaction) break
+          if (
+            !compacted &&
+            currentAgentState.contextTokenCount > maxContextLength
+          ) {
+            throw new Error(
+              'Compaction did not reduce the context enough. History has been preserved.',
+            )
+          }
+          totalSteps++
         }
       }
 
@@ -1327,6 +1384,10 @@ export async function loopAgentSteps(
       // rather than waiting for the whole turn to finish.
       const steered = params.drainSteeringMessages?.()
       if (steered?.length) {
+        assertUserContentSize(
+          steered.map((text) => userMessage(text)),
+          agentTemplate,
+        )
         currentAgentState.messageHistory = [
           ...currentAgentState.messageHistory,
           ...steered.map((text) =>
@@ -1361,7 +1422,9 @@ export async function loopAgentSteps(
 
     return {
       agentState: currentAgentState,
-      output: getAgentOutput(currentAgentState, agentTemplate),
+      output: manualCompaction
+        ? { type: 'lastMessage', value: [] }
+        : getAgentOutput(currentAgentState, agentTemplate),
     }
   } catch (error) {
     // Handle user-initiated aborts separately - don't log as errors

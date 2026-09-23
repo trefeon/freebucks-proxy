@@ -53,7 +53,7 @@ export const GENERIC_TOOL_NAMES: ReadonlySet<string> = new Set([
  * nothing else, so without this it had no signature tool at all and was flagged
  * on 100% of its 2,904 requests from 41 users over 30 days.
  */
-export const FREEBUFF_CUSTOM_TOOL_NAMES = ['decide'] as const
+export const FREEBUFF_CUSTOM_TOOL_NAMES = ['decide', 'complete_compaction'] as const
 
 /**
  * Tool names that, on their own, mark a request as coming from one of our
@@ -574,6 +574,29 @@ export function detectForeignFreebuffClient(
     body.max_tokens != null ||
     body.max_completion_tokens != null
   return { signal: setsSamplingParams ? 'sampling_params' : null, ...evidence }
+}
+
+/**
+ * Whether a toolset an OLDER build flagged `foreign_toolset` would clear on
+ * this one, judged from the stored names alone.
+ *
+ * Names are all a `ban_event` row keeps, so only a custom tool can vouch for a
+ * row: `isGenuineSignatureTool` takes those at face value, while every other
+ * signature tool needs a schema the row never recorded. A harness name still
+ * convicts. Pass the FULL toolset — a truncated sample may hide the names that
+ * flagged it.
+ *
+ * Exists because of 2026-09-23: `complete_compaction` joined
+ * `FREEBUFF_CUSTOM_TOOL_NAMES` in the same commit that shipped it, the runtime
+ * reached users before the detector did, and the sweep banned 62 real
+ * accounts on the observe rows the stale detector wrote in between.
+ */
+export function isNowRecognisedToolset(names: readonly string[]): boolean {
+  return (
+    names.some((name) =>
+      (FREEBUFF_CUSTOM_TOOL_NAMES as readonly string[]).includes(name),
+    ) && !names.some((name) => FOREIGN_HARNESS_TOOL_NAMES.has(name))
+  )
 }
 
 /** The signals that change what is served. The other two are measurements. */

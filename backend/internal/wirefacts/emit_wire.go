@@ -139,7 +139,7 @@ type wireNotice struct {
 
 var wireNotices = []wireNotice{
 	{"TierChangeNotice", "FREEBUFF_TIER_CHANGE_NOTICE", wireAvailFile,
-		"Solar Pro 4 is now unmetered at full access and available with limited access. GPT-5.6 Luna still uses your shared premium allowance, charging partial time rounded up to a tenth. —❤️ Freebuff Team",
+		"Solar Mini 4 is now unmetered at full access and available with limited access. GPT-6 Luna still uses your shared premium allowance, charging partial time rounded up to a tenth. —❤️ Freebuff Team",
 		"TierChangeNotice is FREEBUFF_TIER_CHANGE_NOTICE from upstream."},
 	{"CapacityNotice", "FREEBUFF_CAPACITY_NOTICE", wireCeilingsFile,
 		"Capacity is now limited per account — sustained automated abuse forced us to cap how much any one account can use.",

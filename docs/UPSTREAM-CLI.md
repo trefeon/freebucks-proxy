@@ -9,39 +9,39 @@ and users driving the CLI through the gateway.
   written, and the tree the citations corrected there were verified
   against. Previous audit pins: `2b165f749` (npm `0.0.180`, §14) and
   before it `e2b911eca` (= npm `0.0.178`).
-- **Vendor tip at this revision**: `c2d2958b` — the clone's HEAD, 111 commits
-  past `d77544748` and 135 past the audit pin. The model-catalog work in that
-  span is the GPT-6 Luna swap (`f5c5ae0b9`, 2026-09-23) plus the edits §9 had
-  already recorded (MiMo's row renamed to 2.6 Flash under the unchanged `v2.5`
-  id, MiMo 2.6 Pro becoming paid-only on every surface, Gemini 3.8 Flash
-  returning to `FREEBUFF_MODELS`); `origin/main` has since moved one commit
-  further (`9ed23c9cc`, `bun.lock` only). §14.6/§14.7 still describe the two
-  earlier batches.
-- **Which tree a cite points at**: §9 was re-verified at the tip (`c2d2958b`)
+- **Vendor tip at this revision**: `40c75256f` (npm `0.0.188`) — the clone's
+  `origin/main` and the new recorded pin, 28 sync commits past `c2d2958b`
+  (`0.0.185`). The catalog work in that span is the Solar swap (Pro 4 retired
+  with the first live `supersededBy` notice since 2026-08-21 → Mini 4
+  unmetered + Space Bunny Alpha experimental, 2026-09-23) plus the GPT-6 Luna
+  rename completing (tier disclaimer, tier-change notice) and the
+  `complete_compaction` anti-ban signal in the agent loop. §14.8 describes the
+  batch; §14.6/§14.7 still describe the two earlier batches.
+- **Which tree a cite points at**: §9 was re-verified at the tip (`40c75256f`)
   and its line numbers are that tree's; every other `path:line` here is the
   audit pin's (`8ed5d3e5e`). The two trees' numbering has moved
   non-uniformly — `common/src/constants/freebuff-models.ts` grew 323 lines,
   insertions scattered through it — so re-read a cite in that file or in
   `common/src/constants/free-agents.ts` by symbol, not by number.
 - **Recorded wiregen pin**: `backend/internal/wirefacts/testdata/wire/snapshots.json:2-3`
-  records `upstream_sha c2d2958b…` with `vendor_version 0.0.185`, and
-  `scripts/vendor-version.txt:1` reads `0.0.185`. That manifest's
+  records `upstream_sha 40c75256f…` with `vendor_version 0.0.188`, and
+  `scripts/vendor-version.txt:1` reads `0.0.188`. That manifest's
   `cli/src/components/freebuff-model-selector.tsx` hash
   (`snapshots.json:30-31`, `cd5d2ab9…`) matches the tip's `cd5d2ab9…` — the
   selector is a wire-tracked file (`scripts/check-upstream.sh:126`) — so the
-  drift §14.6/§14.7 recorded is closed at the pin, and `origin/main` sits one
-  commit past it touching `bun.lock` only.
+  drift §14.6–§14.8 recorded is closed at the pin, and the pin is the vendor
+  tip (`origin/main` has nothing past it at this writing).
   The vendor clone *path* lives in `scripts/check-upstream.sh` (`:90-98`); that
   script holds no pin — its ref defaults to the floating `main` (`:81`) and a
   full-SHA ref is only *gated* against `snapshots.json` (`:229-244`).
 - **Citations**: every `path:line` is relative to the gitignored upstream
-  vendor clone — `8ed5d3e5e` outside §9, `c2d2958b` within it (the tip is
-  where the GPT-6 Luna swap landed, and §9's model rows were re-verified
-  there).
+  vendor clone — `8ed5d3e5e` outside §9, `40c75256f` within it (the tip is
+  where the Solar swap landed, and §9's model rows were re-verified there).
   `freebuff/cli/release/package.json` version lags the npm tag in some
   revisions — and since `2b165f749` the npm tag no longer distinguishes
   revisions at all (the wrapper read `0.0.180` at both the pin and the
-  `d77544748` tip; the current tip reads `0.0.185`), so use the git SHA.
+  `d77544748` tip); at the current tip the file reads `0.0.188`, matching
+  the tag, but use the git SHA anyway.
 - **Build scope**: everything below describes the upstream build
   (`FREEBUFF_MODE=true` compile-time define → `IS_FREEBUFF`,
   `cli/src/utils/constants.ts:11`), i.e. the shipped `freebuff` binary.
@@ -999,6 +999,31 @@ The one behavior a proxy can observe: an SDK client using a custom provider now
 asks for usage in the stream (`stream_options.include_usage`), which the
 gateway already accepts and relays.
 
+### 14.8 Delta `c2d2958b` → `40c75256` (0.0.185 → 0.0.188, 28 commits)
+
+Twenty-eight `Sync public snapshot` commits; four of the thirteen wire-tracked
+files move, every FUNCTIONAL row ported before the re-pin (#722 wire, #723
+registry, #725 dashboard), so the refresh is classification-clean:
+
+| File | Change | Disposition |
+|---|---|---|
+| `packages/agent-runtime/src/run-agent-step.ts` | +371/−179 rework carrying the `complete_compaction` anti-ban signal | #722 (wire port) |
+| `common/src/constants/foreign-client-signals.ts` | foreign-harness signal rows | #722 (wire port) |
+| `common/src/util/freebuff-model-availability.ts` | tier-change notice reword: Solar Pro 4 → Mini 4, GPT-5.6 Luna → GPT-6 Luna | #722 notice pin + this re-pin |
+| `packages/agent-runtime/src/prompt-agent-stream.ts` | 5-line stream-path touch | #722 (wire port) |
+| `common/src/constants/freebuff-models.ts` | +186: Solar Pro 4 retired (`supersededBy` set), Solar Mini 4 + Space Bunny Alpha rows, with `free-agents.ts` (+24) and `freebuff-model-entitlements.ts` (+14) companions | #723 (registry port) |
+| `common/src/constants/freebuff-referral-tiers.ts` | comment-only: referral_v2 has no per-referrer cap (drops the stale 100-GLM-sessions docblock) | **C**, no port |
+| `common/src/constants/freebuff-subscriptions.ts` | tier disclaimer reword (GPT-6 Luna, DeepSeek V4.1 Flash) | **C** copy, no port |
+
+Untouched, so no port and no re-pin payload: streak
+(`freebuff-standing.ts`), reset (`freebucks-reset.ts`), off-peak
+(`freebuff-peak-hours.ts`), spend ceilings, signup block, session types, the
+model selector (hash still `cd5d2ab9…`), agent-runtime constants,
+`run-programmatic-step.ts`, tools constants — 9 of 13 snapshots
+byte-identical. Dashboard pickers mirror the catalog swap (#725).
+`freebuff/cli/release/package.json` reads `0.0.188`, matching the npm tag at
+this tip.
+
 ## 15. Proxy cross-reference
 
 Where each CLI surface lands in this repo (gateway side), and which CLI facts
@@ -1020,8 +1045,9 @@ Notes:
 
 - The port audit (`CLI-Limitations.md`) is written against the `0.0.178`
   (`e2b911eca`) pin; §14 lists which of its audited files changed in `0.0.180`
-  and §14.6/§14.7 the 24 commits after it. The wirefacts pin has since been
-  re-recorded at `c2d2958b` (`0.0.185`), so the drift those sections describe is
+  and §14.6/§14.7 the 24 commits after it, plus §14.8 the 28 commits to the
+  tip. The wirefacts pin has since been
+  re-recorded at `40c75256f` (`0.0.188`), so the drift those sections describe is
   closed against the checkout.
 - Presentation surfaces (TUI screens, ads rendering, copy) are intentionally
   client-only — see the WONT rows in `CLI-Limitations.md`.
