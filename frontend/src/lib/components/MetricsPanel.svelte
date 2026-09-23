@@ -11,6 +11,7 @@
   import SegmentedControl from "./SegmentedControl.svelte";
   import { fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
+  import { formatTime } from "../utils/format.js";
   import { tr } from "../i18n.js";
 
   let { cursor = 0, onOpenToken = null, onOpenLogs = null } = $props();
@@ -241,8 +242,15 @@
           </div>
           {#if usageView === "details"}
             {#if usage?.entries?.length}
-              <div class="overflow-x-auto mt-4">
-                <table class="fp-table">
+              <!-- Per-request table. Contract same as every table here: it
+                never scrolls. Wide containers (≥ 750px) show the six data
+                columns; a narrower container collapses the four counters into a
+                two-line composition inside one cell (`in … · cached …` /
+                `out … · total …`) instead of widening the table. The time
+                column keeps a compact HH:MM:SS with the full stamp in `title`
+                so the widest column cannot push the table past its budget. -->
+              <div class="overflow-x-auto mt-4 @container">
+                <table class="fp-table w-full">
                   <caption class="sr-only"
                     >{$tr(
                       "Per-request token usage — time, model and token counts",
@@ -250,38 +258,81 @@
                   >
                   <thead>
                     <tr>
-                      <th scope="col" class="w-[1%]">{$tr("Time")}</th>
-                      <th scope="col" class="w-48">{$tr("Model")}</th>
-                      <th scope="col" class="num w-[1%]">{$tr("Input")}</th>
-                      <th scope="col" class="num w-[1%]">{$tr("Cached")}</th>
-                      <th scope="col" class="num w-[1%]">{$tr("Output")}</th>
-                      <th scope="col" class="num w-[1%]">{$tr("Total")}</th>
+                      <th scope="col" class="w-[1%] whitespace-nowrap"
+                        >{$tr("Time")}</th
+                      >
+                      <th scope="col" class="w-full">{$tr("Model")}</th>
+                      <th scope="col" class="num w-[1%] @max-[749px]:hidden"
+                        >{$tr("Input")}</th
+                      >
+                      <th scope="col" class="num w-[1%] @max-[749px]:hidden"
+                        >{$tr("Cached")}</th
+                      >
+                      <th scope="col" class="num w-[1%] @max-[749px]:hidden"
+                        >{$tr("Output")}</th
+                      >
+                      <th scope="col" class="num w-[1%] @max-[749px]:hidden"
+                        >{$tr("Total")}</th
+                      >
+                      <th
+                        scope="col"
+                        class="num w-[1%] whitespace-nowrap @min-[750px]:hidden"
+                        >{$tr("Tokens")}</th
+                      >
                     </tr>
                   </thead>
                   <tbody>
                     {#each usage.entries as e (e.req_id ?? e.ts_ms)}
+                      {@const tsMs = Number(e.ts_ms ?? 0)}
                       <tr>
-                        <td class="font-mono text-xs whitespace-nowrap w-[1%]"
-                          >{new Date(Number(e.ts_ms ?? 0)).toLocaleString()}</td
+                        <td
+                          class="font-mono text-xs whitespace-nowrap w-[1%]"
+                          title={new Date(tsMs).toLocaleString()}
+                          >{formatTime(tsMs)}</td
                         >
-                        <td class="font-mono text-xs"
+                        <td class="font-mono text-xs w-full min-w-0"
                           ><span
-                            class="block truncate max-w-full"
+                            class="block truncate max-w-[200px] @max-[749px]:max-w-none @max-[749px]:break-all @max-[749px]:whitespace-normal"
                             title={e.model}>{e.model ?? "—"}</span
                           ></td
                         >
-                        <td class="num"
+                        <td class="num @max-[749px]:hidden"
                           >{Number(e.input ?? 0).toLocaleString()}</td
                         >
-                        <td class="num"
+                        <td class="num @max-[749px]:hidden"
                           >{Number(e.cached ?? 0).toLocaleString()}</td
                         >
-                        <td class="num"
+                        <td class="num @max-[749px]:hidden"
                           >{Number(e.output ?? 0).toLocaleString()}</td
                         >
-                        <td class="num"
+                        <td class="num @max-[749px]:hidden"
                           >{Number(e.total ?? 0).toLocaleString()}</td
                         >
+                        <td class="num @min-[750px]:hidden">
+                          <span
+                            class="block whitespace-normal text-right text-[11px] text-[var(--fp-muted)]"
+                          >
+                            <span class="text-[var(--fp-dim)]">{$tr("in")}</span
+                            >
+                            {Number(e.input ?? 0).toLocaleString()} ·
+                            <span class="text-[var(--fp-dim)]"
+                              >{$tr("cached")}</span
+                            >
+                            {Number(e.cached ?? 0).toLocaleString()}
+                          </span>
+                          <span
+                            class="block whitespace-normal text-right text-[11px] text-[var(--fp-muted)]"
+                          >
+                            <span class="text-[var(--fp-dim)]"
+                              >{$tr("out")}</span
+                            >
+                            {Number(e.output ?? 0).toLocaleString()} ·
+                            <span class="text-[var(--fp-dim)]"
+                              >{$tr("total")}</span
+                            >
+                            {Number(e.total ?? 0).toLocaleString()}
+                          </span>
+                        </td>
                       </tr>
                     {/each}
                   </tbody>
@@ -387,7 +438,7 @@
             >
             <thead>
               <tr>
-                <th scope="col">{$tr("Account")}</th>
+                <th scope="col" class="w-full">{$tr("Account")}</th>
                 <th scope="col" class="num w-[1%] whitespace-nowrap"
                   >{$tr("Requests (24h)")}</th
                 >
@@ -399,7 +450,7 @@
             <tbody>
               {#each data.per_tokens as p (p.token)}
                 <tr>
-                  <td class="w-[1%] whitespace-nowrap">
+                  <td class="w-full min-w-0">
                     <button
                       type="button"
                       onclick={() => onOpenToken?.(p.token)}
@@ -409,7 +460,7 @@
                       class="font-medium text-xs text-[var(--fp-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0 flex items-center gap-1.5"
                     >
                       <span
-                        class="fp-num font-mono text-[11px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] border border-[var(--fp-border)]"
+                        class="fp-num font-mono text-[11px] px-1.5 py-0.5 rounded bg-[var(--fp-surface-2)] border border-[var(--fp-border)] whitespace-nowrap"
                         >Account #{p.token + 1}</span
                       >
                     </button>

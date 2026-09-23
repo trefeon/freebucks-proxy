@@ -231,12 +231,16 @@
   </p>
 
   <Card title={$tr("Models")} pad="none">
-    <!-- Desktop: table (md+) -->
-    <div class="hidden md:block overflow-x-auto">
+    <!-- Desktop: table (lg+). The table only renders where the card can hold
+      it without a horizontal scrollbar (see DESIGN.md "### Tables"): every
+      variable cell stacks its own lines (`min-w-0`, `truncate` + `title`) and
+      the fixed columns hug their widest line. Below lg the stacked cards
+      below take over — same rows, same information, taller composition. -->
+    <div class="hidden lg:block overflow-x-auto">
       <table class="fp-table w-full">
         <thead>
           <tr>
-            <th scope="col">{$tr("Model ID")}</th>
+            <th scope="col" class="w-full">{$tr("Model ID")}</th>
             <th scope="col" class="w-[1%] whitespace-nowrap">{$tr("Served")}</th
             >
             <th scope="col" class="w-[1%] whitespace-nowrap">{$tr("Agent")}</th>
@@ -254,11 +258,12 @@
             {@const offPeak = offPeakLine(m.id)}
             {@const stale = priceIsStale(m.id)}
             <tr class={m.withdrawn ? "opacity-60" : ""}>
-              <td>
+              <td class="w-full">
                 <div class="flex flex-col gap-0.5 min-w-0">
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <strong
-                      class="text-xs font-semibold text-[var(--fp-text)] truncate"
+                      class="text-xs font-semibold text-[var(--fp-text)] truncate max-w-[180px]"
+                      title={m.display_name || m.id}
                     >
                       {m.display_name || m.id}
                     </strong>
@@ -276,7 +281,7 @@
                     class="flex items-center gap-1.5 flex-wrap text-[11px] text-[var(--fp-dim)] min-w-0"
                   >
                     <code
-                      class="fp-num truncate max-w-[220px] text-[var(--fp-muted)]"
+                      class="fp-num truncate max-w-[150px] text-[var(--fp-muted)]"
                       title={m.id}
                     >
                       {m.id}
@@ -309,22 +314,25 @@
               </td>
               <td class="w-[1%] whitespace-nowrap">
                 {#if bound}
-                  <span class="fp-mono text-[var(--fp-muted)]">{m.agent}</span>
+                  <span
+                    class="fp-mono text-[var(--fp-muted)] inline-block max-w-[120px] truncate align-bottom"
+                    title={m.agent}>{m.agent}</span
+                  >
                 {:else}
                   <span class="text-[var(--fp-dim)]">—</span>
                 {/if}
               </td>
               <td class="w-[1%] whitespace-nowrap text-right">
                 <span class="inline-flex flex-col items-end gap-0.5">
+                  {#if strike}
+                    <s
+                      class="fp-num text-[11px] text-[var(--fp-dim)]"
+                      title={$tr(
+                        "Regular list price; first-tab discount folded into effective price",
+                      )}>{strike}</s
+                    >
+                  {/if}
                   <span class="inline-flex items-center gap-1.5">
-                    {#if strike}
-                      <s
-                        class="fp-num text-[11px] text-[var(--fp-dim)]"
-                        title={$tr(
-                          "Regular list price; first-tab discount folded into effective price",
-                        )}>{strike}</s
-                      >
-                    {/if}
                     <span
                       class="fp-num text-xs font-semibold {effectivePrice ===
                       '0 Freebucks/hr'
@@ -341,7 +349,8 @@
                     {/if}
                   </span>
                   {#if offPeak}
-                    <span class="fp-num text-[10px] text-[var(--fp-muted)]"
+                    <span
+                      class="fp-num text-[10px] whitespace-normal max-w-[150px] text-right text-[var(--fp-muted)]"
                       >{offPeak}</span
                     >
                   {/if}
@@ -393,9 +402,9 @@
         </tbody>
       </table>
     </div>
-    <!-- Mobile: stacked cards (< md) — no horizontal scrolling -->
+    <!-- Narrow: stacked cards (< lg) — no horizontal scrolling -->
     <ul
-      class="md:hidden flex flex-col gap-2.5 p-3.5"
+      class="lg:hidden flex flex-col gap-2.5 p-3.5"
       aria-label={$tr("Models")}
     >
       {#each orderedModels as m (m.id)}

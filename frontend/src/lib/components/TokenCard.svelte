@@ -218,11 +218,11 @@
   >
   <td>
     {#if token.session_instance || token.session_model}
-      <div class="flex min-w-0 items-center gap-3">
+      <div class="flex min-w-0 flex-wrap items-center gap-3">
         <div class="flex min-w-0 flex-col items-start gap-1">
           {#if token.session_instance}
             <code
-              class="fp-num block min-w-0 truncate text-xs text-[var(--fp-muted)] whitespace-nowrap select-all max-w-[200px] @min-[820px]:max-w-[240px] @min-[1100px]:max-w-[400px]"
+              class="fp-num block min-w-0 truncate text-xs text-[var(--fp-muted)] whitespace-nowrap select-all max-w-[120px] @min-[820px]:max-w-[240px] @min-[1100px]:max-w-[400px]"
               title={token.session_instance}>{token.session_instance}</code
             >
           {/if}

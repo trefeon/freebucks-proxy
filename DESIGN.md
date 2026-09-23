@@ -194,14 +194,17 @@ one danger.
 
 - Data tables MUST be `.fp-table` (hairline rows, left text, right `.num`
   mono numbers, `tr:last-child` no bottom border, mobile tightening in
-  `app.css`). Reference: `MetricsPanel.svelte:234,366` (incl. `sr-only`
-  captions), `ModelsPanel.svelte:291,294,301,332`, `TeamUsagePanel.svelte:130`,
-  `TokenTable.svelte:154-155`, `DevTools.svelte:608`.
+  `app.css`). Reference: `MetricsPanel.svelte:253,435` (incl. `sr-only`
+  captions), `ModelsPanel.svelte:240,296,300,304,340`,
+  `TeamUsagePanel.svelte:130`, `TokenTable.svelte:154-155`,
+  `DevTools.svelte:608`.
 - SPEC: `Review.svelte:689` runs a bare `w-full text-left font-mono
   text-[11px]` table — move onto `.fp-table`.
 - SPEC: arbitrary cell overrides (`TracesPanel.svelte:319-320`,
   `TokenTable.svelte:155` `[&_td]:!px-*`) are tolerated per-table density,
   MUST NOT leak into the shared `.fp-table` rule.
+- Tables MUST NEVER produce a horizontal scrollbar at any supported width (390-1440 CSS px): every `table` and the page itself MUST satisfy `scrollWidth - clientWidth <= 1`. When cell content would stretch a column past its budget, the content stacks INSIDE the cell into a two-line composition (primary line, secondary line — `flex-col`, `truncate` + `title` on the truncating line, `min-w-0` on every flex item) instead of widening the table. `overflow-x-auto` wrappers stay as fail-safes: the rule governs behaviour (no scrollbar appears at supported widths), not the class. References: `TokenTable.svelte` Account cell (fixed 180px, truncating email line) and the `pool-table.spec.ts` geometry contract.
+- Catalog reference for the same rule: `ModelsPanel.svelte` (the table renders only where it genuinely fits; narrower widths use the stacked card list). Guarded by `e2e/table-overflow.spec.ts`.
 
 ### Modals
 
@@ -297,4 +300,4 @@ one danger.
 6. Button geometry is `fp-*` + `--fp-btn-*` tokens only — Tailwind sizing utilities on a button are defects.
 7. One `primary` per view; `danger` only behind a confirm step.
 8. New colors MUST be `fp-*` tokens — no `emerald-`/`zinc-`/`red-`/`amber-` scales, no raw hex in markup. (The remaining violations are enumerated as SPEC items under "Other families" — that list, not this rule, tracks what is still un-swapped.)
-9. Tables MUST be `.fp-table`; selects MUST be `.fp-select`; password/key-material inputs MUST be `fp-input` (+ mono for key material).
+9. Tables MUST be `.fp-table`; selects MUST be `.fp-select`; password/key-material inputs MUST be `fp-input` (+ mono for key material). Tables never scroll horizontally — cell content stacks onto more lines instead (see "### Tables").
