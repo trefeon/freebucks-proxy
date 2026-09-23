@@ -410,9 +410,10 @@
   // touch count, and skip counts grouped by exact reason. Scoped to the
   // latest stamped Pacific day on purpose: midday previews carry no
   // result_day (pending, pre-run) and must never read as run outcomes, so
-  // only entries stamped with the latest day count. Day-less previews stay
-  // invisible here and eligible in the header; an empty ledger reads
-  // touched 0 skipped 0 with no day label.
+  // only entries stamped with the latest day count — plus pre-upgrade
+  // day-less skip:* rows, which are history, not previews. Day-less
+  // pending previews stay invisible here and eligible in the header; an
+  // empty ledger reads touched 0 skipped 0 with no day label.
   function ledgerSummary(list) {
     let latestDay = "";
     for (const t of list) {
@@ -422,17 +423,20 @@
     let touched = 0;
     let latest = "";
     const skips = {};
-    if (latestDay) {
-      for (const t of list) {
-        const m = t.maturity;
-        if (!m || m.result_day !== latestDay) continue;
-        if (m.last_result === "ok") touched += 1;
-        else if ((m.last_result ?? "").startsWith("skip:")) {
-          skips[m.last_result] = (skips[m.last_result] ?? 0) + 1;
-        }
-        if (m.last_touch && (!latest || m.last_touch > latest)) {
-          latest = m.last_touch;
-        }
+    for (const t of list) {
+      const m = t.maturity;
+      if (!m) continue;
+      if (m.result_day) {
+        if (m.result_day !== latestDay) continue;
+      } else if (!(m.last_result ?? "").startsWith("skip:")) {
+        continue;
+      }
+      if (m.last_result === "ok") touched += 1;
+      else if ((m.last_result ?? "").startsWith("skip:")) {
+        skips[m.last_result] = (skips[m.last_result] ?? 0) + 1;
+      }
+      if (m.last_touch && (!latest || m.last_touch > latest)) {
+        latest = m.last_touch;
       }
     }
     const skipped = Object.values(skips).reduce((a, b) => a + b, 0);
