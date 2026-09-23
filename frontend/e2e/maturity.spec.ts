@@ -407,7 +407,7 @@ test.describe("streak maintenance", () => {
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10_000 },
     );
-    await select.selectOption("upstage/solar-pro4");
+    await select.selectOption("upstage/solar-mini4");
     await saveReq;
     await expect
       .poll(
@@ -465,10 +465,10 @@ test.describe("streak maintenance", () => {
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10_000 },
     );
-    await select.selectOption("upstage/solar-pro4");
+    await select.selectOption("upstage/solar-mini4");
     // Wait for the draft edit to flush to the row (the select's title binds
     // the same derived draft the instant-save posts).
-    await expect(select).toHaveAttribute("title", "upstage/solar-pro4");
+    await expect(select).toHaveAttribute("title", "upstage/solar-mini4");
     await saveReq;
     await expect
       .poll(
@@ -482,7 +482,7 @@ test.describe("streak maintenance", () => {
     await page.reload();
     await gotoWarming(page);
     await expect(page.getByLabel("MATURITY_TOUCH_MODEL")).toHaveValue(
-      "upstage/solar-pro4",
+      "upstage/solar-mini4",
     );
     // Back to Auto with no overlay row issues no request at all: there is
     // nothing to delete, and POSTing "" can never succeed (the gateway 400s
