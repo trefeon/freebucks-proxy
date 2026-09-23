@@ -371,7 +371,7 @@ func catalogIDs() []string {
 func TestCatalogFactsPinned(t *testing.T) {
 	// Served set, catalog order.
 	wantServed := []string{
-		"openai/gpt-5.6-luna",
+		"openai/gpt-6-luna",
 		"upstage/solar-pro4",
 		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.3-flash",
@@ -385,7 +385,7 @@ func TestCatalogFactsPinned(t *testing.T) {
 	// Shared premium pool = Luna + Muse Spark 1.2 since 2026-09-07 (solar's
 	// entitlement went unmetered; gemini is Pro-paywalled and cannot consume
 	// the pool; 1.3 is paused and consumes nothing). GLM 5.3 Flash unmetered.
-	wantPremium := []string{"openai/gpt-5.6-luna", "meta/muse-spark-1.2-contributor"}
+	wantPremium := []string{"openai/gpt-6-luna", "meta/muse-spark-1.2-contributor"}
 	if got := SharedPremiumModels(); !slices.Equal(got, wantPremium) {
 		t.Errorf("SharedPremiumModels() = %v, want %v", got, wantPremium)
 	}
@@ -413,7 +413,7 @@ func TestCatalogFactsPinned(t *testing.T) {
 
 	// Effort ladders for served models (nil = the route ignores it).
 	wantEfforts := map[string][]string{
-		"openai/gpt-5.6-luna":             {"low", "medium", "high", "xhigh", "max"},
+		"openai/gpt-6-luna":               {"low", "medium", "high", "xhigh", "max"},
 		"meta/muse-spark-1.2-contributor": {"minimal", "low", "medium", "high", "xhigh"},
 		"deepseek/deepseek-v4-flash":      {"low", "high", "max"},
 		"mimo/mimo-v2.5":                  {"high"},
@@ -442,6 +442,7 @@ func TestLimitedTierModelsPinned(t *testing.T) {
 	}
 	wantDisallowed := []string{
 		"openai/gpt-5.6-luna",
+		"openai/gpt-6-luna",
 		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.2",
 	}
@@ -462,7 +463,8 @@ var wantTiers = map[string][]string{
 	"stealth/ox-alpha":                nil,
 	"deepseek/deepseek-v4-pro":        nil,
 	"minimax/minimax-m3":              nil,
-	"openai/gpt-5.6-luna":             {TierFull, TierPaid},
+	"openai/gpt-5.6-luna":             nil,
+	"openai/gpt-6-luna":               {TierFull, TierPaid},
 	"upstage/solar-pro4":              {TierLimited, TierFull},
 	"google/gemini-3.8-flash":         {TierFull, TierPaid},
 	"meta/muse-spark-1.3-contributor": nil,

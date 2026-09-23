@@ -4,6 +4,7 @@ import (
 	"context"
 	"freebucks-proxy/backend/internal/testutil"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 )
@@ -303,5 +304,71 @@ func TestParseFreebucksListPricesOffPeak(t *testing.T) {
 	}
 	if op.StartHourUtc != 0 || op.EndHourUtc != 8 || op.Price != 5 || op.RegularPrice != 15 {
 		t.Errorf("OffPeak[luna] = %+v, want 0-8 price 5 regular 15", op)
+	}
+}
+
+// TestParseFreebucksPlanRequiredModelIDs pins the vendor c2d2958b wire shape:
+// the Freebucks block's per-viewer plan-lock verdict parses into
+// FreebucksInfo.PlanRequiredModelIDs. A present verdict is copied verbatim
+// (including an EMPTY one, which is the server saying "no row is gated for
+// this viewer" and must stay distinguishable from an absent field, whose nil
+// means "fall back to the static list").
+func TestParseFreebucksPlanRequiredModelIDs(t *testing.T) {
+	cases := []struct {
+		name    string
+		verdict string
+		want    []string
+		wantNil bool
+	}{
+		{
+			name:    "verdict present",
+			verdict: `,"planRequiredModelIds":["mimo/mimo-v2.6-pro","openai/gpt-5.6-luna"]`,
+			want:    []string{"mimo/mimo-v2.6-pro", "openai/gpt-5.6-luna"},
+		},
+		{
+			name:    "verdict present and empty",
+			verdict: `,"planRequiredModelIds":[]`,
+			want:    []string{},
+		},
+		{
+			name:    "field absent",
+			verdict: "",
+			wantNil: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"active","instanceId":"inst-plan","model":"openai/gpt-5.6-luna","expiresAt":"2030-01-01T00:00:00Z","freebucks":{"balance":17.5,"daily":{"limit":20,"spent":5,"remaining":15,"resetAt":"2026-09-01T07:00:00Z"},"prices":{"openai/gpt-5.6-luna":5}` + tc.verdict + `}}`))
+			}
+			client, err := NewForAuth(testConfig(mock.URL(), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := client.ProbeAccount(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Freebucks == nil {
+				t.Fatal("Freebucks = nil, want parsed block")
+			}
+			got := st.Freebucks.PlanRequiredModelIDs
+			if tc.wantNil {
+				if got != nil {
+					t.Errorf("PlanRequiredModelIDs = %v, want nil for an absent field", got)
+				}
+				return
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("PlanRequiredModelIDs = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

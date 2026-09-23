@@ -632,7 +632,7 @@ func TestFreebucksCappedExhaustedZeroBalance(t *testing.T) {
 	}
 
 	// Zero balance on a premium model not in Prices map → must be capped.
-	capped, _ = freebucksCappedForSnapshot(mkSnap(zeroFb), "openai/gpt-5.6-luna")
+	capped, _ = freebucksCappedForSnapshot(mkSnap(zeroFb), "openai/gpt-6-luna")
 	if !capped {
 		t.Fatal("not capped with 0 balance on premium model not in prices map, want capped")
 	}

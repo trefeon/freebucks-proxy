@@ -5,36 +5,43 @@ reference client for everything the proxy mirrors on the wire. Audience:
 freebucks-proxy maintainers (session/wire parity, registry rows, error taxonomy)
 and users driving the CLI through the gateway.
 
-- **Audited pin**: `8ed5d3e5e` — the gitignored upstream vendor clone's tip, and
-  the tree the citations corrected in this revision were verified against.
-  Previous audit pins: `2b165f749` (npm `0.0.180`, §14) and before it
-  `e2b911eca` (= npm `0.0.178`).
-- **Vendor tip at this revision**: `d77544748`, nine commits past the audit pin.
-  That batch touches four files and changes no CLI surface and no wire shape
-  (`bun.lock`, a comment-only addition in `common/src/constants/freebuff-models.ts`,
-  a new SDK usage-receipts test, a one-line `sdk/src/impl/model-provider.ts`
-  switch to `includeUsage: true`) — see §14.7. Every citation below is pinned to
-  the audit tree (`8ed5d3e5e`): content is unchanged at the tip, but the 16
-  comment lines that batch inserted at `freebuff-models.ts:257` shift every later
-  line number in that one file by +16 (`:2054` here reads `:2070` at the tip), so
-  re-read a cite there by symbol, not by number.
+- **Audited pin**: `8ed5d3e5e` — the clone's tip when that revision was
+  written, and the tree the citations corrected there were verified
+  against. Previous audit pins: `2b165f749` (npm `0.0.180`, §14) and
+  before it `e2b911eca` (= npm `0.0.178`).
+- **Vendor tip at this revision**: `c2d2958b` — the clone's HEAD, 111 commits
+  past `d77544748` and 135 past the audit pin. The model-catalog work in that
+  span is the GPT-6 Luna swap (`f5c5ae0b9`, 2026-09-23) plus the edits §9 had
+  already recorded (MiMo's row renamed to 2.6 Flash under the unchanged `v2.5`
+  id, MiMo 2.6 Pro becoming paid-only on every surface, Gemini 3.8 Flash
+  returning to `FREEBUFF_MODELS`); `origin/main` has since moved one commit
+  further (`9ed23c9cc`, `bun.lock` only). §14.6/§14.7 still describe the two
+  earlier batches.
+- **Which tree a cite points at**: §9 was re-verified at the tip (`c2d2958b`)
+  and its line numbers are that tree's; every other `path:line` here is the
+  audit pin's (`8ed5d3e5e`). The two trees' numbering has moved
+  non-uniformly — `common/src/constants/freebuff-models.ts` grew 323 lines,
+  insertions scattered through it — so re-read a cite in that file or in
+  `common/src/constants/free-agents.ts` by symbol, not by number.
 - **Recorded wiregen pin**: `backend/internal/wirefacts/testdata/wire/snapshots.json:2-3`
-  records `upstream_sha 2b165f749…` with `vendor_version 0.0.180`, and
-  `scripts/vendor-version.txt:1` reads `0.0.180`. That manifest's
-  `cli/src/components/freebuff-model-selector.tsx` hash (`snapshots.json:30-31`,
-  `5ecfb9ff…`) no longer matches the tip (`7fc1341d…`) — the selector is a
-  wire-tracked file (`scripts/check-upstream.sh:126`), so **drift exists**: the
-  manifest pin is 24 commits behind the vendor tip (15 to the audit pin, §14.6,
-  plus 9 more, §14.7).
+  records `upstream_sha c2d2958b…` with `vendor_version 0.0.185`, and
+  `scripts/vendor-version.txt:1` reads `0.0.185`. That manifest's
+  `cli/src/components/freebuff-model-selector.tsx` hash
+  (`snapshots.json:30-31`, `cd5d2ab9…`) matches the tip's `cd5d2ab9…` — the
+  selector is a wire-tracked file (`scripts/check-upstream.sh:126`) — so the
+  drift §14.6/§14.7 recorded is closed at the pin, and `origin/main` sits one
+  commit past it touching `bun.lock` only.
   The vendor clone *path* lives in `scripts/check-upstream.sh` (`:90-98`); that
   script holds no pin — its ref defaults to the floating `main` (`:81`) and a
   full-SHA ref is only *gated* against `snapshots.json` (`:229-244`).
-- **Citations**: every `path:line` is relative to the gitignored upstream vendor
-  clone at `8ed5d3e5e`.
+- **Citations**: every `path:line` is relative to the gitignored upstream
+  vendor clone — `8ed5d3e5e` outside §9, `c2d2958b` within it (the tip is
+  where the GPT-6 Luna swap landed, and §9's model rows were re-verified
+  there).
   `freebuff/cli/release/package.json` version lags the npm tag in some
   revisions — and since `2b165f749` the npm tag no longer distinguishes
-  revisions at all (the wrapper reads `0.0.180` at both the pin and the tip),
-  so use the git SHA.
+  revisions at all (the wrapper read `0.0.180` at both the pin and the
+  `d77544748` tip; the current tip reads `0.0.185`), so use the git SHA.
 - **Build scope**: everything below describes the upstream build
   (`FREEBUFF_MODE=true` compile-time define → `IS_FREEBUFF`,
   `cli/src/utils/constants.ts:11`), i.e. the shipped `freebuff` binary.
@@ -501,50 +508,51 @@ The CLI ships no model list and no price table of its own: `common/src/constants
 
 | set | role / contents | cite |
 |---|---|---|
-| `FREEBUFF_MODELS` | CLI/Desktop picker — eight rows in pick order: GLM 5.3 Flash, DeepSeek V4 Flash, GPT-5.6 Luna, MiMo 2.6 Flash, MiMo 2.6 Pro, Solar Pro 4, Gemini 3.8 Flash, Muse Spark 1.2. The two MiMo rows ride a `...(FREEBUFF_ENABLE_MIMO_MODELS_IN_UI ? [MIMO_V25_MODEL, MIMO_V26_PRO_MODEL] : [])` spread (flag `true` at this pin, `:942`); the two Pro-only rows are drawn locked, never hidden | `common/src/constants/freebuff-models.ts:2054-2140` |
-| `FREEBUFF_WEB_MODELS` | Web picker: Web-only rows + `...FREEBUFF_MODELS`. Gemini 3.8 Flash left this list on 2026-09-21, when it rejoined `FREEBUFF_MODELS` as a Pro-only row enforced on every surface | `:2445-2475` |
-| `FREEBUFF_WEB_ALL_MODELS` | `FREEBUFF_WEB_GOD_ONLY_MODELS` (Kimi K3 Eco, GPT-5.6 Luna-ES) + `FREEBUFF_WEB_MODELS` | `:2477-2485` |
-| `SUPPORTED_FREEBUFF_MODELS` | 14 recognised rows — the picker rows **plus** paused/withdrawn ids, kept so released binaries hold ids the server can coerce rather than refuse | `:2011-2025` |
-| admission | `isFreebuffSessionModelId` = `SUPPORTED` ∪ Web ids (god-only included); no picker reads this union directly | `:3306-3318` |
+| `FREEBUFF_MODELS` | CLI/Desktop picker — still eight rows in pick order, with GPT-6 Luna in the slot GPT-5.6 Luna held: GLM 5.3 Flash, DeepSeek V4 Flash, GPT-6 Luna, MiMo 2.6 Flash, MiMo 2.6 Pro, Solar Pro 4, Gemini 3.8 Flash, Muse Spark 1.2. GPT-5.6 Luna left this list on 2026-09-22 (a retired-from-picker id, not a paused one — §9.3). The two MiMo rows ride a `...(FREEBUFF_ENABLE_MIMO_MODELS_IN_UI ? [MIMO_V25_MODEL, MIMO_V26_PRO_MODEL] : [])` spread (flag `true`, `:997`; spread `:2266-2268`); the two Pro-only rows are drawn locked, never hidden — so is GPT-6 Luna for a non-US viewer without a plan (§9.5) | `common/src/constants/freebuff-models.ts:2217-2314` |
+| `FREEBUFF_WEB_MODELS` | Web picker: exactly `...FREEBUFF_MODELS` — its last Web-only row (GLM 5.2) left on 2026-08-31. Gemini 3.8 Flash reaches it through the spread since 2026-09-21, and naming it here again would duplicate the row | `:2631-2656` |
+| `FREEBUFF_WEB_ALL_MODELS` | `FREEBUFF_WEB_GOD_ONLY_MODELS` (Kimi K3 Eco, GPT-5.6 Luna-ES) + `FREEBUFF_WEB_MODELS` | `:2658-2666` |
+| `SUPPORTED_FREEBUFF_MODELS` | 15 recognised rows — the picker rows **plus** paused, withdrawn and retired-from-picker ids, kept so released binaries hold ids the server can coerce rather than refuse. GPT-6 Luna joined it with the swap and GPT-5.6 Luna stays in it | `:2169-2188` |
+| admission | `isFreebuffSessionModelId` = `SUPPORTED` ∪ Web ids (god-only included); no picker reads this union directly | `:3571-3583` |
 
 - Nesting on the client is `FREEBUFF_MODELS` ⊂ `FREEBUFF_WEB_MODELS` ⊂ `FREEBUFF_WEB_ALL_MODELS`; `SUPPORTED_FREEBUFF_MODELS` is a sibling superset used only for recognition and coercion.
-- MiMo's row is compiled in unconditionally: `FREEBUFF_ENABLE_MIMO_MODELS_IN_UI = true` (`:908`, spread at `:2100`). The switch is UI-only — backend support and allowlists stay wired when a model is hidden.
-- `FreebuffModelOption` (`:50-149`) carries id/displayName/tagline/taglineTooltip/availability/unavailableFallback/warning/dataUse/premium/multimodal/reasoningEffort/efforts/defaultEffort/experimental/isNew/supersededBy. **No price field exists.**
-- `supersededBy` is still declared on the interface and read by the picker nudge (`:3999-4012`), but **no row sets it** — the last notice went 2026-08-21 and each row's docblock says so (`:1602-1605`, `:1791-1793`).
+- MiMo's row is compiled in unconditionally: `FREEBUFF_ENABLE_MIMO_MODELS_IN_UI = true` (`:997`, spread at `:2266-2268`). The switch is UI-only — backend support and allowlists stay wired when a model is hidden.
+- `FreebuffModelOption` (`:50-156`) carries id/displayName/tagline/taglineTooltip/availability/unavailableFallback/warning/dataUse/premium/multimodal/reasoningEffort/efforts/defaultEffort/experimental/isNew/priceWarning/supersededBy. **No price field exists**, and `priceWarning` is set by no row at this pin (the MiMo 2.6 Pro row carried it for a day, 2026-09-21).
+- `supersededBy` is still declared on the interface and read by the picker nudge (`:4284-4297`), but **no row sets it** — the last notice went 2026-08-21 and each row's docblock says so (`:1727-1730`, `:1949-1951`).
 
 ### 9.2 CLI/Desktop catalog rows (section 9.1 order)
 
 | wire id | route / provider | section, tier flags | efforts → wire default | Freebucks/hr | images | badges / notes |
 |---|---|---|---|---|---|---|
-| `z-ai/glm-5.3-flash` | OpenRouter (Merge Gateway lane); `provider.max_price` ceiling `$0.14` in / `$0.45` out per M | UNLIMITED, `premium:false` | `low/high/max` → **max** (both `reasoningEffort` and `defaultEffort`) | **5 on every tier** | yes, text+image+video | `FREEBUFF_MODELS[0]` = `DEFAULT_FREEBUFF_MODEL_ID`; limited-tier hero; `isNew`; `dataUse:'service'`; unmetered (`:1719-1795`, `:2789-2790`, `:2934-2935`, `:2928`, `:215`, `:258-261`, `:828`) |
-| `deepseek/deepseek-v4-flash` | DeepSeek direct; legacy alias `fireworks/deepseek-v4-flash` | UNLIMITED, `premium:false` | `low/high/max` → high | 15 base, **+10 inside peak** (`common/src/util/__tests__/freebuff-peak-price.test.ts:37,42,47`), 10 off-peak (fixture) | yes (since 2026-09-10) | displayName `'DeepSeek V4.1 Flash'`; the **limited-tier coercion target**; `unavailableFallback` = Luna; `warning` = AI-training notice, `dataUse:'training'`; `isNew` (`:1329-1445`, `:2922-2923`, `:1394-1396`) |
-| `openai/gpt-5.6-luna` | OpenRouter, `provider.order` = `openai`; ceiling `$0.5`/`$3.0` | PREMIUM | through-max → high | 20 (picker fixture for this row) | yes (text+image+file) | `dataUse:'service'` and no AI-training notice; draws the shared daily premium pool; per-model pool sub-cap (`:1611-1641`, `:1622-1628`, `:330`, `cli/src/components/__tests__/freebuff-model-selector.test.tsx:1253`) |
-| `mimo/mimo-v2.5` | MiMo 2.6 Flash (Xiaomi) — the wire id keeps its `v2.5` spelling; upstream renamed the row's `displayName` 2026-09-21 without minting a new id | UNLIMITED, `premium:false` | none — provider exposes only disabled/high, no ladder | 10 (fixture) | yes | `FALLBACK_FREEBUFF_MODEL_ID`, the always-joinable step-down; no `supersededBy` on purpose (`:1299-1327`, `:2901-2902`, `cli/src/utils/__tests__/freebucks.test.ts:34`) |
-| `mimo/mimo-v2.6-pro` | MiMo 2.6 Pro (Xiaomi) | PRO-ONLY (`FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS`), own id and own root agent (`base2-free-mimo-2-6-pro`) | none | 30 | yes | new 2026-09-21; the picker draws it locked (`PlanRequiredLabel` / `PlanRequiredLine`, no price) and the server refuses the admission, so this gateway catalogs it but never serves it (the wire id per entitlement rule keeps Pro off the Flash id) (`:181-185`, `:3194`, `common/src/util/freebuff-model-selection.ts:20-31`) |
-| `upstage/solar-pro4` | OpenRouter, endpoint `upstage`, `allow_fallbacks:false` | UNLIMITED (`premium` comes from the entitlement = false); `limitedAccess:true` | none — the route exposes no effort parameter | 0 during promo, then 5, then 10 (schedule) | no | tagline `'Limited-time trial'`; price schedule staged in `freebuff-solar-promo.ts`, not in the catalog (`:1643-1654`, `common/src/constants/freebuff-model-entitlements.ts:5-14`, `common/src/constants/freebuff-solar-promo.ts:4-7,11-41`) |
-| `meta/muse-spark-1.2-contributor` | Meta dev API (`muse-spark-1.2-contributor`) | PREMIUM, `premium:true` | through-xhigh → xhigh | n/a | no | `warning` = AI-training notice + fallback tooltip ('queues when busy, then answers on DeepSeek V4.1 Flash'); retired from the Web picker 2026-09-02, still in `FREEBUFF_MODELS` so every surface reaches it (`:1882-1902`, `:903-904`, `:2517-2525`) |
+| `z-ai/glm-5.3-flash` | OpenRouter (Merge Gateway lane); `provider.max_price` ceiling `$0.14` in / `$0.45` out per M | UNLIMITED, `premium:false` | `low/high/max` → **max** (both `reasoningEffort` and `defaultEffort`) | **5 on every tier** | yes, text+image+video | `FREEBUFF_MODELS[0]` = `DEFAULT_FREEBUFF_MODEL_ID`; limited-tier hero; `isNew`; `dataUse:'service'`; unmetered (`:1877-1953`, `:2970-2971`, `:3114-3115`, `:3108`, `:233`, `:292-295`, `:917`) |
+| `deepseek/deepseek-v4-flash` | DeepSeek direct; legacy alias `fireworks/deepseek-v4-flash` | UNLIMITED, `premium:false` | `low/high/max` → high | 15 base, **+10 inside peak** (`common/src/util/__tests__/freebuff-peak-price.test.ts:37,42,47`), 10 off-peak (fixture) | yes (since 2026-09-10) | displayName `'DeepSeek V4.1 Flash'`; the **limited-tier coercion target**; `unavailableFallback` = GLM 5.3 Flash, repointed off GPT-5.6 Luna on 2026-09-22 because GPT-6 Luna is US-or-paid gated and a fallback most users cannot open is not one (`:1515-1519`); `warning` = AI-training notice, `dataUse:'training'`; `isNew` (`:1450-1570`, `:3102-3103`) |
+| `openai/gpt-6-luna` | OpenRouter only; `provider.order` = `openai/flex` then `openai` — no cheap lane carries a gpt-6 slug, so 5.6's cascade does not apply; ceiling `$0.15`/`$0.75` | PREMIUM; plan-metered, plan-only at limited access, and US-or-paid gated (§9.5) | through-max → high | 20 (picker fixture for this row) | yes (text+image+file) | displayName `'GPT-6 Luna'`, tagline `'Strong all-around'` (inherited with the slot); `dataUse:'service'`, no AI-training notice; `isNew` + `experimental`, the TEST badge being about the flex *lane* and its tooltip saying so; draws the shared daily premium pool (`:366-419`, `:3945-3957`, `:1768-1799`, `:1214`, `:1269`, `cli/src/components/__tests__/freebuff-model-selector.test.tsx:1404-1417`) |
+| `mimo/mimo-v2.5` | MiMo 2.6 Flash (Xiaomi) — the wire id keeps its `v2.5` spelling; upstream renamed the row's `displayName` 2026-09-21 without minting a new id, and set `isNew` because the model under the id changed | UNLIMITED, `premium:false` | none — provider exposes only disabled/high, no ladder | 10 (fixture) | yes | `FALLBACK_FREEBUFF_MODEL_ID`, the always-joinable step-down; no `supersededBy` on purpose (`:1391-1427`, `:3081-3082`, `cli/src/utils/__tests__/freebucks.test.ts:35`) |
+| `mimo/mimo-v2.6-pro` | MiMo 2.6 Pro (Xiaomi) | PRO-ONLY (`FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS`, `premium:true` since 2026-09-21), own id and own root agent (`base2-free-mimo-2-6-pro`) | none | 30 | yes | new 2026-09-21; the picker draws it locked (`FREEBUFF_PLAN_REQUIRED_LABEL` / `FREEBUFF_PLAN_REQUIRED_LINE`, no price) and the server refuses the admission, so this gateway catalogs it but never serves it (the wire id per entitlement rule keeps Pro off the Flash id) (`:1429-1448`, `:3350-3354`, `:3453`, `common/src/util/freebuff-model-selection.ts:20-33`) |
+| `upstage/solar-pro4` | OpenRouter, endpoint `upstage`, `allow_fallbacks:false` | UNLIMITED (`premium` comes from the entitlement = false); `limitedAccess:true` | none — the route exposes no effort parameter | 0 during promo, then 5, then 10 (schedule) | no | tagline `'Limited-time trial'`; price schedule staged in `freebuff-solar-promo.ts`, not in the catalog (`:1801-1812`, `common/src/constants/freebuff-model-entitlements.ts:5-14`, `common/src/constants/freebuff-solar-promo.ts:4-7,11-41`) |
+| `meta/muse-spark-1.2-contributor` | Meta dev API (`muse-spark-1.2-contributor`) | PREMIUM, `premium:true` | through-xhigh → xhigh | n/a | no | `warning` = AI-training notice + fallback tooltip ('queues when busy, then answers on DeepSeek V4.1 Flash'); retired from the Web picker 2026-09-02, still in `FREEBUFF_MODELS` so every surface reaches it (`:2040-2060`, `:992-993`, `:2698-2706`) |
 
 Cites for 9.2 are `common/src/constants/freebuff-models.ts` unless another path is given. Prices in the last-and-second-last columns for Luna/MiMo/Flash are test fixtures around the real per-session map; only GLM's "5 on every tier" and Solar's schedule are stated in source prose.
 
-- Context windows drive the CLI's compaction budgets (`FREEBUFF_MODEL_CONTEXT_WINDOWS`, `:1155-1199`): DeepSeek V4 Flash/Pro 1,048,576 · GLM 5.3 Flash 1,000,000 · Luna 1,000,000 (Luna-ES 372,000) · Muse Spark 1.2 1,000,000 · Ox Alpha 1,000,000 · Solar Pro 4 500,000 · MiniMax M3 524,288; every other id (MiMo included) falls back to `FREEBUFF_DEFAULT_CONTEXT_WINDOW = 131,072` (`:1203`). Published limits are entered deliberately low; only Flash/Pro were read off a provider rejection.
+- Context windows drive the CLI's compaction budgets (`FREEBUFF_MODEL_CONTEXT_WINDOWS`, `:1245-1291`): DeepSeek V4 Flash/Pro 1,048,576 · GLM 5.3 Flash 1,000,000 · GPT-6 Luna 1,000,000 · GPT-5.6 Luna 1,000,000 (Luna-ES 372,000) · Muse Spark 1.2 1,000,000 · Ox Alpha 1,000,000 · Solar Pro 4 500,000 · MiniMax M3 524,288; every other id (MiMo included) falls back to `FREEBUFF_DEFAULT_CONTEXT_WINDOW = 131,072` (`:1295`). Published limits are entered deliberately low; only Flash/Pro were read off a provider rejection.
 
 ### 9.3 Paused, retired, withdrawn
 
 Cites in this subsection are `common/src/constants/freebuff-models.ts`.
 
-- `FREEBUFF_PAUSED_FREE_MODEL_IDS` (`:2220-2324`), in order: Muse Spark 1.3 (2026-09-07, 404 on every key), MiniMax M3 (08-20, largest single bill line), DeepSeek V4 Pro (08-26, cost), Ox Alpha (08-27, host ended the promo), GLM 5.2 (08-31, reward moved).
-- A paused id is out of **every** picker and quota list, still *recognised*, and coerced to the tier's default at admission and at the session gate. The pause branch is checked first, ahead of all other admission logic (`:3340-3344`); the ordering exists because #1801 (limited tier, 2026-08-18) reached 2.5x admissions and 91% of sessions at the 0.1-unit floor when an unrecognised id could only be refused (`:2196-2219`).
-- Retired-picker ids: `FREEBUFF_WEB_RETIRED_PICKER_MODEL_IDS` (`:2517-2525`) currently holds only Muse Spark 1.2, self-described as drain-only; both former occupants (CrofAI GLM 5.2, HY3) were deleted outright on 2026-08-04 after proving a picker filter is not a gate (`:2503-2510`).
-- `FREEBUFF_SERVICE_ONLY_MODEL_IDS` is **empty** (`:3733-3734`), emptied 2026-09-04 when Muse Spark shipped to CLI/Desktop; the predicate still runs (`:3756-3758`).
-- Withdrawn ids also keep their agent-root and allowlist entries so pre-deploy sessions drain mid-turn instead of failing (`:2247-2249`, `:2269-2273`). `freebuffWithdrawnModelMessage` names the asked-for model and its replacement (`:2333-2340`).
+- `FREEBUFF_PAUSED_FREE_MODEL_IDS` (`:2394-2510`), in order: Muse Spark 1.3 (2026-09-07, 404 on every key), MiniMax M3 (08-20, largest single bill line), DeepSeek V4 Pro (08-26, cost), Ox Alpha (08-27, host ended the promo), GLM 5.2 (08-31, reward moved). **GPT-5.6 Luna is deliberately not in it** (`:2395-2407`).
+- GPT-5.6 Luna is the swap's other half: retired from every picker on 2026-09-22 (it left `FREEBUFF_MODELS`) but still recognised and **admissible** — sessions admitted before the swap drain on it, its agents stay bundled, and server machinery outside this package still resolves the id. That is stage one of a retirement; pausing is stage two and its prerequisite is recorded with that machinery, not here (`:1736-1766`, `:2169-2188`, `:2395-2407`). The slot comment inside `FREEBUFF_MODELS` calls it paused (`:2262-2264`) and that is wrong — the pause list's own header says explicitly that it is not.
+- A paused id is out of **every** picker and quota list, still *recognised*, and coerced to the tier's default at admission and at the session gate. The pause branch is checked first, ahead of all other admission logic (`:3605-3609`); the ordering exists because #1801 (limited tier, 2026-08-18) reached 2.5x admissions and 91% of sessions at the 0.1-unit floor when an unrecognised id could only be refused (`:2370-2393`).
+- Retired-picker ids: `FREEBUFF_WEB_RETIRED_PICKER_MODEL_IDS` (`:2698-2706`) currently holds only Muse Spark 1.2, self-described as drain-only; both former occupants (CrofAI GLM 5.2, HY3) were deleted outright on 2026-08-04 after proving a picker filter is not a gate (`:2684-2691`).
+- `FREEBUFF_SERVICE_ONLY_MODEL_IDS` is **empty** (`:4018-4019`), emptied 2026-09-04 when Muse Spark shipped to CLI/Desktop; the predicate still runs (`:4041-4043`).
+- Withdrawn ids also keep their agent-root and allowlist entries so pre-deploy sessions drain mid-turn instead of failing (`:2434-2436`, `:2456-2460`). `freebuffWithdrawnModelMessage` names the asked-for model and its replacement (`:2519-2526`).
 
 ### 9.4 Agent-id mapping and cost mode
 
-- base2 root per model — `FREEBUFF_ROOT_AGENT_ID_BY_MODEL`, 22 entries (`common/src/constants/free-agents.ts:418-447`): Flash → `base2-free-deepseek-flash`, GLM 5.3 Flash → `base2-free-glm-5-3-flash`, Luna → `base2-free-luna`, MiMo → `base2-free-mimo`, Solar → `base2-free-solar-pro4`, Muse Spark 1.2 → `base2-free-muse-spark`, Fable 5.1 → `base2-free-fable`; unknown models fall back to `base2-free`.
-- base3 (single-loop harness) has two per-surface maps whose ids are deliberately shared: Web 14 entries (`:129-146`) and CLI 12 entries (`:166-185`). `getFreebuffBase3RootAgentIdForModel` falls back to the model's **base2** root, never another model's base3 root (`:530-534`).
-- Reviewer per model: `FREEBUFF_REVIEWER_AGENT_ID_BY_MODEL` (`:463-486`); every entry must run the same model as its key, because the chat-completions session gate 403s `session_model_mismatch` on a cross-model reviewer (`:449-458`).
-- Cost mode: `isFreeMode(costMode) === 'free'` (`:796-798`). Gating predicates are publisher-spoof-safe and exact-model, tolerating only date-like suffixes `^\d{6,8}(?:$|[-:])` (`:903-938`).
-- Provisioned tiers and internal-eval rows (`FREEBUFF_PROVISIONED_MODELS`, `FREEBUFF_INTERNAL_EVAL_MODELS`, `common/src/constants/freebuff-models.ts:1539-1582`) are picker-invisible and **base2-only** — no base3 twin exists for any of them (`common/src/constants/free-agents.ts:434-446`).
+- base2 root per model — `FREEBUFF_ROOT_AGENT_ID_BY_MODEL`, 25 entries (`common/src/constants/free-agents.ts:435-466`): Flash → `base2-free-deepseek-flash`, GLM 5.3 Flash → `base2-free-glm-5-3-flash`, Luna → `base2-free-luna` (GPT-5.6) with GPT-6 Luna on its own `base2-free-luna-6`, MiMo → `base2-free-mimo`, Solar → `base2-free-solar-pro4`, Muse Spark 1.2 → `base2-free-muse-spark`, Fable 5.1 → `base2-free-fable`; unknown models fall back to `base2-free`. The swap minted new ids rather than reusing 5.6's, so spend and run counts stay split.
+- base3 (single-loop harness) has two per-surface maps whose ids are deliberately shared: Web 16 entries (`:131-150`) and CLI 14 entries (`:170-191`), both carrying `base3-free-luna-6` beside 5.6's `base3-free-luna`. `getFreebuffBase3RootAgentIdForModel` falls back to the model's **base2** root, never another model's base3 root (`:553-557`).
+- Reviewer per model: `FREEBUFF_REVIEWER_AGENT_ID_BY_MODEL` (`:482-507`, 15 entries — GPT-6 Luna → `code-reviewer-luna-6`, 5.6 keeps `code-reviewer-luna`); every entry must run the same model as its key, because the chat-completions session gate 403s `session_model_mismatch` on a cross-model reviewer (`:468-477`).
+- Cost mode: `isFreeMode(costMode) === 'free'` (`:825-827`). Gating predicates are publisher-spoof-safe and exact-model, tolerating only date-like suffixes `^\d{6,8}(?:$|[-:])` (`:932-967`).
+- Provisioned tiers and internal-eval rows (`FREEBUFF_PROVISIONED_MODELS`, `FREEBUFF_INTERNAL_EVAL_MODELS`, `common/src/constants/freebuff-models.ts:1664-1707`) are picker-invisible and **base2-only** — no base3 twin exists for any of them (`common/src/constants/free-agents.ts:453-465`).
 
 ### 9.5 Entitlement rules
 
@@ -552,30 +560,43 @@ Cites in this subsection are `common/src/constants/freebuff-models.ts`.
 
 | who | may pick / be admitted |
 |---|---|
-| plain full-access free user | `FREEBUFF_MODELS`; the premium rows (Luna, Muse Spark 1.2) draw the shared daily pool — `FREEBUFF_PREMIUM_SESSION_LIMIT = 5`, documented as the rollback-safety value rather than the live limit (`:933-934`); the non-premium rows do not draw that pool (GLM 5.3 Flash and MiMo are documented unmetered, `:1742-1752`) |
-| limited tier | `LIMITED_FREEBUFF_MODELS` = GLM 5.3 Flash (hero), Flash, MiMo, Solar (`:2959-2972`); hero is `LIMITED_FREEBUFF_HERO_MODEL_ID` = GLM 5.3 Flash (`:2934-2935`); the **coercion target** is a different row, `LIMITED_FREEBUFF_MODEL_ID` = Flash, chosen because it is joinable with no meter, no grant and no plan (`:2904-2923`) |
-| reward / referral | reward model = GLM 5.3 Flash (`FREEBUFF_REWARD_MODEL_IDS`, `:2594-2595`), survives the coercion at limited tier (`:3471-3476`); `FREEBUFF_REWARD_MAX_DAILY_SESSIONS = 1` (`:1024`); full-access referrals grant +1 premium session/day instead |
-| paid plan | widens *what* may be picked at limited access, never *how much* (`:3214-3222`); plan-metered ids are GLM 5.3 Flash, Luna, Flash, Kimi K3 Eco, Gemini 3.8 Flash (`:3388-3395`), with Gemini 3.8 Flash Pro-only globally (`:3107-3108`) |
-| god-only | Kimi K3 Eco, GPT-5.6 Luna-ES — required for `/api/live`, latency and picker (`:2477-2494`) |
-| limited-offer campaign | Fable 5.1 (`FREEBUFF_LIMITED_OFFER_MODEL_IDS`), admitted on **both** tiers; one admission per user per campaign, hard cap 500 (`:2419-2441`), returned before the limited-tier branch so a limited pick survives (`:3466-3469`) |
-| paused | no tier at all (`:3340-3344`) |
-| provisioned / internal eval | not entitlement-gated by any list: the id is absent from every catalog and quota list, the account carries the wire id, and the session resolves to that tier's own single-model root (`:1453-1533`, `common/src/constants/free-agents.ts:434-446`) |
+| plain full-access free user | `FREEBUFF_MODELS`; the premium rows (GPT-6 Luna, Muse Spark 1.2) draw the shared daily pool — `FREEBUFF_PREMIUM_SESSION_LIMIT = 5`, documented as the rollback-safety value rather than the live limit (`:1022-1023`); the non-premium rows do not draw that pool (GLM 5.3 Flash and MiMo are documented unmetered, `:1900-1910`). GPT-5.6 Luna is out of `FREEBUFF_MODELS` and therefore out of the derived premium-pool list |
+| limited tier | `LIMITED_FREEBUFF_MODELS` = GLM 5.3 Flash (hero), Flash, MiMo, Solar (`:3139-3152`); hero is `LIMITED_FREEBUFF_HERO_MODEL_ID` = GLM 5.3 Flash (`:3114-3115`); the **coercion target** is a different row, `LIMITED_FREEBUFF_MODEL_ID` = Flash, chosen because it is joinable with no meter, no grant and no plan (`:3084-3103`) |
+| reward / referral | reward model = GLM 5.3 Flash (`FREEBUFF_REWARD_MODEL_IDS`, `:2775-2776`), survives the coercion at limited tier (`:3742-3747`); `FREEBUFF_REWARD_MAX_DAILY_SESSIONS = 1` (`:1113`); full-access referrals grant +1 premium session/day instead |
+| paid plan | widens *what* may be picked at limited access, never *how much* (`:3479-3487`); plan-metered ids are GLM 5.3 Flash, GPT-6 Luna, Flash, Kimi K3 Eco, Gemini 3.8 Flash, MiMo 2.6 Pro (`:3653-3666`) — GPT-6 Luna replaced 5.6 there on 2026-09-22, because a plan can only cover a model admission will open; Gemini 3.8 Flash and MiMo 2.6 Pro are Pro-only on every surface (`:3350-3354`) |
+| god-only | Kimi K3 Eco, GPT-5.6 Luna-ES — required for `/api/live`, latency and picker (`:2658-2675`) |
+| limited-offer campaign | Fable 5.1 (`FREEBUFF_LIMITED_OFFER_MODEL_IDS`), admitted on **both** tiers; one admission per user per campaign, hard cap 500 (`:2605-2627`), returned before the limited-tier branch so a limited pick survives (`:3737-3740`) |
+| paused | no tier at all (`:3605-3609`) |
+| provisioned / internal eval | not entitlement-gated by any list: the id is absent from every catalog and quota list, the account carries the wire id, and the session resolves to that tier's own single-model root (`:1578-1658`, `common/src/constants/free-agents.ts:453-465`) |
+
+Two additions with the swap:
+
+- **US-or-paid**: GPT-6 Luna and MiMo 2.6 Pro open **without a plan** for a viewer the
+  server resolves as US, and fail closed otherwise (an unresolvable country counts as
+  non-US). That country comes from the authenticated request, never from anything a
+  client sends, so no client can work the verdict out for itself (`:3301-3334`).
+- The verdict ships per viewer as `FreebuffFreebucksInfo.planRequiredModelIds`
+  (`common/src/types/freebuff-session.ts:295-308`); `freebuffPlanRequired` reads it and
+  it **overrides** the static paid-only list
+  (`common/src/util/freebuff-model-selection.ts:20-33`), fed from the session's Freebucks
+  block by the selector (`cli/src/components/freebuff-model-selector.tsx:300-309`).
+  Absent (older server) means fall back to the static list.
 
 ### 9.6 Reasoning effort
 
 - The CLI's `/reasoning` command is the counterpart to Desktop's effort picker (`cli/src/commands/reasoning.ts:36`); both write the same metadata key. With no argument it reports the catalog default and sets nothing; `default`/`reset` clears the override rather than storing the default; overrides are per model and do not carry across a model switch (`cli/src/__tests__/unit/freebuff-reasoning.test.ts:17-20,72-79,102-107,123-127`).
-- Reporting to upstream: the override is sent verbatim as `extraCodebuffMetadata.freebuff_reasoning_effort` (`cli/src/hooks/use-send-message.ts:671-673`), and `null` means "send nothing" (`cli/src/state/freebuff-model-store.ts:107-111`). The server treats it as a **request it re-clamps**, so the client's only job is to send a rung the selected model actually offers.
-- Ladders, all `as const` in `common/src/constants/freebuff-models.ts`: DeepSeek V4 `['low','high','max']` (`:743`), GLM 5.3 Flash `['low','high','max']` (`:828`), Luna through-max (`:719-724`), Muse Spark through-xhigh (`:712-717`), Ox Alpha `['low','high','max']` (`:748`). MiMo, Solar Pro 4 and MiniMax M3 carry no ladder because their routes expose no native effort parameter.
-- Wire defaults are `reasoningEffort`/`defaultEffort` on the row: GLM 5.3 Flash both `'max'` (`:1788-1789`), Flash `'high'` + `defaultEffort:'high'` (`:1432,1443`), Luna `'high'` (`:330`, `:1625-1628`), Muse Spark `'xhigh'` (`:640`, `:1894-1896`). V4.1 now validates the parameter against `none|minimal|low|medium|high|xhigh|max`, while `toDeepSeekReasoningEffort` still collapses onto `low|high|max` (`:1436-1441`).
-- Two stale docblocks contradict the code and are **not** to be trusted: the catalog note claiming GLM 5.3 Flash is "pinned to `reasoningEffort: 'high'` and `max` is off its ladder" (`:2082-2083`, and the same claim in the `DEFAULT_FREEBUFF_MODEL_ID` docblock) while the row declares `max`; and the `getRecommendedFreebuffModelId` docblock still naming Luna/MiMo as the heroes (`:3227-3231`).
+- Reporting to upstream: the override is sent verbatim as `extraCodebuffMetadata.freebuff_reasoning_effort` (`cli/src/hooks/use-send-message.ts:674-676`), and `null` means "send nothing" (`cli/src/state/freebuff-model-store.ts:107-111`). The server treats it as a **request it re-clamps**, so the client's only job is to send a rung the selected model actually offers.
+- Ladders, all `as const` in `common/src/constants/freebuff-models.ts`: DeepSeek V4 `['low','high','max']` (`:832`), GLM 5.3 Flash `['low','high','max']` (`:917`), Luna — GPT-6 and GPT-5.6 alike — through-max (`:808-813`), Muse Spark through-xhigh (`:801-806`), Ox Alpha `['low','high','max']` (`:837`). MiMo, Solar Pro 4 and MiniMax M3 carry no ladder because their routes expose no native effort parameter.
+- Wire defaults are `reasoningEffort`/`defaultEffort` on the row: GLM 5.3 Flash both `'max'` (`:1946-1947`), Flash `'high'` + `defaultEffort:'high'` (`:1557,1568`), GPT-5.6 Luna `'high'` (`:364`, `:1750-1753`) and GPT-6 Luna `'high'` (`:419`, `:1782-1784`), Muse Spark `'xhigh'` (`:729`, `:2052-2054`). V4.1 now validates the parameter against `none|minimal|low|medium|high|xhigh|max`, while `toDeepSeekReasoningEffort` still collapses onto `low|high|max` (`:1561-1566`).
+- Stale docblocks contradict the code and are **not** to be trusted — three at this pin: the catalog note claiming GLM 5.3 Flash is "pinned to `reasoningEffort: 'high'` and `max` is off its ladder" (`:2245-2246`) and the same claim in the `DEFAULT_FREEBUFF_MODEL_ID` docblock (`:2956-2958`), while the row declares `max`; and both recommended-hero docblocks, which still name GPT-5.6 Luna although `DEFAULT_FREEBUFF_MODEL_ID` and `DEFAULT_FREEBUFF_WEB_MODEL_ID` are GLM 5.3 Flash (`:3490-3500`, `:3521-3524`).
 
 ### 9.7 Quota labels and where prices come from
 
-- Row-level pool chip: `formatFreebuffRowQuota` renders `poolLabel: N of M used` — or `N of M starts` when the pool counts admissions — e.g. `DeepSeek: 1 of 1 used`, `Frontier: 2 of 2 used` (`common/src/util/freebuff-session-pools.ts:91-97`, `cli/src/components/__tests__/deepseek-quota-row.test.tsx:76-77,135-136`). The CLI only draws it for rows carrying a stricter pool than their section (`cli/src/components/freebuff-model-selector.tsx:468-489`).
-- Section header: `getFreebuffSectionQuotas(...).header` supplies the shared count, server-sent and never a locally guessed denominator (`cli/src/components/freebuff-model-selector.tsx:389-403`); the session-ended banner reuses it as `N of M used today` (`cli/src/components/session-ended-banner.tsx:71-73`).
-- First-tab discount: applied client-side over the quote, not a new price — `applyFirstTabDiscount` / `firstTabListPriceFor` keep `listPrices` beside `prices` (`common/src/util/freebuff-first-tab-discount.ts:14,40`); the CLI draws the moved price in the accent colour, and since `8ed5d3e5e` that accent is the row's **only** first-tab signal — the adjacent `'Limited-time first-tab discount'` chip was deleted (§14.6) (`cli/src/components/freebuff-model-selector.tsx:453-457`).
-- Price sourcing: no catalog price, so `freebucksPriceFor(freebucks, modelId)` reads `freebucks.prices[modelId]` off the session, and that map **is** the allowlist — an absent row falls through to whatever metered it before (`cli/src/utils/freebucks.ts:59-72`). Prices present as `N/hr` (`cli/src/components/freebuff-model-selector.tsx:448-451`); the shared off-peak helper now emits only `Off-peak: {price} Freebucks/hour, daily {hours}.` (`common/src/util/freebuff-off-peak-price.ts:39-43`) and since `8ed5d3e5e` no CLI surface renders it — the picker's off-peak detail chip was deleted, leaving the helper with no CLI caller (§14.6).
-- The authoritative price table lives in `common/src/constants/freebuff-freebucks.ts`, which is **deleted from the public export** (`scripts/public-export-manifest.txt` carries `!common/src/constants/freebuff-freebucks.ts`) because it records measured per-session provider costs; `cli/` *is* exported, so the CLI cannot import it and takes the currency label as a literal instead (`cli/src/utils/freebucks.ts:1-12`, `common/src/constants/freebuff-earn.ts:8-13`, `common/src/util/freebuff-peak-price.ts:4-8`). The wire carries upgrade copy for the same reason (`common/src/types/freebuff-session.ts:312-316`). Per-model prices therefore cannot be enumerated from the public clone beyond the fixtures cited above.
+- Row-level pool chip: `formatFreebuffRowQuota` renders `poolLabel: N of M used` — or `N of M starts` when the pool counts admissions — e.g. `DeepSeek: 1 of 1 used`, `Frontier: 2 of 2 used` (`common/src/util/freebuff-session-pools.ts:91-97`, `cli/src/components/__tests__/deepseek-quota-row.test.tsx:76-77,135-136`). The CLI only draws it for rows carrying a stricter pool than their section (`cli/src/components/freebuff-model-selector.tsx:497-518`).
+- Section header: `getFreebuffSectionQuotas(...).header` supplies the shared count, server-sent and never a locally guessed denominator (`cli/src/components/freebuff-model-selector.tsx:407-421`); the session-ended banner reuses it as `N of M used today` (`cli/src/components/session-ended-banner.tsx:71-73`).
+- First-tab discount: applied client-side over the quote, not a new price — `applyFirstTabDiscount` / `firstTabListPriceFor` keep `listPrices` beside `prices` (`common/src/util/freebuff-first-tab-discount.ts:14,40`); the CLI draws the moved price in the accent colour, and since `8ed5d3e5e` that accent is the row's **only** first-tab signal — the adjacent `'Limited-time first-tab discount'` chip was deleted (§14.6) (`cli/src/components/freebuff-model-selector.tsx:476-480`).
+- Price sourcing: no catalog price, so `freebucksPriceFor(freebucks, modelId)` reads `freebucks.prices[modelId]` off the session, and that map **is** the allowlist — an absent row falls through to whatever metered it before (`cli/src/utils/freebucks.ts:59-72`). Prices present as `N/hr` (`cli/src/components/freebuff-model-selector.tsx:471-474`); the shared off-peak helper now emits only `Off-peak: {price} Freebucks/hour, daily {hours}.` (`common/src/util/freebuff-off-peak-price.ts:39-43`) and since `8ed5d3e5e` no CLI surface renders it — the picker's off-peak detail chip was deleted, leaving the helper with no CLI caller (§14.6).
+- The authoritative price table lives in `common/src/constants/freebuff-freebucks.ts`, which is **deleted from the public export** (`scripts/public-export-manifest.txt` carries `!common/src/constants/freebuff-freebucks.ts`) because it records measured per-session provider costs; `cli/` *is* exported, so the CLI cannot import it and takes the currency label as a literal instead (`cli/src/utils/freebucks.ts:1-12`, `common/src/constants/freebuff-earn.ts:8-13`, `common/src/util/freebuff-peak-price.ts:4-8`). The wire carries upgrade copy for the same reason (`common/src/types/freebuff-session.ts:326-330`). Per-model prices therefore cannot be enumerated from the public clone beyond the fixtures cited above.
 
 ## 10. Limits & error states (wire → UI)
 
@@ -998,8 +1019,9 @@ Notes:
 
 - The port audit (`CLI-Limitations.md`) is written against the `0.0.178`
   (`e2b911eca`) pin; §14 lists which of its audited files changed in `0.0.180`
-  and §14.6 the 15 commits since, so the recorded pin no longer holds against
-  the checkout (`8ed5d3e5e`, wrapper still `0.0.180`).
+  and §14.6/§14.7 the 24 commits after it. The wirefacts pin has since been
+  re-recorded at `c2d2958b` (`0.0.185`), so the drift those sections describe is
+  closed against the checkout.
 - Presentation surfaces (TUI screens, ads rendering, copy) are intentionally
   client-only — see the WONT rows in `CLI-Limitations.md`.
 - When upstream moves: `bash scripts/check-upstream.sh` classifies wire vs

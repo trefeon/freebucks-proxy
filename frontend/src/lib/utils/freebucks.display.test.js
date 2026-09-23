@@ -8,7 +8,7 @@ import {
   streakBonusNote,
 } from "./freebucks.js";
 
-const LUNA = "openai/gpt-5.6-luna";
+const LUNA = "openai/gpt-6-luna";
 
 describe("firstTabListPriceFor (struck-only-when-moved)", () => {
   it("returns the list price when the offer moved the row", () => {

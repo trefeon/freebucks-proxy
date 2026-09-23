@@ -595,7 +595,7 @@ func truncate(s string, n int) string {
 func TestMetricsModelLockedTotal(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const lockModel = "openai/gpt-5.6-luna"
+	const lockModel = "openai/gpt-6-luna"
 	var mu sync.Mutex
 	bAttempts := 0
 	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {

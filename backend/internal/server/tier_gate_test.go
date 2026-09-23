@@ -38,7 +38,7 @@ import (
 const (
 	tierGemini = "google/gemini-3.8-flash"
 	tierFable  = "anthropic/claude-fable-5.1"
-	tierLuna   = "openai/gpt-5.6-luna"
+	tierLuna   = "openai/gpt-6-luna"
 	// tierWithdrawn is the paused row every withdrawn assertion uses.
 	tierWithdrawn = "minimax/minimax-m3"
 )
@@ -373,7 +373,7 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 		rows, _ := fetchTierRows(t, ts)
 		served := map[string]bool{
 			"deepseek/deepseek-v4-flash":      true,
-			"openai/gpt-5.6-luna":             true,
+			"openai/gpt-6-luna":               true,
 			"upstage/solar-pro4":              true,
 			"meta/muse-spark-1.2-contributor": true,
 			"z-ai/glm-5.3-flash":              true,

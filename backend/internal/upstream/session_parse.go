@@ -373,6 +373,14 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 				ListPrices:   raw.Freebucks.ListPrices,
 				PriceNotices: raw.Freebucks.PriceNotices,
 			}
+			// Present-but-empty stays distinguishable from absent: an empty
+			// verdict is the server saying "no row is gated for this viewer"
+			// (which must NOT fall back to the static list), while nil is an
+			// older server that never sent the field.
+			if raw.Freebucks.PlanRequiredModelIDs != nil {
+				fb.PlanRequiredModelIDs = make([]string, len(raw.Freebucks.PlanRequiredModelIDs))
+				copy(fb.PlanRequiredModelIDs, raw.Freebucks.PlanRequiredModelIDs)
+			}
 			if raw.Freebucks.OffPeak != nil {
 				fb.OffPeak = make(map[string]FreebuffOffPeakPrice, len(raw.Freebucks.OffPeak))
 				for id, o := range raw.Freebucks.OffPeak {

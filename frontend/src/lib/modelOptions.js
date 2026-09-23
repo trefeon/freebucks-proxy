@@ -8,8 +8,8 @@ import { adminApi } from "./api/paths.js";
 // a client can actually select (served; the withdrawn referral row stays out).
 export const fallbackModelOptions = [
   {
-    id: "openai/gpt-5.6-luna",
-    label: "openai/gpt-5.6-luna",
+    id: "openai/gpt-6-luna",
+    label: "openai/gpt-6-luna",
     tag: "premium",
   },
   {

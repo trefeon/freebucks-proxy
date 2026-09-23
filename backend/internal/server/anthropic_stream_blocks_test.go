@@ -251,9 +251,9 @@ func TestAnthropicReviewFixModelEchoGuard(t *testing.T) {
 	}{
 		{
 			name:        "lease pins served model against upstream echo",
-			servedModel: "gpt-5.6-luna",
-			requested:   "gpt-5.6-luna",
-			wantCached:  "gpt-5.6-luna",
+			servedModel: "gpt-6-luna",
+			requested:   "gpt-6-luna",
+			wantCached:  "gpt-6-luna",
 		},
 		{
 			name:        "lease-less relay trusts the upstream echo",

@@ -1695,7 +1695,7 @@ test.describe("dashboard hermetic mocks", () => {
     );
   });
 
-  test("Models lists 14 rows with tiers, withdrawals, and the live offer", async ({
+  test("Models lists 15 rows with tiers, withdrawals, and the live offer", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -1714,17 +1714,18 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
 
-    // Served stat tells the truth about 14 rows: 6 served of 14 listed (the
-    // two Pro-only rows are plan-locked, never served).
-    await expect(page.getByText("6 of 14")).toBeVisible();
-    await expect(page.getByText("14 registered · 50 agents")).toBeVisible();
+    // Served stat tells the truth about 15 rows: 6 served of 15 listed (the
+    // two Pro-only rows are plan-locked, never served; GPT-5.6 Luna stays
+    // listed as a recognized row the gateway no longer puts in a picker).
+    await expect(page.getByText("6 of 15")).toBeVisible();
+    await expect(page.getByText("15 registered · 50 agents")).toBeVisible();
     // Tier column renders; the pool column stays gone.
     await expect(page.getByText("Tier").first()).toBeVisible();
     await expect(page.locator("table").getByText("Pool")).toHaveCount(0);
-    // 13 rows in the desktop table; tier cells render in both the table
+    // 15 rows in the desktop table; tier cells render in both the table
     // and the mobile cards.
-    await expect(page.locator("table tbody tr")).toHaveCount(14);
-    await expect(page.getByTestId("model-tier")).toHaveCount(28);
+    await expect(page.locator("table tbody tr")).toHaveCount(15);
+    await expect(page.getByTestId("model-tier")).toHaveCount(30);
     // Plan-required rows (Gemini 3.8 Flash, MiMo 2.6 Pro) draw locked: the
     // "Paid plan" badge and upstream's sentence, never a served state.
     // Scoped to the table: the mobile cards carry the same annotation, so an
@@ -1762,7 +1763,10 @@ test.describe("dashboard hermetic mocks", () => {
         ["withdrawn", "Withdrawn — use GLM 5.3 Flash"],
         "withdrawn",
       ],
-      ["openai/gpt-5.6-luna", ["full", "paid plan"], "served"],
+      ["openai/gpt-6-luna", ["full", "paid plan"], "served"],
+      // GPT-5.6 Luna left every picker on 2026-09-22: still a recognized
+      // row (draining sessions) listed with no tier, never served.
+      ["openai/gpt-5.6-luna", [], "unserved"],
       ["upstage/solar-pro4", ["limited", "full"], "served"],
       ["google/gemini-3.8-flash", ["full", "paid plan"], "Paid plan"],
       ["meta/muse-spark-1.2-contributor", ["full"], "served"],
@@ -1816,7 +1820,7 @@ test.describe("dashboard hermetic mocks", () => {
       wallet: { balance: 20 },
       monthly: { remaining: 20 },
       prices: {
-        "openai/gpt-5.6-luna": 2,
+        "openai/gpt-6-luna": 2,
         "deepseek/deepseek-v4-flash": 15,
       },
     };
@@ -1828,8 +1832,8 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     const rows = page.locator("table tbody tr");
-    await expect(rows).toHaveCount(14);
-    await expect(rows.first()).toContainText("openai/gpt-5.6-luna");
+    await expect(rows).toHaveCount(15);
+    await expect(rows.first()).toContainText("openai/gpt-6-luna");
   });
   test("Models offer row names the spent trial", async ({ page }) => {
     const f = loadFixtures();

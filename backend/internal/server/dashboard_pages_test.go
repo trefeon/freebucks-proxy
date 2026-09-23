@@ -184,7 +184,7 @@ func TestChatNoFallbackBelowThreshold(t *testing.T) {
 	mock.SessionMode = "queued"
 	mock.EstimatedWaitMs = 1000
 	srv := newServerCfg(t, mock, nil)
-	body := `{"model":"openai/gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	body := `{"model":"openai/gpt-6-luna","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Host = "127.0.0.1:3457"
 	rec := httptest.NewRecorder()

@@ -3,17 +3,18 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/modelcat"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/upstream"
 	"net"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // --- overview ---
@@ -772,6 +773,7 @@ type modelRow struct {
 	ID             string   `json:"id"`
 	DisplayName    string   `json:"display_name,omitempty"`
 	Tagline        string   `json:"tagline,omitempty"`
+	Tooltip        string   `json:"tooltip,omitempty"`
 	Notice         string   `json:"notice,omitempty"`
 	Badges         []string `json:"badges,omitempty"`
 	Price          float64  `json:"price"`
@@ -791,10 +793,14 @@ type modelRow struct {
 	// copy recommends instead.
 	Withdrawn   bool   `json:"withdrawn"`
 	Replacement string `json:"replacement,omitempty"`
-	// PlanRequired marks FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS rows: a
-	// paid plan is required and upstream refuses the admission on every
-	// surface. Such a row is never Served, so the spawn pickers skip it; the
-	// catalog view annotates it as plan-locked instead of unserved-by-default.
+	// PlanRequired marks rows locked for THIS pool's viewer. Two shapes
+	// reach it: the static every-surface rows, which upstream refuses on
+	// every surface and never serves (so the spawn pickers skip them), and
+	// the US-or-paid rows, which ARE served and are drawn locked only where
+	// the server's per-viewer verdict names them — a US viewer's GPT-6 Luna
+	// row stays open. Decided by PlanRequired (mirroring freebuffPlanRequired,
+	// vendor c2d2958b); the catalog view annotates the locked rows instead of
+	// unserved-by-default.
 	PlanRequired bool `json:"plan_required"`
 	// Offer carries the live capacity-limited campaign state when a token
 	// snapshot reports the row (only rows admitted by TierOffer).
@@ -976,6 +982,59 @@ func (d *Dashboard) offerByModel() map[string]modelOfferRow {
 	return out
 }
 
+// PlanRequired mirrors freebuffPlanRequired in
+// common/src/util/freebuff-model-selection.ts (vendor c2d2958b): whether a
+// catalog row must be drawn LOCKED, i.e. a paid-only row on an account
+// without a live plan. A live plan unlocks everything; otherwise the
+// server's per-viewer verdict (FreebucksInfo.PlanRequiredModelIDs) wins over
+// the static list whenever the snapshot carries it, because the verdict
+// decides the COUNTRY half (the US-or-paid rows) that no client can derive
+// for itself: a US viewer opens a row the static list locks. A nil verdict
+// (an older server, or one gating nothing) falls back to the static paid-only
+// list — what every client drew before 2026-09-22 — while a present but empty
+// verdict locks nothing. Display only: upstream refuses the admission on
+// every surface regardless.
+func PlanRequired(id string, hasPlan bool, verdict []string) bool {
+	if hasPlan {
+		return false
+	}
+	if verdict != nil {
+		for _, locked := range verdict {
+			if locked == id {
+				return true
+			}
+		}
+		return false
+	}
+	return modelcat.IsSubscriptionPro(id)
+}
+
+// planRequiredViewer resolves the viewer the models table's plan lock is
+// drawn from, across the pool: the server's per-viewer verdict
+// (FreebucksInfo.PlanRequiredModelIDs) from the first token snapshot that
+// reports one — firstFreebucksPrices' first-reporter rule — and whether ANY
+// token reports a live paid plan (SubscriptionTierID, the proxy's
+// hasPaidSubscription signal) — the same optimistic any-token rule
+// modelTierAdmits applies to the paid tier (server/models.go). The table is
+// a pool view with no single viewer, so both aggregations deliberately mirror
+// the existing readers rather than invent a precedence. A nil verdict with no
+// plan leaves the static list (modelcat.IsSubscriptionPro) to decide every
+// row.
+func (d *Dashboard) planRequiredViewer() (verdict []string, hasPlan bool) {
+	if d.pool == nil {
+		return nil, false
+	}
+	for _, t := range d.pool.Snapshot() {
+		if verdict == nil && t.Freebucks != nil {
+			verdict = t.Freebucks.PlanRequiredModelIDs
+		}
+		if t.SubscriptionTierID != "" {
+			hasPlan = true
+		}
+	}
+	return verdict, hasPlan
+}
+
 func (d *Dashboard) modelsData() modelsData {
 	// Full catalog: the models page lists every modelcat row — served,
 	// withdrawn, eval and offer — with the tier sets that admit it, so
@@ -988,6 +1047,7 @@ func (d *Dashboard) modelsData() modelsData {
 	listPrices := d.firstFreebucksListPrices()
 	liveNotices := d.firstFreebucksPriceNotices()
 	offers := d.offerByModel()
+	verdict, hasPlan := d.planRequiredViewer()
 	effectivePrices := make(map[string]float64)
 	md := modelsData{Agents: len(d.reg.AgentIDs())}
 	md.Models = make([]modelRow, 0, len(modelcat.Catalog))
@@ -998,12 +1058,13 @@ func (d *Dashboard) modelsData() modelsData {
 			Served:       info.Served,
 			Withdrawn:    info.PausedReplacement != "",
 			Replacement:  info.PausedReplacement,
-			PlanRequired: info.PlanRequired,
+			PlanRequired: PlanRequired(id, hasPlan, verdict),
 			Tiers:        modelcat.Tiers(id),
 			Efforts:      modelcat.Efforts(id),
 		}
 		row.DisplayName = modelcat.DisplayName(id)
 		row.Tagline = modelcat.Tagline(id)
+		row.Tooltip = modelcat.TaglineTooltip(id)
 		row.Badges = modelcat.Badges(id)
 		row.Notice = modelcat.Notice(id)
 		if n, ok := liveNotices[id]; ok && n != "" {

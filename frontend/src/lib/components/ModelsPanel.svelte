@@ -70,10 +70,14 @@
   // the served flag) stay "unbound".
   function modelState(m) {
     if (m.withdrawn) return "withdrawn";
-    // Plan-required rows (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS) are never
-    // served: upstream refuses the admission on every surface and draws the row
-    // locked. Classified before the served check so the row reads "Paid plan"
-    // rather than a bare "unserved".
+    // Plan-locked rows read "Paid plan" rather than a bare "unserved", which
+    // is why this is classified before the served check. Two shapes land here
+    // (vendor c2d2958b): the every-surface rows
+    // (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS), which are never served, and
+    // the US-or-paid rows the server's per-viewer verdict locks for this
+    // pool's viewer — GPT-6 Luna is served and advertised, yet this viewer
+    // cannot open it without a plan. The backend decides plan_required from
+    // that verdict (falling back to the static paid-only list).
     if (isPlanRequired(m)) return "plan";
     if (!m.agent) return "unbound";
     if (m.served !== false) return "served";

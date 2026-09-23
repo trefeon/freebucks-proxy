@@ -31,11 +31,12 @@ import { getMCPToolData } from './mcp'
 import { getAgentStreamFromTemplate } from './prompt-agent-stream'
 import { isThinkOnlyResponse } from './util/think-tags'
 import {
-  TODO_LOOP_RECOVERY_MESSAGE,
+  hasFileEditTool,
   TODO_LOOP_RECOVERY_TAG,
   TODO_LOOP_RECOVERY_THRESHOLD,
   TODO_LOOP_STOP_THRESHOLD,
   TodoLoopError,
+  todoLoopRecoveryMessage,
   trailingIdenticalTodoCalls,
 } from './util/todo-loop'
 import {
@@ -216,6 +217,7 @@ export const runAgentStep = async (
     | 'onCostCalculated'
     | 'repoId'
     | 'stream'
+    | 'stopStream'
   > &
     ParamsExcluding<
       typeof getAgentStreamFromTemplate,
@@ -517,9 +519,14 @@ export const runAgentStep = async (
   let fullResponse = ''
   const toolResults: ToolMessage[] = []
 
+  // Lets processStream cancel this step's request without cancelling the run
+  // (a runaway response it has decided to stop reading).
+  const streamStop = new AbortController()
+
   // Raw stream from AI SDK
   const stream = getAgentStreamFromTemplate({
     ...params,
+    signal: AbortSignal.any([params.signal, streamStop.signal]),
     agentId: agentState.parentId ? agentState.agentId : undefined,
     costMode: params.costMode,
     cacheDebugCorrelation: cacheDebugCorrelation
@@ -559,6 +566,7 @@ export const runAgentStep = async (
     repoId,
     stream,
     onCostCalculated,
+    stopStream: () => streamStop.abort(),
   })
 
   toolResults.push(...newToolResults)
@@ -574,13 +582,30 @@ export const runAgentStep = async (
     toolCalls.every((call) => call.toolName === 'write_todos')
   ) {
     const consecutive = trailingIdenticalTodoCalls(agentState.messageHistory)
-    if (consecutive >= TODO_LOOP_STOP_THRESHOLD) {
-      throw new TodoLoopError()
-    }
     if (consecutive >= TODO_LOOP_RECOVERY_THRESHOLD) {
+      const stopped = consecutive >= TODO_LOOP_STOP_THRESHOLD
+      logger.warn(
+        {
+          metric: stopped ? 'todo_loop_stopped' : 'todo_loop_recovery',
+          consecutive,
+          model: agentTemplate.model,
+          agentId: agentTemplate.id,
+          fileEditToolsOffered: hasFileEditTool(agentTemplate.toolNames),
+          userId,
+          runId: agentState.runId,
+        },
+        stopped
+          ? 'Stopping a turn stuck repeating an unchanged to-do list'
+          : 'Model is repeating an unchanged to-do list; adding recovery guidance',
+      )
+      if (stopped) {
+        throw new TodoLoopError()
+      }
       agentState.messageHistory.push(
         userMessage({
-          content: withSystemTags(TODO_LOOP_RECOVERY_MESSAGE),
+          content: withSystemTags(
+            todoLoopRecoveryMessage(agentTemplate.toolNames),
+          ),
           tags: [TODO_LOOP_RECOVERY_TAG],
         }),
       )

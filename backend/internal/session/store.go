@@ -539,8 +539,9 @@ func (s *Store) Save(key string, cs *cachedState) {
 	s.persistLocked(key)
 }
 
-// cloneFreebucksInfo deep-copies the map/slice fields ApplyFreebucksPriceChanges
-// mutates in place, so the persisted snapshot cannot race live state.
+// cloneFreebucksInfo deep-copies the map/slice fields (including the ones
+// ApplyFreebucksPriceChanges mutates in place) so the persisted snapshot
+// cannot race or alias live state.
 func cloneFreebucksInfo(fb *upstream.FreebucksInfo) *upstream.FreebucksInfo {
 	if fb == nil {
 		return nil
@@ -566,6 +567,10 @@ func cloneFreebucksInfo(fb *upstream.FreebucksInfo) *upstream.FreebucksInfo {
 	}
 	if len(fb.PriceChanges) > 0 {
 		out.PriceChanges = append([]upstream.FreebucksPriceChange(nil), fb.PriceChanges...)
+	}
+	if fb.PlanRequiredModelIDs != nil {
+		out.PlanRequiredModelIDs = make([]string, len(fb.PlanRequiredModelIDs))
+		copy(out.PlanRequiredModelIDs, fb.PlanRequiredModelIDs)
 	}
 	if fb.FirstTabDiscount != nil {
 		d := *fb.FirstTabDiscount

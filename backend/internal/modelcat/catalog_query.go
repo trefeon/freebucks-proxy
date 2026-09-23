@@ -30,6 +30,15 @@ func Tagline(id string) string {
 	return ""
 }
 
+// TaglineTooltip returns the row tooltip upstream attaches to id's tagline
+// ("" when the row carries none).
+func TaglineTooltip(id string) string {
+	if m := byID(id); m != nil {
+		return m.TaglineTooltip
+	}
+	return ""
+}
+
 // Notice returns the upstream warning or special offer for id.
 func Notice(id string) string {
 	if m := byID(id); m != nil {
@@ -97,7 +106,8 @@ func IsPremium(id string) bool {
 // SharedPremiumModels returns the ids metered by the shared daily premium
 // pool: Luna + Muse Spark 1.2 since 2026-09-07 (1.3 withdrawn that day;
 // solar left the pool when its entitlement went unmetered; gemini is
-// Pro-paywalled).
+// Pro-paywalled). GPT-6 Luna holds the slot from 2026-09-22: 5.6 left
+// FREEBUFF_MODELS, and the generator marks Premium only for served rows.
 // GLM 5.3 Flash is unmetered.
 func SharedPremiumModels() []string {
 	var out []string

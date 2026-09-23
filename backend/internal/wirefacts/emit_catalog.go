@@ -81,18 +81,25 @@ type catalogInputs struct {
 	// admit on every surface. They stay in the catalog (the picker draws them
 	// locked) but never in the served set.
 	planRequiredIDs []string
-	limitedIDs      []string // LIMITED_FREEBUFF_MODEL_IDS wire ids
-	paidIDs         []string // FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS wire ids
-	offerIDs        []string // FREEBUFF_LIMITED_OFFER_MODEL_IDS wire ids
-	pausedNames     []string // FREEBUFF_PAUSED_FREE_MODEL_IDS row refs
-	fields          map[string]map[string]string
-	ctx             map[string]int // wire id -> context window
-	defaultID       string
-	fallbackID      string
-	glm52ID         string
-	glm53ID         string
-	solarID         string
-	defaultCtx      int
+	// subscriptionProIDs is FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS, published
+	// from freebuff-subscriptions.ts as FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS:
+	// the static paid-session boundary a viewer with no server verdict falls
+	// back to. It differs from planRequiredIDs by the US-exempt GPT-6 Luna
+	// row, which stays catalog-Pro-only without being refused on every
+	// surface.
+	subscriptionProIDs []string
+	limitedIDs         []string // LIMITED_FREEBUFF_MODEL_IDS wire ids
+	paidIDs            []string // FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS wire ids
+	offerIDs           []string // FREEBUFF_LIMITED_OFFER_MODEL_IDS wire ids
+	pausedNames        []string // FREEBUFF_PAUSED_FREE_MODEL_IDS row refs
+	fields             map[string]map[string]string
+	ctx                map[string]int // wire id -> context window
+	defaultID          string
+	fallbackID         string
+	glm52ID            string
+	glm53ID            string
+	solarID            string
+	defaultCtx         int
 }
 
 func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
@@ -184,6 +191,16 @@ func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
 	// Tier membership lists, after the row loop so row ids resolve. Full is
 	// not listed: it is FREEBUFF_MODELS membership above, and the generator
 	// reads it per row.
+	//
+	// FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS is the CATALOG definition of the
+	// paid-session boundary; freebuff-subscriptions.ts re-exports it verbatim
+	// as FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS. It is read here rather than from
+	// the subscription module because only freebuff-models.ts is mirrored, and
+	// the re-export is a plain alias (`= FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS`),
+	// not a second spelling. FREEBUFF_LIMITED_TIER_PLAN_ONLY_MODEL_IDS is
+	// deliberately absent: it spreads that whole list (a bare
+	// `...FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS` spread), a shape
+	// splitConditionalSpread rejects by design.
 	for _, l := range []struct {
 		dst  *[]string
 		name string
@@ -192,6 +209,7 @@ func loadCatalogInputs(registryDir, commit string) (*catalogInputs, error) {
 		{&c.paidIDs, "FREEBUFF_PLAN_METERED_CATALOG_MODEL_IDS"},
 		{&c.offerIDs, "FREEBUFF_LIMITED_OFFER_MODEL_IDS"},
 		{&c.planRequiredIDs, "FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS"},
+		{&c.subscriptionProIDs, "FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS"},
 	} {
 		v, err := parseTierList(models, c.ids, l.name, commit)
 		if err != nil {
@@ -305,6 +323,7 @@ var effortsPinned = map[string][]string{
 // catalogRow is one emitted Catalog entry.
 type catalogRow struct {
 	id, display, tagline, notice string
+	tooltip                      string
 	badges                       []string
 	tiers                        []string
 	served, premium              bool
@@ -425,6 +444,13 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 			r.tagline = pinnedSolarTagline
 		default:
 			return nil, fmt.Errorf("wiregen: freebuff-models.ts: row %s tagline=%q is not a string at upstream commit %s", n, t, c.commit)
+		}
+		// The picker row tooltip, only when upstream spells it as a string
+		// literal. A bare identifier (the MUSE_SPARK rows pass a shared
+		// notice const) carries no copy the emitter can resolve, so it is
+		// deliberately left empty rather than guessed at.
+		if v, ok := f["taglineTooltip"]; ok && isTSQuoted(v) {
+			r.tooltip, _ = tsUnquote(v)
 		}
 		if id == c.glm52ID {
 			if f["tagline"] != "'Unlock by referring friends'" {
@@ -974,13 +1000,33 @@ func parseRowFields(src, name, commit string) (map[string]string, error) {
 		return nil, fmt.Errorf("wiregen: freebuff-models.ts: row %s braces unbalanced at upstream commit %s", name, commit)
 	}
 	out := map[string]string{}
+	keyOnly := regexp.MustCompile(`^([A-Za-z]+):$`)
 	fre := regexp.MustCompile(`^([A-Za-z]+):\s*(.+?)\s*,?\s*$`)
-	for _, ln := range strings.Split(src[loc[1]:end], "\n") {
-		t := strings.TrimSpace(stripTSComment(ln))
+	lines := strings.Split(src[loc[1]:end], "\n")
+	for i := 0; i < len(lines); i++ {
+		t := strings.TrimSpace(stripTSComment(lines[i]))
 		if t == "" {
 			continue
 		}
 		m := fre.FindStringSubmatch(t)
+		if m == nil && keyOnly.MatchString(t) {
+			// The value opens on the line after its key (`taglineTooltip:`
+			// then a quoted string on its own continuation line). Join it, but
+			// only when the continuation really is a value for this key: a
+			// missing continuation, or one that opens another field, keeps the
+			// fail-loud parse error instead of silently dropping the key.
+			j := i + 1
+			for j < len(lines) && strings.TrimSpace(stripTSComment(lines[j])) == "" {
+				j++
+			}
+			if j < len(lines) {
+				if cont := strings.TrimSpace(stripTSComment(lines[j])); !keyOnly.MatchString(cont) && !fre.MatchString(cont) {
+					t += " " + cont
+					i = j
+					m = fre.FindStringSubmatch(t)
+				}
+			}
+		}
 		if m == nil {
 			return nil, fmt.Errorf("wiregen: freebuff-models.ts: row %s: cannot parse field line %q at upstream commit %s", name, t, commit)
 		}
@@ -1051,6 +1097,10 @@ type ModelInfo struct {
 	Efforts []string
 	// Tagline is the upstream catalog description (used in picker & catalog).
 	Tagline string
+	// TaglineTooltip mirrors upstream FreebuffModelOption.taglineTooltip:
+	// the row tooltip the CLI shows next to the tagline. Empty when upstream
+	// carries no string literal for the row.
+	TaglineTooltip string
 	// Notice is the upstream warning or special offer (e.g. AI training, promo).
 	Notice string
 	// Badges are the capability/freshness chips (e.g. Reasoning: max*, Images, NEW).
@@ -1065,6 +1115,9 @@ var Catalog = []ModelInfo{
 		fmt.Fprintf(&b, "\t{ID: %q, DisplayName: %q", r.id, r.display)
 		if r.tagline != "" {
 			fmt.Fprintf(&b, ",\n\t\tTagline: %q", r.tagline)
+		}
+		if r.tooltip != "" {
+			fmt.Fprintf(&b, ",\n\t\tTaglineTooltip: %q", r.tooltip)
 		}
 		if len(r.badges) > 0 {
 			fmt.Fprintf(&b, ",\n\t\tBadges: []string{%s}", quotedList(r.badges))
@@ -1123,9 +1176,12 @@ const (
 	PlanRequiredLine  = "Included with a paid plan."
 )
 
-// SubscriptionProModelIDs mirrors upstream FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS
-// (re-exported as FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS): the rows that require a
-// paid plan on CLI and Desktop, refused by the server on every surface.
+// SubscriptionProModelIDs mirrors upstream FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS,
+// the freebuff-subscriptions.ts name for FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS: the
+// static paid-session boundary a viewer with no server verdict falls back to.
+// It is NOT the every-surface refusal set (ModelInfo.PlanRequired /
+// FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS): GPT-6 Luna is listed here but
+// carries a US exemption, so the server does not refuse it on every surface.
 var SubscriptionProModelIDs = []string{%s}
 
 // IsSubscriptionPro mirrors upstream isFreebuffSubscriptionProModelId:
@@ -1184,7 +1240,7 @@ const GLMSessionLength = time.Hour
 // DefaultContextWindow mirrors upstream FREEBUFF_DEFAULT_CONTEXT_WINDOW:
 // assumed for any model absent from FREEBUFF_MODEL_CONTEXT_WINDOWS.
 const DefaultContextWindow = %d
-`, c.defaultID, c.fallbackID, c.fallbackID, quotedList(c.planRequiredIDs), c.glm52ID, c.glm53ID, c.solarID, c.defaultCtx)
+`, c.defaultID, c.fallbackID, c.fallbackID, quotedList(c.subscriptionProIDs), c.glm52ID, c.glm53ID, c.solarID, c.defaultCtx)
 	return []byte(b.String())
 }
 

@@ -380,13 +380,21 @@ func TestLiveCardPerDayDisplay(t *testing.T) {
 	}
 }
 
+// retiredPickerModel is the catalog row the c2d2958b regen retired from
+// picking without pausing it: upstream left it recognized (released clients
+// still get a coercion) but it is no longer served and no tier admits it.
+const retiredPickerModel = "openai/gpt-5.6-luna"
+
 // TestModelsDataCatalogTierFacts pins the full-catalog models view: every
 // modelcat row appears exactly once with the tier sets that admit it and its
 // withdrawal facts, so the page can show which access level can use what.
 // Served rows keep served=true; withdrawn rows carry served=false +
 // withdrawn=true + the refusal copy and no tiers; tier-only rows (paid,
-// offer) are unserved but never tierless. God-only/eval registry rows
-// (luna-es) stay out. Count is the row count.
+// offer) are unserved but carry the tier that admits them; the
+// retired-from-picker row (openai/gpt-5.6-luna, whose slot moved to
+// openai/gpt-6-luna with the c2d2958b catalog) is unserved, not withdrawn
+// and tierless, because no tier admits it any more. God-only/eval registry
+// rows (luna-es) stay out. Count is the row count.
 func TestModelsDataCatalogTierFacts(t *testing.T) {
 	cfg := &config.Config{
 		RotationInterval:   time.Hour,
@@ -406,7 +414,7 @@ func TestModelsDataCatalogTierFacts(t *testing.T) {
 		t.Fatalf("Count/rows = %d/%d, want %d (every catalog row)", md.Count, len(md.Models), len(modelcat.Catalog))
 	}
 	seen := make(map[string]bool, len(md.Models))
-	var sawReferral, sawWithdrawn, sawOffer bool
+	var sawReferral, sawWithdrawn, sawOffer, sawRetired bool
 	for _, row := range md.Models {
 		if seen[row.ID] {
 			t.Errorf("model %q listed twice", row.ID)
@@ -443,7 +451,26 @@ func TestModelsDataCatalogTierFacts(t *testing.T) {
 				t.Errorf("withdrawn row %q suggests unserved replacement %q", row.ID, row.Replacement)
 			}
 		case !row.Served:
-			if len(row.Tiers) == 0 {
+			if row.ID == retiredPickerModel {
+				// Retired-from-picker row: still a recognized catalog row
+				// (upstream did not pause it, so released clients get a
+				// coercion), but no tier admits it and the picker must not
+				// offer it. Pinned by id so a regen that silently re-serves
+				// or re-tiers it fails here.
+				sawRetired = true
+				if row.Served {
+					t.Errorf("retired row %q has Served=true, want false", row.ID)
+				}
+				if len(row.Tiers) != 0 {
+					t.Errorf("retired row %q Tiers = %v, want empty (no tier admits it)", row.ID, row.Tiers)
+				}
+				if row.Withdrawn {
+					t.Errorf("retired row %q has Withdrawn=true, want false (upstream did not pause it)", row.ID)
+				}
+				if row.Replacement != "" {
+					t.Errorf("retired row %q Replacement = %q, want empty (no replacement copy)", row.ID, row.Replacement)
+				}
+			} else if len(row.Tiers) == 0 {
 				t.Errorf("unserved row %q carries no tiers, want the admitting tier", row.ID)
 			}
 		}
@@ -483,6 +510,9 @@ func TestModelsDataCatalogTierFacts(t *testing.T) {
 	}
 	if !sawWithdrawn {
 		t.Error("models view missing withdrawn rows")
+	}
+	if !sawRetired {
+		t.Errorf("models view missing the retired-from-picker row (%s)", retiredPickerModel)
 	}
 	if !sawOffer {
 		t.Error("models view missing the offer row (anthropic/claude-fable-5.1)")

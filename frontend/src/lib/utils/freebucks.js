@@ -93,10 +93,19 @@ export const MODEL_METADATA = {
     badges: ["Reasoning: xhigh"],
     disclaimer: "May use data for AI training",
   },
+  // GPT-5.6 Luna left every picker on 2026-09-22 (replaced by GPT-6 Luna in
+  // FREEBUFF_MODELS) but stays recognized and admissible: sessions admitted
+  // before the swap drain on it, so its copy stays for the rows that still
+  // name it (token quota cards, drained session display). Never a picker row.
   "openai/gpt-5.6-luna": {
     displayName: "GPT-5.6 Luna",
     tagline: "Strong all-around",
     badges: ["Reasoning: high", "Images"],
+  },
+  "openai/gpt-6-luna": {
+    displayName: "GPT-6 Luna",
+    tagline: "Strong all-around",
+    badges: ["Reasoning: high", "Images", "NEW"],
   },
   "z-ai/glm-5.2": {
     displayName: "GLM 5.2",

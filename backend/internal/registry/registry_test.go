@@ -72,6 +72,12 @@ var expectedFallback = map[string]string{
 	// Supplier addition in the 0.0.183 registry snapshot: MiMo 2.6 Pro, which
 	// takes its own wire id and its own root agent (one id per entitlement).
 	"mimo/mimo-v2.6-pro": "base2-free-mimo-2-6-pro",
+	// Supplier addition in the 0.0.185 registry snapshot: GPT-6 Luna. Its own
+	// wire id and its own root agent ('base2-free-luna-6'), parsed straight
+	// from FREEBUFF_ROOT_AGENT_ID_BY_MODEL — unlike 5.6, whose still-listed
+	// base2-free-luna root is retired server-side and needs the
+	// retiredRootOverrides remap (see parse.go).
+	"openai/gpt-6-luna": "base2-free-luna-6",
 }
 
 func TestFallbackMap(t *testing.T) {
@@ -880,7 +886,7 @@ func TestResolveModelMaxUpgradeRemoved(t *testing.T) {
 func TestStrictServedModelsPinned(t *testing.T) {
 	wantModels := []string{
 		"deepseek/deepseek-v4-flash",
-		"openai/gpt-5.6-luna",
+		"openai/gpt-6-luna",
 		"upstage/solar-pro4",
 		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.3-flash",
@@ -930,7 +936,7 @@ func TestStrictServedModelsPinned(t *testing.T) {
 // refused at admission with model_unavailable naming the replacement. The
 // proxy mirrors that flow — the ids stay resolvable in the catalog (count
 // tokens, alias resolution) but are never served, and WithdrawnModelMessage
-// names the upstream default (GPT-5.6 Luna) as the replacement.
+// names the upstream default (GLM 5.3 Flash) as the replacement.
 func TestPausedModelPolicy(t *testing.T) {
 	for _, paused := range []string{"minimax/minimax-m3", "deepseek/deepseek-v4-pro", "stealth/ox-alpha"} {
 		if !modelcat.IsPaused(paused) {

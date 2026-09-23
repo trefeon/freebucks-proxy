@@ -6,7 +6,7 @@
 //
 //	go generate ./backend/internal/wirefacts/
 //
-//go:generate go run ../../cmd/wiregen -upstream 2f5802e2bac2c7cfb34245b73d1e3fb55488bccc
+//go:generate go run ../../cmd/wiregen -upstream c2d2958bbd2dd25c93edad49c01d143931ae32e9
 package wirefacts
 
 import (

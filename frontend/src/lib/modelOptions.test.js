@@ -12,7 +12,7 @@ import { touchCandidates, touchOptions } from "./utils/touchModels.js";
 // rows (paid plan, limited trial) listed but never served.
 const ROWS = [
   { id: "upstage/solar-pro4", agent: "a", served: true, pool: "unlimited" },
-  { id: "openai/gpt-5.6-luna", agent: "a", served: true, pool: "premium" },
+  { id: "openai/gpt-6-luna", agent: "a", served: true, pool: "premium" },
   { id: "stealth/ox-alpha", agent: "a", served: false, withdrawn: true },
   { id: "google/gemini-3.8-flash", agent: "a", served: false },
   {
@@ -55,14 +55,14 @@ describe("fetchModelOptions (live pickers)", () => {
 
   it("drops withdrawn and tier-only rows, keeps served", async () => {
     const ids = (await fetchModelOptions()).map((m) => m.id);
-    assert.deepEqual(ids, ["upstage/solar-pro4", "openai/gpt-5.6-luna"]);
+    assert.deepEqual(ids, ["upstage/solar-pro4", "openai/gpt-6-luna"]);
   });
 });
 
 describe("touchCandidates (streak select)", () => {
   it("keeps served rows, premium last, drops the rest", () => {
     const ids = touchCandidates(ROWS).map((m) => m.id);
-    assert.deepEqual(ids, ["upstage/solar-pro4", "openai/gpt-5.6-luna"]);
+    assert.deepEqual(ids, ["upstage/solar-pro4", "openai/gpt-6-luna"]);
   });
 
   it("fail-open keeps the saved value when the catalog omits it", () => {

@@ -128,7 +128,7 @@ func TestModelsEndpoint(t *testing.T) {
 	}
 	served := map[string]bool{
 		"deepseek/deepseek-v4-flash":      true,
-		"openai/gpt-5.6-luna":             true,
+		"openai/gpt-6-luna":               true,
 		"upstage/solar-pro4":              true,
 		"meta/muse-spark-1.2-contributor": true,
 		"z-ai/glm-5.3-flash":              true,
@@ -624,7 +624,7 @@ func TestModelsAllowList(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) {
-		c.ModelsAllow = []string{"deepseek/deepseek-v4-flash", "openai/gpt-5.6-luna"}
+		c.ModelsAllow = []string{"deepseek/deepseek-v4-flash", "openai/gpt-6-luna"}
 	}, mock)
 
 	resp, data := doJSON(t, http.MethodGet, ts.URL+"/v1/models", nil, nil)
@@ -641,12 +641,12 @@ func TestModelsAllowList(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, m := range out.Data {
-		if m.ID != "deepseek/deepseek-v4-flash" && m.ID != "openai/gpt-5.6-luna" {
+		if m.ID != "deepseek/deepseek-v4-flash" && m.ID != "openai/gpt-6-luna" {
 			t.Errorf("model %q listed outside MODELS_ALLOW", m.ID)
 		}
 		seen[m.ID] = true
 	}
-	if !seen["deepseek/deepseek-v4-flash"] || !seen["openai/gpt-5.6-luna"] {
+	if !seen["deepseek/deepseek-v4-flash"] || !seen["openai/gpt-6-luna"] {
 		t.Errorf("allowlisted models missing from /v1/models: %v", seen)
 	}
 	if len(out.Data) != 2 {
@@ -696,7 +696,7 @@ func TestModelsAllowRejectsUnlisted(t *testing.T) {
 		c.ModelsAllow = []string{"deepseek/deepseek-v4-flash"}
 	}, mock)
 
-	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody("openai/gpt-5.6-luna"), nil)
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody("openai/gpt-6-luna"), nil)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("chat (unlisted) status = %d, want 400: %s", resp.StatusCode, data)
 	}
@@ -725,11 +725,11 @@ func TestModelsAllowPassthrough(t *testing.T) {
 	defer mock.Close()
 	mock.ChatBody = testutil.SSEEvent(chunk("chatcmpl-max", 1, `"choices":[{"index":0,"delta":{"content":"ping"},"finish_reason":"stop"}]`))
 	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) {
-		c.ModelsAllow = []string{"openai/gpt-5.6-luna"}
+		c.ModelsAllow = []string{"openai/gpt-6-luna"}
 	}, mock)
 
 	// The allowlisted base id is served as-is (no -max upgrade).
-	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody("openai/gpt-5.6-luna"), nil)
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody("openai/gpt-6-luna"), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("chat (allowlisted base) status = %d, want 200: %s", resp.StatusCode, data)
 	}
@@ -761,8 +761,8 @@ func TestModelsAllowPassthrough(t *testing.T) {
 	for _, m := range out.Data {
 		listed[m.ID] = true
 	}
-	if !listed["openai/gpt-5.6-luna"] {
-		t.Errorf("/v1/models missing allowlisted base id openai/gpt-5.6-luna: %v", listed)
+	if !listed["openai/gpt-6-luna"] {
+		t.Errorf("/v1/models missing allowlisted base id openai/gpt-6-luna: %v", listed)
 	}
 	if listed["deepseek/deepseek-v4-pro-max"] {
 		t.Errorf("/v1/models leaked -max variant under base-only MODELS_ALLOW: %v", listed)
@@ -1032,7 +1032,7 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 	}
 	wantSet := map[string]bool{
 		"deepseek/deepseek-v4-flash":      true,
-		"openai/gpt-5.6-luna":             true,
+		"openai/gpt-6-luna":               true,
 		"upstage/solar-pro4":              true,
 		"meta/muse-spark-1.2-contributor": true,
 		"z-ai/glm-5.3-flash":              true,
@@ -1489,7 +1489,7 @@ func TestModelsEndpointLimitedTier(t *testing.T) {
 			if !m.Available {
 				t.Errorf("model %s available = false, want true on limited tier", m.ID)
 			}
-		case "openai/gpt-5.6-luna", "meta/muse-spark-1.2-contributor":
+		case "openai/gpt-6-luna", "meta/muse-spark-1.2-contributor":
 			// Served, but the limited tier demotes the full-tier rows.
 			if m.Available || m.Status != "region_limited" {
 				t.Errorf("model %s = available %v/status %q, want false/region_limited", m.ID, m.Available, m.Status)
@@ -1556,10 +1556,10 @@ func TestModelRetrieveLimitedTier(t *testing.T) {
 		t.Fatalf("chat status = %d, want 200: %s", resp.StatusCode, data)
 	}
 
-	// Non-limited model (luna is full-tier only)
-	resp, data = doJSON(t, http.MethodGet, ts.URL+"/v1/models/openai/gpt-5.6-luna", nil, nil)
+	// Non-limited model (gpt-6-luna is full-tier only)
+	resp, data = doJSON(t, http.MethodGet, ts.URL+"/v1/models/openai/gpt-6-luna", nil, nil)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("get gpt-5.6-luna status = %d, want 200: %s", resp.StatusCode, data)
+		t.Fatalf("get gpt-6-luna status = %d, want 200: %s", resp.StatusCode, data)
 	}
 	var luna struct {
 		ID                string `json:"id"`
@@ -1571,7 +1571,7 @@ func TestModelRetrieveLimitedTier(t *testing.T) {
 		t.Fatalf("unmarshal luna: %v", err)
 	}
 	if luna.Available || luna.Status != "region_limited" || luna.CurrentAccessTier != "limited" {
-		t.Errorf("luna row = %+v, want available=false, status=region_limited, current_access_tier=limited", luna)
+		t.Errorf("gpt-6-luna row = %+v, want available=false, status=region_limited, current_access_tier=limited", luna)
 	}
 	// Limited model
 	resp, data = doJSON(t, http.MethodGet, ts.URL+"/v1/models/mimo/mimo-v2.5", nil, nil)

@@ -107,7 +107,8 @@ type FreebucksFirstTabDiscount struct {
 // the server-authorized quota exemption + per-model prices with their
 // display copy + the pre-discount list prices and the off-peak policy
 // (vendor 3420c99) + the announced repricing schedule (issue #350) +
-// claimable earned grants and the upgrade nudge (vendor af898dc).
+// claimable earned grants and the upgrade nudge (vendor af898dc) +
+// the server's per-viewer plan-lock verdict (vendor c2d2958b).
 type FreebucksInfo struct {
 	Balance float64         `json:"balance"`
 	Daily   FreebucksWindow `json:"daily"`
@@ -132,6 +133,17 @@ type FreebucksInfo struct {
 	// copy (mirrors taglineFor in freebuff-model-selector.tsx).
 	PriceNotices map[string]string      `json:"priceNotices,omitempty"`
 	PriceChanges []FreebucksPriceChange `json:"priceChanges,omitempty"`
+	// PlanRequiredModelIDs is the server's per-viewer verdict on the rows
+	// to draw plan-locked (vendor c2d2958b,
+	// FreebuffFreebucksInfo.planRequiredModelIds): the rows THIS viewer must
+	// buy a plan to open, decided SERVER-SIDE because it turns on the
+	// viewer's resolved country (the US-or-paid rows) and no client is told
+	// its country. nil when the server predates the field or gates nothing
+	// for this viewer, in which case the static paid-only list
+	// (modelcat.SubscriptionProModelIDs) is the fallback — what every client
+	// drew before 2026-09-22. Display only: admission is refused server-side
+	// on every surface regardless.
+	PlanRequiredModelIDs []string `json:"planRequiredModelIds,omitempty"`
 	// ClaimableGrant mirrors claimableGrantFreebucks (vendor af898dc):
 	// eligible earned grants admission may convert. Excluded from the
 	// server's spendable balance display but counted toward canStart
@@ -276,7 +288,8 @@ type rawFreebucksUpgrade struct {
 // spendable balance + the daily pool window + the never-expiring wallet
 // + the USD spend ceiling + the monthly allowance + the plan id + the
 // quota exemption + per-model prices with their pre-discount list prices
-// + price-notice copy + the off-peak policy + the announced schedule.
+// + price-notice copy + the off-peak policy + the announced schedule +
+// the per-viewer plan-lock verdict (c2d2958b).
 type rawFreebucks struct {
 	Balance          float64                             `json:"balance"`
 	ClaimableGrant   float64                             `json:"claimableGrantFreebucks"`
@@ -293,6 +306,11 @@ type rawFreebucks struct {
 	Upgrade          *rawFreebucksUpgrade                `json:"upgrade"`
 	FirstTabDiscount *rawFreebucksFirstTabDiscount       `json:"firstTabDiscount"`
 	OffPeak          map[string]rawFreebucksOffPeakPrice `json:"offPeak"`
+	// PlanRequiredModelIDs mirrors FreebuffFreebucksInfo.planRequiredModelIds
+	// (vendor c2d2958b). Optional on the wire, so a nil slice means
+	// "absent" and a non-nil empty slice means "present and gating nothing
+	// for this viewer" — the two differ for the static-list fallback.
+	PlanRequiredModelIDs []string `json:"planRequiredModelIds"`
 }
 
 // rawFreebucksOffPeakPrice mirrors FreebuffOffPeakPrice (vendor 3420c99).
