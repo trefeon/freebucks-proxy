@@ -52,6 +52,7 @@ export const adminActions = {
   tokenRemove: "/admin/tokens/remove",
   tokenSwap: "/admin/tokens/swap",
   testAll: "/admin/tokens/test-all",
+  streakTouch: "/admin/tokens/streak-touch",
   restart: "/admin/restart",
 };
 

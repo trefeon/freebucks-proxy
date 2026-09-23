@@ -2,10 +2,11 @@ package pool
 
 import (
 	"context"
+	"testing"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/upstream"
-	"testing"
 )
 
 type mockHistorySink struct {
@@ -49,7 +50,9 @@ func TestMaturitySnapshotDefaults(t *testing.T) {
 	if snap.LastResult != "pending" {
 		t.Errorf("expected LastResult to be 'pending', got %q", snap.LastResult)
 	}
-
+	if snap.TouchDay != "" || snap.SlotDay != "" {
+		t.Errorf("expected empty TouchDay/SlotDay on pending default, got touch=%q slot=%q", snap.TouchDay, snap.SlotDay)
+	}
 	// When TodayUsed is true upstream, default reports skip:today-used
 	entry.SetStreak(&upstream.StreakInfo{Streak: 3, TodayUsed: true})
 	snap2 := entry.MaturitySnapshot()

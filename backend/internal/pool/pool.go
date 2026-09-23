@@ -519,15 +519,19 @@ func (e *tokenEntry) MaturitySnapshot() *MaturitySnapshot {
 	if e.maturity == nil {
 		today := pacificDayKey(time.Now())
 		result := "pending"
+		touchDay := ""
+		slotDay := ""
 		if st := e.streak.Load(); st != nil && st.TodayUsed {
 			result = "skip:today-used"
+			touchDay = today
+			slotDay = today
 		}
 		return &MaturitySnapshot{
 			Enabled:    true,
 			Target:     7,
 			Mode:       "unmetered",
-			SlotDay:    today,
-			TouchDay:   today,
+			SlotDay:    slotDay,
+			TouchDay:   touchDay,
 			LastResult: result,
 			ResultDay:  today,
 		}

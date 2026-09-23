@@ -12,7 +12,7 @@
     dismiss as dismissToast,
   } from "../stores/toast.js";
   import { postAPI, fetchAPI } from "../api/client.js";
-  import { adminApi } from "../api/paths.js";
+  import { adminApi, adminActions } from "../api/paths.js";
   import {
     tokensData as tokensStore,
     tokensError as tokensErrorStore,
@@ -83,7 +83,7 @@
     if (touchingNow) return;
     touchingNow = true;
     try {
-      const res = await postAPI("/admin/tokens/streak-touch", {});
+      const res = await postAPI(adminActions.streakTouch, {});
       if (res && res.ok) {
         const touched = (res.results ?? []).filter(
           (r) => r.status === "touched",
@@ -514,7 +514,7 @@
   <Card
     title={$tr("Streak Maintenance")}
     description={$tr(
-      "Fully automatic: every account is touched nightly. The switch plus the touch-model row below are the only controls.",
+      "Fully automatic: every account is touched nightly. Use the controls below to configure or run maintenance on demand.",
     )}
   >
     {#snippet actions()}
