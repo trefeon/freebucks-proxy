@@ -503,8 +503,8 @@ func TestWaitingRoomChainFiresAdLegs(t *testing.T) {
 			t.Fatalf("no recorded POST %s", path)
 			continue
 		}
-		if got := r.header.Get("User-Agent"); got != "Freebuff-CLI/1.0.0" {
-			t.Errorf("%s User-Agent = %q, want the CLI product UA", path, got)
+		if got := r.header.Get("User-Agent"); got != freebuffCliUA {
+			t.Errorf("%s User-Agent = %q, want the CLI product UA %q", path, got, freebuffCliUA)
 		}
 		if got := r.header.Get("Authorization"); got != "Bearer tok-a" {
 			t.Errorf("%s Authorization = %q, want Bearer tok-a", path, got)

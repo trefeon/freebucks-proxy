@@ -12,14 +12,26 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/wirefacts"
 )
 
 // freebuffCliUA is the ads-API request User-Agent, mirroring the installed
-// official CLI binary the proxy emulates (reference
-// cli/src/hooks/use-gravity-ad.ts getCliAdRequestUserAgent:
-// "Freebuff-CLI/<CODEBUFF_CLI_VERSION>"; 1.0.0 = cli/package.json version
-// at upstream/freebuff @19d905d).
-const freebuffCliUA = "Freebuff-CLI/1.0.0"
+// official CLI binary the proxy emulates. The CLI composes it from its own
+// build-time version (upstream/freebuff
+// cli/src/hooks/use-gravity-ad.ts:817-821,
+// `Freebuff-CLI/${getCliEnv().CODEBUFF_CLI_VERSION}`; IS_FREEBUFF picks the
+// product token), injected from the released Freebuff wrapper version the
+// build was invoked with (freebuff/cli/build.ts:23,33 ->
+// cli/scripts/build-binary.ts:167-168). Real installs therefore advertise
+// versions like Freebuff-CLI/0.0.140
+// (common/src/util/ad-user-agent.ts:44-46), never the monorepo's placeholder
+// cli/package.json 1.0.0. wirefacts.VendorVersion IS that released wrapper
+// version for the snapshots this proxy speaks (generated from
+// backend/internal/wirefacts/testdata/wire/snapshots.json), so the version
+// claimed on the wire follows the vendored wire at every re-pin instead of
+// freezing at a hand-typed literal.
+var freebuffCliUA = "Freebuff-CLI/" + wirefacts.VendorVersion
 
 const (
 	// maxAdResponseRead caps the ad response body read.
