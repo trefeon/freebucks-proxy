@@ -568,6 +568,59 @@
         },
         "type": "object"
       },
+      "StreakTouchResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "results": {
+            "items": {
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "streak": {
+                  "type": "integer"
+                },
+                "timestamp": {
+                  "type": "integer"
+                },
+                "token": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "email",
+                "model",
+                "status",
+                "streak",
+                "timestamp",
+                "token"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "results",
+          "total"
+        ],
+        "type": "object"
+      },
       "TokenAddRequest": {
         "properties": {
           "token": {
@@ -1280,6 +1333,12 @@
                 "id": {
                   "type": "string"
                 },
+                "list_price": {
+                  "type": "number"
+                },
+                "list_price_label": {
+                  "type": "string"
+                },
                 "notice": {
                   "type": "string"
                 },
@@ -1310,6 +1369,9 @@
                   ],
                   "type": "object"
                 },
+                "plan_required": {
+                  "type": "boolean"
+                },
                 "pool": {
                   "type": "string"
                 },
@@ -1337,6 +1399,9 @@
                   },
                   "type": "array"
                 },
+                "tooltip": {
+                  "type": "string"
+                },
                 "withdrawn": {
                   "type": "boolean"
                 }
@@ -1344,6 +1409,7 @@
               "required": [
                 "agent",
                 "id",
+                "plan_required",
                 "price",
                 "quota",
                 "served",
@@ -5186,6 +5252,32 @@
           }
         ],
         "summary": "Remove one pool token (absent index removes the last)",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/admin/tokens/streak-touch": {
+      "post": {
+        "operationId": "tokensStreakTouch",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreakTouchResponse"
+                }
+              }
+            },
+            "description": "Run on-demand streak touches for eligible accounts"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Run on-demand streak touches for eligible accounts",
         "tags": [
           "tokens"
         ]
