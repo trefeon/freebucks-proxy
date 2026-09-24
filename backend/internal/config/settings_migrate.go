@@ -29,7 +29,7 @@ const MigrationMarkerValue = "1"
 // the migration persists as config: rows. Secrets render raw, never masked —
 // the settings table lives in the dashboard DB file (0600, enforced at open)
 // and is their persisted home. Empty values render as "" (a no-op pin at
-// Load, except AUTH_TOKENS presence, which is the explicit bridge-mode choice
+// Load, except AUTH_TOKENS presence, which records an explicit empty pool
 // that suppresses CLI auto-discovery).
 func EffectiveOverlayMap(cfg Config) map[string]string {
 	out := make(map[string]string, len(keyCatalog))

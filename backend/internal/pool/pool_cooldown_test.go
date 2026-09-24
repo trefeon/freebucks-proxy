@@ -162,7 +162,7 @@ func TestCooldownTokenBanQuarantinesLiveBansOnly(t *testing.T) {
 // TestIdleRotationSkipsInflight is the regression guard for the idle
 // rotation bug: the idle FINISH pass used to FinishAllRuns every token,
 // killing in-flight chats. Tokens holding a lease must be skipped — their
-// runs stay live until the lease drains (mirrors the bridge idle sweep's
+// runs stay live until the lease drains (mirrors the idle sweep's
 // busy-entry rule).
 func TestIdleRotationSkipsInflight(t *testing.T) {
 	mock := testutil.NewMock()

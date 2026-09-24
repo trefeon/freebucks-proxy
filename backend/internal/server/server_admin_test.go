@@ -226,7 +226,7 @@ func TestAllTokensDead502(t *testing.T) {
 }
 
 // TestBearerCaseInsensitiveVariants verifies lowercase bearer and mixed-case BEARER
-// work for API authentication, admin endpoints, and bridge token extraction.
+// work for API authentication and admin endpoints.
 func TestBearerCaseInsensitiveVariants(t *testing.T) {
 	t.Run("API auth accepts case variations", func(t *testing.T) {
 		mock := testutil.NewMock()
@@ -262,23 +262,6 @@ func TestBearerCaseInsensitiveVariants(t *testing.T) {
 		}
 	})
 
-	t.Run("bridge mode token extraction accepts case variations", func(t *testing.T) {
-		mock := testutil.NewMock()
-		defer mock.Close()
-		mock.ChatBody = testutil.SSEEvent(chunk("chatcmpl-b3", 1, `"choices":[{"index":0,"delta":{"content":"bridged"},"finish_reason":null}]`))
-		ts, _ := newBridgeTestServer(t, mock)
-		chatURL := ts.URL + "/v1/chat/completions"
-
-		for _, auth := range []string{
-			"bearer client-tok-lower",
-			"BEARER client-tok-upper",
-		} {
-			resp, data := doJSON(t, http.MethodPost, chatURL, chatBody(modelA), map[string]string{"Authorization": auth})
-			if resp.StatusCode != http.StatusOK {
-				t.Errorf("bridge auth %q status = %d, want 200: %s", auth, resp.StatusCode, data)
-			}
-		}
-	})
 }
 
 // TestTokenLockUnlock drives the lock/unlock lifecycle: locking a token

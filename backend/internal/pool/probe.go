@@ -259,6 +259,48 @@ func (p *Pool) ProbeTokenDetailed(ctx context.Context, token int) (ProbeTokenOut
 	return outcome, st, nil
 }
 
+// ProbeNewToken validates a raw token string against upstream with a
+// zero-cost GET session probe (dashboard add-token flow): no session is
+// created or claimed. Returns the session state on success,
+// ErrNoActiveSession when the token is valid but idle, or the classified
+// auth/network error otherwise.
+func (p *Pool) ProbeNewToken(ctx context.Context, token string) (*upstream.SessionState, error) {
+	if token == "" {
+		return nil, errors.New("pool: empty token")
+	}
+	cfg := *p.cfg.Load()
+	if toks := p.roster.Load(); len(*toks) > 0 {
+		if base := (*toks)[0].client.BaseURL(); base != "" {
+			cfg.UpstreamBaseURL = base
+		}
+	}
+	client, err := upstream.New(token, &cfg)
+	if err != nil {
+		return nil, fmt.Errorf("pool: probe token: %w", err)
+	}
+	p.applyLocality(client)
+	return client.ProbeAccount(ctx)
+}
+
+// ProbeToken validates token index against upstream with a zero-cost GET
+// session probe (dashboard test action): no session is created or claimed.
+// Returns the live session state on success, or the state ALONGSIDE
+// ErrNoActiveSession when the token has no active session.
+func (p *Pool) ProbeToken(ctx context.Context, token int) (*upstream.SessionState, error) {
+	_, st, err := p.ProbeTokenDetailed(ctx, token)
+	if err != nil {
+		return st, err
+	}
+	if st == nil {
+		return nil, upstream.ErrNoActiveSession
+	}
+	switch st.Status {
+	case "none", "ended":
+		return st, upstream.ErrNoActiveSession
+	}
+	return st, nil
+}
+
 // ProbeAllTokens probes all tokens in the roster concurrently with bounded concurrency.
 func (p *Pool) ProbeAllTokens(ctx context.Context) ([]ProbeTokenOutcome, error) {
 	toks := p.roster.Load()

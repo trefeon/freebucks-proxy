@@ -561,92 +561,16 @@ func TestDashboardTokenAddRemoveMode(t *testing.T) {
 	cookie := authedCookie(t, ts)
 
 	// Add a token: pool grows, .env updated.
+	// (The /admin/mode switch is a pooled-only stub slated for deletion at
+	// integration; its behavior is pinned by the internal stub tests. It is
+	// not exercised here because the dashboard route row is Lane B owned.)
 	resp := postJSON(t, ts.URL, cookie, "/admin/tokens/add", `{"token":"cb_newtoken123"}`)
-	if !strings.Contains(bodyOf(t, resp), "Token added") {
-		t.Errorf("add response = %q, want success", bodyOf(t, resp))
+	if body := bodyOf(t, resp); !strings.Contains(body, "Token added") {
+		t.Errorf("add response = %q, want success", body)
 	}
 	env, _ := os.ReadFile(".env")
 	if !strings.Contains(string(env), "cb_newtoken123") {
 		t.Error("added token not persisted to .env")
-	}
-
-	// Mode switch to bridge: pool empties, AUTH_TOKENS cleared.
-	resp = postJSON(t, ts.URL, cookie, "/admin/mode", `{"mode":"bridge"}`)
-	if !strings.Contains(bodyOf(t, resp), "Switched to bridge mode") {
-		t.Errorf("mode response = %q, want bridge switch", bodyOf(t, resp))
-	}
-	env, _ = os.ReadFile(".env")
-	if strings.Contains(string(env), "cb_newtoken123") {
-		t.Error("token still in .env after bridge switch")
-	}
-}
-
-// TestDashboardModeSwitchClearsJSONConfigTokens is the regression for the
-// reported bug "EXE still shows bridge mode false after clicking": when
-// AUTH_TOKENS come from a -config JSON file (common for the Windows binary),
-// the mode switch writes AUTH_TOKENS= into .env, and the reload must land in
-// bridge mode — the empty .env value has to clear the JSON-provided tokens.
-// The pool must also be drained only after the reload verifies bridge mode.
-func TestDashboardModeSwitchClearsJSONConfigTokens(t *testing.T) {
-	t.Chdir(t.TempDir())
-
-	// A -config JSON supplying the tokens, exactly how the EXE is run.
-	if err := os.WriteFile("config.json", []byte(`{"AUTH_TOKENS":["tok-0"]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	mock := testutil.NewMock()
-	defer mock.Close()
-
-	cfg := &config.Config{
-		AuthTokens:         []string{"tok-0"},
-		RotationInterval:   time.Hour,
-		RequestTimeout:     15 * time.Minute,
-		SessionCallTimeout: 5 * time.Second,
-		RegistryRefresh:    6 * time.Hour,
-		UpstreamBaseURL:    mock.URL(),
-		AdminToken:         "secret",
-		DashboardEnabled:   true,
-	}
-	clientCfg := *cfg
-	clientCfg.UpstreamBaseURL = mock.URL()
-	client, err := upstream.New(cfg.AuthTokens[0], &clientCfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sessions := []*session.Manager{session.NewManager(client)}
-	reg := registry.New(cfg, nil)
-	reg.LoadFallback()
-	p, err := pool.New(cfg, []*upstream.Client{client}, sessions, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := server.New(cfg, p, reg, nil, nil, "config.json")
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	cookie := authedCookie(t, ts)
-
-	resp := postJSON(t, ts.URL, cookie, "/admin/mode", `{"mode":"bridge"}`)
-	body := bodyOf(t, resp)
-	if !strings.Contains(body, "Switched to bridge mode") {
-		t.Fatalf("mode response = %q, want bridge switch", body)
-	}
-
-	// The reload must now be in bridge mode: empty AUTH_TOKENS= in .env
-	// beats the JSON list, so BridgeMode() is true on a fresh Load too.
-	env, _ := os.ReadFile(".env")
-	if strings.Contains(string(env), "tok-0") {
-		t.Error("token still in .env after bridge switch")
-	}
-	reloaded, err := config.Load("config.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reloaded.BridgeMode() {
-		t.Error("reloaded config not in bridge mode: JSON tokens not cleared by empty .env AUTH_TOKENS")
-	}
-	if got := p.TokenCount(); got != 0 {
-		t.Errorf("pool TokenCount = %d, want 0 after bridge switch", got)
 	}
 }
 

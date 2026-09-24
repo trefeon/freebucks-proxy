@@ -2,8 +2,8 @@ package pool
 
 // Burst regression tests: no local request/message/spend cap remains --
 // upstream quota/429 is the enforcement and the smart-routing live-turn
-// slot plus FIFO queue paces bursts. Covers the pooled burst, the bridge
-// burst, the per-day display ledger, and the live-turn slot cap.
+// slot plus FIFO queue paces bursts. Covers the pooled burst,
+// the per-day display ledger, and the live-turn slot cap.
 
 import (
 	"context"
@@ -11,14 +11,13 @@ import (
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
-	"strings"
 	"testing"
 	"time"
 )
 
 // TestPooledBurstHasNoLocalRefusal proves a pooled burst far past every
-// deleted cap scale (per-minute, per-day, daily-message, spend, bridge
-// global) is never refused locally: with slot gating off, 50 sequential
+// deleted cap scale (per-minute, per-day, daily-message, spend)
+// is never refused locally: with slot gating off, 50 sequential
 // acquires all succeed. Any reintroduced local cap check would refuse
 // partway and fail this test.
 func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
@@ -52,11 +51,6 @@ func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
 		t.Errorf("requestsServed = %d, want 50 (lifetime total still records)", got)
 	}
 }
-
-// TestBridgeBurstHasNoLocalRefusal proves a bridge burst far past every
-// deleted cap scale is never refused locally: with slot gating off, 50
-// sequential bridge acquires for one client token all succeed. Any
-// reintroduced bridge rpm/daily/global cap check would refuse partway.
 
 // TestUnlimitedDefaultPerDayGate proves successful chats never trip the
 // daily gate when unconfigured: the day bucket fills but no cap applies.

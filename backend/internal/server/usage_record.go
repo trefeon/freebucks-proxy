@@ -24,7 +24,7 @@ type UsageRecord struct {
 	Total  int64  `json:"total"`
 	OK     bool   `json:"ok"`
 	// ClientKeyHash is the caller's pooled API-key identity
-	// (hex(sha256(rawKey))[:16]), "" for bridge/no-key requests. The raw
+	// (hex(sha256(rawKey))[:16]). The raw
 	// key is never stored — see hashClientKey.
 	ClientKeyHash string `json:"client_key_hash,omitempty"`
 }
@@ -145,8 +145,7 @@ func newUsageRecord(ctx context.Context, stats *relayStats, model string) UsageR
 	}
 	total := stats.usageTokens
 	// Key identity rides the request context (stamped by requireAuth,
-	// finalized by chatCore after the pooled-vs-bridge decision). Absent
-	// stamp (direct calls) and stamped "" (bridge/no-key) both read "".
+	// finalized by chatCore. Absent stamp (direct calls) reads "".
 	clientKeyHash, _ := clientKeyHashFrom(ctx)
 	return UsageRecord{
 		TsMS:          time.Now().UnixMilli(),

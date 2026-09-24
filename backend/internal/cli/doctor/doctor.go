@@ -95,10 +95,9 @@ func tokenFormatWarn(index int, token string) string {
 	return ""
 }
 
-// bridgeModeWarning is the doctor warning shown when AUTH_TOKENS is empty
-// (bridge mode active).
-func bridgeModeWarning() string {
-	return "AUTH_TOKENS is empty (bridge mode active). Clients must supply Authorization: Bearer <token>"
+// emptyPoolWarning is the doctor warning shown when AUTH_TOKENS is empty.
+func emptyPoolWarning() string {
+	return "AUTH_TOKENS is empty. Configure at least one upstream token."
 }
 
 // doctorSummary renders the doctor's closing summary line.
@@ -116,8 +115,8 @@ func RunTokenTest(configPath string) {
 		fmt.Fprintf(os.Stderr, "freebucks-proxy: -test-token: config load failed: %v\n", err)
 		os.Exit(1)
 	}
-	if cfg.BridgeMode() {
-		fmt.Fprintln(os.Stderr, "freebucks-proxy: -test-token: no AUTH_TOKENS configured (bridge mode); nothing to probe")
+	if len(cfg.AuthTokens) == 0 {
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: -test-token: no AUTH_TOKENS configured; nothing to probe")
 		os.Exit(1)
 	}
 	clientCfg := cfg
@@ -177,8 +176,8 @@ func Run(configPath string) {
 	}
 	ok("Configuration loaded & validated successfully")
 
-	if cfg.BridgeMode() {
-		warn(bridgeModeWarning())
+	if len(cfg.AuthTokens) == 0 {
+		warn(emptyPoolWarning())
 	} else {
 		ok(fmt.Sprintf("AUTH_TOKENS: %d token(s) configured", len(cfg.AuthTokens)))
 		for i, tok := range cfg.AuthTokens {
@@ -256,7 +255,7 @@ func Run(configPath string) {
 	// 401s. Probes always run: unlike the old session-handshake probes they
 	// never touch the session create API, so there is no session cost to
 	// opt out of.
-	if !cfg.BridgeMode() {
+	if len(cfg.AuthTokens) > 0 {
 		warn(fmt.Sprintf("Probing %d token(s) (zero-cost GET probes)", len(cfg.AuthTokens)))
 		for i, tok := range cfg.AuthTokens {
 			clientCfg := cfg

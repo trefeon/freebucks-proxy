@@ -311,7 +311,7 @@ func (r *tokenRoster) recordSpendLimited(token int) {
 }
 
 // recordMismatch counts one free_mode_invalid_agent_model hit for tokenIndex
-// (1-based pooled index, 0 = the bridge-shared window) and reports whether
+// (1-based pooled index) and reports whether
 // the storm threshold was crossed (crossing window), together with the
 // refused model to name. The caller (Pool.recordMismatchEscalation) owns the
 // webhook emission so the roster stays a pure ledger.

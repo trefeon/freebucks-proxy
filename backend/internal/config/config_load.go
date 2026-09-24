@@ -28,7 +28,7 @@ type LoadOptions struct {
 	// (SettingsBlockedKeys: SESSION_STATE_FILE, SESSION_PERSIST, LOG_FILE,
 	// HTTP_READ_TIMEOUT, AUTO_DISCOVER_TOKEN), whose rows are inert and
 	// filtered before they apply; AUTH_TOKENS applies with
-	// presence semantics (an empty row pins bridge mode and suppresses CLI
+	// presence semantics (an empty row records presence and suppresses CLI
 	// auto-discovery, mirroring the .env tier). Nil or empty behaves like
 	// Load.
 	Overlay map[string]string
@@ -63,8 +63,8 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.ListenAddr, "LISTEN_ADDR")
 	overrideString(&raw.UpstreamBaseURL, "UPSTREAM_BASE_URL")
 	// AUTH_TOKENS is presence-sensitive: an empty value in the real
-	// environment is an explicit bridge-mode choice (systemd/Docker unit
-	// files set AUTH_TOKENS= to force bridge mode). Unlike other keys, an
+	// environment is an explicit empty-pool choice (systemd/Docker unit
+	// files set AUTH_TOKENS= to force an empty pool). Unlike other keys, an
 	// empty value must not be skipped — it records presence so CLI
 	// auto-discovery cannot refill the pool, mirroring applyDotenv's
 	// AUTH_TOKENS handling for .env. When the variable is absent, the
@@ -93,8 +93,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.LogLevel, "LOG_LEVEL")
 	overrideString(&raw.LogFormat, "LOG_FORMAT")
 	overrideBool(&raw.LogAccess, "LOG_ACCESS")
-	overrideBool(&raw.BridgeEnabled, "BRIDGE_ENABLED")
-	overrideString(&raw.BridgeIdleEvict, "BRIDGE_IDLE_EVICT")
 	overrideString(&raw.IdleRotationTimeout, "IDLE_ROTATION_TIMEOUT")
 	overrideBool(&raw.SafeMode, "SAFE_MODE")
 	overrideBool(&raw.ModelsHideUnavailable, "MODELS_HIDE_UNAVAILABLE")
@@ -270,20 +268,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 
-	// BRIDGE_IDLE_EVICT is zero-tolerant: "" or "0" fall back to the 72h
-	// default (a zero TTL would evict every bridge entry on the first idle
-	// pass, defeating the cache).
-	bridgeIdleEvict := 72 * time.Hour
-	if v := strings.TrimSpace(raw.BridgeIdleEvict); v != "" {
-		bridgeIdleEvict, err = parseDuration(v, "BRIDGE_IDLE_EVICT")
-		if err != nil {
-			return Config{}, err
-		}
-		if bridgeIdleEvict <= 0 {
-			bridgeIdleEvict = 72 * time.Hour
-		}
-	}
-
 	// TRANSIENT_RETRIES: nil defaults to 1 (one additional attempt after a
 	// transient transport failure); an explicit 0 disables retries.
 	transientRetries := 1
@@ -397,8 +381,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		LogLevel:                 strings.TrimSpace(raw.LogLevel),
 		LogFormat:                logFormat,
 		LogAccess:                raw.LogAccess,
-		BridgeEnabled:            raw.BridgeEnabled,
-		BridgeIdleEvict:          bridgeIdleEvict,
 		IdleRotationTimeout:      idleRotationTimeout,
 		SafeMode:                 raw.SafeMode,
 		ModelsHideUnavailable:    raw.ModelsHideUnavailable,
@@ -461,10 +443,10 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 				cfg.AuthTokens = []string{token}
 				cfg.DiscoveredSource = srcPath
 				cfg.DiscoveredEmail = email
-				// An operator running without AUTH_TOKENS intends bridge
+				// An operator running without AUTH_TOKENS intends an empty pool
 				// mode; auto-discovery silently flipping to pooled mode is
 				// surprising, so warn loudly and name the off switch.
-				slog.Warn("auto-discovery filled empty AUTH_TOKENS from CLI login: bridge mode switched to pooled mode",
+				slog.Warn("auto-discovery filled empty AUTH_TOKENS from CLI login,",
 					"file", srcPath,
 					"email", email,
 					"hint", "set AUTO_DISCOVER_TOKEN=false to disable auto-discovery")
@@ -537,7 +519,7 @@ func applyDotenv(raw *rawConfig, path string) error {
 		return err
 	}
 	get := func(name string) string { return vals[name] }
-	// An empty AUTH_TOKENS= line in .env is an explicit bridge-mode choice
+	// An empty AUTH_TOKENS= line in .env is an explicit empty-pool choice
 	// (the dashboard mode switch persists exactly this): record presence so
 	// auto-discovery cannot refill it, AND clear whatever the JSON config
 	// provided (the empty value must beat the JSON list). Unlike other keys,
@@ -579,8 +561,6 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.LogLevel, get, "LOG_LEVEL")
 	overrideStringFrom(&raw.LogFormat, get, "LOG_FORMAT")
 	overrideBoolFrom(&raw.LogAccess, get, "LOG_ACCESS")
-	overrideBoolFrom(&raw.BridgeEnabled, get, "BRIDGE_ENABLED")
-	overrideStringFrom(&raw.BridgeIdleEvict, get, "BRIDGE_IDLE_EVICT")
 	overrideStringFrom(&raw.IdleRotationTimeout, get, "IDLE_ROTATION_TIMEOUT")
 	// The remaining keys mirror the real-environment override set in Load.
 	// AUTO_DISCOVER_TOKEN is intentionally env-only (it controls the .env

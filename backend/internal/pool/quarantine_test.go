@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
 )
@@ -103,11 +102,6 @@ func TestRateLimitedCooldownOnlyNotQuarantined(t *testing.T) {
 		return err == nil
 	})
 }
-
-// TestBridgeTokenBannedNoQuarantine pins the bridge-mode semantics: a
-// per-request bridge token's 403 ban surfaces to the client as today and is
-// NOT quarantined (only fixed pooled tokens qualify for quarantine), so no
-// fixed-token quarantine bookkeeping is created.
 
 // TestQuarantineResetsOnConfigMemberChange pins the rebuild semantics: a
 // quarantine survives across Acquire calls (the token stays skipped) and is

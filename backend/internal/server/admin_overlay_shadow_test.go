@@ -49,62 +49,30 @@ func shadowLogin(t *testing.T, h http.Handler, password string) *http.Cookie {
 	return nil
 }
 
-// TestModeSwitchPooledConvergesOverlay: with BRIDGE_ENABLED pinned to 1 by a
-// stale DB overlay row, the hybrid→pooled switch converges the row instead
-// of failing — the mode switch is write-through (DB-unified storage), so the
-// explicit UI action wins over the stale pin on both layers.
-func TestModeSwitchPooledConvergesOverlay(t *testing.T) {
-	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n",
-		func(c *config.Config) { c.BridgeEnabled = true })
+// STUB (pool-only excision, Lane A): the mode switch is pooled-only and
+// converges nothing. Lane B removes the dashboard call sites; the
+// integration commit deletes the stubs + server_routes entries.
+func TestModeSwitchPooledStub(t *testing.T) {
+	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n", nil)
 	st := attachShadowStore(t, s)
-	if err := st.SetSetting(config.OverlayRowKey("BRIDGE_ENABLED"), "1"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	h := s.Handler()
-	cookie := shadowLogin(t, h, "secretPass123")
-
-	req := httptest.NewRequest(http.MethodPost, "/admin/mode", strings.NewReader(`{"mode":"pooled"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("pooled switch status = %d, want 200 (stale overlay converges): %s", rec.Code, rec.Body.String())
-	}
-	if v, _, _ := st.GetSetting(config.OverlayRowKey("BRIDGE_ENABLED")); v != "0" {
-		t.Errorf("overlay BRIDGE_ENABLED = %q, want converged %q", v, "0")
-	}
-	if s.admin.cfgLoad().HybridBridgeMode() {
-		t.Error("effective config still hybrid after pooled switch")
-	}
-}
-
-// TestModeSwitchHybridConvergesOverlay: with BRIDGE_ENABLED pinned to 0 by a
-// stale DB overlay row, the pooled→hybrid switch converges the row instead
-// of failing (write-through, like the pooled direction above).
-func TestModeSwitchHybridConvergesOverlay(t *testing.T) {
-	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n",
-		func(c *config.Config) { c.BridgeEnabled = false })
-	st := attachShadowStore(t, s)
-	if err := st.SetSetting(config.OverlayRowKey("BRIDGE_ENABLED"), "0"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	h := s.Handler()
-	cookie := shadowLogin(t, h, "secretPass123")
-
-	req := httptest.NewRequest(http.MethodPost, "/admin/mode", strings.NewReader(`{"mode":"hybrid"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("hybrid switch status = %d, want 200 (stale overlay converges): %s", rec.Code, rec.Body.String())
-	}
-	if v, _, _ := st.GetSetting(config.OverlayRowKey("BRIDGE_ENABLED")); v != "1" {
-		t.Errorf("overlay BRIDGE_ENABLED = %q, want converged %q", v, "1")
-	}
-	if !s.admin.cfgLoad().HybridBridgeMode() {
-		t.Error("effective config not hybrid after switch")
+	_ = st
+	// Direct handler calls (see TestDualWriteModeSwitchPooledStub): the
+	// /admin/mode dashboard route row is Lane B owned.
+	for _, tc := range []struct{ mode, want string }{
+		{"pooled", "Already in pooled mode"},
+		{"bridge", "Only pooled mode exists"},
+		{"hybrid", "Only pooled mode exists"},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/admin/mode", strings.NewReader(`{"mode":"`+tc.mode+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.admin.handleModeSwitch(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s switch status = %d, want 400: %s", tc.mode, rec.Code, rec.Body.String())
+		}
+		if body := rec.Body.String(); !strings.Contains(body, tc.want) {
+			t.Errorf("%s response = %q, want %q", tc.mode, body, tc.want)
+		}
 	}
 }
 
@@ -136,37 +104,6 @@ func TestRequireLoginConvergesOverlay(t *testing.T) {
 	}
 	if s.admin.cfgLoad().RequireLogin() {
 		t.Error("effective RequireLogin still true after toggle to false")
-	}
-}
-
-// TestModeSwitchBridgeConvergesAuthTokensOverlay: with a stale migrated
-// config:AUTH_TOKENS row pinning a pool the .env no longer carries, the
-// pooled→bridge switch converges the row to empty instead of failing — the
-// switch is write-through (DB-unified storage), so token management keeps
-// working after the env-to-DB migration instead of tripping its own
-// divergence guard on the migrated row.
-func TestModeSwitchBridgeConvergesAuthTokensOverlay(t *testing.T) {
-	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n", nil)
-	st := attachShadowStore(t, s)
-	if err := st.SetSetting(config.OverlayRowKey("AUTH_TOKENS"), "tok-stale"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	h := s.Handler()
-	cookie := shadowLogin(t, h, "secretPass123")
-
-	req := httptest.NewRequest(http.MethodPost, "/admin/mode", strings.NewReader(`{"mode":"bridge"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("bridge switch status = %d, want 200 (stale overlay converges): %s", rec.Code, rec.Body.String())
-	}
-	if v, _, _ := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS")); v != "" {
-		t.Errorf("overlay AUTH_TOKENS = %q, want converged empty (bridge pin)", v)
-	}
-	if !s.admin.cfgLoad().BridgeMode() {
-		t.Error("effective config not in bridge mode after switch")
 	}
 }
 

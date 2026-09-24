@@ -1,7 +1,6 @@
 // pool_quota_window_test.go — quota-window audit regression tests (item #2):
 // lift-aware quarantine (temporary vs hard bans), mismatch-window cleanup
-// on token removal, the shared quota-window implementation (pooled ==
-// bridge), and usage/spend index alignment after by-index removal followed
+// on token removal, and usage/spend index alignment after by-index removal followed
 // by AddToken.
 package pool
 
@@ -260,15 +259,9 @@ func TestQuotaResetRollsForwardOnNextAcquire(t *testing.T) {
 	}
 }
 
-// TestBridgeQuotaMirrorsPooled pins the single-implementation contract for
-// the kept meter: for identical Freebucks state the pooled and bridge views
-// agree (both delegate to freebucksCapped), so the allowance semantics
-// cannot drift between the two modes. (Name kept per the dequota contract.)
-
 // TestMismatchEscalationModelUsesRefusedModel pins the #140 webhook Model
 // field (the refused MODEL, falling back to the refusal code) and the
-// 1-based TokenIndex convention: pooled token 0 (key 1) never shares the
-// escalation window with the bridge entries (key 0).
+// 1-based TokenIndex convention.
 func TestMismatchEscalationModelUsesRefusedModel(t *testing.T) {
 	var posts atomic.Int64
 	var gotModel atomic.Value
@@ -305,23 +298,6 @@ func TestMismatchEscalationModelUsesRefusedModel(t *testing.T) {
 	}
 	if got := gotIdx.Load(); got != 1 {
 		t.Errorf("event TokenIndex = %d, want 1 (1-based pooled index)", got)
-	}
-
-	// A BRIDGE-keyed storm (key 0) must not merge with the pooled token-0
-	// window: it fires its own alert with TokenIndex 0.
-	gotIdx.Store(0)
-	p.recordMismatchEscalation(0, rle)
-	p.recordMismatchEscalation(0, rle)
-	// The notify throttle is per event TYPE (notify.go throttle): the
-	// bridge-keyed storm shares the pooled storm's event type, so it must
-	// NOT produce a second POST inside the window. Age past any
-	// fire-and-forget delivery and assert the silence.
-	time.Sleep(time.Second)
-	if posts.Load() != 1 {
-		t.Errorf("bridge-keyed storm posted again: posts = %d, want 1 (throttled per event type)", posts.Load())
-	}
-	if got := gotIdx.Load(); got != 0 {
-		t.Errorf("bridge-keyed event TokenIndex = %d, want 0 (bridge shared window)", got)
 	}
 
 	// Model absent from the body: fall back to the refusal code. The

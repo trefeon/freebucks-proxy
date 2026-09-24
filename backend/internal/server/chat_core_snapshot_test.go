@@ -1,7 +1,7 @@
 package server
 
-// P2-3 regression tests (2026-08-31 review): one request's pooled-vs-bridge
-// routing must derive from ONE config snapshot. requireAuth (the outermost
+// P2-3 regression tests (2026-08-31 review): one request's auth decision
+// must derive from ONE config snapshot. requireAuth (the outermost
 // /v1 auth wrapper) pins its config load into the request context; chatCore
 // and authorized must route from that pinned snapshot — never from a fresh
 // load that a concurrent /admin/reload may have swapped in between the
@@ -32,12 +32,11 @@ const (
 	reviewFixModel      = "deepseek/deepseek-v4-flash"
 	reviewFixAPIKey     = "sk-reviewfix"
 	reviewFixRotatedKey = "sk-rotated"
-	reviewFixBridgeCred = "client-cred-reviewfix"
 )
 
 // newReviewFixCore wires the real chatCore stack the way the external
 // server_test helpers do — one mock upstream, one pool token (tok-0),
-// hybrid config (AUTH_TOKENS pool + BRIDGE_ENABLED, API_KEYS=[reviewFixAPIKey])
+// pooled config (AUTH_TOKENS pool, API_KEYS=[reviewFixAPIKey])
 // — but inside package server so the tests can reach chatCore, authorized,
 // and the snapshot helpers directly.
 func newReviewFixCore(t *testing.T) (*Server, *testutil.MockUpstream, *config.Config) {
@@ -52,7 +51,6 @@ func newReviewFixCore(t *testing.T) (*Server, *testutil.MockUpstream, *config.Co
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    mock.URL(),
 		APIKeys:            []string{reviewFixAPIKey},
-		BridgeEnabled:      true,
 		AdminToken:         config.DefaultAdminToken,
 	}
 	client, err := upstream.New("tok-0", cfg)
@@ -110,11 +108,9 @@ func requireAuthThenSwap(t *testing.T, s *Server, authHeader string, swap func(*
 }
 
 // TestChatCoreSnapshotAPIKeyRemovalTear: requireAuth admitted the request
-// under cfg1 (hybrid, API_KEYS=[sk-reviewfix]); the operator then swaps the
+// under cfg1 (API_KEYS=[sk-reviewfix]); the operator then swaps the
 // live config to cfg2 where that key was rotated away. chatCore must route
-// from the pinned snapshot — pooled, the upstream sees the pool token —
-// never relay the now-unknown key upstream as a bridge token (the pre-fix
-// behavior: a fresh chatCore load saw cfg2 and bridged).
+// from the pinned snapshot — pooled, the upstream sees the pool token.
 func TestChatCoreSnapshotAPIKeyRemovalTear(t *testing.T) {
 	s, mock, _ := newReviewFixCore(t)
 	mock.ChatBody = testutil.SSEEvent(`{"id":"chatcmpl-rf1","object":"chat.completion.chunk","created":1,"model":"` + reviewFixModel + `","choices":[{"index":0,"delta":{"content":"pooled"},"finish_reason":null}]}`)
@@ -132,34 +128,7 @@ func TestChatCoreSnapshotAPIKeyRemovalTear(t *testing.T) {
 		t.Fatalf("upstream chat calls = %d, want 1 (recorder body: %s)", len(mock.RecordedChatHeaders), w.Body.String())
 	}
 	if got := mock.RecordedChatHeaders[0].Get("Authorization"); got != "Bearer tok-0" {
-		t.Errorf("upstream Authorization = %q, want %q — the removed API key must never be relayed upstream as a bridge token", got, "Bearer tok-0")
-	}
-}
-
-// TestChatCoreSnapshotBridgeFlipTear: requireAuth passed an unknown
-// credential through under cfg1 (hybrid); the live config then flips
-// BRIDGE_ENABLED off (pure pooled lockdown). chatCore must still treat the
-// credential as a bridge token per the pinned snapshot — pre-fix it
-// consulted the swapped config and served the unauthenticated request from
-// the pool.
-func TestChatCoreSnapshotBridgeFlipTear(t *testing.T) {
-	s, mock, _ := newReviewFixCore(t)
-	mock.ChatBody = testutil.SSEEvent(`{"id":"chatcmpl-rf2","object":"chat.completion.chunk","created":2,"model":"` + reviewFixModel + `","choices":[{"index":0,"delta":{"content":"bridged"},"finish_reason":null}]}`)
-
-	stamped, _ := requireAuthThenSwap(t, s, "Bearer "+reviewFixBridgeCred, func(pinned *config.Config) {
-		cfg2 := *pinned
-		cfg2.BridgeEnabled = false
-		s.cfg.Store(&cfg2)
-	})
-
-	w := httptest.NewRecorder()
-	s.chatCore(w, stamped, reviewFixModel, true, reviewFixChatBody(), convert.ToolMapper{}, "", "chat completions", reviewFixDrainRelay)
-
-	if len(mock.RecordedChatHeaders) != 1 {
-		t.Fatalf("upstream chat calls = %d, want 1 (recorder body: %s)", len(mock.RecordedChatHeaders), w.Body.String())
-	}
-	if got := mock.RecordedChatHeaders[0].Get("Authorization"); got != "Bearer "+reviewFixBridgeCred {
-		t.Errorf("upstream Authorization = %q, want %q — the client credential must be bridged per the snapshot requireAuth admitted it under, not served from the pool", got, "Bearer "+reviewFixBridgeCred)
+		t.Errorf("upstream Authorization = %q, want %q", got, "Bearer tok-0")
 	}
 }
 
@@ -172,6 +141,9 @@ func TestRequireAuthStampsConfigSnapshot(t *testing.T) {
 	s, _, cfg1 := newReviewFixCore(t)
 
 	saw := func(r *http.Request) *config.Config {
+		if keys := s.cfg.Load().APIKeys; len(keys) > 0 {
+			r.Header.Set("Authorization", "Bearer "+keys[0])
+		}
 		var got *config.Config
 		s.requireAuth(func(w http.ResponseWriter, req *http.Request) {
 			got = cfgSnapshotFrom(req.Context())
@@ -219,11 +191,7 @@ func TestAuthorizedUsesPassedSnapshot(t *testing.T) {
 
 // TestChatCorePaddedAPIKeyStaysPooled: clientToken trims surrounding
 // whitespace before routing, so a padded API key ("  sk-reviewfix  ", as
-// produced by sloppy env interpolation) must still count as pooled access in
-// hybrid mode. Pre-fix, authorized compared the UNtrimmed header value, so a
-// padded x-api-key/anthropic-api-key missed the pool and was relayed upstream
-// as a bridge token — the same credential routed two different ways by two
-// copies of the same extraction logic.
+// produced by sloppy env interpolation) must still count as pooled access.
 func TestChatCorePaddedAPIKeyStaysPooled(t *testing.T) {
 	for _, tc := range []struct{ name, header, value string }{
 		{"bearer", "Authorization", "Bearer   " + reviewFixAPIKey + "  "},
@@ -250,10 +218,7 @@ func TestChatCorePaddedAPIKeyStaysPooled(t *testing.T) {
 				t.Fatalf("upstream chat calls = %d, want 1 (recorder body: %s)", len(mock.RecordedChatHeaders), w.Body.String())
 			}
 			if got := mock.RecordedChatHeaders[0].Get("Authorization"); got != "Bearer tok-0" {
-				t.Errorf("upstream Authorization = %q, want %q — a padded API key must stay pooled, never relayed as a bridge token", got, "Bearer tok-0")
-			}
-			if got := s.pool.BridgeCount(); got != 0 {
-				t.Errorf("BridgeCount = %d, want 0 (no bridge entry for a padded pooled key)", got)
+				t.Errorf("upstream Authorization = %q, want %q", got, "Bearer tok-0")
 			}
 		})
 	}

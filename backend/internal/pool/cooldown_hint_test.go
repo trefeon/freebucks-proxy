@@ -8,8 +8,7 @@ package pool
 //   - missing reads as eligible, expired reads as absent (and converges);
 //   - hints never fail Acquire alone (all-hinted walks attempt upstream
 //     live) but skip one doomed probe when an alternative serves;
-//   - bridge idle-eviction survivors are bounded, expiring, SHA-keyed and
-//     fold into the usage accounting;
+//   - terminal hints are bounded and expiring;
 //   - the pool/probe/quota/* namespace is retired (sessions_persist owns
 //     quota): the flush stages nothing there and drains legacy rows.
 
@@ -17,7 +16,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
 	"io"
@@ -255,14 +253,6 @@ func TestCooldownHintClearedByUnlock(t *testing.T) {
 		t.Fatal("hint row survives UnlockToken, want deleted")
 	}
 }
-
-// TestBridgeSurvivorCapDropsOldest pins the survivor bound: captures past
-// maxBridgeSurvivors drop the oldest, the blob carries SHA keys only (raw
-// client tokens never), and the retained list folds into the accounting.
-
-// TestBridgeSurvivorExpiry pins the survivor TTL: records evicted over one
-// usageWindow ago drop on restore (and converge the row); today's Pacific-day
-// counts fold only while their day bucket is current.
 
 // TestQuotaSingleWriterRetiresProbeNamespace pins the quota cutover: with
 // live session quota present, the flush stages NO pool/probe/quota/* row and

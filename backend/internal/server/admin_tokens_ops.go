@@ -27,8 +27,7 @@ func (a *adminHandlers) addTokenPersist(ctx context.Context, token string) (int,
 		if err != nil {
 			return 0, fmt.Errorf("add token to pool: %w", err)
 		}
-		// Persist the runtime list (pool may have bridge additions too, but
-		// AUTH_TOKENS is the fixed set — append only when not already there).
+		// Persist the runtime list (AUTH_TOKENS is the fixed set — append only when not already there).
 		tokens := append([]string(nil), existing...)
 		seen := false
 		for _, t := range tokens {
@@ -45,8 +44,7 @@ func (a *adminHandlers) addTokenPersist(ctx context.Context, token string) (int,
 		}
 		return idx, nil
 	}
-	// Bridge mode (no fixed tokens): the first wizard token switches to
-	// pooled mode, exactly like handleTokenAdd.
+	// The first wizard token switches to pooled mode, exactly like handleTokenAdd.
 	idx, err := a.pool.AddToken(token)
 	if err != nil {
 		return 0, fmt.Errorf("add token to pool: %w", err)

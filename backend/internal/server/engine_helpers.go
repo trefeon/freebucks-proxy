@@ -39,7 +39,7 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 	if lease != nil {
 		// Held lease (ok path and pre-release errors): the run attribution
 		// comes straight off the lease. lease.Run is always set on pooled
-		// and bridge leases from the pool; the guard is for synthetic
+		// leases from the pool; the guard is for synthetic
 		// test leases only.
 		runID, traceSID := "", ""
 		if lease.Run != nil {
@@ -121,8 +121,7 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 // single indexed upsert and never fails the request: a nil store skips the
 // write (live-only), a missing req_id skips it (the PRIMARY KEY cannot
 // distinguish pre-attempt refusals — the ring log still carries them), and
-// insert errors only warn. Raw client tokens never reach the store: the
-// lease's token index (bridge = -1) is the only token signal recorded.
+// insert errors only warn.
 func (s *Server) recordRequestOutcome(lease *pool.Lease, model string, status, errClass string, phases map[string]int64, st *chatTraceState) {
 	if s.hist == nil || st == nil || st.reqID == "" {
 		return
@@ -135,9 +134,8 @@ func (s *Server) recordRequestOutcome(lease *pool.Lease, model string, status, e
 	if phases != nil {
 		ttfb = phases[phasetiming.UpstreamTTFBMS]
 	}
-	// clientKeyHash is the pooled API-key identity (hex(sha256)[:16]),
-	// "" for bridge/no-key — finalized by chatCore after routing. The raw
-	// key never reaches the store.
+	// clientKeyHash is the pooled API-key identity (hex(sha256)[:16]);
+	// "" when no key matched. The raw key never reaches the store.
 	if err := s.hist.RecordRequest(store.RequestRecord{
 		ReqID:         st.reqID,
 		TS:            store.Millis(time.Now()),
@@ -213,7 +211,7 @@ type chatTraceState struct {
 	// post-acquire chat error: chatAttempt releases the lease before
 	// returning, so without these the trace would lose the token that
 	// actually served (and failed) the attempt. Rendered 1-based via
-	// tokenLabel ("bridge" for bridge leases). Empty = no lease was
+	// tokenLabel. Empty = no lease was
 	// held when the request failed (acquire-time failure).
 	failedToken string
 	failedAgent string
@@ -237,8 +235,8 @@ type chatTraceState struct {
 	rateToken  string
 	rateTokens string
 	// clientKeyHash is the pooled client API-key identity for this
-	// request (hex(sha256(rawKey))[:16]), "" for bridge/no-key requests.
-	// Finalized by chatCore after the pooled-vs-bridge decision; the
+	// request (hex(sha256(rawKey))[:16]), "" when no key matched.
+	// Finalized by chatCore; the
 	// usage ring (via the request context) and the request_records row
 	// (via recordRequestOutcome) both read this same value.
 	clientKeyHash string
@@ -257,11 +255,11 @@ func (st *chatTraceState) statusesSeen() string {
 	return strings.Join(parts, ",")
 }
 
-// tokenLabel renders the lease's token for logging: "bridge" for bridge
-// leases, the 1-based fixed-token index otherwise.
+// tokenLabel renders the lease's token for logging: the 1-based
+// fixed-token index.
 func tokenLabel(lease *pool.Lease) string {
-	if lease == nil || lease.Bridge != nil {
-		return "bridge"
+	if lease == nil {
+		return ""
 	}
 	return fmt.Sprintf("%d", lease.Token+1)
 }
@@ -270,10 +268,9 @@ func tokenLabel(lease *pool.Lease) string {
 // chat outcome: the serving lease's label when held, else the failed
 // attempt's lease attribution (post-acquire errors release before
 // returning), else the acquire-time rate-limit binding token. "" when no
-// token was ever attributable (auth 401s, egress refusals, missing bridge
-// credential) — the caller then leaves the access "token" field absent and
-// the detail stays ring-only. Labels are 1-based indices or "bridge";
-// raw keys never appear here.
+// token was ever attributable (auth 401s, egress refusals) — the caller then
+// leaves the access "token" field absent and the detail stays ring-only.
+// Labels are 1-based indices; raw keys never appear here.
 func accessTokenLabel(lease *pool.Lease, st *chatTraceState) string {
 	if lease != nil {
 		return tokenLabel(lease)

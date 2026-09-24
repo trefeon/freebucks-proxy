@@ -264,7 +264,7 @@ func clientRequestID(r *http.Request) string {
 // field. The carrier is a context-held pointer (single request goroutine
 // mutates before the wrapper reads — no race). Non-chat surfaces never
 // stash, so their access lines omit the field; pre-attempt refusals with
-// no lease and no attribution (auth 401s, egress refusals, missing bridge
+// no lease and no attribution (auth 401s, egress refusals
 // credential, outer rate-limit 429s) likewise omit it — the detail stays
 // ring-only on the chat trace / refusal line.
 type accessTokenKey struct{}
@@ -280,7 +280,7 @@ func accessTokenFrom(ctx context.Context) *accessToken {
 }
 
 // stashAccessToken records the serving token's log label (1-based index or
-// "bridge", NEVER the raw key) for the access line. Empty labels are
+// NEVER the raw key) for the access line. Empty labels are
 // ignored so pre-lease refusals keep the field absent. Nil-safe: requests
 // that bypassed the wrapper (direct handler calls in tests) carry no
 // carrier.

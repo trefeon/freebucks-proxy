@@ -63,13 +63,12 @@ func TestLifecycleFullJourney(t *testing.T) {
 		testutil.SSEEvent(chunk("chatcmpl-lc", 1,
 			`"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]`))
 
-	// Hybrid (the production default with AUTH_TOKENS set) with no client
-	// API keys: open-pooled, every request served from the token pool.
+	// Pooled with no client API keys: open-pooled, every request served
+	// from the token pool.
 	// The mut below also points the POOL config at the mock, so a
 	// runtime-added token's client is built against the mock (see the
 	// finding above).
 	ts, p := newTestServerCfg(t, nil, func(c *config.Config) {
-		c.BridgeEnabled = true
 		c.UpstreamBaseURL = mock.URL()
 		c.AdminToken = "secret"
 	}, mock)
@@ -90,8 +89,8 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal(data, &hz); err != nil {
 			t.Fatalf("healthz not JSON: %v: %s", err, data)
 		}
-		if hz.Status != "ok" || hz.Mode != "hybrid" {
-			t.Errorf("healthz status/mode = %q/%q, want ok/hybrid (AUTH_TOKENS set + BRIDGE_ENABLED)", hz.Status, hz.Mode)
+		if hz.Status != "ok" || hz.Mode != "pooled" {
+			t.Errorf("healthz status/mode = %q/%q, want ok/pooled", hz.Status, hz.Mode)
 		}
 		if hz.Models != 7 {
 			t.Errorf("healthz models = %d, want 7", hz.Models)
@@ -394,8 +393,8 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal([]byte(bodyOf(t, ovResp)), &ov); err != nil {
 			t.Fatalf("overview not JSON: %v", err)
 		}
-		if ov.Mode != "hybrid" || ov.ModelCount != 7 || !ov.HasTokens || len(ov.Tokens) != 2 {
-			t.Errorf("overview = %+v, want mode=hybrid models=7 has_tokens with 2 token cards", ov)
+		if ov.Mode != "pooled" || ov.ModelCount != 7 || !ov.HasTokens || len(ov.Tokens) != 2 {
+			t.Errorf("overview = %+v, want mode=pooled models=7 has_tokens with 2 token cards", ov)
 		}
 
 		// The models list carries a per-model quota label.
@@ -476,7 +475,7 @@ func TestLifecycleFullJourney(t *testing.T) {
 			t.Errorf("reload response = %s, want status ok with auth_tokens 1", body)
 		}
 
-		// Still healthy after the journey: hybrid, 6 models, 1 token.
+		// Still healthy after the journey: pooled, 6 models, 1 token.
 		resp, data = doJSON(t, http.MethodGet, ts.URL+"/healthz", nil, nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("healthz after reload = %d, want 200: %s", resp.StatusCode, data)
@@ -490,8 +489,8 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal(data, &hz); err != nil {
 			t.Fatalf("healthz not JSON: %v: %s", err, data)
 		}
-		if hz.Status != "ok" || hz.Mode != "hybrid" || hz.Models != 7 || len(hz.Tokens) != 1 {
-			t.Errorf("healthz = %+v, want ok/hybrid/7/1 token after reload", hz)
+		if hz.Status != "ok" || hz.Mode != "pooled" || hz.Models != 7 || len(hz.Tokens) != 1 {
+			t.Errorf("healthz = %+v, want ok/pooled/7/1 token after reload", hz)
 		}
 
 		// Final metrics counters: the removed first token's counters are

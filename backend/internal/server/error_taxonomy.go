@@ -81,7 +81,7 @@ func defaultHintForCode(code, message string) string {
 	case code == "peak_hours":
 		return "Premium peak-hours window — transient. Retry after ~30m."
 	case code == "missing_bearer_token":
-		return "Bridge mode active: pass your FreeBuff token in Authorization: Bearer <token>"
+		return "Missing credential: pass a client API key in Authorization: Bearer <key>"
 	case code == "strict_violation":
 		return "A tool declared strict:true but its schema does not meet the strict contract: parameters must be type object with every property listed in required and additionalProperties false."
 	case code == "invalid_tool_arguments":

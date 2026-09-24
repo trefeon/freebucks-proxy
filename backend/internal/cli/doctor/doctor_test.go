@@ -102,8 +102,8 @@ func TestTokenFormatWarn(t *testing.T) {
 		})
 	}
 
-	if w := bridgeModeWarning(); !strings.Contains(w, "AUTH_TOKENS is empty") {
-		t.Errorf("bridgeModeWarning = %q, want the empty-AUTH_TOKENS warning", w)
+	if w := emptyPoolWarning(); !strings.Contains(w, "AUTH_TOKENS is empty") {
+		t.Errorf("emptyPoolWarning = %q, want the empty-AUTH_TOKENS warning", w)
 	}
 }
 

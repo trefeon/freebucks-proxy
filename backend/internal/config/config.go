@@ -46,7 +46,7 @@ type Config struct {
 	// AutoDiscoverToken records the effective AUTO_DISCOVER_TOKEN knob
 	// (default true, env-only): the process environment alone decides; a DB
 	// overlay row is inert (SettingsBlockedKeys).
-	// When false, an empty AUTH_TOKENS pool stays empty (bridge mode) and
+	// When false, an empty AUTH_TOKENS pool stays empty and
 	// the CLI-credential discovery hook never fires; ADOPT_CLI_SESSION can
 	// still opt into discovery on its own.
 	AutoDiscoverToken bool
@@ -62,20 +62,9 @@ type Config struct {
 	// records, the console's default VIEW window is 1h, and the history
 	// purge keeps log_entries/request_records for 168h (7d). Quota and
 	// maturity history keep their own 90d retention.
-	IdleRotationTimeout time.Duration // 0 = disabled: pause run rotation/refresh after this idle period
-	// BridgeEnabled gates bridge-mode traffic when AUTH_TOKENS are configured
-	// (BRIDGE_ENABLED; default true). When enabled alongside a token pool the
-	// proxy runs in hybrid mode: a request whose credential matches an
-	// API_KEYS entry uses the pool, every other credential is relayed upstream
-	// as a bridge token. Set BRIDGE_ENABLED=0 for a locked-down pooled-only
-	// instance (the pre-hybrid behavior).
-	BridgeEnabled bool
-	// BridgeIdleEvict is how long a bridge entry may sit unused before the
-	// maintain loop FINISHes its runs, ends its upstream session, and drops it
-	// from the cache (BRIDGE_IDLE_EVICT; default 72h, sliding TTL).
-	BridgeIdleEvict       time.Duration
-	SafeMode              bool // true = apply recommended anti-ban safe defaults
-	ModelsHideUnavailable bool // true = /v1/models prunes models marked unavailable (region/quota/lock)
+	IdleRotationTimeout   time.Duration // 0 = disabled: pause run rotation/refresh after this idle period
+	SafeMode              bool          // true = apply recommended anti-ban safe defaults
+	ModelsHideUnavailable bool          // true = /v1/models prunes models marked unavailable (region/quota/lock)
 	// ModelsAllow is the operator-set model allowlist (MODELS_ALLOW,
 	// comma-separated). When non-empty, /v1/models lists only the allowed
 	// ids and chat/messages/responses requests whose RESOLVED model (after
@@ -342,32 +331,9 @@ func (c *Config) RequireLogin() bool {
 	return c != nil && c.DashboardRequireLogin && c.AdminToken != ""
 }
 
-// BridgeMode reports whether the proxy runs without any AUTH_TOKENS: every
-// client supplies their own FreeBuff token per request (Authorization: Bearer
-// or x-api-key), and the proxy relays with that token upstream.
-func (c Config) BridgeMode() bool { return len(c.AuthTokens) == 0 }
-
-// HybridBridgeMode reports whether the proxy runs pooled AND bridge
-// simultaneously: AUTH_TOKENS are configured AND BRIDGE_ENABLED (the
-// default). A request whose credential matches an API_KEYS entry uses the
-// pooled path; any other credential is relayed upstream as a bridge token.
-func (c Config) HybridBridgeMode() bool {
-	return len(c.AuthTokens) > 0 && c.BridgeEnabled
-}
-
-// EffectiveMode reports the routing mode label for dashboards and healthz:
-// "bridge" when no AUTH_TOKENS are configured, "hybrid" when AUTH_TOKENS
-// are set with BRIDGE_ENABLED (the default), else "pooled".
-func (c Config) EffectiveMode() string {
-	switch {
-	case c.BridgeMode():
-		return "bridge"
-	case c.HybridBridgeMode():
-		return "hybrid"
-	default:
-		return "pooled"
-	}
-}
+// EffectiveMode reports the routing mode label for dashboards and healthz.
+// Pool-only: always "pooled".
+func (c Config) EffectiveMode() string { return "pooled" }
 
 // EnvFileCandidates returns the ordered candidate paths for the .env file
 // (issue #39). The working directory wins (./.env), matching the historic

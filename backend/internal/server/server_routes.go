@@ -276,8 +276,8 @@ func (s *Server) Handler() http.Handler {
 			attrs = append(attrs, "client_request_id", crid)
 		}
 		// Token identity for abusive-key triage from access lines alone:
-		// chatCore stashed the serving lease's label (1-based index or
-		// "bridge", never the raw key) into the carrier during the
+		// chatCore stashed the serving lease's label (1-based index,
+		// never the raw key) into the carrier during the
 		// request; non-chat surfaces and pre-lease refusals leave it
 		// empty and the field stays absent (ring-only there).
 		if accessTok.token != "" {

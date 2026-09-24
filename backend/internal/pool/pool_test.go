@@ -46,8 +46,7 @@ func newTestPoolCfg(t *testing.T, mut func(*config.Config), mocks ...*testutil.M
 		UpstreamBaseURL:    "https://www.codebuff.com",
 		// Park-OFF pins the historical path: a hand-built Config zero-values
 		// the flag while production Load defaults it ON (see
-		// TestHandBuiltConfigDisablesPark); park-ON is covered by
-		// TestBridgeSweepParksShortCooldown.
+		// TestHandBuiltConfigDisablesPark).
 		SessionParkEnabledFlag: false,
 	}
 	if mut != nil {
@@ -125,11 +124,6 @@ func (e *atomicErr) get() error {
 	defer e.mu.Unlock()
 	return e.err
 }
-
-// --- bridge mode ---
-
-// newBridgePool wires a pool in bridge mode (no AUTH_TOKENS) whose lazily
-// created per-client-token clients talk to the given mock upstream.
 
 // flakyFirstRT fails the very first request with a transient transport error
 // and delegates everything else to base. It drives a real retry through the
