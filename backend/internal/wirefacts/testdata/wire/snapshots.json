@@ -1,6 +1,6 @@
 {
-  "upstream_sha": "a9ef9942d9c36703a7c9fed39d70aec7c173bc14",
-  "vendor_version": "0.0.191",
+  "upstream_sha": "276db8dff9a3d4dc323232dd8c39140cbb02538b",
+  "vendor_version": "0.0.193",
   "files": [
     {
       "path": "common/src/constants/freebuff-standing.ts",
