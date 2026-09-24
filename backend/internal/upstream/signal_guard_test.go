@@ -71,7 +71,7 @@ func (u *recordingUpstream) handle(w http.ResponseWriter, r *http.Request) {
 		writeBodyJSON(w, 200, `{"status":"ended"}`)
 	case r.URL.Path == "/api/v1/ads" && r.Method == http.MethodPost:
 		writeBodyJSON(w, 200, `{"ads":[{"impUrl":"https://gravity.example/imp/1"}],"provider":"gravity"}`)
-	case (r.URL.Path == "/api/v1/ads/impression" || r.URL.Path == "/api/v1/ads/click") && r.Method == http.MethodPost:
+	case r.URL.Path == "/api/v1/ads/impression" && r.Method == http.MethodPost:
 		writeBodyJSON(w, 200, `{"ok":true}`)
 	case r.URL.Path == "/api/v1/agent-runs" && r.Method == http.MethodPost:
 		var payload struct {
@@ -477,11 +477,12 @@ func TestSessionCallsStampFirstTabDiscount(t *testing.T) {
 	}
 }
 
-// TestWaitingRoomChainFiresAdLegs pins the free-mode ad loop legs: the
-// auction's server-issued impUrl is acked on /api/v1/ads/impression and
-// /api/v1/ads/click with the Freebuff-CLI product UA, a uuid
-// X-Freebuff-Event-Id echoed in the body as clientEventId, and the
-// browser-like body UA + os. Best-effort is covered by
+// TestWaitingRoomChainFiresAdLegs pins the free-mode ad loop leg: the
+// auction's server-issued impUrl is acked on /api/v1/ads/impression with the
+// Freebuff-CLI product UA, a uuid X-Freebuff-Event-Id echoed in the body as
+// clientEventId, and the browser-like body UA + os. No click leg fires: the
+// proxy renders no ad card, so there is no user gesture to report (the CLI
+// only sends recordClick on a real click). Best-effort is covered by
 // TestWaitingRoomChainAdFailureNeverFailsAdmission.
 func TestWaitingRoomChainFiresAdLegs(t *testing.T) {
 	srv := newRecordingUpstream()
@@ -491,42 +492,38 @@ func TestWaitingRoomChainFiresAdLegs(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.FireWaitingRoomChain(context.Background())
-	fired := map[string]recordedReq{}
+	var imp *recordedReq
 	for _, r := range srv.snapshot() {
-		if r.method == http.MethodPost && (r.path == "/api/v1/ads/impression" || r.path == "/api/v1/ads/click") {
-			fired[r.path] = r
+		if r.method == http.MethodPost && r.path == "/api/v1/ads/impression" {
+			cp := r
+			imp = &cp
+		}
+		if r.method == http.MethodPost && r.path == "/api/v1/ads/click" {
+			t.Fatalf("recorded POST /api/v1/ads/click without a user gesture (click leg retired)")
 		}
 	}
-	for _, path := range []string{"/api/v1/ads/impression", "/api/v1/ads/click"} {
-		r, ok := fired[path]
-		if !ok {
-			t.Fatalf("no recorded POST %s", path)
-			continue
-		}
-		if got := r.header.Get("User-Agent"); got != freebuffCliUA {
-			t.Errorf("%s User-Agent = %q, want the CLI product UA %q", path, got, freebuffCliUA)
-		}
-		if got := r.header.Get("Authorization"); got != "Bearer tok-a" {
-			t.Errorf("%s Authorization = %q, want Bearer tok-a", path, got)
-		}
-		var body map[string]any
-		if err := json.Unmarshal([]byte(r.body), &body); err != nil {
-			t.Fatalf("%s body not JSON: %v", path, err)
-		}
-		if body["impUrl"] != "https://gravity.example/imp/1" {
-			t.Errorf("%s impUrl = %v, want the auction-issued impUrl (never invented)", path, body["impUrl"])
-		}
-		eventID, _ := body["clientEventId"].(string)
-		if eventID == "" {
-			t.Errorf("%s missing clientEventId", path)
-		} else if got := r.header.Get("X-Freebuff-Event-Id"); got != eventID {
-			t.Errorf("%s X-Freebuff-Event-Id = %q, want echoed body clientEventId %q", path, got, eventID)
-		}
+	if imp == nil {
+		t.Fatal("no recorded POST /api/v1/ads/impression")
 	}
-	imp := fired["/api/v1/ads/impression"]
+	const path = "/api/v1/ads/impression"
+	if got := imp.header.Get("User-Agent"); got != freebuffCliUA {
+		t.Errorf("%s User-Agent = %q, want the CLI product UA %q", path, got, freebuffCliUA)
+	}
+	if got := imp.header.Get("Authorization"); got != "Bearer tok-a" {
+		t.Errorf("%s Authorization = %q, want Bearer tok-a", path, got)
+	}
 	var impBody map[string]any
 	if err := json.Unmarshal([]byte(imp.body), &impBody); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s body not JSON: %v", path, err)
+	}
+	if impBody["impUrl"] != "https://gravity.example/imp/1" {
+		t.Errorf("%s impUrl = %v, want the auction-issued impUrl (never invented)", path, impBody["impUrl"])
+	}
+	eventID, _ := impBody["clientEventId"].(string)
+	if eventID == "" {
+		t.Errorf("%s missing clientEventId", path)
+	} else if got := imp.header.Get("X-Freebuff-Event-Id"); got != eventID {
+		t.Errorf("%s X-Freebuff-Event-Id = %q, want echoed body clientEventId %q", path, got, eventID)
 	}
 	ua, _ := impBody["userAgent"].(string)
 	if !strings.Contains(ua, "Chrome/151.0.0.0") {
@@ -535,18 +532,10 @@ func TestWaitingRoomChainFiresAdLegs(t *testing.T) {
 	if os, _ := impBody["os"].(string); os == "" {
 		t.Error("impression missing os")
 	}
-	click := fired["/api/v1/ads/click"]
-	var clickBody map[string]any
-	if err := json.Unmarshal([]byte(click.body), &clickBody); err != nil {
-		t.Fatal(err)
-	}
-	if clickBody["surface"] != "waiting_room" {
-		t.Errorf("click surface = %v, want waiting_room (the auction surface)", clickBody["surface"])
-	}
 }
 
 // TestWaitingRoomChainAdFailureNeverFailsAdmission pins best-effort: a 500
-// on the impression leg must not block the click leg, and ad failures
+// on the impression leg must not block the streak call, and ad failures
 // never surface to the caller (admission must not depend on ads).
 func TestWaitingRoomChainAdFailureNeverFailsAdmission(t *testing.T) {
 	var mu sync.Mutex
@@ -560,7 +549,7 @@ func TestWaitingRoomChainAdFailureNeverFailsAdmission(t *testing.T) {
 			writeBodyJSON(w, 200, `{"ads":[{"impUrl":"https://gravity.example/imp/9"}]}`)
 		case "/api/v1/ads/impression":
 			writeBodyJSON(w, 500, `{"error":"boom"}`)
-		case "/api/v1/ads/click", "/api/v1/freebuff/streak":
+		case "/api/v1/freebuff/streak":
 			writeBodyJSON(w, 200, `{"ok":true}`)
 		default:
 			writeBodyJSON(w, 404, `{"error":"not found"}`)
@@ -574,8 +563,8 @@ func TestWaitingRoomChainAdFailureNeverFailsAdmission(t *testing.T) {
 	client.FireWaitingRoomChain(context.Background())
 	mu.Lock()
 	defer mu.Unlock()
-	if seen["/api/v1/ads/click"] == 0 {
-		t.Error("click leg never fired after the impression 500 (chain must continue best-effort)")
+	if seen["/api/v1/ads/click"] != 0 {
+		t.Error("click leg fired (click leg retired: no gestureless clicks)")
 	}
 	if seen["/api/v1/freebuff/streak"] == 0 {
 		t.Error("streak call never fired after ad failures (chain must finish)")
