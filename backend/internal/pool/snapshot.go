@@ -2,33 +2,9 @@
 package pool
 
 import (
-	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
 	"time"
 )
-
-// BridgeTokenSnapshot is a dashboard-ready view of one bridge entry (#187).
-type BridgeTokenSnapshot struct {
-	Key           string                           `json:"key"` // raw client token (hashed for display)
-	LastUsed      time.Time                        `json:"last_used"`
-	ActiveRuns    int                              `json:"active_runs"`
-	Requests      int                              `json:"requests"`
-	Locked        bool                             `json:"locked"`
-	CooldownUntil time.Time                        `json:"cooldown_until"`
-	SessionActive bool                             `json:"session_active"`
-	Model         string                           `json:"model"`
-	AccessTier    string                           `json:"access_tier,omitempty"`
-	QuotaByModel  map[string]session.QuotaSnapshot `json:"quota_by_model,omitempty"`
-	// Freebucks is the upstream Freebucks allowance block (issue #232); nil
-	// when the bridge entry has no Freebucks quota.
-	Freebucks *upstream.FreebucksInfo `json:"freebucks,omitempty"`
-	SpendDay  float64                 `json:"spend_day"`
-	// BanType / BannedUntil mirror TokenSnapshot's active-ban view
-	// (issues #198/#199): "temporary" (auto-lifts at BannedUntil) vs
-	// "hard" (never self-heals); zero values when no ban is active.
-	BanType     string    `json:"ban_type,omitempty"`
-	BannedUntil time.Time `json:"banned_until,omitempty"`
-}
 
 // banView derives the snapshot ban view from a remembered runs ban
 // (issues #198/#199). A hard ban (zero ResumesAt) is PERMANENT —
@@ -310,10 +286,7 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 
 // PoolSnapshot is the pool-wide metrics view: aggregate transient-retry
 // counters summed across every fixed token's client, plus the per-token rows
-// (same shape as Snapshot). Bridge-mode entries are not counted in the
-// per-token rows (they are per-client-token ephemeral slots), but live
-// bridge clients' retry/rotation counters are summed in, and RequestsServed
-// is mode-independent (every successful upstream chat).
+// (same shape as Snapshot).
 type PoolSnapshot struct {
 	TransientRetries        int64
 	CapacityDeferredRetries int64
@@ -340,15 +313,5 @@ func (p *Pool) PoolSnapshot() PoolSnapshot {
 			ps.Quarantined++
 		}
 	}
-	// Live bridge entries: their counters survive while the entry is cached
-	// (LRU eviction drops old ones — the view is "recent bridge activity").
-	p.bridgeMu.Lock()
-	for _, be := range p.bridge {
-		ps.TransientRetries += be.client.TransientRetries()
-		ps.CapacityDeferredRetries += be.client.CapacityDeferredRetries()
-		ps.WaitingRoomRetries += be.client.WaitingRoomRetries()
-		ps.FingerprintRotations += be.client.FingerprintRotations()
-	}
-	p.bridgeMu.Unlock()
 	return ps
 }

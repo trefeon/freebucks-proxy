@@ -10,8 +10,7 @@
 // QUEUE_DEPTH (default 16) cap. Overflow and timeout return the typed
 // queue-exhausted signal below, which the spill loop consumes — never a new
 // client error code.
-// Bridge mode gets the SAME hard wall: one slot state per (bridge entry,
-// model) exactly as a pooled lane is keyed per (token entry, model), with
+// One slot state per (token entry, model) lane, with
 // the per-lane FIFO waiter park below. Pooled waiters park on the global
 // per-model queue instead (model_queue.go); pooled lane-local queues stay
 // empty, and a pooled Release hands the freed slot to the model queue head.
@@ -41,11 +40,10 @@ const slotQueueHint = time.Second
 // (reason "full") or ran out of QUEUE_WAIT (reason "timeout"). The spill
 // loop consumes it; only when no lane is left does it surface as the
 // existing 429 rate-limit shape — never verbatim. Token is the 1-based
-// pooled display index; 0 means the lane has no index to name (bridge
-// entries), and the message then omits the token scope.
+// pooled display index.
 type slotQueueExhaustedError struct {
 	Reason string // "full" or "timeout"
-	Token  int    // 1-based display index; 0 = unnamed lane (bridge)
+	Token  int    // 1-based display index
 	Cap    int    // live-turn cap in force
 	Live   int    // live turns observed
 	Wait   time.Duration
@@ -62,8 +60,7 @@ func (e *slotQueueExhaustedError) Error() string {
 	return fmt.Sprintf("pool: %slive-turn queue full (%d live turns, cap %d)", scope, e.Live, e.Cap)
 }
 
-// slotKey is one ledger lane: the entry (*tokenEntry pooled, *bridgeEntry
-// bridge) plus the model. Slots and FIFO queues are tracked per lane, so
+// slotKey is one ledger lane: the entry (*tokenEntry) plus the model. Slots and FIFO queues are tracked per lane, so
 // one account's turns for model A never consume model B's cap.
 type slotKey struct {
 	entry any
@@ -172,14 +169,14 @@ func (p *Pool) slotStateLocked(key slotKey) *slotState {
 }
 
 // slotAcquire takes one live-turn slot for the lane — a pooled token entry
-// or a bridge entry paired with the requested model — parking FIFO when
+// paired with the requested model — parking FIFO when
 // full. The fast path (free slot) grants immediately; otherwise the caller
 // queues behind earlier waiters until the head is granted, the caller ctx
 // expires, or wait elapses. It returns the permit, whether the caller
 // parked, and either a *slotQueueExhaustedError (full queue or wait
 // elapsed — the caller spills to the next lane) or ctx.Err() (the caller's
 // own deadline, matching the retired gates' behavior). displayIdx is the
-// pooled 1-based token number for the error message; bridge passes 0.
+// pooled 1-based token number for the error message.
 func (p *Pool) slotAcquire(ctx context.Context, key slotKey, displayIdx int, cap, depth int, wait time.Duration) (*slotPermit, bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -258,9 +255,9 @@ func (p *Pool) slotQueued(key slotKey) int {
 	return 0
 }
 
-// slotEntryStats aggregates one entry (pooled token or bridge) into a
+// slotEntryStats aggregates one entry (pooled token) into a
 // live/queued/oldest triple for the per-account snapshot: live sums every
-// model lane, lane-local queued sums every lane queue (bridge parks there;
+// model lane, lane-local queued sums every lane queue;
 // pooled lane-local queues stay empty), and each model's global queue
 // depth/head age reports on the FIRST admissible lane in roster index order
 // (the head lane), 0 on the others — this keeps the existing saturation

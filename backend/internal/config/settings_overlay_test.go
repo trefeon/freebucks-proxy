@@ -325,7 +325,6 @@ func TestValidateSettingValueLoadAgreement(t *testing.T) {
 		"REGISTRY_REFRESH":          {"6h"},
 		"REQUEST_JITTER":            {"0s", "200ms"},
 		"IDLE_ROTATION_TIMEOUT":     {"0", "0s", "-5s", "30m"},
-		"BRIDGE_IDLE_EVICT":         {"0s", "72h"},
 		"RUN_FINISH_INLINE_TIMEOUT": {"0s", "250ms"},
 	}
 	for key, values := range agreeAccept {
@@ -381,7 +380,7 @@ func TestSettingSources(t *testing.T) {
 	if err := os.WriteFile(".env", []byte("LOG_LEVEL=warn\nSAFE_MODE=false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	overlay := map[string]string{"LOG_LEVEL": "debug", "BRIDGE_ENABLED": "false"}
+	overlay := map[string]string{"LOG_LEVEL": "debug", "SMART_PROBE_ENABLED": "false"}
 	t.Setenv("SAFE_MODE", "true")
 
 	sources := SettingSources("", overlay)
@@ -391,8 +390,8 @@ func TestSettingSources(t *testing.T) {
 	if sources["SAFE_MODE"] != "env" {
 		t.Errorf("SAFE_MODE source = %q, want env", sources["SAFE_MODE"])
 	}
-	if sources["BRIDGE_ENABLED"] != "db" {
-		t.Errorf("BRIDGE_ENABLED source = %q, want db", sources["BRIDGE_ENABLED"])
+	if sources["SMART_PROBE_ENABLED"] != "db" {
+		t.Errorf("SMART_PROBE_ENABLED source = %q, want db", sources["SMART_PROBE_ENABLED"])
 	}
 	if sources["RATE_LIMIT_BURST"] != "default" {
 		t.Errorf("RATE_LIMIT_BURST source = %q, want default", sources["RATE_LIMIT_BURST"])
@@ -574,7 +573,7 @@ func TestSettingSourcesDotenvUserIDAlias(t *testing.T) {
 // ValidateSettingValue could never take effect (it would fail the POST
 // gate), so a tampered or stale row must not poison the load. Empty values
 // are kept as no-op pins instead (every override helper skips blanks, and
-// AUTH_TOKENS presence is the bridge-mode pin).
+// AUTH_TOKENS presence is the empty-pool pin).
 func TestOverlayFromRowsDropsMalformed(t *testing.T) {
 	ov := OverlayFromRows(map[string]string{
 		"config:SAFE_MODE":         "false",
@@ -609,7 +608,7 @@ func TestOverlayFromRowsDropsMalformed(t *testing.T) {
 		t.Errorf("OverlayFromRows dropped the empty LOG_LEVEL pin: %v", pins)
 	}
 	if _, ok := pins["AUTH_TOKENS"]; !ok {
-		t.Errorf("OverlayFromRows dropped the empty AUTH_TOKENS bridge pin: %v", pins)
+		t.Errorf("OverlayFromRows dropped the empty AUTH_TOKENS pin: %v", pins)
 	}
 }
 

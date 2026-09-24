@@ -27,7 +27,7 @@ func TestEngineLayerStaysBelowSurface(t *testing.T) {
 		"engine_sse.go",
 		"stream_shared.go",
 	}
-	surface := regexp.MustCompile(`\b(adminHandlers|registerAdminRoutes|handleToken[A-Za-z]*|handleModeSwitch|handleBridge[A-Za-z]*|RenderConfigResult|RenderTestResults)\b|dashboard\.`)
+	surface := regexp.MustCompile(`\b(adminHandlers|registerAdminRoutes|handleToken[A-Za-z]*|RenderConfigResult|RenderTestResults)\b|dashboard\.`)
 	for _, name := range files {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {

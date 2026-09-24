@@ -12,8 +12,6 @@
     "z-ai/glm-5.3-flash"
   ],
   "mode": "pooled",
-  "bridge": false,
-  "bridge_tokens": 0,
   "token_count": 2,
   "has_tokens": true
 }

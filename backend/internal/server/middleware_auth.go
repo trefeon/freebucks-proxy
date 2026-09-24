@@ -13,7 +13,7 @@ import (
 // cfgSnapshotKey carries the per-request *config.Config snapshot through
 // the request context. requireAuth (the outermost /v1 auth wrapper) loads
 // the config ONCE per request and stamps it here; chatCore and authorized
-// then decide pooled-vs-bridge routing from that same snapshot, so a
+// then route from that same snapshot, so a
 // config swap (e.g. /admin/reload) landing between the middleware's
 // pass-through and the handler's routing cannot split one request's
 // decision across two different config views.
@@ -21,8 +21,7 @@ type cfgSnapshotKey struct{}
 
 // clientKeyHashKey carries the per-request client API-key identity through
 // the request context, alongside the config snapshot. The value is
-// hex(sha256(rawKey))[:16] — never the raw key — or "" for bridge/no-key
-// requests. chatCore finalizes it after the pooled-vs-bridge decision;
+// hex(sha256(rawKey))[:16] — never the raw key. chatCore finalizes it;
 // newUsageRecord and recordRequestOutcome read it back for usage tracking.
 type clientKeyHashKey struct{}
 
@@ -45,15 +44,14 @@ func withClientKeyHash(ctx context.Context, hash string) context.Context {
 // clientKeyHashFrom returns the key identity stamped on the context, or
 // ("", false) when no stamp is present (direct handler calls in tests) —
 // callers fall back to deriving it from the request headers in that case.
-// A stamped "" (bridge/no-key) reports ("", true).
+// A stamped "" reports ("", true).
 func clientKeyHashFrom(ctx context.Context) (string, bool) {
 	hash, ok := ctx.Value(clientKeyHashKey{}).(string)
 	return hash, ok
 }
 
 // hashClientKey maps a raw client API key to its usage-tracking identity:
-// hex(sha256(raw))[:16]. Empty input maps to "" (bridge/no-key requests
-// carry no pooled identity). The raw key never leaves this function.
+// hex(sha256(raw))[:16]. Empty input maps to "". The raw key never leaves this function.
 func hashClientKey(raw string) string {
 	if raw == "" {
 		return ""
@@ -63,10 +61,10 @@ func hashClientKey(raw string) string {
 }
 
 // requireAuth wraps a handler with client-auth enforcement. When no API keys
-// are configured the handler passes through untouched; /healthz is always
-// exempt (the caller wires it without requireAuth). Bridge mode (no
-// AUTH_TOKENS) also passes through: the Authorization header IS the upstream
-// token there, and API_KEYS is meaningless.
+// are configured the handler passes through untouched (the historic open
+// behavior); /healthz is always exempt (the caller wires it without
+// requireAuth). Pool-only: any other credential is rejected here, and
+// chatCore re-checks from the same pinned snapshot.
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.cfg.Load()
@@ -74,20 +72,16 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		// below must route this same request from the same config view.
 		ctx := withCfgSnapshot(r.Context(), cfg)
 		// Stamp the caller's key identity best-effort: a credential
-		// matching API_KEYS hashes to its tracking id; bridge tokens and
-		// missing credentials stamp "". chatCore re-stamps authoritatively
-		// after the pooled-vs-bridge decision.
+		// matching API_KEYS hashes to its tracking id; missing or unknown
+		// credentials stamp "". chatCore re-stamps authoritatively after
+		// its own check.
 		if ok, hash := s.authorizedWithIdentity(cfg, r); ok {
 			ctx = withClientKeyHash(ctx, hash)
 		} else {
 			ctx = withClientKeyHash(ctx, "")
 		}
 		r = r.WithContext(ctx)
-		// Hybrid mode (AUTH_TOKENS + BRIDGE_ENABLED) passes through too:
-		// the per-request decision — pooled vs bridge — happens in
-		// chatCore, where a credential matching API_KEYS uses the pool and
-		// any other credential is relayed as a bridge token.
-		if len(cfg.APIKeys) == 0 || cfg.BridgeMode() || cfg.HybridBridgeMode() {
+		if len(cfg.APIKeys) == 0 {
 			next(w, r)
 			return
 		}
@@ -171,30 +165,4 @@ func (s *Server) requireAdminToken(next http.Handler) http.HandlerFunc {
 		}
 		next.ServeHTTP(w, r)
 	}
-}
-
-// clientToken returns the request's bearer token (Authorization: Bearer,
-// x-api-key, or anthropic-api-key), trimmed. Empty when the request carries
-// none. In bridge mode this token IS the client's FreeBuff token relayed
-// upstream.
-func clientToken(r *http.Request) string {
-	provided := ""
-	if tok, ok := extractBearerToken(r.Header.Get("Authorization")); ok {
-		provided = tok
-	} else if h := r.Header.Get("x-api-key"); h != "" {
-		provided = h
-	} else if h := r.Header.Get("anthropic-api-key"); h != "" {
-		provided = h
-	}
-	return strings.TrimSpace(provided)
-}
-
-// bearerToken returns only the Authorization: Bearer token (the
-// Authorization header value without the "Bearer " prefix). Returns "" if
-// no Bearer token is present.
-func bearerToken(r *http.Request) string {
-	if tok, ok := extractBearerToken(r.Header.Get("Authorization")); ok {
-		return tok
-	}
-	return ""
 }

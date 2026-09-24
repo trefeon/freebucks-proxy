@@ -2,8 +2,8 @@ package pool
 
 // Burst regression tests: no local request/message/spend cap remains --
 // upstream quota/429 is the enforcement and the smart-routing live-turn
-// slot plus FIFO queue paces bursts. Covers the pooled burst, the bridge
-// burst, the per-day display ledger, and the live-turn slot cap.
+// slot plus FIFO queue paces bursts. Covers the pooled burst,
+// the per-day display ledger, and the live-turn slot cap.
 
 import (
 	"context"
@@ -11,14 +11,13 @@ import (
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
-	"strings"
 	"testing"
 	"time"
 )
 
 // TestPooledBurstHasNoLocalRefusal proves a pooled burst far past every
-// deleted cap scale (per-minute, per-day, daily-message, spend, bridge
-// global) is never refused locally: with slot gating off, 50 sequential
+// deleted cap scale (per-minute, per-day, daily-message, spend)
+// is never refused locally: with slot gating off, 50 sequential
 // acquires all succeed. Any reintroduced local cap check would refuse
 // partway and fail this test.
 func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
@@ -50,32 +49,6 @@ func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
 	}
 	if got := p.requestsServed.Load(); got != 50 {
 		t.Errorf("requestsServed = %d, want 50 (lifetime total still records)", got)
-	}
-}
-
-// TestBridgeBurstHasNoLocalRefusal proves a bridge burst far past every
-// deleted cap scale is never refused locally: with slot gating off, 50
-// sequential bridge acquires for one client token all succeed. Any
-// reintroduced bridge rpm/daily/global cap check would refuse partway.
-func TestBridgeBurstHasNoLocalRefusal(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) {
-		c.UpstreamBaseURL = mock.URL()
-		c.SlotsPerAccount = 0
-	}, mock)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	for i := range 50 {
-		lease, err := p.AcquireBridge(ctx, "burst-client", modelA)
-		if err != nil {
-			if strings.Contains(err.Error(), "limit") || errors.Is(err, upstream.ErrRateLimited) {
-				t.Fatalf("bridge acquire %d refused (%v), want success (no local caps remain)", i, err)
-			}
-			t.Fatalf("bridge acquire %d err = %v, want success (no local caps remain)", i, err)
-		}
-		p.LeaseRelease(lease)
 	}
 }
 

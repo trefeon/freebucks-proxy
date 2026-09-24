@@ -24,9 +24,9 @@ import (
 	"time"
 )
 
-// bridgeDashboardServer wires a bridge-mode server (no AUTH_TOKENS) with the
-// given admin token, so dashboard handlers that need an empty pool can run.
-func bridgeDashboardServer(t *testing.T, adminToken string) *httptest.Server {
+// emptyPoolServer wires a server with an empty pool (no AUTH_TOKENS) with
+// the given admin token, so dashboard handlers that need an empty pool can run.
+func emptyPoolServer(t *testing.T, adminToken string) *httptest.Server {
 	t.Helper()
 	mock := testutil.NewMock()
 	t.Cleanup(mock.Close)
@@ -205,7 +205,7 @@ func TestDashboardTokenRemoveSuccess(t *testing.T) {
 // TestDashboardTokenRemoveEmptyPool pins the empty-pool remove: the pool
 // itself rejects it with "no tokens to remove".
 func TestDashboardTokenRemoveEmptyPool(t *testing.T) {
-	ts := bridgeDashboardServer(t, "secret")
+	ts := emptyPoolServer(t, "secret")
 	cookie := authedCookie(t, ts)
 	resp := doTokenAction(t, ts.URL, cookie, "/admin/tokens/remove")
 	body := bodyOf(t, resp)
@@ -240,47 +240,12 @@ func TestDashboardTokenActionInvalidID(t *testing.T) {
 
 // --- mode switch ---
 
-// TestDashboardModeSwitchBranchMatrix drives the rejection branches of
-// handleModeSwitch: invalid mode, already-in-mode, bridge→pooled without
-// tokens, and a persist failure that must leave the pool and config intact.
-func TestDashboardModeSwitchBranchMatrix(t *testing.T) {
-	t.Chdir(t.TempDir())
-	ts, p := newTestServerCfg(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, testutil.NewMock())
-	cookie := authedCookie(t, ts)
-
-	// Invalid mode string (JSON response, not HTML-escaped).
-	resp := postJSON(t, ts.URL, cookie, "/admin/mode", `{"mode":"warp"}`)
-	if body := bodyOf(t, resp); !strings.Contains(body, "Mode must be 'bridge', 'pooled', or 'hybrid'.") {
-		t.Errorf("invalid-mode response = %q", body)
-	}
-
-	// Already in pooled mode.
-	resp = postJSON(t, ts.URL, cookie, "/admin/mode", `{"mode":"pooled"}`)
-	if body := bodyOf(t, resp); !strings.Contains(body, "Already in pooled mode.") {
-		t.Errorf("already-pooled response = %q", body)
-	}
-
-	// Pool untouched by the rejections.
-	if got := p.TokenCount(); got != 1 {
-		t.Errorf("pool TokenCount = %d, want 1", got)
-	}
-
-	// Bridge → pooled without tokens: needs a token first.
-	tsBridge := bridgeDashboardServer(t, "secret")
-	cookieBridge := authedCookie(t, tsBridge)
-	resp = postJSON(t, tsBridge.URL, cookieBridge, "/admin/mode", `{"mode":"pooled"}`)
-	if body := bodyOf(t, resp); !strings.Contains(body, "Pooled mode needs tokens") {
-		t.Errorf("bridge→pooled response = %q", body)
-	}
-}
-
 // TestDashboardTokenAddEnvOverrideFails is the regression for the compose
 // env_file bug: docker-compose injects every .env line into the container
 // environment, and config.Load lets the real environment override the file.
 // Adding a token via the dashboard then persists to .env but the reload sees
-// the env's stale AUTH_TOKENS= — the pool would hold the token while cfg
-// claims bridge mode. The add must fail loudly and roll the pool back, not
-// silently diverge.
+// the env's stale AUTH_TOKENS=. The add must fail loudly and roll the pool
+// back, not silently diverge.
 func TestDashboardTokenAddEnvOverrideFails(t *testing.T) {
 	t.Chdir(t.TempDir())
 	// The environment outranks .env in config.Load: a stale empty
@@ -303,7 +268,7 @@ func TestDashboardTokenAddEnvOverrideFails(t *testing.T) {
 		t.Fatalf("add response leaked token values: %q", body)
 	}
 	// The pool must be rolled back — no token may linger while cfg claims
-	// bridge mode.
+	// empty pool.
 	if got := p.TokenCount(); got != 1 {
 		t.Errorf("pool TokenCount = %d, want 1 (original mock token; add rolled back)", got)
 	}
@@ -386,80 +351,6 @@ func TestDashboardTokenAddProbeErrNoActiveSession(t *testing.T) {
 }
 
 // TestDashboardModeSwitchPersistFailure pins the persist-failure branch: when
-// .env cannot be written (here: .env is a directory), the switch reports the
-// failure and neither the pool nor the config is drained.
-func TestDashboardModeSwitchPersistFailure(t *testing.T) {
-	t.Chdir(t.TempDir())
-	// A directory at .env makes every .env writer fail deterministically on
-	// every platform (a read-only dir is unreliable on Windows).
-	if err := os.Mkdir(".env", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	ts, p := newTestServerCfg(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, testutil.NewMock())
-	cookie := authedCookie(t, ts)
-
-	resp := postJSON(t, ts.URL, cookie, "/admin/mode", `{"mode":"bridge"}`)
-	body := bodyOf(t, resp)
-	if !strings.Contains(body, "Failed to persist .env") {
-		t.Fatalf("mode response = %q, want persist failure", body)
-	}
-	if got := p.TokenCount(); got != 1 {
-		t.Errorf("pool TokenCount = %d, want 1 (persist failure must not drain the pool)", got)
-	}
-	resp, data := doJSON(t, http.MethodGet, ts.URL+"/healthz", nil, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("healthz status = %d: %s", resp.StatusCode, data)
-	}
-	var hz struct {
-		Mode string `json:"mode"`
-	}
-	if err := json.Unmarshal(data, &hz); err != nil {
-		t.Fatal(err)
-	}
-	if hz.Mode != "pooled" {
-		t.Errorf("healthz mode = %q, want pooled (switch must not land)", hz.Mode)
-	}
-}
-
-// TestDashboardModeSwitchVerifyFailureRollsBack pins the verify-failure
-// branch: when a higher-precedence source (here: the real environment) keeps
-// AUTH_TOKENS set despite the .env write, the switch rolls the .env back
-// byte-for-byte and reports the override.
-func TestDashboardModeSwitchVerifyFailureRollsBack(t *testing.T) {
-	t.Chdir(t.TempDir())
-	// The environment outranks .env in config.Load: AUTH_TOKENS here defeats
-	// the bridge switch's empty AUTH_TOKENS= write.
-	t.Setenv("AUTH_TOKENS", "env-tok")
-	original := "SAFE_MODE=true\nAUTH_TOKENS=tok-0\n"
-	if err := os.WriteFile(".env", []byte(original), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ts, p := newTestServerCfg(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, testutil.NewMock())
-	cookie := authedCookie(t, ts)
-
-	resp := postJSON(t, ts.URL, cookie, "/admin/mode", `{"mode":"bridge"}`)
-	body := bodyOf(t, resp)
-	if !strings.Contains(body, "Could not switch to bridge mode") {
-		t.Fatalf("mode response = %q, want verify-failure message", body)
-	}
-	got, err := os.ReadFile(".env")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != original {
-		t.Errorf(".env after failed switch = %q, want byte-exact original %q", got, original)
-	}
-	if p.TokenCount() != 1 {
-		t.Errorf("pool TokenCount = %d, want 1 (drain happens only after verify)", p.TokenCount())
-	}
-}
-
-// --- config save guards ---
-
-// TestDashboardConfigSaveEmptyContentRejected is the regression for the
-// empty-save bug: an empty save (urlencoded POST without content=, an empty
-// text/plain body, or whitespace-only content) must be rejected with the
-// file preserved — never a silent empty .env.
 func TestDashboardConfigSaveEmptyContentRejected(t *testing.T) {
 	t.Chdir(t.TempDir())
 	original := "SAFE_MODE=true\nTRANSIENT_RETRIES=3\n"
@@ -647,18 +538,6 @@ func TestDashboardSmokePromptTooLong(t *testing.T) {
 	}
 }
 
-// TestDashboardSmokeBridgeWithoutToken: bridge mode requires a client token
-// in the smoke payload.
-func TestDashboardSmokeBridgeWithoutToken(t *testing.T) {
-	ts := bridgeDashboardServer(t, "secret")
-	cookie := authedCookie(t, ts)
-	resp := postJSON(t, ts.URL, cookie, "/admin/smoke", `{"model":"`+modelA+`","prompt":"ping"}`)
-	body := bodyOf(t, resp)
-	if !strings.Contains(body, "Bridge mode: include a client token in the smoke request.") {
-		t.Errorf("bridge smoke response = %q, want client-token message", body)
-	}
-}
-
 // TestDashboardSmokeEmptyRegistry: with no catalog models there is nothing to
 // smoke-test against.
 func TestDashboardSmokeEmptyRegistry(t *testing.T) {
@@ -693,21 +572,18 @@ func TestDashboardSmokeEmptyRegistry(t *testing.T) {
 
 // --- diag ---
 
-// TestDashboardDiagBridgeMode: in bridge mode diag has no pooled tokens to
-// probe — it reports the no-pooled-tokens warning instead of running probes.
-func TestDashboardDiagBridgeMode(t *testing.T) {
-	ts := bridgeDashboardServer(t, "secret")
+// TestDashboardDiagEmptyPool: with no pooled tokens diag reports pooled
+// mode and runs no probes.
+func TestDashboardDiagEmptyPool(t *testing.T) {
+	ts := emptyPoolServer(t, "secret")
 	cookie := authedCookie(t, ts)
 	resp := postJSON(t, ts.URL, cookie, "/admin/diag", "{}")
 	body := bodyOf(t, resp)
-	if !strings.Contains(body, "No pooled tokens to probe") {
-		t.Errorf("bridge diag response = %q, want no-pooled-tokens warning", body)
-	}
-	if !strings.Contains(body, "Configuration: bridge mode") {
-		t.Errorf("bridge diag missing mode line: %s", body)
+	if !strings.Contains(body, "Configuration: pooled mode") {
+		t.Errorf("empty-pool diag missing mode line: %s", body)
 	}
 	if strings.Contains(body, "validity probe") {
-		t.Errorf("bridge diag must not run probes:\n%s", body)
+		t.Errorf("empty-pool diag must not run probes:\n%s", body)
 	}
 }
 

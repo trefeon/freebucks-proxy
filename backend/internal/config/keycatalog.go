@@ -153,22 +153,12 @@ var keyCatalog = []KeyDef{
 	{
 		Key: "API_KEYS", Group: GroupPool, Kind: "list", Secret: true, Hidden: true,
 		Default:     "",
-		Description: `Comma-separated client keys required for /v1/* (empty = open; ignored in bridge mode). Managed in the Overview and Client API Keys section.`,
+		Description: `Comma-separated client keys required for /v1/* (empty = open). Managed in the Overview and Client API Keys section.`,
 	},
 	{
 		Key: "AUTH_TOKENS", Group: GroupPool, Kind: "list", Secret: true, Hidden: true,
 		Default:     "",
 		Description: `Comma-separated upstream FreeBuff tokens. Managed in the Pool page and Device Login.`,
-	},
-	{
-		Key: "BRIDGE_ENABLED", Group: GroupPool, Kind: "bool", Essential: true,
-		Default:     "true",
-		Description: `With AUTH_TOKENS set, accept bridge-mode clients (their own token relayed) alongside the pool — hybrid mode. 0 = locked-down pooled-only instance.`,
-	},
-	{
-		Key: "BRIDGE_IDLE_EVICT", Group: GroupPool, Kind: "text",
-		Default:     "72h",
-		Description: `How long a bridge entry may sit unused before its runs are FINISHed and it is evicted from the cache (sliding TTL; empty or 0 → 72h).`,
 	},
 	{
 		Key: "IDLE_ROTATION_TIMEOUT", Group: GroupPool, Kind: "text",
@@ -416,7 +406,6 @@ var keyCatalog = []KeyDef{
 // and REGISTRY_REFRESH must be positive, REQUEST_JITTER must not be
 // negative, and the gate mirrors that exactly.
 var durationSettingKeys = map[string]bool{
-	"BRIDGE_IDLE_EVICT":           true,
 	"HTTP_READ_TIMEOUT":           true,
 	"IDLE_ROTATION_TIMEOUT":       true,
 	"MODEL_UNAVAILABLE_CACHE_TTL": true,

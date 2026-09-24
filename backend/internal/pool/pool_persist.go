@@ -22,8 +22,7 @@ import (
 // live-only and never blocks the request hot path.
 //
 // Persist allowlist (parent-scoped): ledger counters, admissions counts,
-// terminal-cooldown hints (ban/country-block only, cooldown_hint.go) and the
-// bridge idle-eviction survivor blob. Never persisted: live handles (channels,
+// terminal-cooldown hints (ban/country-block only, cooldown_hint.go). Never persisted: live handles (channels,
 // sync.Once, WaitGroup, CancelFunc, atomic.Pointer, Logger, Registry,
 // tokenEntry pointers); 429/ip_capped/limited_ip/burst windows (an ip_capped
 // row would spread one egress IP's limit to all accounts); the live per-token
@@ -36,12 +35,10 @@ import (
 //	pool/ledger/<sha256hex(token)>       one AccountLedger blob per token
 //	pool/admissions                       in-flight session admissions by model
 //	pool/cooldown/<sha256hex(token)>      terminal-cooldown hint {kind,until_ms}
-//	pool/bridge/survivors                 bounded bridge idle-eviction survivors
 const (
-	poolStateAdmissions    = "pool/admissions"
-	poolLedgerPrefix       = "pool/ledger/"
-	poolCooldownPrefix     = "pool/cooldown/"
-	poolBridgeSurvivorsKey = "pool/bridge/survivors"
+	poolStateAdmissions = "pool/admissions"
+	poolLedgerPrefix    = "pool/ledger/"
+	poolCooldownPrefix  = "pool/cooldown/"
 	// retiredProbeQuotaPrefix is the drained quota-cache namespace (see the
 	// allowlist above): the flush deletes these keys and nothing writes them.
 	retiredProbeQuotaPrefix = "pool/probe/quota/"
@@ -98,7 +95,7 @@ func poolLedgerKey(tokenHash string) string { return poolLedgerPrefix + tokenHas
 
 // SetPoolPersist wires the runtime persistence backend (nil disables).
 // Start restores the persisted state automatically after wiring, so
-// counters, terminal-cooldown hints and bridge survivors survive restarts;
+// counters and terminal-cooldown hints survive restarts;
 // direct RestorePoolPersist calls remain for tests and pre-Start restores.
 func (p *Pool) SetPoolPersist(s PoolPersist) {
 	p.persistMu.Lock()
@@ -210,9 +207,6 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 	hintStaged, liveCooldowns = p.snapshotCooldownHints(time.Now())
 	staged = append(staged, hintStaged...)
 
-	// Bridge idle-eviction survivors (single blob).
-	staged = append(staged, p.snapshotBridgeSurvivors()...)
-
 	// Admissions (transient in-flight counts; restored as-is, self-heals
 	// on the next admission cycle).
 	p.admissionsMu.Lock()
@@ -227,7 +221,7 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 }
 
 // ledgerCapture is the lock-free copy of one ledger's persisted counters,
-// taken while the roster (or bridge) mutex is held. marshalLedgerCapture
+// taken while the roster mutex is held. marshalLedgerCapture
 // turns it into the JSON blob after the lock is released.
 type ledgerCapture struct {
 	usage       []time.Time
@@ -249,7 +243,7 @@ type spendCapture struct {
 }
 
 // captureLedger clones one ledger's persisted state. Caller holds the
-// roster (or bridge) mutex; slices are cloned (typed memcpy) so the JSON
+// roster mutex; slices are cloned (typed memcpy) so the JSON
 // encode and its per-element allocations run outside the lock.
 func captureLedger(l *AccountLedger) ledgerCapture {
 	c := ledgerCapture{
@@ -273,7 +267,7 @@ func captureLedger(l *AccountLedger) ledgerCapture {
 }
 
 // marshalLedgerCapture builds one ledger's blob form from its capture.
-// No lock is required; call it after releasing the roster (or bridge) mutex.
+// No lock is required; call it after releasing the roster mutex.
 func marshalLedgerCapture(c ledgerCapture) poolLedgerBlob {
 	blob := poolLedgerBlob{
 		ReqDayStart: c.reqDayStart,
@@ -307,7 +301,7 @@ func marshalLedgerCapture(c ledgerCapture) poolLedgerBlob {
 // corrupt rows warn and are skipped — restore never fails the boot.
 // TTL/expiry is enforced on the way in: out-of-window usage timestamps are
 // dropped and stale spend buckets roll, so a restart never resurrects
-// expired windows. Terminal-cooldown hints and bridge survivors restore the
+// expired windows. Terminal-cooldown hints restore the
 // same way (hints only, expiry-checked, never authoritative); the session
 // quota cache warms through the sessions_persist row instead (single
 // writer — see the allowlist above).
@@ -322,7 +316,6 @@ func (p *Pool) RestorePoolPersist() {
 	p.restoreLedgers(st, now)
 	p.restoreAdmissions(st)
 	p.restoreCooldownHints(st, now)
-	p.restoreBridgeSurvivors(st, now)
 }
 
 func (p *Pool) restoreLedgers(st PoolPersist, now time.Time) {
@@ -363,7 +356,7 @@ func (p *Pool) restoreLedgers(st PoolPersist, now time.Time) {
 
 // installLedger replaces a ledger's counters from its blob, dropping
 // expired window timestamps and rolling stale spend buckets. Caller holds
-// the roster (or bridge) mutex.
+// the roster mutex.
 func installLedger(l *AccountLedger, blob poolLedgerBlob, now time.Time) {
 	usageCutoff := now.Add(-usageWindow)
 	l.usage = l.usage[:0]

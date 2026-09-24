@@ -51,7 +51,6 @@ func TestEffectiveOverlayRoundTrip(t *testing.T) {
 		"LOG_LEVEL":            "debug",
 		"RATE_LIMIT_BURST":     "7",
 		"SAFE_MODE":            "false",
-		"BRIDGE_ENABLED":       "false",
 		"MODELS_ALLOW":         "deepseek/deepseek-v4-flash",
 		"PIN_MODEL":            "0:z-ai/glm-5.2",
 		"REASONING_IN_CONTENT": "thinking",
@@ -107,12 +106,10 @@ func TestEffectiveOverlayRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEffectiveOverlayEmptyPoolPinsBridge pins the bridge-mode export: an
-// explicitly-empty AUTH_TOKENS (the shape the dashboard mode switch persists
-// as "AUTH_TOKENS=" in .env) must survive as an empty overlay row whose
-// presence suppresses CLI auto-discovery — otherwise a migrated bridge user
-// would silently flip to pooled mode on the next boot.
-func TestEffectiveOverlayEmptyPoolPinsBridge(t *testing.T) {
+// TestEffectiveOverlayEmptyPoolPinsPresence pins the empty-pool export: an
+// explicitly-empty AUTH_TOKENS must survive as an empty overlay row whose
+// presence suppresses CLI auto-discovery.
+func TestEffectiveOverlayEmptyPoolPinsPresence(t *testing.T) {
 	clearEnv(t)
 	t.Chdir(t.TempDir())
 	if err := os.Unsetenv("AUTO_DISCOVER_TOKEN"); err != nil {
@@ -123,16 +120,16 @@ func TestEffectiveOverlayEmptyPoolPinsBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOpts: %v", err)
 	}
-	if !cfgEnv.BridgeMode() {
-		t.Fatal("env-loaded config not in bridge mode, want empty pool")
+	if len(cfgEnv.AuthTokens) != 0 {
+		t.Fatalf("env-loaded AuthTokens = %v, want empty pool", cfgEnv.AuthTokens)
 	}
 	exported := EffectiveOverlayMap(cfgEnv)
 	v, ok := exported["AUTH_TOKENS"]
 	if !ok {
-		t.Fatal("EffectiveOverlayMap dropped empty AUTH_TOKENS, want the bridge pin")
+		t.Fatal("EffectiveOverlayMap dropped empty AUTH_TOKENS, want the presence pin")
 	}
 	if v != "" {
-		t.Errorf("AUTH_TOKENS export = %q, want empty (bridge pin)", v)
+		t.Errorf("AUTH_TOKENS export = %q, want empty (presence pin)", v)
 	}
 	rows := map[string]string{OverlayRowKey("AUTH_TOKENS"): v}
 	ov := OverlayFromRows(rows)
@@ -147,8 +144,8 @@ func TestEffectiveOverlayEmptyPoolPinsBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOpts DB-alone: %v", err)
 	}
-	if !cfgDB.BridgeMode() {
-		t.Errorf("DB-alone AuthTokens = %v, want bridge mode (discovery suppressed by the pin)", cfgDB.AuthTokens)
+	if len(cfgDB.AuthTokens) != 0 {
+		t.Errorf("DB-alone AuthTokens = %v, want empty (discovery suppressed by the pin)", cfgDB.AuthTokens)
 	}
 }
 

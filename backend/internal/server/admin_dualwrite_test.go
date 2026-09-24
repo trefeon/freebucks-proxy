@@ -178,84 +178,9 @@ func TestDualWriteRequireLoginRollbackBothLayers(t *testing.T) {
 	}
 }
 
-// TestDualWriteModeSwitchHybridPersistsBothLayers pins the BRIDGE_ENABLED
-// write-through on the pooled→hybrid switch: .env export, overlay row, and
-// the zero-secret token marker all land, and the reboot path reads hybrid
-// back from settings.
-func TestDualWriteModeSwitchHybridPersistsBothLayers(t *testing.T) {
-	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\nBRIDGE_ENABLED=0\n", nil)
-	st := attachShadowStore(t, s)
-	h := s.Handler()
-	cookie := shadowLogin(t, h, "secretPass123")
-
-	rec := dualWritePost(t, h, cookie, "/admin/mode", `{"mode":"hybrid"}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("mode switch status = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-
-	envBytes, err := os.ReadFile(".env")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(envBytes), "BRIDGE_ENABLED=1") {
-		t.Errorf(".env missing BRIDGE_ENABLED=1 export: %q", envBytes)
-	}
-	rows := dualWriteStoreRows(t, st)
-	if rows[config.OverlayRowKey("BRIDGE_ENABLED")] != "1" {
-		t.Errorf("overlay BRIDGE_ENABLED = %q, want \"1\" (dump %v)", rows[config.OverlayRowKey("BRIDGE_ENABLED")], rows)
-	}
-	if rows[tokenMarkerKey] != "true" {
-		t.Errorf("token marker row = %q, want \"true\" (dump %v)", rows[tokenMarkerKey], rows)
-	}
-	if !s.admin.cfgLoad().HybridBridgeMode() {
-		t.Error("effective config not hybrid after switch")
-	}
-
-	ov := config.OverlayFromRows(dualWriteStoreRows(t, st))
-	rebooted, err := config.LoadOpts("", config.LoadOptions{Overlay: ov})
-	if err != nil {
-		t.Fatalf("reboot LoadOpts: %v", err)
-	}
-	if !rebooted.HybridBridgeMode() {
-		t.Error("rebooted config not hybrid, want settings overlay to carry the switch")
-	}
-}
-
-// TestDualWriteModeSwitchBridgeDropsMarker pins the marker delete path: the
-// hybrid→bridge switch clears AUTH_TOKENS in .env and drops the presence
-// marker from settings (bridge = no pooled tokens).
-func TestDualWriteModeSwitchBridgeDropsMarker(t *testing.T) {
-	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n", nil)
-	st := attachShadowStore(t, s)
-	if err := st.SetSetting(tokenMarkerKey, "true"); err != nil {
-		t.Fatalf("SetSetting marker: %v", err)
-	}
-	h := s.Handler()
-	cookie := shadowLogin(t, h, "secretPass123")
-
-	rec := dualWritePost(t, h, cookie, "/admin/mode", `{"mode":"bridge"}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("mode switch status = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-	if !s.admin.cfgLoad().BridgeMode() {
-		t.Error("effective config not bridge after switch")
-	}
-	if _, ok, err := st.GetSetting(tokenMarkerKey); err != nil {
-		t.Fatal(err)
-	} else if ok {
-		t.Error("token marker still present after bridge switch, want deleted")
-	}
-	for k, v := range dualWriteStoreRows(t, st) {
-		if strings.Contains(v, "tok-0") {
-			t.Errorf("settings row %q leaks token material after bridge switch: %q", k, v)
-		}
-	}
-}
-
 // TestTokenMarkerDelta pins the write-through mapping: pooled lists set the
 // presence flag AND converge the config:AUTH_TOKENS overlay row to the same
-// list; an emptied pool converges the row empty (bridge pins by presence)
-// and drops the marker row.
+// list; an emptied pool converges the row empty and drops the marker row.
 func TestTokenMarkerDelta(t *testing.T) {
 	set, del := tokenMarkerDelta([]string{"a", "b"})
 	if set[tokenMarkerKey] != "true" || len(del) != 0 {
@@ -266,9 +191,9 @@ func TestTokenMarkerDelta(t *testing.T) {
 	}
 	set, del = tokenMarkerDelta(nil)
 	if set[config.OverlayRowKey("AUTH_TOKENS")] != "" || len(set) != 1 {
-		t.Errorf("bridge delta set = %v, want only the empty AUTH_TOKENS pin", set)
+		t.Errorf("empty delta set = %v, want only the empty AUTH_TOKENS pin", set)
 	}
 	if len(del) != 1 || del[0] != tokenMarkerKey {
-		t.Errorf("bridge delta del = %v, want marker deleted", del)
+		t.Errorf("empty delta del = %v, want marker deleted", del)
 	}
 }

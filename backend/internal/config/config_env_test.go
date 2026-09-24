@@ -103,11 +103,9 @@ func TestDotenvJSONWins(t *testing.T) {
 	}
 }
 
-// TestDotenvEmptyAuthTokensClearsJSON is the regression for the dashboard
-// mode switch: it persists exactly "AUTH_TOKENS=" into .env, which must
-// clear tokens that came from a -config JSON file — otherwise the reload
-// keeps the old tokens, BridgeMode() stays false, and the dashboard pill
-// still shows the old mode after "Switch to bridge mode".
+// TestDotenvEmptyAuthTokensClearsJSON pins the empty-pool precedence:
+// it persists exactly "AUTH_TOKENS=" into .env, which must
+// clear tokens that came from a -config JSON file.
 func TestDotenvEmptyAuthTokensClearsJSON(t *testing.T) {
 	clearEnv(t)
 
@@ -125,22 +123,21 @@ func TestDotenvEmptyAuthTokensClearsJSON(t *testing.T) {
 	if len(cfg.AuthTokens) != 0 {
 		t.Errorf("AuthTokens = %v, want empty (empty .env AUTH_TOKENS clears JSON tokens)", cfg.AuthTokens)
 	}
-	if !cfg.BridgeMode() {
-		t.Error("BridgeMode() = false, want true after explicit empty AUTH_TOKENS")
+	if len(cfg.AuthTokens) != 0 {
+		t.Errorf("AuthTokens = %v, want empty after explicit empty AUTH_TOKENS", cfg.AuthTokens)
+	}
+	if got := cfg.EffectiveMode(); got != "pooled" {
+		t.Errorf("EffectiveMode() = %q, want pooled", got)
 	}
 	if cfg.DiscoveredSource != "" {
 		t.Errorf("DiscoveredSource = %q, want empty (auto-discovery must stay suppressed)", cfg.DiscoveredSource)
 	}
 }
 
-// TestEnvEmptyAuthTokensBridgeMode verifies that an explicitly-empty
-// AUTH_TOKENS in the real environment (the shape systemd/Docker unit files
-// use to force bridge mode) records presence: cfg.AuthTokens stays empty,
-// BridgeMode() is true, and CLI auto-discovery must NOT refill the pool.
-// Regression: overrideCSV skipped empty values, so AUTH_TOKENS= left
-// AuthTokensSet false and a local CLI login silently flipped bridge mode to
-// pooled mode under systemd/Docker.
-func TestEnvEmptyAuthTokensBridgeMode(t *testing.T) {
+// TestEnvEmptyAuthTokensPresence verifies that an explicitly-empty
+// AUTH_TOKENS in the real environment records presence: cfg.AuthTokens stays empty
+// and CLI auto-discovery must NOT refill the pool.
+func TestEnvEmptyAuthTokensPresence(t *testing.T) {
 	clearEnv(t)
 	// Re-enable auto-discovery; the explicit-empty AUTH_TOKENS below is what
 	// must suppress it (not the AUTO_DISCOVER_TOKEN=off switch).
@@ -164,10 +161,7 @@ func TestEnvEmptyAuthTokensBridgeMode(t *testing.T) {
 		t.Fatalf("LoadOpts: %v", err)
 	}
 	if len(cfg.AuthTokens) != 0 {
-		t.Errorf("AuthTokens = %v, want empty (explicit bridge mode, not refilled by discovery)", cfg.AuthTokens)
-	}
-	if !cfg.BridgeMode() {
-		t.Error("BridgeMode() = false, want true with explicitly-empty AUTH_TOKENS")
+		t.Errorf("AuthTokens = %v, want empty (explicit empty, not refilled by discovery)", cfg.AuthTokens)
 	}
 	if cfg.DiscoveredSource != "" {
 		t.Errorf("DiscoveredSource = %q, want empty (auto-discovery must be suppressed)", cfg.DiscoveredSource)
@@ -188,8 +182,8 @@ func TestEnvAuthTokensSetsTokens(t *testing.T) {
 	if want := []string{"a", "b"}; !equalStrings(cfg.AuthTokens, want) {
 		t.Errorf("AuthTokens = %v, want %v", cfg.AuthTokens, want)
 	}
-	if cfg.BridgeMode() {
-		t.Error("BridgeMode() = true, want false with AUTH_TOKENS=a,b")
+	if len(cfg.AuthTokens) != 2 {
+		t.Errorf("AuthTokens = %v, want 2 tokens with AUTH_TOKENS=a,b", cfg.AuthTokens)
 	}
 }
 
@@ -206,9 +200,8 @@ func TestDotenvMissingIsFine(t *testing.T) {
 	}
 }
 
-// TestEnvEmptyAuthTokensClearsDotenv is the C1 precedence hole: an
-// explicitly-empty AUTH_TOKENS in the real environment (the shape
-// systemd/Docker unit files use to force bridge mode) must clear tokens that
+// TestEnvEmptyAuthTokensClearsDotenv pins the C1 precedence hole: an
+// explicitly-empty AUTH_TOKENS in the real environment must clear tokens that
 // came from ./.env — the empty env value wins like any other env override —
 // and suppress CLI auto-discovery.
 func TestEnvEmptyAuthTokensClearsDotenv(t *testing.T) {
@@ -241,8 +234,8 @@ func TestEnvEmptyAuthTokensClearsDotenv(t *testing.T) {
 	if len(cfg.AuthTokens) != 0 {
 		t.Errorf("AuthTokens = %v, want empty (empty env AUTH_TOKENS clears .env tokens)", cfg.AuthTokens)
 	}
-	if !cfg.BridgeMode() {
-		t.Error("BridgeMode() = false, want true after explicit empty env AUTH_TOKENS")
+	if len(cfg.AuthTokens) != 0 {
+		t.Errorf("AuthTokens = %v, want empty after explicit empty env AUTH_TOKENS", cfg.AuthTokens)
 	}
 	if cfg.ListenAddr != ":1111" {
 		t.Errorf("ListenAddr = %q, want :1111 (non-token .env keys still apply)", cfg.ListenAddr)

@@ -25,7 +25,7 @@ func (p *Pool) LeaseRelease(lease *Lease) {
 	}
 	t := lease.leaseTarget()
 	if t == nil {
-		return // synthetic lease without a backing entry or bridge
+		return // synthetic lease without a backing entry
 	}
 	t.runs.Release(lease.Run)
 	// Release the smart-routing live-turn slot through the lease (keyed by
@@ -123,9 +123,7 @@ func (p *Pool) RecordSpend(lease *Lease, tokens int64) {
 	if t == nil {
 		return
 	}
-	if t.bridge != nil {
-		p.bridgeRecordSpend(t.bridge, tokens)
-	} else if t.entry != nil {
+	if t.entry != nil {
 		p.recordSpendEntry(t.entry, tokens)
 	}
 }
@@ -211,31 +209,6 @@ func (p *Pool) InvalidateLeaseRun(lease *Lease, agentID string) {
 		return
 	}
 	lease.entry.runs.Invalidate(agentID)
-}
-
-// InvalidateBridgeSession drops the cached free session of the bridge
-// entry so the next AcquireBridge re-creates it (session-invalid recovery).
-// Guarded to the lease's instance id (issue #132) — see InvalidateSession.
-func (p *Pool) InvalidateBridgeSession(lease *Lease) {
-	p.InvalidateBridgeSessionWithReason(lease, "instance_invalidated", 0)
-}
-
-// InvalidateBridgeSessionWithReason is the reason-aware form of
-// InvalidateBridgeSession (see InvalidateSessionWithReason, #159).
-func (p *Pool) InvalidateBridgeSessionWithReason(lease *Lease, reason string, status int) {
-	if lease == nil || lease.Bridge == nil {
-		return
-	}
-	lease.Bridge.session.InvalidateInstanceWithReason(lease.SessionInstanceID, reason, status)
-}
-
-// InvalidateBridgeRun drops the current run of the bridge entry for agentID
-// so the next AcquireBridge starts a fresh one (run-invalid recovery).
-func (p *Pool) InvalidateBridgeRun(lease *Lease, agentID string) {
-	if lease == nil || lease.Bridge == nil {
-		return
-	}
-	lease.Bridge.runs.Invalidate(agentID)
 }
 
 // RemoveLastToken removes the highest-index fixed token (dashboard action).
@@ -380,7 +353,7 @@ func (p *Pool) drainRemovedToken(entry *tokenEntry) {
 }
 
 // RemoveAllTokens finishes every fixed token's runs and empties the pool
-// (bridge-mode switch). In-flight leases on removed tokens no-op on release
+// In-flight leases on removed tokens no-op on release
 // (bounds-checked index access). Config must be updated separately.
 func (p *Pool) RemoveAllTokens(ctx context.Context) {
 	toks := p.roster.Load()
@@ -444,14 +417,11 @@ func (p *Pool) DropTokenSession(ctx context.Context, token int, force bool) (boo
 }
 
 // Shutdown stops the background jobs and drains every token: FINISH all
-// runs, end the sessions, bounded by a 10s force deadline per token. Cached
-// bridge entries (bridge mode) are drained best-effort the same way after
-// the fixed tokens: FINISH all runs and end each entry's session so no
-// upstream activity is left behind.
+// runs, end the sessions, bounded by a 10s force deadline per token.
 func (p *Pool) Shutdown(ctx context.Context) {
 	// Set BEFORE the drain: an in-flight request still in its acquire phase
 	// must not admit a session/run after the drain released the upstream
-	// sessions (post-drain re-admission gate; Acquire/AcquireBridge check).
+	// sessions (post-drain re-admission gate; Acquire checks).
 	p.draining.Store(true)
 	if p.cancel != nil {
 		p.cancel()
@@ -473,40 +443,6 @@ func (p *Pool) Shutdown(ctx context.Context) {
 		if !tok.runs.KeptForPersistence() {
 			if snap := tok.runs.Snapshot(); snap.ActiveRuns > 0 {
 				errs = append(errs, fmt.Sprintf("token-%d: %d runs left after shutdown", i+1, snap.ActiveRuns))
-			}
-		}
-	}
-
-	// Drain the cached bridge entries best-effort. The maintain loop is
-	// already stopped (wg.Wait above), so the entry list is stable.
-	//
-	// Snapshot the entries under the lock, then drain each one AFTER
-	// releasing bridgeMu: FinishAllRuns + session shutdown are sequential
-	// upstream calls bounded by the session-call timeout, so holding
-	// bridgeMu across them would stall every other bridge operation
-	// (AcquireBridge, bridgeRecordChat/bridgeRecordSpend/BridgeCount) for
-	// the whole drain — the same rule bridgeEvictLocked and bridgeMaintain
-	// already follow (bridge_cache.go:128-134).
-	p.bridgeMu.Lock()
-	entries := make([]*bridgeEntry, 0, len(p.bridge))
-	for _, entry := range p.bridge {
-		entries = append(entries, entry)
-	}
-	p.bridgeMu.Unlock()
-
-	for _, entry := range entries {
-		// Runs.Shutdown is the same drain the fixed-token path uses: it
-		// stops the finish worker (shuttingDown), FINISHes queued runs and
-		// ends the session internally, so a bridge entry can no longer
-		// outlive Pool.Shutdown with jobs abandoned (issue #233).
-		entryCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
-		entry.runs.Shutdown(entryCtx)
-		cancel()
-		// With run persistence the runs are intentionally kept alive for
-		// restart-resume — not a drain failure.
-		if !entry.runs.KeptForPersistence() {
-			if snap := entry.runs.Snapshot(); snap.ActiveRuns > 0 {
-				errs = append(errs, fmt.Sprintf("bridge %s: %d runs left after shutdown", bridgeTokenLabel(entry), snap.ActiveRuns))
 			}
 		}
 	}

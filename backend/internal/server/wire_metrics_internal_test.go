@@ -67,7 +67,7 @@ func TestRequestFailedWarnDedupe(t *testing.T) {
 			t.Errorf("`request failed` WARNs = %d, want <= 4 for 100 identical rate_limited errors", n)
 		}
 		s.rateLimitDedupe.mu.Lock()
-		n := s.rateLimitDedupe.m["bridge|rate_limited|reset"]
+		n := s.rateLimitDedupe.m["|rate_limited|reset"]
 		s.rateLimitDedupe.mu.Unlock()
 		if n != 100 {
 			t.Errorf("dedupe ledger count = %d, want 100 (counter always increments)", n)
@@ -131,7 +131,7 @@ func TestRequestFailedSupersededQuiesced(t *testing.T) {
 		}
 	}
 	s.rateLimitDedupe.mu.Lock()
-	n := s.rateLimitDedupe.m["bridge|session_superseded|"]
+	n := s.rateLimitDedupe.m["|session_superseded|"]
 	s.rateLimitDedupe.mu.Unlock()
 	if n != 100 {
 		t.Errorf("dedupe ledger count = %d, want 100 (counter always increments)", n)

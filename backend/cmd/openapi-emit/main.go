@@ -197,13 +197,13 @@ func contentFor(gen *generator, p dashboard.AdminAPIPath, v any, req bool) map[s
 func tagFor(path string) string {
 	rest := strings.TrimPrefix(path, "/admin/")
 	switch {
-	case strings.HasPrefix(rest, "tokens") || strings.HasPrefix(rest, "bridge-tokens"):
+	case strings.HasPrefix(rest, "tokens"):
 		return "tokens"
 	case strings.HasPrefix(rest, "api/settings") || strings.HasPrefix(rest, "api/pages") || strings.HasPrefix(rest, "api/config") || rest == "config":
 		return "settings"
 	case rest == "login" || rest == "logout" || strings.HasPrefix(rest, "login/") || strings.HasPrefix(rest, "api/auth") || strings.HasPrefix(rest, "api/change-password") || strings.HasPrefix(rest, "api/require-login"):
 		return "auth"
-	case rest == "mode" || rest == "diag" || rest == "restart" || rest == "reload" || rest == "smoke" || strings.HasPrefix(rest, "playground"):
+	case rest == "diag" || rest == "restart" || rest == "reload" || rest == "smoke" || strings.HasPrefix(rest, "playground"):
 		return "system"
 	default:
 		return "views"

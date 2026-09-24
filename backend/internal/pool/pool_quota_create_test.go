@@ -287,23 +287,6 @@ func TestRecordSpendSurfacesInSnapshot(t *testing.T) {
 	}
 }
 
-func TestRecordSpendBridge(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgePool(t, mock) // bridge-mode pool (client tokens, no AUTH_TOKENS)
-
-	lease, err := p.AcquireBridge(context.Background(), "client-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.RecordSpend(lease, 99)
-	v := p.bridgeSpendSnapshot(lease.Bridge)
-	if v.Rolling24h != 99 {
-		t.Errorf("bridge spend = %d, want 99", v.Rolling24h)
-	}
-	p.LeaseRelease(lease)
-}
-
 func TestLeaseAbandonFinishesRun(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()

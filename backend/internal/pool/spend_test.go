@@ -245,19 +245,6 @@ func TestRecordSpendLimited(t *testing.T) {
 		t.Errorf("SpendLimited = %d, want 2 (only spend_limited refusals counted)", snaps[0].SpendLimited)
 	}
 
-	// Bridge path counts on the bridge entry's ledger.
-	bp := newBridgePool(t, testutil.NewMock())
-	blease, err := bp.AcquireBridge(context.Background(), "client-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bp.CooldownBridgeRateLimit(blease, &upstream.RateLimitError{Status: "spend_limited", RetryAfter: time.Minute})
-	bp.CooldownBridgeRateLimit(blease, &upstream.RateLimitError{Status: "rate_limited", RetryAfter: time.Minute})
-	bv := bp.bridgeSpendSnapshot(blease.Bridge)
-	if bv.SpendLimited != 1 {
-		t.Errorf("bridge SpendLimited = %d, want 1 (only spend_limited counted)", bv.SpendLimited)
-	}
-	bp.LeaseRelease(blease)
 }
 
 // TestSpendBucketUpdateLogs verifies the spend-bucket update log: a spend record emits one Debug

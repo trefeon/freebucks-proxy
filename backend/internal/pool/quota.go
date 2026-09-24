@@ -22,8 +22,8 @@ import (
 // recovery instant is past or unknown, the stored numbers are self-declared
 // stale and the token is NOT capped — one admission revalidates live truth
 // (polls never carry Freebucks, so nothing else could refresh them).
-func freebucksCapped(acc tokenAccount, model string) (bool, time.Duration) {
-	return freebucksCappedForSnapshot(acc.sessionMgr().Snapshot(), model)
+func freebucksCapped(acc *tokenEntry, model string) (bool, time.Duration) {
+	return freebucksCappedForSnapshot(acc.session.Snapshot(), model)
 }
 
 // EffectiveFreebucksPrices projects the server's announced repricing schedule
@@ -233,8 +233,8 @@ func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (boo
 // freebucksLimitError builds the 429 surfaced when Freebucks balance is
 // insufficient for model. RetryAfter mirrors freebucksCapped's window-reset
 // signal.
-func freebucksLimitError(acc tokenAccount, model string) *upstream.RateLimitError {
-	return freebucksLimitErrorForSnapshot(acc.sessionMgr().Snapshot(), model)
+func freebucksLimitError(acc *tokenEntry, model string) *upstream.RateLimitError {
+	return freebucksLimitErrorForSnapshot(acc.session.Snapshot(), model)
 }
 
 func freebucksLimitErrorForSnapshot(snap session.SessionSnapshot, model string) *upstream.RateLimitError {

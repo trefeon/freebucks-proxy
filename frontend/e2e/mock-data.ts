@@ -56,12 +56,9 @@ export function tokensPayload(
 ): Record<string, unknown> {
   return {
     mode: "pooled",
-    in_bridge: false,
-    bridge_tokens: 0,
     token_count: tokens.length,
     has_tokens: true,
     tokens,
-    bridge_token_cards: [],
     ...extra,
   };
 }

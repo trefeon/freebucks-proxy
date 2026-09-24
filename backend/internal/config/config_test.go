@@ -35,7 +35,7 @@ func clearEnv(t *testing.T) {
 	t.Chdir(t.TempDir())
 	for _, k := range envKeys {
 		// AUTH_TOKENS is presence-sensitive (an empty value is an explicit
-		// bridge-mode choice), so the neutral test state is ABSENT, not
+		// empty-pool choice), so the neutral test state is ABSENT, not
 		// empty: setting it to "" would record presence and suppress
 		// auto-discovery in every test. Unsetting also blocks a
 		// machine-level AUTH_TOKENS leak into assertions.
@@ -164,10 +164,10 @@ func TestAutoDiscoverStripsCredentialsBOM(t *testing.T) {
 	}
 }
 
-// TestAutoDiscoverWarnsOnBridgeToPooled verifies that auto-discovery filling
-// an empty AUTH_TOKENS (which silently flips bridge mode to pooled mode)
+// TestAutoDiscoverWarnsOnEmptyToPooled verifies that auto-discovery filling
+// an empty AUTH_TOKENS (which must stay pooled-empty)
 // emits a prominent slog warning naming the source file and the off switch.
-func TestAutoDiscoverWarnsOnBridgeToPooled(t *testing.T) {
+func TestAutoDiscoverWarnsOnEmptyToPooled(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("AUTO_DISCOVER_TOKEN", "")
 
@@ -208,9 +208,8 @@ func TestAutoDiscoverWarnsOnBridgeToPooled(t *testing.T) {
 }
 
 // TestAutoDiscoverSkippedWhenTokensExplicitlyCleared verifies that an
-// explicitly-empty AUTH_TOKENS (the shape the dashboard mode switch persists
-// as "AUTH_TOKENS=" in .env) suppresses CLI auto-discovery — the operator
-// chose bridge mode, so a local CLI login must not silently refill the pool.
+// explicitly-empty AUTH_TOKENS (persisted as "AUTH_TOKENS=" in .env)
+// suppresses CLI auto-discovery — a local CLI login must not silently refill the pool.
 func TestAutoDiscoverSkippedWhenTokensExplicitlyCleared(t *testing.T) {
 	clearEnv(t)
 	// Re-enable auto-discovery; the explicit-empty AUTH_TOKENS below is what
@@ -239,10 +238,7 @@ func TestAutoDiscoverSkippedWhenTokensExplicitlyCleared(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if len(cfg.AuthTokens) != 0 {
-		t.Errorf("AuthTokens = %v, want empty (explicit bridge mode, not refilled by discovery)", cfg.AuthTokens)
-	}
-	if !cfg.BridgeMode() {
-		t.Error("BridgeMode() = false, want true with explicitly-cleared AUTH_TOKENS")
+		t.Errorf("AuthTokens = %v, want empty (explicit empty, not refilled by discovery)", cfg.AuthTokens)
 	}
 	if cfg.DiscoveredSource != "" {
 		t.Errorf("DiscoveredSource = %q, want empty (auto-discovery must be suppressed)", cfg.DiscoveredSource)

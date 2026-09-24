@@ -45,6 +45,3 @@ func TestRequestLedgerDayBucketRollsAtPacificMidnight(t *testing.T) {
 // TestAcquireCountsAdmissionAtGrant pins that an admitted request is
 // counted the moment the lease is granted — before any chat. A lease with
 // no follow-up chat still consumed its admission slot.
-
-// concurrent AcquireBridge calls for one client token against cap=1 must
-// admit exactly one.

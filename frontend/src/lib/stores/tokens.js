@@ -23,8 +23,6 @@ import { createQueryStore } from "./query.js";
 const LIVE_QS = "?view=live";
 const STATIC_TOP_KEYS = [
   "mode",
-  "in_bridge",
-  "show_bridge",
   "unmetered_models",
   "maturity_enabled",
   "maturity_window_start",

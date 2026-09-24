@@ -47,8 +47,8 @@ func TestDefaults(t *testing.T) {
 	if cfg.CORSAllowedOrigin != "*" {
 		t.Errorf("CORSAllowedOrigin = %q, want %q (default)", cfg.CORSAllowedOrigin, "*")
 	}
-	if got := cfg.EffectiveMode(); got != "hybrid" {
-		t.Errorf("EffectiveMode = %q, want hybrid (default when AUTH_TOKENS set)", got)
+	if got := cfg.EffectiveMode(); got != "pooled" {
+		t.Errorf("EffectiveMode = %q, want pooled (pool-only)", got)
 	}
 	if cfg.LogFile != "" {
 		t.Errorf("LogFile = %q, want empty", cfg.LogFile)
@@ -177,17 +177,17 @@ func TestValidationFixSuggestions(t *testing.T) {
 	})
 }
 
-func TestLoadNoTokensBridgeMode(t *testing.T) {
+func TestLoadNoTokensPooled(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load with no AUTH_TOKENS: %v", err)
 	}
 	if len(cfg.AuthTokens) != 0 {
-		t.Errorf("AuthTokens = %v, want empty (bridge mode)", cfg.AuthTokens)
+		t.Errorf("AuthTokens = %v, want empty (no tokens)", cfg.AuthTokens)
 	}
-	if !cfg.BridgeMode() {
-		t.Error("BridgeMode() = false, want true with no tokens")
+	if got := cfg.EffectiveMode(); got != "pooled" {
+		t.Errorf("EffectiveMode() = %q, want pooled with no tokens", got)
 	}
 }
 

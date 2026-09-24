@@ -28,6 +28,13 @@ import (
 // hold, so nothing races on it.
 const parkHold = 25 * time.Millisecond
 
+// acquireResult carries one Acquire outcome from a test goroutine back to
+// the test body (a bare struct field would race the reader).
+type acquireResult struct {
+	lease *Lease
+	err   error
+}
+
 // waitForParkedWaiter waits until the lane reports exactly one parked
 // waiter (the goroutine has genuinely queued, not merely started).
 func waitForParkedWaiter(t *testing.T, p *Pool, key slotKey) {
@@ -36,8 +43,7 @@ func waitForParkedWaiter(t *testing.T, p *Pool, key slotKey) {
 }
 
 // waitForModelParkedWaiter waits until the model's global queue holds
-// exactly one waiter (pooled lanes never park lane-locally; slotQueued
-// stays for the bridge path and its unit tests).
+// exactly one waiter.
 func waitForModelParkedWaiter(t *testing.T, p *Pool, model string) {
 	t.Helper()
 	eventually(t, "waiter parks on the model queue", func() bool { return p.modelQueueDepth(model) == 1 })
@@ -149,54 +155,6 @@ func TestQueueWaitAbsentAfterQueueWaitTimeout(t *testing.T) {
 	}
 	if wait, ok := phases.All()[phasetiming.QueueWaitMS]; ok {
 		t.Errorf("timed-out waiter recorded %s = %d, want the phase absent (no slot was granted)", phasetiming.QueueWaitMS, wait)
-	}
-}
-
-// TestBridgeQueueWaitRecordedWhenParkedThenGranted is the bridge half: the
-// bridge lane keys the slot state off the *bridgeEntry, and its lease must
-// report the park identically.
-func TestBridgeQueueWaitRecordedWhenParkedThenGranted(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode: pool queue-wait lane excluded; run `go test ./backend/...` for the full tier")
-	}
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgeSmartPool(t, func(c *config.Config) { c.SlotsPerAccount = 1 }, mock)
-	const token = "bridge-queue-wait"
-	entry := bridgeLane(t, p, token)
-
-	holder, err := p.AcquireBridge(context.Background(), token, modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, phases := phasetiming.WithContext(context.Background())
-	parkedCh := make(chan acquireResult, 1)
-	go func() {
-		lease, err := p.AcquireBridge(ctx, token, modelA)
-		parkedCh <- acquireResult{lease, err}
-	}()
-	waitForParkedWaiter(t, p, slotKey{entry: entry, model: modelA})
-	time.Sleep(parkHold)
-	p.LeaseRelease(holder)
-
-	select {
-	case r := <-parkedCh:
-		if r.err != nil {
-			t.Fatalf("parked bridge acquire err = %v", r.err)
-		}
-		defer p.LeaseRelease(r.lease)
-		if r.lease.QueueWait < parkHold {
-			t.Errorf("bridge lease queue wait = %v, want >= %v", r.lease.QueueWait, parkHold)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("parked bridge acquire never granted after the holder released")
-	}
-	wait, ok := phases.All()[phasetiming.QueueWaitMS]
-	if !ok {
-		t.Fatalf("parked bridge request records no %s phase: %v", phasetiming.QueueWaitMS, phases.All())
-	}
-	if wait < parkHold.Milliseconds() {
-		t.Errorf("bridge %s = %dms, want >= %dms", phasetiming.QueueWaitMS, wait, parkHold.Milliseconds())
 	}
 }
 

@@ -27,8 +27,7 @@ func (a *adminHandlers) addTokenPersist(ctx context.Context, token string) (int,
 		if err != nil {
 			return 0, fmt.Errorf("add token to pool: %w", err)
 		}
-		// Persist the runtime list (pool may have bridge additions too, but
-		// AUTH_TOKENS is the fixed set — append only when not already there).
+		// Persist the runtime list (AUTH_TOKENS is the fixed set — append only when not already there).
 		tokens := append([]string(nil), existing...)
 		seen := false
 		for _, t := range tokens {
@@ -45,8 +44,7 @@ func (a *adminHandlers) addTokenPersist(ctx context.Context, token string) (int,
 		}
 		return idx, nil
 	}
-	// Bridge mode (no fixed tokens): the first wizard token switches to
-	// pooled mode, exactly like handleTokenAdd.
+	// The first wizard token switches to pooled mode, exactly like handleTokenAdd.
 	idx, err := a.pool.AddToken(token)
 	if err != nil {
 		return 0, fmt.Errorf("add token to pool: %w", err)
@@ -70,7 +68,7 @@ func (a *adminHandlers) syncTokensAfterMutation(tokens []string) error {
 	// (runtime truth — the DB holds secrets at mode 0600 since the env-to-DB
 	// migration), plus the auth/tokens_configured presence marker, via
 	// tokenMarkerDelta. A reload-verification failure restores BOTH layers
-	// (mirrors handleModeSwitch's persist → verify → rollback). Otherwise
+	// (persist → verify → rollback). Otherwise
 	// the failed add leaves AUTH_TOKENS=<new> in .env while the live pool
 	// holds the old list — the very divergence the caller is trying to
 	// avoid.

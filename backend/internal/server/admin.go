@@ -85,19 +85,7 @@ func (a *adminHandlers) handleSmoke(w http.ResponseWriter, r *http.Request) {
 	var lease *pool.Lease
 	var up io.ReadCloser
 	acquireStart := time.Now()
-	if cfg.BridgeMode() {
-		if req.Token == "" {
-			a.dash.RenderConfigResult(w, r, false, "Bridge mode: include a client token in the smoke request.")
-			return
-		}
-		lease, err = a.pool.AcquireBridge(ctx, req.Token, req.Model)
-	} else if cfg.HybridBridgeMode() && req.Token != "" {
-		// Hybrid: a supplied client token smoke-tests the bridge surface;
-		// without one the pooled surface is probed.
-		lease, err = a.pool.AcquireBridge(ctx, req.Token, req.Model)
-	} else {
-		lease, err = a.pool.Acquire(ctx, req.Model)
-	}
+	lease, err = a.pool.Acquire(ctx, req.Model)
 	phases.Since(phasetiming.AcquireMS, acquireStart)
 	if err == nil {
 		up, err = a.pool.Chat(ctx, lease, chatOpts, chatBody)

@@ -388,18 +388,6 @@
   },
   {
     "method": "POST",
-    "path": "/admin/bridge-tokens/{key}/lock",
-    "auth": "sensitive",
-    "js": null
-  },
-  {
-    "method": "POST",
-    "path": "/admin/bridge-tokens/{key}/unlock",
-    "auth": "sensitive",
-    "js": null
-  },
-  {
-    "method": "POST",
     "path": "/admin/tokens/{id}/finish",
     "auth": "sensitive",
     "js": {
@@ -483,12 +471,6 @@
       "export": "adminActions",
       "key": "tokenSwap"
     }
-  },
-  {
-    "method": "POST",
-    "path": "/admin/mode",
-    "auth": "sensitive",
-    "js": null
   },
   {
     "method": "POST",

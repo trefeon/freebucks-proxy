@@ -50,12 +50,11 @@ const shutdownTimeout = 10 * time.Second
 // token. The caller must call Pool.LeaseRelease when the request completes
 // or fails (it decrements the run's inflight counter).
 type Lease struct {
-	Token             int    // index into config.AuthTokens (-1 for bridge leases)
+	Token             int    // index into config.AuthTokens
 	Model             string // the model this lease's session/run is bound to (authoritative for opts.Model; may differ from the requested model after upstream coercion)
 	AgentID           string
 	Run               *runs.Run
-	SessionInstanceID string       // "" when the session is disabled
-	Bridge            *bridgeEntry // nil for pooled (fixed-token) leases
+	SessionInstanceID string // "" when the session is disabled
 	// entry is the fixed-token entry backing this lease. Set by Acquire so
 	// LeaseRelease always releases through the right run manager: after a
 	// concurrent RemoveLastToken, the Token index may be out of range (or
@@ -64,7 +63,7 @@ type Lease struct {
 	entry *tokenEntry
 	// routeSlot is the MASQ slot-ledger live-turn slot held for this lease
 	// (slot_ledger.go, SLOTS_PER_ACCOUNT per account-model lane). Set at
-	// grant time on the smart path only, for pooled AND bridge leases;
+	// grant time on the smart path only, for pooled leases;
 	// released through the lease by LeaseRelease/LeaseAbandon. Nil on the
 	// legacy path (ROUTING_SMART off), when the cap is unlimited, or for
 	// synthetic leases.
@@ -306,9 +305,7 @@ type Pool struct {
 	// builds declares its zone as x-fb-timezone. nil = host-zone behaviour.
 	localityFn atomic.Pointer[func() string]
 
-	// requestsServed counts successful upstream chat calls across BOTH
-	// pooled and bridge leases (bridge entries are ephemeral and excluded
-	// from the per-token counters, so this is the mode-independent total).
+	// requestsServed counts successful upstream chat calls.
 	requestsServed atomic.Uint64
 
 	once   sync.Once
@@ -333,17 +330,6 @@ type Pool struct {
 	// by refundMu; entries are deleted when the flight lands.
 	refundMu       sync.Mutex
 	refundInflight map[int]*refundFlight
-	// Bridge mode (no AUTH_TOKENS): lazily-created per-client-token entries.
-	// bridgeOrder keeps the LRU order, oldest first. Guarded by bridgeMu.
-	bridgeMu    sync.RWMutex
-	bridge      map[string]*bridgeEntry
-	bridgeOrder []string
-
-	// bridgeCreateGate bounds concurrent bridge client creation:
-	// upstream.New involves network calls; limiting concurrency to 4
-	// prevents thundering-herd creation when many new client tokens
-	// arrive simultaneously.
-	bridgeCreateGate chan struct{}
 	// admissions tracks in-flight session admissions per model across the pool
 	// (issue #191: prevents concurrent requests from creating duplicate sessions
 	// on different tokens for the same model). Guarded by admissionsMu.
@@ -351,7 +337,7 @@ type Pool struct {
 	admissions   map[string]int
 	// store persists session state across restarts (SESSION_PERSIST); nil
 	// disables. Injected by the caller (main) via SetSessionStore so there
-	// is exactly one store shared by pooled and bridge entries.
+	// is exactly one shared store.
 	store *session.Store
 
 	// notify fires best-effort webhook alerts (issue #48): pool_exhausted
@@ -373,7 +359,7 @@ type Pool struct {
 	// Runtime persistence (pool_persist.go, DB-unified-storage):
 	// write-through cache of the allowlisted counters (usage and Pacific-day
 	// request ledgers, session spend buckets, admissions counts,
-	// terminal-cooldown hints, bridge survivors) through the PoolPersist
+	// terminal-cooldown hints) through the PoolPersist
 	// interface. nil disables (in-memory only).
 	// persistDirty is set lock-free on every mutation; the maintain tick
 	// plus a best-effort Shutdown pass flush it in the background, so the
@@ -388,23 +374,15 @@ type Pool struct {
 	cooldownHintMu sync.Mutex
 	cooldownHints  map[string]poolCooldownBlob
 
-	// Bridge idle-eviction survivors (cooldown_hint.go): bounded,
-	// timestamped usage contributions of idle-evicted bridge entries.
-	// Guarded by bridgeSurvivorMu, never nested under bridgeMu (eviction
-	// captures after unlinking; snapshot/restore take it alone).
-	bridgeSurvivorMu sync.Mutex
-	bridgeSurvivors  []bridgeSurvivor
-
 	// MASQ slot ledger (slot_ledger.go): per-lane live-turn slot
 	// semaphores with FIFO waiter queues (routeSlots, keyed by
-	// slotKey{entry, model} - *tokenEntry pooled, *bridgeEntry bridge -
-	// so dashboard reorders and concurrent clients never merge lanes).
+	// slotKey{entry, model} - so dashboard reorders and concurrent clients
+	// never merge lanes).
 	// Guarded by routeMu. In-memory only: a restart resets every counter
 	// to zero (same discipline as the probe scheduler's transient flags)
 	// - no pool_state rows, no SQL.
 	// Smart model queues (model_queue.go) share routeMu: one
-	// work-conserving FIFO per model for pooled entries (bridge entries
-	// keep the per-lane park above). Lazily created like routeSlots, so
+	// work-conserving FIFO per model. Lazily created like routeSlots, so
 	// no constructor change is needed.
 	routeMu     sync.Mutex
 	routeSlots  map[slotKey]*slotState
@@ -638,28 +616,20 @@ type quarantineState struct {
 }
 
 // leaseTarget fields the lease dispatch methods (LeaseRelease, LeaseAbandon,
-// RecordRunStep, MarkRunFailed, RecordSpend, Chat) need from a lease. It
-// collapses the old 3-way Bridge/entry/index skeleton into one accessor
-// (issue #265): production leases always carry entry (acquire.go) or Bridge
-// (bridge.go), so the historical index-fallback path is dropped — an index
-// could be reused by a concurrent RemoveLastToken+AddToken and mis-target a
-// different entry. A nil target means the lease is synthetic (no backing
-// entry or bridge); the dispatch methods no-op on it.
+// RecordRunStep, MarkRunFailed, RecordSpend, Chat) need from a lease.
+// Production leases always carry entry; a nil target means the lease is
+// synthetic (no backing entry) and the dispatch methods no-op on it.
 type leaseTarget struct {
 	runs   *runs.RunManager
 	client *upstream.Client
 	entry  *tokenEntry
-	bridge *bridgeEntry
 }
 
 // leaseTarget resolves the lease's backing run manager, upstream client and
-// entry (pooled) or bridge entry. Returns nil for a synthetic lease.
+// entry. Returns nil for a synthetic lease.
 func (l *Lease) leaseTarget() *leaseTarget {
 	if l.entry != nil {
 		return &leaseTarget{runs: l.entry.runs, client: l.entry.client, entry: l.entry}
-	}
-	if l.Bridge != nil {
-		return &leaseTarget{runs: l.Bridge.runs, client: l.Bridge.client, bridge: l.Bridge}
 	}
 	return nil
 }
@@ -682,7 +652,7 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 	}
 
 	WireChatAdLegs() // chat-surface ad legs land in the ads ledger
-	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), admissions: make(map[string]int), cooldownHints: make(map[string]poolCooldownBlob)}
+	p := &Pool{reg: reg, logger: slog.Default(), admissions: make(map[string]int), cooldownHints: make(map[string]poolCooldownBlob)}
 	p.cfg.Store(cfg)
 	toks := make([]*tokenEntry, 0, len(cfg.AuthTokens))
 	for i := range cfg.AuthTokens {
@@ -724,7 +694,7 @@ func runOptions(cfg *config.Config) runs.Options {
 // SetLocalityResolver installs fn on every upstream client the pool holds or
 // builds: session calls then declare fn()'s zone as x-fb-timezone (the
 // session-locality rule). The resolver is stored on the pool so runtime token
-// additions and bridge entries created later inherit it; nil restores the
+// additions created later inherit it; nil restores the
 // host-zone behaviour on every client. Safe to call while serving (each
 // client guards its own resolver).
 func (p *Pool) SetLocalityResolver(fn func() string) {
@@ -738,17 +708,10 @@ func (p *Pool) SetLocalityResolver(fn func() string) {
 			tok.client.SetLocalityResolver(fn)
 		}
 	}
-	p.bridgeMu.RLock()
-	for _, entry := range p.bridge {
-		if entry != nil && entry.client != nil {
-			entry.client.SetLocalityResolver(fn)
-		}
-	}
-	p.bridgeMu.RUnlock()
 }
 
 // applyLocality installs the pool's configured locality resolver on a client
-// built after SetLocalityResolver (runtime token additions and bridge entries).
+// built after SetLocalityResolver (runtime token additions).
 func (p *Pool) applyLocality(c *upstream.Client) {
 	if c == nil {
 		return
@@ -773,15 +736,6 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 		tok.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		tok.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 	}
-	p.bridgeMu.Lock()
-	for _, entry := range p.bridge {
-		entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
-		entry.session.SetReAdmitGate(entry.seat.idle)
-		entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
-		entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
-	}
-	p.bridgeMu.Unlock()
-
 	// AUTH_TOKENS slot reconciliation. A quarantine is bound to the exact
 	// account string an entry was built from; when a reload replaces the
 	// account at a slot (operator edited AUTH_TOKENS in .env), the old
@@ -907,7 +861,7 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 
 // tokenEntryLabel returns a short non-reversible label for a fixed pooled
 // token entry, safe for logs: the sha256 of the raw AUTH_TOKENS string, hex
-// truncated to 8 chars (mirrors bridgeTokenLabel; the raw token must never
+// truncated to 8 chars (the raw token must never
 // reach logs — logring retains them for /admin/logs).
 func tokenEntryLabel(e *tokenEntry) string {
 	if e == nil || e.client == nil {
@@ -943,20 +897,6 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 	return entry, nil
 }
 
-// isPooledToken reports whether raw matches one of the fixed AUTH_TOKENS
-// entries (exact string compare against the pool's own in-memory copies).
-func (p *Pool) isPooledToken(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	for _, tok := range *p.roster.Load() {
-		if tok.token == raw {
-			return true
-		}
-	}
-	return false
-}
-
 // AddToken adds a token to the pool at runtime (dashboard action): builds
 // the client/session/run-manager triple and appends it, returning the new
 // token index. The config must be updated separately (AUTH_TOKENS + reload)
@@ -981,7 +921,7 @@ func (p *Pool) TokenCount() int {
 }
 
 // SetSessionStore injects the shared session-state store used by runtime
-// token additions (AddToken) and bridge entries. Call before the pool
+// token additions (AddToken). Call before the pool
 // starts serving requests; the fixed-token session managers are built by the
 // caller and must use the same store instance. A nil store disables
 // persistence. The persistence config is captured here so SetConfig can warn
@@ -1025,14 +965,12 @@ func (p *Pool) Chat(ctx context.Context, lease *Lease, opts upstream.ChatOptions
 	if lease == nil {
 		return nil, errors.New("pool: chat: invalid lease")
 	}
-	// Leases dispatch through their authoritative owner pinned by Acquire or
-	// AcquireBridge (issue #265): entry for fixed-token leases, Bridge for
-	// bridge leases. A concurrent RemoveLastToken+AddToken can leave a
+	// Leases dispatch through their authoritative owner pinned by Acquire:
+	// a concurrent RemoveLastToken+AddToken can leave a
 	// lease's Token index out of range (chat would fail with "invalid lease
 	// token") or reused by a DIFFERENT token (chat would go through the
 	// wrong account's client and charge the wrong usage/error path); the
-	// entry/bridge is a stable pointer immune to both. The historical
-	// index-fallback path is dropped — production leases always carry one.
+	// entry is a stable pointer immune to both.
 	t := lease.leaseTarget()
 	if t == nil {
 		return nil, errors.New("pool: chat: invalid lease")
@@ -1041,8 +979,6 @@ func (p *Pool) Chat(ctx context.Context, lease *Lease, opts upstream.ChatOptions
 	// Only the success-side usage records live here: the rolling 24h chat
 	// history that feeds the dashboard's messages_24h display and the
 	// Pacific-day request count for the per-day display and maturity skip.
-	// Bridge entries keep no local ledger — their pacing is the live-turn
-	// slot plus the FIFO queue. Upstream quota/429 is the enforcement.
 	if err == nil {
 		if t.entry != nil {
 			p.recordChatEntry(t.entry)

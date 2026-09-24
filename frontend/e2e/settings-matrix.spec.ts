@@ -225,15 +225,12 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     await fillKey(page, "QUEUE_WAIT", "45s");
     await fillKey(page, "QUEUE_DEPTH", "32");
     await fillKey(page, "RATE_LIMIT_PER_IP", "20");
-    // Bridge last: turning it off hides the BRIDGE_IDLE_EVICT row below.
-    await toggleKey(page, "BRIDGE_ENABLED");
 
     await expectPosted(posted, "SLOTS_PER_ACCOUNT", "4");
     await expectPosted(posted, "MAX_SPILL_ACCOUNTS", "1");
     await expectPosted(posted, "QUEUE_WAIT", "45s");
     await expectPosted(posted, "QUEUE_DEPTH", "32");
     await expectPosted(posted, "RATE_LIMIT_PER_IP", "20");
-    await expectPosted(posted, "BRIDGE_ENABLED", "false");
     // Hand-editing the posture flips the badge to Custom...
     await expect(
       page
@@ -249,11 +246,9 @@ test.describe("settings matrix: edits persist via the overlay", () => {
     const { posted } = await mockSettingsMatrix(page);
     await gotoControls(page, "tokens");
 
-    await fillKey(page, "BRIDGE_IDLE_EVICT", "48h");
     await fillKey(page, "IDLE_ROTATION_TIMEOUT", "1h");
     await fillKey(page, "RATE_LIMIT_BURST", "40");
 
-    await expectPosted(posted, "BRIDGE_IDLE_EVICT", "48h");
     await expectPosted(posted, "IDLE_ROTATION_TIMEOUT", "1h");
     await expectPosted(posted, "RATE_LIMIT_BURST", "40");
     // The removed card's keys are read-only now: no editor means no write,

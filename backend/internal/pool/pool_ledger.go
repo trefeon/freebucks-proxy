@@ -3,10 +3,8 @@ package pool
 import "time"
 
 // AccountLedger is one token entry's usage + spend state. It is embedded in
-// both tokenEntry and bridgeEntry so the two modes share one ownership model
-// (issue #263): a pooled entry's ledger is guarded by the pool's tokenRoster
-// mutex, a bridge entry's ledger by Pool.bridgeMu. The methods assume the
-// caller holds the owning subsystem's single lock.
+// tokenEntry (issue #263): the ledger is guarded by the pool's tokenRoster
+// mutex. The methods assume the caller holds the roster lock.
 type AccountLedger struct {
 	usage []time.Time // rolling 24h successful-chat timestamps (messages_24h display)
 	spend *spendLedger

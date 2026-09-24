@@ -107,7 +107,7 @@ func TestHealthzSessionLocalityFieldsIsAdditive(t *testing.T) {
 	if hz.EgressRegion != "" {
 		t.Errorf("egress_region = %q, want empty (no tracker wired)", hz.EgressRegion)
 	}
-	for _, key := range []string{"status", "mode", "uptime_seconds", "models", "tokens", "bridge_tokens", "bridge_entries"} {
+	for _, key := range []string{"status", "mode", "uptime_seconds", "models", "tokens"} {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("healthz lost the pre-existing key %q", key)
 		}

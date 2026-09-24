@@ -30,7 +30,7 @@ func Run(configPath, override string) {
 		tokens = splitTokenOverride(override)
 	}
 	if len(tokens) == 0 {
-		fmt.Fprintln(os.Stderr, "freebucks-proxy: -validate-tokens: no tokens to validate (AUTH_TOKENS empty — bridge mode); pass -validate-tokens=tok1,tok2 to validate specific tokens")
+		fmt.Fprintln(os.Stderr, "freebucks-proxy: -validate-tokens: no tokens to validate (AUTH_TOKENS empty); pass -validate-tokens=tok1,tok2 to validate specific tokens")
 		os.Exit(2)
 	}
 	rows, err := upstream.ValidateTokens(context.Background(), &cfg, tokens)

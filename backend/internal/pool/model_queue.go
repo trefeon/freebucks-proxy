@@ -12,10 +12,8 @@
 // spill (cold lanes in index order within the spill budget; concurrent
 // admissions collapse via the session manager's per-entry single-flight).
 //
-// Bridge entries keep the legacy per-lane park in slot_ledger.go untouched:
-// bridge has no spill walk, so its queue-exhausted signal goes straight
-// back to the client. slotAcquire/slotQueued stay for that path (and their
-// unit tests); pooled lanes never park lane-locally anymore.
+// Pooled lanes never park lane-locally anymore: they park on the global
+// per-model queue instead (below).
 //
 // Locking: everything below runs under Pool.routeMu in short critical
 // sections — cached snapshot/flag reads only, never network I/O. The walk
@@ -48,7 +46,7 @@ type modelWaiter struct {
 }
 
 // modelQueue is one model's global FIFO waiter queue (arrival order =
-// grant order). Pooled waiters only; bridge entries never enqueue here.
+// grant order).
 type modelQueue struct {
 	waiters *list.List // of *modelWaiter, front = head
 }

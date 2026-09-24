@@ -67,7 +67,7 @@ func TestProbeTokenDetailedIdleMeterPopulatesSnapshot(t *testing.T) {
 	}
 }
 
-// TestProbeTokenIdlePropagatesStateWithSentinel pins the bridge re-emit:
+// TestProbeTokenIdlePropagatesStateWithSentinel pins the idle re-emit:
 // an idle token reports ErrNoActiveSession ALONGSIDE its meter state, so
 // dashboard callers branch unchanged and still read the balance.
 func TestProbeTokenIdlePropagatesStateWithSentinel(t *testing.T) {

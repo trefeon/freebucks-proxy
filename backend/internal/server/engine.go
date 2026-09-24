@@ -15,7 +15,7 @@ import (
 // --- Shared completion engine (protocol-neutral) ---
 //
 // The acquire→upstream→relay core every completion surface runs on:
-// chatCore (lease acquisition, bridge routing, the ErrRunInvalid
+// chatCore (lease acquisition, the ErrRunInvalid
 // rotate-and-retry-once, phase timing, endpoint log lines), chatAttempt
 // (one acquire→chat attempt with session/run invalidation and token
 // cooldowns on refusal), and the plain SSE plumbing every relay shares
@@ -62,7 +62,7 @@ func (b *timedBackend) Acquire(ctx context.Context, model string) (*pool.Lease, 
 // handleChat is the OpenAI chat-completions entry point: sanitize the
 // chatCore is the shared acquire→relay core for every completion-style
 // endpoint (chat completions, Responses, Anthropic messages): acquire a
-// token lease (bridge routing included), call upstream with
+// token lease, call upstream with
 // retry-once recovery, then relay the forced stream to the client through
 // relay. kind names the endpoint in request/done log lines.
 func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, stream bool, normalized []byte, toolMap convert.ToolMapper, reasoningEffort, kind string, relay relayFunc) {
@@ -105,76 +105,39 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	// (Handler): it must cover every /v1/* surface with a single bucket, so
 	// this core deliberately does not re-limit — direct handler calls (unit
 	// tests) skip the limiter on purpose.
-	// Bridge routing: bridge mode relays the client's Authorization header
-	// as the upstream token.  No token in bridge → 401 before touching
-	// the pool.
+	// Pool-only routing: a credential matching API_KEYS uses the pool; any
+	// other credential is rejected here.
 	var up io.ReadCloser
 	var lease *pool.Lease
 	// One request, one snapshot: requireAuth pinned the config it made its
 	// pass-through decision with into the request context; chatCore and
 	// authorized route from that same view, so a config swap mid-request
-	// cannot split the pooled-vs-bridge decision across two configs.
+	// cannot split the decision across two configs.
 	cfg := cfgSnapshotFrom(r.Context())
 	if cfg == nil {
 		// No stamped snapshot (direct handler calls in tests): load live.
 		cfg = s.cfg.Load()
 	}
-	tok := bearerToken(r)
-	bridge := false
-	// Hybrid (default when AUTH_TOKENS set): the pool and the bridge share
-	// one instance. A credential matching API_KEYS uses the pool; any other
-	// credential is relayed upstream as a bridge token. With no API_KEYS
-	// configured every request uses the pool (the historic open behavior),
-	// and a missing credential is rejected exactly like pure pooled mode.
-	switch {
-	case cfg.BridgeMode():
-		// Bridge: the client token is the only upstream credential.
-		bridge = true
-		tok = clientToken(r)
-	case cfg.HybridBridgeMode():
-		provided := clientToken(r)
-		if provided == "" && len(cfg.APIKeys) > 0 {
-			s.writeClientError(w, r, http.StatusUnauthorized,
-				"Authentication required: send a valid API key for pooled access, or your FreeBuff token for bridge mode",
-				"missing_bearer_token", 0)
-			return
-		}
-		if provided != "" && len(cfg.APIKeys) > 0 && !s.authorized(cfg, r) {
-			bridge = true
-			tok = provided
-		}
+	if len(cfg.APIKeys) > 0 && !s.authorized(cfg, r) {
+		s.writeClientError(w, r, http.StatusUnauthorized,
+			"Invalid API key", "invalid_api_key", 0)
+		return
 	}
 	// Key identity for usage tracking: pooled requests attribute the
-	// caller's API-key hash; bridge requests (the credential IS the
-	// upstream token, never a pooled identity) attribute "". Re-stamp the
-	// derived context so recordUsage below reads the routing decision,
-	// not requireAuth's pre-routing best effort; the trace state carries
-	// the same value to the request-record persist path.
+	// caller's API-key hash. Re-stamp the derived context so recordUsage
+	// below reads the routing decision, not requireAuth's pre-routing best
+	// effort; the trace state carries the same value to the request-record
+	// persist path.
 	clientKeyHash := ""
-	if !bridge {
-		if ok, hash := s.authorizedWithIdentity(cfg, r); ok {
-			clientKeyHash = hash
-		}
+	if ok, hash := s.authorizedWithIdentity(cfg, r); ok {
+		clientKeyHash = hash
 	}
 	ctx = withClientKeyHash(ctx, clientKeyHash)
 	st.clientKeyHash = clientKeyHash
-	// The chatBackend abstracts the pooled-vs-bridge acquire/chat/invalidate/
-	// cooldown/lease hooks (issue #255); the timing wrapper records the
-	// acquire phase.
+	// The chatBackend abstracts the acquire/chat/invalidate/cooldown/lease
+	// hooks (issue #255); the timing wrapper records the acquire phase.
 	var err error
-	var be chatBackend
-	if bridge {
-		if tok == "" {
-			s.writeClientError(w, r, http.StatusUnauthorized,
-				"bridge mode: send your FreeBuff token in Authorization: Bearer <token>, x-api-key, or anthropic-api-key",
-				"missing_bearer_token", 0)
-			return
-		}
-		be = bridgeBackend{p: s.pool, token: tok}
-	} else {
-		be = pooledBackend{p: s.pool}
-	}
-	be = &timedBackend{chatBackend: be, phases: phases}
+	be := &timedBackend{chatBackend: pooledBackend{p: s.pool}, phases: phases}
 	up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
 	if err != nil && ctx.Err() == nil && errors.Is(err, upstream.ErrRunInvalid) {
 		// The lease's agent run is gone upstream (e.g. a resumed run whose FINISH

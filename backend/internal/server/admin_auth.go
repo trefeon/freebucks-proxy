@@ -30,7 +30,7 @@ type loginFlow struct {
 	Completing bool // one status poll is mid-completion (guards double-add)
 	Token      string
 	Error      string
-	Index      int // pooled token index after AddToken (0 when bridge)
+	Index      int // pooled token index after AddToken
 }
 
 const loginFlowTTL = 10 * time.Minute

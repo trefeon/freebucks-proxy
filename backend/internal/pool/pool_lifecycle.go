@@ -56,9 +56,8 @@ const retiredDrainGrace = 2 * time.Minute
 // maintainToken runs one token/entry's per-pass maintenance work (issue
 // #264): the cooldown/ban gate, runs.Maintain, the in-flight queued-session
 // EnsureSession, and the run Precreate when the queue advances. It is the
-// shared body behind maintainTick's per-token loop and bridgeMaintain's
-// per-entry loop, so rotation/queued-advance semantics cannot drift between
-// the two modes.
+// shared body behind maintainTick's per-token loop so rotation and
+// queued-advance semantics stay in one place.
 func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.RunManager, reg *registry.Registry, cfg *config.Config, label any, logger *slog.Logger) {
 	// Same cooldown/ban gate as the poll loop: no queued-session
 	// EnsureSession, no rotation while cooling down — and the same live-ban
@@ -73,7 +72,7 @@ func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.Run
 	// a chat is in flight so it cannot kick the active session
 	// (reference/freebucks-proxy-hengxin session-manager.js:37-49, 259-260).
 	// Active-session liveness polls run on the jittered poll schedule
-	// (sessionPollTick / bridgeSessionPollTick) instead.
+	// (sessionPollTick) instead.
 	if runsMgr.InflightCount() == 0 {
 		snap := sess.Snapshot()
 		if snap.Status == "queued" {
@@ -284,7 +283,7 @@ func (p *Pool) maintainTick(ctx context.Context) {
 		for _, tok := range *toks {
 			// Skip tokens with outstanding leases: FINISHing this run
 			// would kill an in-flight chat; leave it for rotation once the
-			// lease drains (same rule as the bridge idle sweep).
+			// lease drains.
 			if tok.runs.InflightCount() > 0 {
 				continue
 			}
@@ -293,15 +292,10 @@ func (p *Pool) maintainTick(ctx context.Context) {
 			// shutdown for the full upstream call timeout.
 			tok.runs.FinishAllRuns(ctx)
 		}
-		p.bridgeMaintain(ctx, true)
 		return
 	}
 	if cfg.IdleRotationTimeout > 0 && p.idleFor() > cfg.IdleRotationTimeout {
-		// Subsequent idle passes (already FINISHed): still sweep idle
-		// bridge entries — without this, entries idle past the idle-eviction TTL
-		// are never evicted while the pool stays idle and their sessions
-		// stay admitted upstream until expiry.
-		p.bridgeMaintain(ctx, true)
+		// Subsequent idle passes (already FINISHed): nothing left to do.
 		return
 	}
 	for i, tok := range *toks {
@@ -312,9 +306,6 @@ func (p *Pool) maintainTick(ctx context.Context) {
 		p.clearLiftedQuarantine(tok)
 		maintainToken(ctx, tok.session, tok.runs, p.reg, cfg, i+1, p.logger)
 	}
-	// Bridge sweep: drop entries idle past the idle-eviction TTL (runs FINISHed
-	// best-effort), maintain the rest like the fixed tokens above.
-	p.bridgeMaintain(ctx, false)
 	// Smart-probe pass (smart_probe.go): predicate-gated only — due
 	// tokens (dirty or reset-instant) dispatch to the stagger worker,
 	// anything else costs just the timestamp checks. Idle passes above
@@ -367,7 +358,6 @@ func (p *Pool) sessionPollTick(ctx context.Context) {
 		tok.pollFailures = failures
 		tok.nextPollAt = now.Add(delay)
 	}
-	p.bridgeSessionPollTick(ctx, cfg)
 }
 
 // sessionPollSuccessDelay returns the delay before the next liveness poll

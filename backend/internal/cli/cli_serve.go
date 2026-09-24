@@ -216,8 +216,8 @@ func Serve(configPath string, verbose bool, version string) int {
 
 	// One upstream client and session manager per token, bound into the pool
 	// together with a per-token run manager. When SESSION_PERSIST is enabled
-	// one shared store backs every session manager (fixed, runtime-added, and
-	// bridge entries), so a restart resumes unexpired sessions.
+	// one shared store backs every session manager, so a restart resumes
+	// unexpired sessions.
 	var store *session.Store
 	if cfg.SessionPersist {
 		// Log the absolute state-file path: a relative SESSION_STATE_FILE is
@@ -520,12 +520,6 @@ func Serve(configPath string, verbose bool, version string) int {
 	// checking if the output is a character device (terminal).
 	if stderrIsCharDevice() {
 		mode := fmt.Sprintf("pooled (%d tokens)", len(cfg.AuthTokens))
-		switch {
-		case cfg.BridgeMode():
-			mode = "bridge (clients send their own token)"
-		case cfg.HybridBridgeMode():
-			mode = fmt.Sprintf("hybrid (%d pooled tokens + bridge relay)", len(cfg.AuthTokens))
-		}
 		fmt.Fprintf(os.Stderr, "\n"+
 			"  freebucks-proxy %s is running!\n"+
 			"\n"+

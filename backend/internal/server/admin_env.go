@@ -86,14 +86,7 @@ func (a *adminHandlers) handleDiag(w http.ResponseWriter, r *http.Request) {
 	checks := []dashboard.DiagCheck{}
 
 	cfg := a.cfgLoad()
-	switch cfg.EffectiveMode() {
-	case "bridge":
-		checks = append(checks, dashboard.DiagCheck{OK: true, Message: "Configuration: bridge mode (clients relay their own token)"})
-	case "hybrid":
-		checks = append(checks, dashboard.DiagCheck{OK: true, Message: fmt.Sprintf("Configuration: hybrid mode, %d pooled token(s) + bridge relay", len(cfg.AuthTokens))})
-	default:
-		checks = append(checks, dashboard.DiagCheck{OK: true, Message: fmt.Sprintf("Configuration: pooled mode, %d token(s)", len(cfg.AuthTokens))})
-	}
+	checks = append(checks, dashboard.DiagCheck{OK: true, Message: fmt.Sprintf("Configuration: pooled mode, %d token(s)", len(cfg.AuthTokens))})
 
 	// Upstream reachability: DNS + TLS to the configured base host. The DNS
 	// lookup uses the bare host, not u.Host verbatim: "host:8443" would be
@@ -125,11 +118,11 @@ func (a *adminHandlers) handleDiag(w http.ResponseWriter, r *http.Request) {
 
 	checks = append(checks, dashboard.DiagCheck{OK: true, Message: fmt.Sprintf("Model registry: %d models", a.reg.ModelCount())})
 
-	// Per-token validity probes (pooled mode only). Each
+	// Per-token validity probes. Each
 	// probe is a zero-cost upstream GET /api/v1/freebuff/session (no session
 	// claim, no model needed), so they always run; a token with no active
 	// session still counts as valid.
-	if !cfg.BridgeMode() {
+	{
 		for _, snap := range a.pool.PoolSnapshot().Tokens {
 			idx := snap.Token
 			probeCtx, probeCancel := context.WithTimeout(r.Context(), 8*time.Second)
@@ -148,8 +141,6 @@ func (a *adminHandlers) handleDiag(w http.ResponseWriter, r *http.Request) {
 				checks = append(checks, dashboard.DiagCheck{OK: true, Message: msg})
 			}
 		}
-	} else {
-		checks = append(checks, dashboard.DiagCheck{Warn: true, Message: "No pooled tokens to probe (the smoke test uses a client token)."})
 	}
 
 	a.dash.RenderDiag(w, r, checks)
@@ -425,8 +416,6 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"WAITING_ROOM_CHAIN":          strconv.FormatBool(cfg.WaitingRoomChain),
 		"QUEUE_WAIT":                  cfg.QueueWait.String(),
 		"QUEUE_DEPTH":                 strconv.Itoa(cfg.QueueDepth),
-		"BRIDGE_ENABLED":              strconv.FormatBool(cfg.BridgeEnabled),
-		"BRIDGE_IDLE_EVICT":           cfg.BridgeIdleEvict.String(),
 		"SMART_PROBE_ENABLED":         strconv.FormatBool(cfg.SmartProbeEnabled),
 		"SMART_PROBE_BACKOFF_MAX":     cfg.SmartProbeBackoffMax.String(),
 	}

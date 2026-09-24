@@ -435,7 +435,7 @@ func TestReplayCodexResponsesReasoning(t *testing.T) {
 func TestReplayCodexResponses401(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	ts, _ := newBridgeTestServer(t, mock)
+	ts, _ := newTestServer(t, []string{"sk-test"}, mock)
 
 	body := `{"model":"` + modelA + `","input":"ping","stream":true}`
 	// 1. No Authorization header.
@@ -459,8 +459,8 @@ func TestReplayCodexResponses401(t *testing.T) {
 	if err := json.Unmarshal(data, &errResp); err != nil {
 		t.Fatalf("no bearer: body is not JSON: %v (%q)", err, truncate(string(data), 200))
 	}
-	if errResp.Error.Code != "missing_bearer_token" {
-		t.Errorf("no bearer: error.code = %q, want missing_bearer_token", errResp.Error.Code)
+	if errResp.Error.Code != "invalid_api_key" {
+		t.Errorf("no bearer: error.code = %q, want invalid_api_key", errResp.Error.Code)
 	}
 	if errResp.Error.Message == "" {
 		t.Error("no bearer: error.message empty")
@@ -475,13 +475,13 @@ func TestReplayCodexResponses401(t *testing.T) {
 	if loc := resp2.Header.Get("Location"); loc != "" {
 		t.Errorf("blank bearer: Location = %q, want empty", loc)
 	}
-	if !strings.Contains(string(data2), "missing_bearer_token") {
-		t.Errorf("blank bearer: body missing missing_bearer_token: %s", truncate(string(data2), 200))
+	if !strings.Contains(string(data2), "invalid_api_key") {
+		t.Errorf("blank bearer: body missing invalid_api_key: %s", truncate(string(data2), 200))
 	}
 
 	// The gateway must reject before any upstream contact.
 	if mock.RequestsSnapshot() != 0 {
-		t.Errorf("upstream requests = %d, want 0 (401 rejected before pool/bridge)", mock.RequestsSnapshot())
+		t.Errorf("upstream requests = %d, want 0 (401 rejected before pool)", mock.RequestsSnapshot())
 	}
 }
 

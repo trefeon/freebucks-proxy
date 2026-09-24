@@ -19,7 +19,7 @@ import (
 // real clients/session managers per mock, fallback registry, pool, server —
 // configured by apiKeys + the mutation hook, optionally with a custom
 // logger/log ring. Thin wrappers adapt it to httptest or extra Options.
-// NewTestServerStack is the exported bridge for the external test package's
+// NewTestServerStack is the exported helper for the external test package's
 // thin httptest wrappers (issue #256); internal tests call
 // newTestServerStack directly.
 func NewTestServerStack(t *testing.T, apiKeys []string, mocks []*testutil.MockUpstream, mut func(*config.Config), logger *slog.Logger, ring *logring.Handler, opts ...func(*Server)) (*Server, *pool.Pool) {

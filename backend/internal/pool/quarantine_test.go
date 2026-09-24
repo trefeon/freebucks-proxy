@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
 )
@@ -102,28 +101,6 @@ func TestRateLimitedCooldownOnlyNotQuarantined(t *testing.T) {
 		_, err := p.Acquire(context.Background(), modelA)
 		return err == nil
 	})
-}
-
-// TestBridgeTokenBannedNoQuarantine pins the bridge-mode semantics: a
-// per-request bridge token's 403 ban surfaces to the client as today and is
-// NOT quarantined (only fixed pooled tokens qualify for quarantine), so no
-// fixed-token quarantine bookkeeping is created.
-func TestBridgeTokenBannedNoQuarantine(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.Ban = true
-	p := newTestPoolCfg(t, func(c *config.Config) { c.UpstreamBaseURL = mock.URL() })
-
-	_, err := p.AcquireBridge(context.Background(), "client-token", modelA)
-	if !errors.Is(err, upstream.ErrBanned) {
-		t.Fatalf("bridge acquire: want ErrBanned, got %v", err)
-	}
-	if got := p.PoolSnapshot().Quarantined; got != 0 {
-		t.Errorf("PoolSnapshot().Quarantined = %d, want 0 (bridge never quarantines)", got)
-	}
-	if snaps := p.Snapshot(); len(snaps) > 0 && snaps[0].Quarantined {
-		t.Error("fixed-token snapshot shows a quarantine although only the bridge refused")
-	}
 }
 
 // TestQuarantineResetsOnConfigMemberChange pins the rebuild semantics: a

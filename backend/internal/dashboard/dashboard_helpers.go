@@ -334,14 +334,6 @@ func shortID(id string) string {
 	return id
 }
 
-// shortKey returns the first 8 chars of a bridge key hash for display (#187).
-func shortKey(key string) string {
-	if len(key) > 8 {
-		return key[:8] + "…"
-	}
-	return key
-}
-
 func formatQuota(v float64) string {
 	if v == float64(int64(v)) {
 		return strconv.FormatInt(int64(v), 10)

@@ -3,7 +3,7 @@ package pool
 import "sync/atomic"
 
 // seatCounter counts the chat turns that have begun session admission on one
-// account (a pooled token entry or a bridge entry) and are about to dispatch,
+// account (a pooled token entry) and are about to dispatch,
 // or are already dispatching, upstream work on the account's single session
 // seat.
 //
@@ -16,7 +16,7 @@ import "sync/atomic"
 // which the gateway surfaces as 503 + Retry-After (server/errors.go).
 //
 // Ordering is the whole point: the count is taken BEFORE the session
-// admission (admitOnLane / AcquireBridge) and released only when the lease is
+// admission (admitOnLane) and released only when the lease is
 // released, so any turn that could lose its instance to a rotation is visible
 // to the rotation decision. The runs manager's inflight count cannot serve
 // here: it is incremented AFTER the admission returns the instance id, which
@@ -62,17 +62,14 @@ func (s *seatCounter) idle() bool {
 }
 
 // releaseSeat drops the seat count held by this lease. Nil-safe; paired with
-// the acquire inside admitOnLane / AcquireBridge. LeaseRelease and
-// LeaseAbandon are the only release paths, and a lease is released by one of
-// them (a double call is absorbed by the saturating release).
+// the acquire inside admitOnLane. LeaseRelease and LeaseAbandon are the only
+// release paths, and a lease is released by one of them (a double call is
+// absorbed by the saturating release).
 func (l *Lease) releaseSeat() {
 	if l == nil {
 		return
 	}
-	switch {
-	case l.entry != nil:
+	if l.entry != nil {
 		l.entry.seat.release()
-	case l.Bridge != nil:
-		l.Bridge.seat.release()
 	}
 }

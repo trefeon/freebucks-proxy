@@ -1,7 +1,6 @@
 // pool_quota_window_test.go — quota-window audit regression tests (item #2):
 // lift-aware quarantine (temporary vs hard bans), mismatch-window cleanup
-// on token removal, the shared quota-window implementation (pooled ==
-// bridge), and usage/spend index alignment after by-index removal followed
+// on token removal, and usage/spend index alignment after by-index removal followed
 // by AddToken.
 package pool
 
@@ -260,53 +259,9 @@ func TestQuotaResetRollsForwardOnNextAcquire(t *testing.T) {
 	}
 }
 
-// TestBridgeQuotaMirrorsPooled pins the single-implementation contract for
-// the kept meter: for identical Freebucks state the pooled and bridge views
-// agree (both delegate to freebucksCapped), so the allowance semantics
-// cannot drift between the two modes. (Name kept per the dequota contract.)
-func TestBridgeQuotaMirrorsPooled(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-
-	fb := &upstream.FreebucksInfo{
-		Balance: 0.5,
-		Daily:   upstream.FreebucksWindow{Limit: 20, Spent: 19, Remaining: 1, ResetAt: time.Now().Add(6 * time.Hour)},
-		Wallet:  upstream.FreebucksWallet{},
-		Prices:  map[string]float64{modelA: 2},
-	}
-
-	p := newTestPool(t, mock)
-	toks := p.roster.Load()
-	(*toks)[0].session.UpdateQuotaFromProbe(&upstream.SessionState{Freebucks: fb})
-
-	pb := newBridgePool(t, mock)
-	blease, err := pb.AcquireBridge(context.Background(), "parity-client", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The setup admission leaves a live reusable session on the bridge
-	// entry while the pooled entry has none — and a live session for the
-	// model now bypasses the cap by design (reuse costs zero admission).
-	// Drop it so both sides are compared on identical (session-less)
-	// state: the pin is the allowance semantics, not the setup residue.
-	pb.InvalidateBridgeSession(blease)
-	pb.LeaseRelease(blease)
-	blease.Bridge.sessionMgr().UpdateQuotaFromProbe(&upstream.SessionState{Freebucks: fb})
-
-	pCapped, _ := freebucksCapped((*p.roster.Load())[0], modelA)
-	bCapped, _ := freebucksCapped(blease.Bridge, modelA)
-	if pCapped != bCapped {
-		t.Errorf("pooled vs bridge freebucks capped = %v vs %v, want equal", pCapped, bCapped)
-	}
-	if !pCapped || !bCapped {
-		t.Errorf("expected both views capped (balance 0.5 < price 2): pooled=%v bridge=%v", pCapped, bCapped)
-	}
-}
-
 // TestMismatchEscalationModelUsesRefusedModel pins the #140 webhook Model
 // field (the refused MODEL, falling back to the refusal code) and the
-// 1-based TokenIndex convention: pooled token 0 (key 1) never shares the
-// escalation window with the bridge entries (key 0).
+// 1-based TokenIndex convention.
 func TestMismatchEscalationModelUsesRefusedModel(t *testing.T) {
 	var posts atomic.Int64
 	var gotModel atomic.Value
@@ -343,23 +298,6 @@ func TestMismatchEscalationModelUsesRefusedModel(t *testing.T) {
 	}
 	if got := gotIdx.Load(); got != 1 {
 		t.Errorf("event TokenIndex = %d, want 1 (1-based pooled index)", got)
-	}
-
-	// A BRIDGE-keyed storm (key 0) must not merge with the pooled token-0
-	// window: it fires its own alert with TokenIndex 0.
-	gotIdx.Store(0)
-	p.recordMismatchEscalation(0, rle)
-	p.recordMismatchEscalation(0, rle)
-	// The notify throttle is per event TYPE (notify.go throttle): the
-	// bridge-keyed storm shares the pooled storm's event type, so it must
-	// NOT produce a second POST inside the window. Age past any
-	// fire-and-forget delivery and assert the silence.
-	time.Sleep(time.Second)
-	if posts.Load() != 1 {
-		t.Errorf("bridge-keyed storm posted again: posts = %d, want 1 (throttled per event type)", posts.Load())
-	}
-	if got := gotIdx.Load(); got != 0 {
-		t.Errorf("bridge-keyed event TokenIndex = %d, want 0 (bridge shared window)", got)
 	}
 
 	// Model absent from the body: fall back to the refusal code. The

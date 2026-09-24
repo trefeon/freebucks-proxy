@@ -17,7 +17,7 @@ func TestEnvExampleLoadsCleanly(t *testing.T) {
 	}
 	// Isolate from the developer's real environment: an ambient AUTH_TOKENS
 	// (or LISTEN_ADDR etc.) outranks .env values and would break the
-	// BridgeMode()/ListenAddr assertions below. t.Chdir also keeps the .env
+	// ListenAddr assertions below. t.Chdir also keeps the .env
 	// lookup inside the test's temp dir.
 	unsetConfigEnv(t)
 	t.Chdir(t.TempDir())
@@ -44,8 +44,8 @@ func TestEnvExampleLoadsCleanly(t *testing.T) {
 	if cfg.TransientRetries != 1 {
 		t.Errorf("TransientRetries = %d, want 1", cfg.TransientRetries)
 	}
-	if !cfg.BridgeMode() {
-		t.Error("BridgeMode() = false, want true (empty AUTH_TOKENS)")
+	if len(cfg.AuthTokens) != 0 {
+		t.Errorf("AuthTokens = %v, want empty (empty AUTH_TOKENS)", cfg.AuthTokens)
 	}
 	// Issue #238: .env.example documents SESSION_PERSIST as on-by-default
 	// (the key is commented out, so the built-in default applies). A fresh

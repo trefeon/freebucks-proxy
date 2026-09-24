@@ -83,7 +83,7 @@ func (m *memPoolPersist) keys() []string {
 }
 
 // TestPoolPersistRestartRestoresLedger records ledger + spend +
-// admissions + bridge state on one pool, flushes, rebuilds a fresh
+// admissions on one pool, flushes, rebuilds a fresh
 // pool over the same store, and proves the counters survive the restart.
 func TestPoolPersistRestartRestoresLedger(t *testing.T) {
 	mock := testutil.NewMock()

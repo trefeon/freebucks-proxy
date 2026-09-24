@@ -1,5 +1,5 @@
 // Package server exposes the OpenAI-compatible HTTP surface of the
-// freebucks-proxy bridge: POST /v1/chat/completions (stream + non-stream),
+// freebucks-proxy: POST /v1/chat/completions (stream + non-stream),
 // GET /v1/models, and GET /healthz. Stdlib only.
 //
 // Responsibilities (PRD §6 error matrix):
