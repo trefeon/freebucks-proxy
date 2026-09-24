@@ -27,9 +27,9 @@ var WireFiles = []WireFile{
 
 // RegistryPins lists the registry mirror files verified with the snapshots.
 var RegistryPins = []WireFile{
-	{Path: "free-agents.ts", SHA256: "2dd6bc9563ecc7f74f8e4384b612f804e9816a5fcf2f8353293786cb93346e58"},
+	{Path: "free-agents.ts", SHA256: "0ffc930cae505aa79f6835c9a53521df491e324da3c5e9a1abc651e0d8fd055f"},
 	{Path: "freebuff-model-ids.ts", SHA256: "b4a0f2aca8ea66c1d2dcbba74003f310fd95185e60839a560115068c4493409b"},
-	{Path: "freebuff-models.ts", SHA256: "872073bcc32c860730f93d90f7e30bc75c2087c1507b7295bea70c7af9b8feff"},
+	{Path: "freebuff-models.ts", SHA256: "53da8090cc08eaa88cb7d28aca24dc316b73d6c001a91268c110cd27bbc81e6e"},
 	{Path: "gemini.ts", SHA256: "5de5784f96331b93cccd7a4356af17de52783f1727acee17f9c5ebe390569e80"},
 	{Path: "model-config.ts", SHA256: "a3560b557db017b28f1ffcc95f49f793c7f405e46209ddd3015557150a1dca48"},
 	{Path: "freebuff-model-entitlements.ts", SHA256: "66db85ac6bb2ad1bcf9c9b5f1d3919227ad396b85b1ad63af3dc8126ae59f488"},
