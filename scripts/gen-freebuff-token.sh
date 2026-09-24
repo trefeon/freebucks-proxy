@@ -22,7 +22,8 @@
 # terms of service. Accounts may be suspended or banned.
 set -euo pipefail
 
-BASE_URL="${FREEBUFF_BASE_URL:-https://www.codebuff.com}"
+BASE_URL="${FREEBUFF_BASE_URL:-https://freebuff.com}"
+API_BASE_URL="${FREEBUFF_API_URL:-https://www.codebuff.com}"
 TIMEOUT=300
 POLL_INTERVAL=5
 MODE="interactive"  # interactive (default) | print | save | clipboard | append | incognito
@@ -111,6 +112,11 @@ CODE_RESP=$(curl -sS -X POST "$BASE_URL/api/auth/cli/code" \
 LOGIN_URL=$(echo "$CODE_RESP" | jq -r '.loginUrl // empty')
 FP_HASH=$(echo "$CODE_RESP" | jq -r '.fingerprintHash // empty')
 EXPIRES_AT=$(echo "$CODE_RESP" | jq -r '.expiresAt // empty')
+
+AUTH_CODE=$(printf '%s' "$LOGIN_URL" | sed -n 's/.*auth_code=\([^&]*\).*/\1/p')
+if [ -n "$AUTH_CODE" ]; then
+  LOGIN_URL="https://freebuff.com/onboard?auth_code=$AUTH_CODE"
+fi
 
 if [ -z "$LOGIN_URL" ]; then
   err "No loginUrl in response. Server may be down."
@@ -236,7 +242,7 @@ if [ "$VERIFY" = "1" ]; then
 PROBE_RESP=$(curl -sS --max-time 15 \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "User-Agent: ai-sdk/openai-compatible/1.0.0/codebuff" \
-  "$BASE_URL/api/v1/freebuff/session" 2>/dev/null || true)
+  "$API_BASE_URL/api/v1/freebuff/session" 2>/dev/null || true)
 PROBE_STATUS=$(echo "$PROBE_RESP" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
 PROBE_TIER=$(echo "$PROBE_RESP" | jq -r '.accessTier // ""' 2>/dev/null || echo "")
 PROBE_RISK=$(echo "$PROBE_RESP" | jq -r '.currentRiskScore // ""' 2>/dev/null || echo "")

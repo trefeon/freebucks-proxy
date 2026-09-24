@@ -170,7 +170,7 @@ function Get-HeadlessToken {
 
   try {
     $codeBody = @{ fingerprintId = $fingerprintId } | ConvertTo-Json
-    $codeResp = Invoke-FreebuffApi -Uri "https://www.codebuff.com/api/auth/cli/code" `
+    $codeResp = Invoke-FreebuffApi -Uri "https://freebuff.com/api/auth/cli/code" `
       -Method POST -Headers $headers -Body $codeBody
   } catch {
     Write-Host "Failed to get login URL: $_" -ForegroundColor Red
@@ -178,6 +178,10 @@ function Get-HeadlessToken {
   }
 
   $loginUrl = $codeResp.loginUrl
+  if ($loginUrl -match 'auth_code=([^&]+)') {
+    $authCode = $matches[1]
+    $loginUrl = "https://freebuff.com/onboard?auth_code=$authCode"
+  }
   $fingerprintHash = $codeResp.fingerprintHash
   $expiresAt = $codeResp.expiresAt
   if (-not $loginUrl) {
@@ -199,7 +203,7 @@ function Get-HeadlessToken {
     Start-Sleep -Milliseconds (4000 + $jitter)
     try {
       $query = "fingerprintId=$([Uri]::EscapeDataString($fingerprintId))&fingerprintHash=$([Uri]::EscapeDataString($fingerprintHash))&expiresAt=$([Uri]::EscapeDataString([string]$expiresAt))"
-      $statusUri = "https://www.codebuff.com/api/auth/cli/status?$query"
+      $statusUri = "https://freebuff.com/api/auth/cli/status?$query"
       $statusResp = Invoke-FreebuffApi -Uri $statusUri -Method GET -Headers $headers
       if ($statusResp.user -and $statusResp.user.authToken) {
         Write-Host "Authentication successful! Token acquired." -ForegroundColor Green

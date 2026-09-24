@@ -169,10 +169,16 @@ func (c *Client) StartCLILoginWithFingerprint(ctx context.Context, fingerprintID
 	if decoded.FingerprintID != "" {
 		echoed = decoded.FingerprintID
 	}
+	loginURL := decoded.LoginURL
+	if u, err := url.Parse(decoded.LoginURL); err == nil {
+		if authCode := strings.TrimSpace(u.Query().Get("auth_code")); authCode != "" {
+			loginURL = "https://freebuff.com/onboard?auth_code=" + url.QueryEscape(authCode)
+		}
+	}
 	return &CLILoginCode{
 		FingerprintID:   echoed,
 		FingerprintHash: decoded.FingerprintHash,
-		LoginURL:        decoded.LoginURL,
+		LoginURL:        loginURL,
 		ExpiresAt:       expiresAt,
 		ExpiresAtRaw:    expiresRaw,
 	}, nil

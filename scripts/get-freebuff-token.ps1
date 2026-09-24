@@ -8,7 +8,7 @@ param(
     [switch]$Append,
     [switch]$Verify,
     [string]$EnvFile = "",
-    [string]$BaseUrl = $(if ($env:FREEBUFF_BASE_URL) { $env:FREEBUFF_BASE_URL } else { "https://www.codebuff.com" }),
+    [string]$BaseUrl = $(if ($env:FREEBUFF_BASE_URL) { $env:FREEBUFF_BASE_URL } else { "https://freebuff.com" }),
     [int]$TimeoutSeconds = 300,
     [int]$PollIntervalMs = 5000
 )

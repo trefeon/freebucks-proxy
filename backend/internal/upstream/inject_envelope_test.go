@@ -304,6 +304,9 @@ func TestStartCLILogin(t *testing.T) {
 	if code.FingerprintHash == "" || code.LoginURL == "" || code.ExpiresAt.IsZero() {
 		t.Errorf("code = %+v, want hash+loginURL+expiresAt", code)
 	}
+	if want := "https://freebuff.com/onboard?auth_code=abc"; code.LoginURL != want {
+		t.Errorf("code.LoginURL = %q, want %q", code.LoginURL, want)
+	}
 }
 
 func TestStartCLILoginError(t *testing.T) {

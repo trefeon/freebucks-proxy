@@ -275,7 +275,7 @@ obtain_headless_token() {
   c "Requesting login URL for browser authentication..."
   local fp="enhanced-$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
   local code_resp
-  code_resp=$(curl -sS -X POST "https://www.codebuff.com/api/auth/cli/code" \
+  code_resp=$(curl -sS -X POST "https://freebuff.com/api/auth/cli/code" \
     -H "User-Agent: $CLI_UA" \
     -H "Content-Type: application/json" \
     -d "{\"fingerprintId\":\"$fp\"}" 2>/dev/null || true)
@@ -283,6 +283,11 @@ obtain_headless_token() {
   login_url=$(echo "$code_resp" | sed -n 's/.*"loginUrl": *"\([^"]*\)".*/\1/p')
   fp_hash=$(echo "$code_resp" | sed -n 's/.*"fingerprintHash": *"\([^"]*\)".*/\1/p')
   expires_at=$(echo "$code_resp" | sed -n 's/.*"expiresAt": *"\([^"]*\)".*/\1/p')
+  local auth_code
+  auth_code=$(printf '%s' "$login_url" | sed -n 's/.*auth_code=\([^&]*\).*/\1/p')
+  if [ -n "$auth_code" ]; then
+    login_url="https://freebuff.com/onboard?auth_code=$auth_code"
+  fi
 
   if [ -z "$login_url" ]; then
     warn "Could not obtain login URL from upstream server."
@@ -317,7 +322,7 @@ obtain_headless_token() {
       return 1
     fi
     sleep 5
-    status_resp=$(curl -sS -H "User-Agent: $CLI_UA" "https://www.codebuff.com/api/auth/cli/status?fingerprintId=$enc_fp&fingerprintHash=$enc_hash&expiresAt=$enc_exp" 2>/dev/null || true)
+    status_resp=$(curl -sS -H "User-Agent: $CLI_UA" "https://freebuff.com/api/auth/cli/status?fingerprintId=$enc_fp&fingerprintHash=$enc_hash&expiresAt=$enc_exp" 2>/dev/null || true)
     tok=$(echo "$status_resp" | sed -n 's/.*"authToken": *"\([^"]*\)".*/\1/p')
     if [ -n "$tok" ] && [ "${#tok}" -gt 12 ]; then
       TOKEN_VALUE="$tok"

@@ -10,7 +10,8 @@ param(
     [switch]$Append,
     [switch]$Verify,
     [string]$EnvFile = "",
-    [string]$BaseUrl = $(if ($env:FREEBUFF_BASE_URL) { $env:FREEBUFF_BASE_URL } else { "https://www.codebuff.com" }),
+    [string]$BaseUrl = $(if ($env:FREEBUFF_BASE_URL) { $env:FREEBUFF_BASE_URL } else { "https://freebuff.com" }),
+    [string]$ApiBaseUrl = $(if ($env:FREEBUFF_API_URL) { $env:FREEBUFF_API_URL } else { "https://www.codebuff.com" }),
     [int]$TimeoutSeconds = 300,
     [int]$PollIntervalMs = 5000
 )
@@ -235,6 +236,10 @@ try {
 
 $loginUrl = try { [string]$codeResp.loginUrl } catch { "" }
 if (-not $loginUrl) { $loginUrl = try { [string]$codeResp.login_url } catch { "" } }
+if ($loginUrl -match 'auth_code=([^&]+)') {
+    $authCode = $matches[1]
+    $loginUrl = "https://freebuff.com/onboard?auth_code=$authCode"
+}
 $fingerprintHash = try { [string]$codeResp.fingerprintHash } catch { "" }
 $expiresAt = try { [string]$codeResp.expiresAt } catch { "" }
 
@@ -337,7 +342,7 @@ Write-Host " Token: $authToken" -ForegroundColor White
 # -test-token probe) and refuses to save a banned account.
 if ($Verify) {
 try {
-    $probeResp = Invoke-FreebuffApi -Uri "$BaseUrl/api/v1/freebuff/session" -Method GET -Headers @{ "Authorization" = "Bearer $authToken"; "User-Agent" = "Bun/1.3.14" } -TimeoutSec 15
+    $probeResp = Invoke-FreebuffApi -Uri "$ApiBaseUrl/api/v1/freebuff/session" -Method GET -Headers @{ "Authorization" = "Bearer $authToken"; "User-Agent" = "Bun/1.3.14" } -TimeoutSec 15
     # StrictMode-safe reads: the live session response carries status +
     # accessTier but not always currentRiskScore (observed: status=active,
     # accessTier=full, no risk field) — a missing key must not abort the
