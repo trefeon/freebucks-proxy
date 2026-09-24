@@ -18,9 +18,8 @@ type rawConfig struct {
 	AuthTokens      []string `json:"AUTH_TOKENS"`
 	// AuthTokensSet records that AUTH_TOKENS was explicitly provided (even
 	// as an empty value) by the JSON file, .env, or the environment. An
-	// explicitly-empty AUTH_TOKENS means the operator chose bridge mode, so
-	// CLI auto-discovery must not refill it (runtime mode switch persists
-	// "AUTH_TOKENS=" to .env and relies on this).
+	// explicitly-empty AUTH_TOKENS records presence, so
+	// CLI auto-discovery must not refill it.
 	AuthTokensSet      bool     `json:"-"`
 	RotationInterval   string   `json:"ROTATION_INTERVAL"`
 	RequestTimeout     string   `json:"REQUEST_TIMEOUT"`
@@ -32,22 +31,15 @@ type rawConfig struct {
 	ActingUserID       string   `json:"ACTING_USER_ID"`
 	// LegacyActingUserID is the pre-rename JSON key (USER_ID) — merged at
 	// the end of Load when no ACTING_USER_ID source set a value (#126).
-	LegacyActingUserID string `json:"USER_ID"`
-	TLSFingerprint     string `json:"TLS_FINGERPRINT"`
-	RegistryRefresh    string `json:"REGISTRY_REFRESH"`
-	DebugDump          bool   `json:"DEBUG_DUMP"`
-	DevToolsEnabled    bool   `json:"DEVTOOLS_ENABLED"`
-	LogFile            string `json:"LOG_FILE"`
-	LogLevel           string `json:"LOG_LEVEL"`
-	LogFormat          string `json:"LOG_FORMAT"`
-	LogAccess          bool   `json:"LOG_ACCESS"`
-	// BridgeEnabled records BRIDGE_ENABLED (default true via
-	// defaultRawConfig): whether bridge-mode traffic is accepted alongside
-	// the AUTH_TOKENS pool (hybrid mode).
-	BridgeEnabled bool `json:"BRIDGE_ENABLED"`
-	// BridgeIdleEvict is the sliding-TTL string for idle bridge-entry
-	// eviction (BRIDGE_IDLE_EVICT; default "72h", zero-tolerant → 72h).
-	BridgeIdleEvict          string          `json:"BRIDGE_IDLE_EVICT"`
+	LegacyActingUserID       string          `json:"USER_ID"`
+	TLSFingerprint           string          `json:"TLS_FINGERPRINT"`
+	RegistryRefresh          string          `json:"REGISTRY_REFRESH"`
+	DebugDump                bool            `json:"DEBUG_DUMP"`
+	DevToolsEnabled          bool            `json:"DEVTOOLS_ENABLED"`
+	LogFile                  string          `json:"LOG_FILE"`
+	LogLevel                 string          `json:"LOG_LEVEL"`
+	LogFormat                string          `json:"LOG_FORMAT"`
+	LogAccess                bool            `json:"LOG_ACCESS"`
 	IdleRotationTimeout      string          `json:"IDLE_ROTATION_TIMEOUT"`
 	SafeMode                 bool            `json:"SAFE_MODE"`
 	ModelsHideUnavailable    bool            `json:"MODELS_HIDE_UNAVAILABLE"`
@@ -147,12 +139,10 @@ func defaultRawConfig() rawConfig {
 		SessionCallTimeout:     "30s",
 		CostMode:               "free",
 		RegistryRefresh:        "6h",
-		IdleRotationTimeout:    "",    // "" = disabled (unset → SAFE_MODE preset may fill)
-		BridgeEnabled:          true,  // hybrid by default: AUTH_TOKENS + bridge relay share one instance
-		BridgeIdleEvict:        "72h", // sliding-TTL for idle bridge-entry eviction
-		SafeMode:               true,  // anti-ban presets on by default; set SAFE_MODE=false to disable
-		DashboardEnabled:       true,  // dashboard on by default; set DASHBOARD_ENABLED=false to disable
-		DashboardRequireLogin:  true,  // require login on by default; set DASHBOARD_REQUIRE_LOGIN=false to disable
+		IdleRotationTimeout:    "",   // "" = disabled (unset → SAFE_MODE preset may fill)
+		SafeMode:               true, // anti-ban presets on by default; set SAFE_MODE=false to disable
+		DashboardEnabled:       true, // dashboard on by default; set DASHBOARD_ENABLED=false to disable
+		DashboardRequireLogin:  true, // require login on by default; set DASHBOARD_REQUIRE_LOGIN=false to disable
 		LogAccess:              true,
 		DevToolsEnabled:        false, // per-request access lines on by default; LOG_ACCESS=false disables them
 		CORSAllowedOrigin:      "*",   // browser clients reach /v1/* cross-origin by default

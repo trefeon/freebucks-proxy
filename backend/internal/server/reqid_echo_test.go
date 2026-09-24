@@ -78,7 +78,7 @@ func TestAccessResponseEchoesMintedReqID(t *testing.T) {
 
 // TestChatAccessLineCarriesTokenLabel verifies the access-log field addition:
 // a served chat's access line carries token=<label> matching the chat
-// routing line's label (1-based index or "bridge"), never the raw key.
+// routing line's label (1-based index), never the raw key.
 func TestChatAccessLineCarriesTokenLabel(t *testing.T) {
 	const rawKey = "sk-test-access-label-key"
 	mock := testutil.NewMock()
@@ -128,7 +128,7 @@ func TestChatAccessLineCarriesTokenLabel(t *testing.T) {
 	if strings.Contains(accessTok, rawKey) {
 		t.Errorf("access token = %q: raw key leaked into the access line", accessTok)
 	}
-	if ok, _ := regexp.MatchString(`^(bridge|[1-9][0-9]*)$`, accessTok); !ok {
-		t.Errorf("access token = %q, want 1-based index or \"bridge\"", accessTok)
+	if ok, _ := regexp.MatchString(`^[1-9][0-9]*$`, accessTok); !ok {
+		t.Errorf("access token = %q, want 1-based index", accessTok)
 	}
 }

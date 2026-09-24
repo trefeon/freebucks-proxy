@@ -275,11 +275,11 @@ func TestModelsAllowParsing(t *testing.T) {
 	})
 }
 
-// TestJSONExplicitEmptyAuthTokensBridge is the C8 distinction: a JSON
-// `"AUTH_TOKENS": []` (explicit empty array) must record presence — bridge
-// mode, and CLI auto-discovery must NOT refill the pool — unlike an absent
+// TestJSONExplicitEmptyAuthTokensPresence is the C8 distinction: a JSON
+// `"AUTH_TOKENS": []` (explicit empty array) must record presence
+// and CLI auto-discovery must NOT refill the pool — unlike an absent
 // key which leaves AuthTokensSet false.
-func TestJSONExplicitEmptyAuthTokensBridge(t *testing.T) {
+func TestJSONExplicitEmptyAuthTokensPresence(t *testing.T) {
 	clearEnv(t)
 	// Re-enable auto-discovery; the explicit-empty AUTH_TOKENS below is what
 	// must suppress it (not the AUTO_DISCOVER_TOKEN=off switch).
@@ -307,10 +307,7 @@ func TestJSONExplicitEmptyAuthTokensBridge(t *testing.T) {
 		t.Fatalf("LoadOpts: %v", err)
 	}
 	if len(cfg.AuthTokens) != 0 {
-		t.Errorf("AuthTokens = %v, want empty (explicit [] is bridge mode)", cfg.AuthTokens)
-	}
-	if !cfg.BridgeMode() {
-		t.Error("BridgeMode() = false, want true with explicit empty AUTH_TOKENS array")
+		t.Errorf("AuthTokens = %v, want empty (explicit [] records presence)", cfg.AuthTokens)
 	}
 	if cfg.DiscoveredSource != "" {
 		t.Errorf("DiscoveredSource = %q, want empty (auto-discovery must be suppressed)", cfg.DiscoveredSource)

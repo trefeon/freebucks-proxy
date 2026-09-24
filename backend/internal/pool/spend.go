@@ -365,17 +365,6 @@ func (p *Pool) recordSpendEntry(entry *tokenEntry, tokens int64) {
 	p.markPersistDirty()
 }
 
-func (p *Pool) bridgeRecordSpend(entry *bridgeEntry, tokens int64) {
-	if entry == nil {
-		return
-	}
-	p.bridgeMu.Lock()
-	defer p.bridgeMu.Unlock()
-	entry.ledger.recordSpend(tokens, time.Now())
-	p.logSpendBuckets(tokens)
-	p.markPersistDirty()
-}
-
 // spendView is one ledger's snapshot for healthz (issue #87).
 type spendView struct {
 	Rolling24h   int64
@@ -400,15 +389,6 @@ func (p *Pool) ledgerSnapshot(token int) (int, spendView, int) {
 	return p.roster.ledgerSnapshot(token)
 }
 
-func (p *Pool) bridgeSpendSnapshot(entry *bridgeEntry) spendView {
-	if entry == nil {
-		return spendView{}
-	}
-	p.bridgeMu.Lock()
-	defer p.bridgeMu.Unlock()
-	return entry.ledger.spendSnapshot()
-}
-
 // ledgerView snapshots a ledger under its guard.
 func ledgerView(l *spendLedger) spendView {
 	if l == nil {
@@ -429,14 +409,6 @@ func ledgerView(l *spendLedger) spendView {
 
 func (p *Pool) recordSpendLimited(token int) {
 	p.roster.recordSpendLimited(token)
-	p.markPersistDirty()
-}
-
-func (p *Pool) bridgeRecordSpendLimited(entry *bridgeEntry) {
-	if entry == nil {
-		return
-	}
-	entry.ledger.recordSpendLimited()
 	p.markPersistDirty()
 }
 

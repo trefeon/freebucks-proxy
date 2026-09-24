@@ -378,7 +378,7 @@ func (a *adminHandlers) settingsOverlayNote() string {
 // the DB overlay (ADR-0019): the overlay beats the .env file, so a .env write
 // for that key cannot take effect until the row is deleted. The .env-backed
 // writers whose knobs are also overlay-addressable (the mode switch for
-// BRIDGE_ENABLED, require-login for DASHBOARD_REQUIRE_LOGIN) use it on their
+// require-login for DASHBOARD_REQUIRE_LOGIN) use it on their
 // shadow-error paths to name the true blocker: SettingSources resolves the
 // actual winning tier, so an env-pinned key still blames the environment and
 // only a db-pinned key names the overlay.

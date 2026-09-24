@@ -273,7 +273,7 @@ func postBody(t *testing.T, client *http.Client, url, body string) (*http.Respon
 }
 
 // healthzMode polls /healthz until it answers 200 and returns the parsed
-// mode field ("pooled" / "bridge").
+// mode field ("pooled").
 func healthzMode(t *testing.T, base string) string {
 	t.Helper()
 	client := e2eHTTPClient()
@@ -369,8 +369,8 @@ func TestE2EServeAndDrain(t *testing.T) {
 	if err := json.Unmarshal(body, &hz); err != nil {
 		t.Fatalf("healthz is not JSON: %v: %s", err, body)
 	}
-	if hz.Mode != "hybrid" {
-		t.Errorf("healthz mode = %q, want hybrid (default when AUTH_TOKENS set)", hz.Mode)
+	if hz.Mode != "pooled" {
+		t.Errorf("healthz mode = %q, want pooled (default when AUTH_TOKENS set)", hz.Mode)
 	}
 
 	// /v1/models carries the deepseek models from the offline fallback
@@ -532,8 +532,8 @@ func TestE2EConfigJSON(t *testing.T) {
 	startProcess(t, cmd)
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	if mode := healthzMode(t, base); mode != "hybrid" {
-		t.Errorf("-config JSON healthz mode = %q, want hybrid (default when AUTH_TOKENS set)", mode)
+	if mode := healthzMode(t, base); mode != "pooled" {
+		t.Errorf("-config JSON healthz mode = %q, want pooled (default when AUTH_TOKENS set)", mode)
 	}
 	shutdownAndExpectExit(t, cmd)
 	if !strings.Contains(stderr.String(), `msg="shutdown complete"`) {
@@ -541,9 +541,9 @@ func TestE2EConfigJSON(t *testing.T) {
 	}
 }
 
-// --- 5. bridge mode (explicit empty AUTH_TOKENS) ---
+// --- 5. empty pool (explicit empty AUTH_TOKENS) ---
 
-func TestE2EBridgeMode(t *testing.T) {
+func TestE2EEmptyPool(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: e2e subprocess lane excluded; run `go test ./backend/...` for the full tier")
 	}
@@ -553,7 +553,7 @@ func TestE2EBridgeMode(t *testing.T) {
 	dir := t.TempDir()
 	writeDotenv(t, dir, map[string]string{
 		"LISTEN_ADDR":       fmt.Sprintf("127.0.0.1:%d", port),
-		"AUTH_TOKENS":       "", // explicit empty = bridge mode
+		"AUTH_TOKENS":       "", // explicit empty pool
 		"UPSTREAM_BASE_URL": mock.URL(),
 	})
 	bin := proxyInDir(t, dir)
@@ -565,8 +565,8 @@ func TestE2EBridgeMode(t *testing.T) {
 	startProcess(t, cmd)
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	if mode := healthzMode(t, base); mode != "bridge" {
-		t.Errorf("bridge-mode healthz mode = %q, want bridge", mode)
+	if mode := healthzMode(t, base); mode != "pooled" {
+		t.Errorf("empty-pool healthz mode = %q, want pooled", mode)
 	}
 	shutdownAndExpectExit(t, cmd)
 }
@@ -672,16 +672,16 @@ func TestE2ETestToken(t *testing.T) {
 		}
 	})
 
-	t.Run("bridge mode nothing to probe", func(t *testing.T) {
+	t.Run("empty pool nothing to probe", func(t *testing.T) {
 		dir := t.TempDir()
 		writeDotenv(t, dir, map[string]string{"AUTH_TOKENS": ""})
 		bin := proxyInDir(t, dir)
 		code, _, stderr := runSimple(t, dir, bin, []string{"-test-token"}, e2eEnv(t, "AUTO_DISCOVER_TOKEN=false"), 30*time.Second)
 		if code != 1 {
-			t.Fatalf("-test-token bridge exit = %d, want 1; stderr: %s", code, stderr)
+			t.Fatalf("-test-token empty-pool exit = %d, want 1; stderr: %s", code, stderr)
 		}
 		if !strings.Contains(stderr, "no AUTH_TOKENS configured") {
-			t.Errorf("-test-token bridge stderr missing 'no AUTH_TOKENS configured':\n%s", stderr)
+			t.Errorf("-test-token empty-pool stderr missing 'no AUTH_TOKENS configured':\n%s", stderr)
 		}
 	})
 }

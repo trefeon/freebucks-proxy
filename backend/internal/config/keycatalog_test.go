@@ -30,7 +30,7 @@ var dotenvKeys = map[string]bool{
 	"ACTING_USER_ID":    true, "TLS_FINGERPRINT": true, "REGISTRY_REFRESH": true,
 	"DEBUG_DUMP": true, "DEVTOOLS_ENABLED": true, "LOG_FILE": true,
 	"LOG_LEVEL": true, "LOG_FORMAT": true, "LOG_ACCESS": true,
-	"BRIDGE_ENABLED": true, "BRIDGE_IDLE_EVICT": true,
+
 	"IDLE_ROTATION_TIMEOUT": true, "SAFE_MODE": true,
 	"MODELS_HIDE_UNAVAILABLE": true, "MODELS_ALLOW": true, "CORS_ALLOWED_ORIGIN": true,
 	"REQUEST_JITTER": true, "CLI_VERSION": true, "PIN_MODEL": true, "TRANSIENT_RETRIES": true,

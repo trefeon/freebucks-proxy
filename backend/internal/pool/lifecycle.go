@@ -25,7 +25,7 @@ func (p *Pool) LeaseRelease(lease *Lease) {
 	}
 	t := lease.leaseTarget()
 	if t == nil {
-		return // synthetic lease without a backing entry or bridge
+		return // synthetic lease without a backing entry
 	}
 	t.runs.Release(lease.Run)
 	// Release the smart-routing live-turn slot through the lease (keyed by
@@ -353,7 +353,7 @@ func (p *Pool) drainRemovedToken(entry *tokenEntry) {
 }
 
 // RemoveAllTokens finishes every fixed token's runs and empties the pool
-// (bridge-mode switch). In-flight leases on removed tokens no-op on release
+// In-flight leases on removed tokens no-op on release
 // (bounds-checked index access). Config must be updated separately.
 func (p *Pool) RemoveAllTokens(ctx context.Context) {
 	toks := p.roster.Load()

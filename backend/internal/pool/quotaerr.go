@@ -1,4 +1,4 @@
-// quotaerr.go — quota-exhaustion classification and bridge quota helpers
+// quotaerr.go — quota-exhaustion classification
 // (issue #85/#178). Premium scarce-session protection was removed in the
 // session redesign: model switches release the previous slot instead of
 // holding it (see session.EnsureSessionForModel).
@@ -37,7 +37,7 @@ func isQuotaExhaustedError(rle *upstream.RateLimitError) bool {
 // isolated to another model, so the token may still serve model (issues
 // #155/#178: a quota cap on one model must not block the token's others).
 // It is the single definition of the per-model bypass shared by the
-// failover loop, the hot-first ordering, the bridge gate and the
+// failover loop, the hot-first ordering and the
 // smart-routing score, so a kind that is never per-model stays parked
 func canServeOtherModel(rle *upstream.RateLimitError, model string) bool {
 	if rle == nil || rle.Model == "" || rle.Model == model {

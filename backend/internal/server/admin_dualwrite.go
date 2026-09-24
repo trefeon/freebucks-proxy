@@ -10,7 +10,7 @@ import (
 )
 
 // tokenMarkerKey is the settings-table presence marker for the AUTH_TOKENS
-// pool ("true" while pooled, absent in bridge mode): a cheap presence signal
+// pool ("true" while pooled): a cheap presence signal
 // for readers that must not parse the pool. Since the env-to-DB migration
 // the raw pool itself is ALSO mirrored in the config:AUTH_TOKENS overlay row
 // (the dashboard DB holds secrets at mode 0600) — tokenMarkerDelta converges
@@ -156,10 +156,9 @@ func (a *adminHandlers) restoreSettingRows(snap map[string]*string) {
 }
 
 // tokenMarkerDelta maps a post-mutation AUTH_TOKENS list to its settings
-// write-through: marker set while pooled, marker dropped in bridge mode,
-// and the config:AUTH_TOKENS overlay row converged to the same list (empty
-// in bridge mode, where presence pins the choice and suppresses CLI
-// auto-discovery). Every token path (add/remove/swap/mode-switch) funnels
+// write-through: marker set while pooled,
+// and the config:AUTH_TOKENS overlay row converged to the same list.
+// Every token path (add/remove/swap) funnels
 // through here, so the overlay — which beats .env at load — always carries
 // the latest pool instead of shadowing the file just written.
 func tokenMarkerDelta(tokens []string) (set map[string]string, del []string) {
@@ -171,20 +170,6 @@ func tokenMarkerDelta(tokens []string) (set map[string]string, del []string) {
 		return set, nil
 	}
 	return set, []string{tokenMarkerKey}
-}
-
-// errBridgeStillEnabled is the divergence rejection when a mode switch
-// cannot move the effective BRIDGE_ENABLED: pooled=true means hybrid→pooled
-// left the bridge on, pooled=false means pooled→hybrid left it off. It
-// carries no message text — the caller renders the overlay-aware conflict
-// (overlay row vs environment/JSON) exactly like before.
-type errBridgeStillEnabled struct{ pooled bool }
-
-func (e errBridgeStillEnabled) Error() string {
-	if e.pooled {
-		return "bridge still enabled"
-	}
-	return "bridge still disabled"
 }
 
 // dualPersistMessage maps a dualWrite layer failure to the historic

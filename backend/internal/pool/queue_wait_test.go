@@ -28,6 +28,13 @@ import (
 // hold, so nothing races on it.
 const parkHold = 25 * time.Millisecond
 
+// acquireResult carries one Acquire outcome from a test goroutine back to
+// the test body (a bare struct field would race the reader).
+type acquireResult struct {
+	lease *Lease
+	err   error
+}
+
 // waitForParkedWaiter waits until the lane reports exactly one parked
 // waiter (the goroutine has genuinely queued, not merely started).
 func waitForParkedWaiter(t *testing.T, p *Pool, key slotKey) {
@@ -36,8 +43,7 @@ func waitForParkedWaiter(t *testing.T, p *Pool, key slotKey) {
 }
 
 // waitForModelParkedWaiter waits until the model's global queue holds
-// exactly one waiter (pooled lanes never park lane-locally; slotQueued
-// stays for the bridge path and its unit tests).
+// exactly one waiter.
 func waitForModelParkedWaiter(t *testing.T, p *Pool, model string) {
 	t.Helper()
 	eventually(t, "waiter parks on the model queue", func() bool { return p.modelQueueDepth(model) == 1 })
@@ -151,10 +157,6 @@ func TestQueueWaitAbsentAfterQueueWaitTimeout(t *testing.T) {
 		t.Errorf("timed-out waiter recorded %s = %d, want the phase absent (no slot was granted)", phasetiming.QueueWaitMS, wait)
 	}
 }
-
-// TestBridgeQueueWaitRecordedWhenParkedThenGranted is the bridge half: the
-// bridge lane keys the slot state off the *bridgeEntry, and its lease must
-// report the park identically.
 
 // TestLeaseAcquiredLineReportsQueueWait pins the secondary surface (the log
 // table view): the granted-park lease line reports the wait and marks the

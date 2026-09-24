@@ -12,10 +12,7 @@ import (
 )
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the
-// single-attempt chat path needs, so the pooled (fixed-token) and bridge
-// paths share one chatAttempt implementation (issue #255). Each adapter
-// maps the pool's token-indexed (pooled) or lease-based (bridge) methods onto
-// this uniform surface.
+// single-attempt chat path needs (issue #255).
 type chatBackend interface {
 	Acquire(ctx context.Context, model string) (*pool.Lease, error)
 	Chat(ctx context.Context, lease *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error)
@@ -65,44 +62,6 @@ func (b pooledBackend) RecordRunStep(lease *pool.Lease, mid string) {
 }
 func (b pooledBackend) RecordSpend(lease *pool.Lease, tokens int64) { b.p.RecordSpend(lease, tokens) }
 
-// bridgeBackend adapts the pool's lease-based bridge methods. It carries the
-// client token used for the bridge Acquire.
-type bridgeBackend struct {
-	p     *pool.Pool
-	token string
-}
-
-func (b bridgeBackend) Acquire(ctx context.Context, model string) (*pool.Lease, error) {
-	return b.p.AcquireBridge(ctx, b.token, model)
-}
-
-func (b bridgeBackend) Chat(ctx context.Context, lease *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error) {
-	return b.p.Chat(ctx, lease, opts, body)
-}
-
-func (b bridgeBackend) InvalidateSession(lease *pool.Lease) {
-	b.p.InvalidateBridgeSession(lease)
-}
-
-func (b bridgeBackend) InvalidateSessionSuperseded(lease *pool.Lease) {
-	b.p.InvalidateBridgeSessionWithReason(lease, session.ReasonSuperseded, http.StatusConflict)
-}
-
-func (b bridgeBackend) InvalidateRun(lease *pool.Lease, agentID string) {
-	b.p.InvalidateBridgeRun(lease, agentID)
-}
-
-func (b bridgeBackend) CooldownBan(lease *pool.Lease, be *upstream.BanError) {
-	b.p.CooldownBridgeBan(lease, be)
-}
-func (b bridgeBackend) LeaseRelease(lease *pool.Lease)  { b.p.LeaseRelease(lease) }
-func (b bridgeBackend) LeaseAbandon(lease *pool.Lease)  { b.p.LeaseAbandon(lease) }
-func (b bridgeBackend) MarkRunFailed(lease *pool.Lease) { b.p.MarkRunFailed(lease) }
-func (b bridgeBackend) RecordRunStep(lease *pool.Lease, mid string) {
-	b.p.RecordRunStep(lease, mid)
-}
-func (b bridgeBackend) RecordSpend(lease *pool.Lease, tokens int64) { b.p.RecordSpend(lease, tokens) }
-
 // chatAttempt runs one chat through the leased token and surfaces the
 // result: on success the returned body reader and final lease belong to the
 // caller (close the body and release the lease via LeaseRelease). Refusals
@@ -113,8 +72,7 @@ func (b bridgeBackend) RecordSpend(lease *pool.Lease, tokens int64) { b.p.Record
 // ErrRunInvalid refusal is retried ONCE by chatCore, which calls this again
 // with a fresh acquire after the dead run was invalidated here — see
 // chatCore's rotate-and-retry-once. The acquire/chat/invalidate/
-// cooldown hooks are behind the chatBackend interface so the pooled
-// (fixed-token) and bridge paths share one implementation. 429 quota,
+// cooldown hooks are behind the chatBackend interface. 429 quota,
 // ip_capped and country blocks surface with no cooldown write: admission
 // owns those refusals, not the chat path.
 func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byte, st *chatTraceState, backend chatBackend) (io.ReadCloser, *pool.Lease, error) {

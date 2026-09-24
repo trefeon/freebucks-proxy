@@ -94,7 +94,7 @@ func OverlayRowKey(key string) string {
 // (it would fail the POST gate), so a tampered or stale row must not poison
 // the load. Empty values are kept as no-op pins: every override*From helper
 // skips blanks, so they change nothing — except AUTH_TOKENS, where presence
-// (even empty) is the explicit bridge-mode choice that suppresses CLI
+// (even empty) is the explicit empty-pool choice that suppresses CLI
 // auto-discovery, mirroring the .env tier. The migration writes one row per
 // catalog key (blanks included), so the overlay round-trips the full knob
 // set; explicit process env still wins over every row at Load.
@@ -246,7 +246,7 @@ func ValidateSettingValue(key, value string) error {
 // overlay-addressable by construction — no parallel key list to drift.
 // AUTH_TOKENS rides alongside with .env-tier presence semantics: the key's
 // presence (even empty) records an explicit pool choice and suppresses CLI
-// auto-discovery, so a migrated bridge-mode user stays in bridge mode when
+// auto-discovery, so a migrated empty-pool user stays empty when
 // the environment no longer pins the pool. Explicit process env still wins:
 // Load applies the real-environment AUTH_TOKENS block after this overlay.
 func applySettingsOverlay(raw *rawConfig, overlay map[string]string) {

@@ -54,7 +54,7 @@ type Lease struct {
 	Model             string // the model this lease's session/run is bound to (authoritative for opts.Model; may differ from the requested model after upstream coercion)
 	AgentID           string
 	Run               *runs.Run
-	SessionInstanceID string       // "" when the session is disabled
+	SessionInstanceID string // "" when the session is disabled
 	// entry is the fixed-token entry backing this lease. Set by Acquire so
 	// LeaseRelease always releases through the right run manager: after a
 	// concurrent RemoveLastToken, the Token index may be out of range (or
@@ -63,7 +63,7 @@ type Lease struct {
 	entry *tokenEntry
 	// routeSlot is the MASQ slot-ledger live-turn slot held for this lease
 	// (slot_ledger.go, SLOTS_PER_ACCOUNT per account-model lane). Set at
-	// grant time on the smart path only, for pooled AND bridge leases;
+	// grant time on the smart path only, for pooled leases;
 	// released through the lease by LeaseRelease/LeaseAbandon. Nil on the
 	// legacy path (ROUTING_SMART off), when the cap is unlimited, or for
 	// synthetic leases.
@@ -305,9 +305,7 @@ type Pool struct {
 	// builds declares its zone as x-fb-timezone. nil = host-zone behaviour.
 	localityFn atomic.Pointer[func() string]
 
-	// requestsServed counts successful upstream chat calls across BOTH
-	// pooled and bridge leases (bridge entries are ephemeral and excluded
-	// from the per-token counters, so this is the mode-independent total).
+	// requestsServed counts successful upstream chat calls.
 	requestsServed atomic.Uint64
 
 	once   sync.Once
@@ -339,7 +337,7 @@ type Pool struct {
 	admissions   map[string]int
 	// store persists session state across restarts (SESSION_PERSIST); nil
 	// disables. Injected by the caller (main) via SetSessionStore so there
-	// is exactly one store shared by pooled and bridge entries.
+	// is exactly one shared store.
 	store *session.Store
 
 	// notify fires best-effort webhook alerts (issue #48): pool_exhausted
@@ -361,7 +359,7 @@ type Pool struct {
 	// Runtime persistence (pool_persist.go, DB-unified-storage):
 	// write-through cache of the allowlisted counters (usage and Pacific-day
 	// request ledgers, session spend buckets, admissions counts,
-	// terminal-cooldown hints, bridge survivors) through the PoolPersist
+	// terminal-cooldown hints) through the PoolPersist
 	// interface. nil disables (in-memory only).
 	// persistDirty is set lock-free on every mutation; the maintain tick
 	// plus a best-effort Shutdown pass flush it in the background, so the
@@ -618,13 +616,9 @@ type quarantineState struct {
 }
 
 // leaseTarget fields the lease dispatch methods (LeaseRelease, LeaseAbandon,
-// RecordRunStep, MarkRunFailed, RecordSpend, Chat) need from a lease. It
-// collapses the old 3-way Bridge/entry/index skeleton into one accessor
-// (issue #265): production leases always carry entry (acquire.go) or Bridge
-// (bridge.go), so the historical index-fallback path is dropped — an index
-// could be reused by a concurrent RemoveLastToken+AddToken and mis-target a
-// different entry. A nil target means the lease is synthetic (no backing
-// entry or bridge); the dispatch methods no-op on it.
+// RecordRunStep, MarkRunFailed, RecordSpend, Chat) need from a lease.
+// Production leases always carry entry; a nil target means the lease is
+// synthetic (no backing entry) and the dispatch methods no-op on it.
 type leaseTarget struct {
 	runs   *runs.RunManager
 	client *upstream.Client
@@ -700,7 +694,7 @@ func runOptions(cfg *config.Config) runs.Options {
 // SetLocalityResolver installs fn on every upstream client the pool holds or
 // builds: session calls then declare fn()'s zone as x-fb-timezone (the
 // session-locality rule). The resolver is stored on the pool so runtime token
-// additions and bridge entries created later inherit it; nil restores the
+// additions created later inherit it; nil restores the
 // host-zone behaviour on every client. Safe to call while serving (each
 // client guards its own resolver).
 func (p *Pool) SetLocalityResolver(fn func() string) {
@@ -717,7 +711,7 @@ func (p *Pool) SetLocalityResolver(fn func() string) {
 }
 
 // applyLocality installs the pool's configured locality resolver on a client
-// built after SetLocalityResolver (runtime token additions and bridge entries).
+// built after SetLocalityResolver (runtime token additions).
 func (p *Pool) applyLocality(c *upstream.Client) {
 	if c == nil {
 		return
@@ -867,7 +861,7 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 
 // tokenEntryLabel returns a short non-reversible label for a fixed pooled
 // token entry, safe for logs: the sha256 of the raw AUTH_TOKENS string, hex
-// truncated to 8 chars (mirrors bridgeTokenLabel; the raw token must never
+// truncated to 8 chars (the raw token must never
 // reach logs — logring retains them for /admin/logs).
 func tokenEntryLabel(e *tokenEntry) string {
 	if e == nil || e.client == nil {
@@ -971,14 +965,12 @@ func (p *Pool) Chat(ctx context.Context, lease *Lease, opts upstream.ChatOptions
 	if lease == nil {
 		return nil, errors.New("pool: chat: invalid lease")
 	}
-	// Leases dispatch through their authoritative owner pinned by Acquire or
-	// AcquireBridge (issue #265): entry for fixed-token leases, Bridge for
-	// bridge leases. A concurrent RemoveLastToken+AddToken can leave a
+	// Leases dispatch through their authoritative owner pinned by Acquire:
+	// a concurrent RemoveLastToken+AddToken can leave a
 	// lease's Token index out of range (chat would fail with "invalid lease
 	// token") or reused by a DIFFERENT token (chat would go through the
 	// wrong account's client and charge the wrong usage/error path); the
-	// entry/bridge is a stable pointer immune to both. The historical
-	// index-fallback path is dropped — production leases always carry one.
+	// entry is a stable pointer immune to both.
 	t := lease.leaseTarget()
 	if t == nil {
 		return nil, errors.New("pool: chat: invalid lease")
@@ -987,8 +979,6 @@ func (p *Pool) Chat(ctx context.Context, lease *Lease, opts upstream.ChatOptions
 	// Only the success-side usage records live here: the rolling 24h chat
 	// history that feeds the dashboard's messages_24h display and the
 	// Pacific-day request count for the per-day display and maturity skip.
-	// Bridge entries keep no local ledger — their pacing is the live-turn
-	// slot plus the FIFO queue. Upstream quota/429 is the enforcement.
 	if err == nil {
 		if t.entry != nil {
 			p.recordChatEntry(t.entry)

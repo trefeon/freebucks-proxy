@@ -2,7 +2,6 @@
 package pool
 
 import (
-	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
 	"time"
 )
@@ -287,10 +286,7 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 
 // PoolSnapshot is the pool-wide metrics view: aggregate transient-retry
 // counters summed across every fixed token's client, plus the per-token rows
-// (same shape as Snapshot). Bridge-mode entries are not counted in the
-// per-token rows (they are per-client-token ephemeral slots), but live
-// bridge clients' retry/rotation counters are summed in, and RequestsServed
-// is mode-independent (every successful upstream chat).
+// (same shape as Snapshot).
 type PoolSnapshot struct {
 	TransientRetries        int64
 	CapacityDeferredRetries int64

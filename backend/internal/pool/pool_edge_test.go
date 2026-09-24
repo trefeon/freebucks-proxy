@@ -1,18 +1,14 @@
 package pool
 
-// Edge-case and E2E tests for the pool: live failover matrix, bridge daily
-// cap, idle handling in bridge mode, RemoveLastToken drain + race, maintain
+// Edge-case and E2E tests for the pool: live failover matrix, RemoveLastToken drain + race, maintain
 // queued-advance/session-poll, runtime token actions, and exact daily-cap
-// accounting. Regression guards for the pool bugs (AcquireBridge idle
-// tracking, RemoveLastToken drain/TOCTOU, cooldown ban memory, idle bridge
-// sweep).
+// accounting. Regression guards for the pool bugs (RemoveLastToken drain/TOCTOU, cooldown ban memory).
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
@@ -170,72 +166,6 @@ func TestAcquireCancelledMidFailover(t *testing.T) {
 		t.Errorf("token-2 session creates = %d, want 0 (no failover after cancel)", got)
 	}
 }
-
-// TestBridgeDailyMessageCap drives the bridge usage-accounting path
-// (bridgeUsageCount / bridgeDailyLimitError), which had zero coverage: a
-// bridge entry capped at MAX_MESSAGES_PER_DAY=1 gets a 429 on the second
-// acquire, and two client tokens have independent caps.
-
-// TestBridgeDailyUsageCounter verifies that the global bridgeDailyUsage
-// counter is incremented by bridgeRecordChat and reset by bridgeMaintain.
-
-// TestBridgeIdlePause is the regression guard for the bridge idle bug:
-// AcquireBridge never updated p.lastActive, so IDLE_ROTATION_TIMEOUT was
-// dead config in bridge mode — lastActive stayed zero, the pool never
-// idle-paused, and bridge entries were polled/queued-advanced every
-// maintain pass indefinitely. Bridge traffic must mark the pool active, and
-// once idle a maintain pass must not touch the upstream at all. Fails
-// before the fix (lastActive stays zero → every pass maintains the entry).
-
-// TestBridgeMaintainRunsOnIdlePass is the regression guard for the idle
-// sweep bug: maintainTick's idle branch returned before bridgeMaintain, so
-// in mixed mode bridge entries idle past defaultBridgeIdleEvict were never swept
-// while the pool stayed idle — their sessions stayed admitted upstream until
-// expiry. An idle pass must still run the bridge sweep (only the per-token
-// session-poll/queued-advance pauses). Fails before the fix (the idle branch
-// returns before the sweep).
-
-// TestBridgeIdleSweepSkipsBusy pins the busy-entry rule for the IDLE sweep
-// (TestBridgeEvictionSkipsBusyEntry covers LRU eviction): an entry idle past
-// defaultBridgeIdleEvict with an outstanding lease must NOT be evicted — FINISHing
-// its run would kill the in-flight chat — even though the sweep considers
-// it idle.
-
-// TestBridgeDeadTokenEvictDefersWhenBusy is the regression guard for the
-// dead-token eviction race: a token confirmed dead (ErrAuthRejected)
-// by one request while ANOTHER request on the same token is mid-stream must
-// not be evicted — FinishAllRuns on the busy entry would kill the
-// concurrent chat, and dropping it from the cache would orphan the
-// stream's draining run outside bridgeMaintain's and Pool.Shutdown's
-// reach. The eviction is deferred to the idle sweep: the entry stays
-// cached (cooled down, so no new request passes it) until its leases
-// drain and it sits idle past defaultBridgeIdleEvict. Fails before the fix (the
-// dead-token path FINISHed the busy entry's run and ended its session).
-
-// TestBridgeSweepParksShortCooldown pins the cooling-entry hold: an idle
-// bridge entry riding out a live cooldown stays cached so the next request
-// reuses its session once the window lapses.
-
-// TestBridgeDeadTokenEvictsWhenIdle pins the non-racing half of the B6
-// gate: a dead token with NO outstanding lease is still evicted
-// immediately (run FINISHed + session ended, entry dropped from the
-// cache), not left for the idle sweep — that is the point of B6 (a dead
-// token must not sit in the cache for the full defaultBridgeIdleEvict window).
-// The acquire-path wiring is exercised by
-// TestBridgeDeadTokenEvictDefersWhenBusy; this test calls the eviction
-// directly so the cleanup assertions are deterministic (the mock's
-// AuthReject knob 401s the FINISH/EndSession calls too).
-
-// TestBridgeEvictionAllBusyKeepsCap pins the all-busy eviction behavior:
-// when every cached entry holds an outstanding lease, a new distinct token
-// cannot evict any of them (FINISHing a busy entry would kill the in-flight
-// chat). The new entry is itself unleased at creation time, but it must
-// ALSO never be evicted: bridgeEntryFor hands it back for immediate use —
-// admitting a session and starting a run on an entry that was dropped from
-// the cache would leave that run and session invisible to bridgeMaintain
-// and Pool.Shutdown (leaked upstream + a daily session slot burned per new
-// client under saturation). The cache may sit one over the cap until an
-// older entry's lease drains and the idle sweep reclaims it.
 
 // TestRemoveLastTokenDrainsRun is the regression guard for the removal
 // leak: RemoveLastToken removed the token without finishing its run or
@@ -447,8 +377,7 @@ func TestMaintainTickAdvancesQueuedAndPollsActive(t *testing.T) {
 }
 
 // TestEmptyPoolAcquire pins the empty-pool error: Acquire over a pool with
-// no fixed tokens (bridge mode without a bridge token in hand) must return
-// a clear error, not panic.
+// no fixed tokens must return a clear error, not panic.
 func TestEmptyPoolAcquire(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()

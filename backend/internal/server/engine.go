@@ -15,7 +15,7 @@ import (
 // --- Shared completion engine (protocol-neutral) ---
 //
 // The acquire→upstream→relay core every completion surface runs on:
-// chatCore (lease acquisition, bridge routing, the ErrRunInvalid
+// chatCore (lease acquisition, the ErrRunInvalid
 // rotate-and-retry-once, phase timing, endpoint log lines), chatAttempt
 // (one acquire→chat attempt with session/run invalidation and token
 // cooldowns on refusal), and the plain SSE plumbing every relay shares
@@ -62,7 +62,7 @@ func (b *timedBackend) Acquire(ctx context.Context, model string) (*pool.Lease, 
 // handleChat is the OpenAI chat-completions entry point: sanitize the
 // chatCore is the shared acquire→relay core for every completion-style
 // endpoint (chat completions, Responses, Anthropic messages): acquire a
-// token lease (bridge routing included), call upstream with
+// token lease, call upstream with
 // retry-once recovery, then relay the forced stream to the client through
 // relay. kind names the endpoint in request/done log lines.
 func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, stream bool, normalized []byte, toolMap convert.ToolMapper, reasoningEffort, kind string, relay relayFunc) {
@@ -106,8 +106,7 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	// this core deliberately does not re-limit — direct handler calls (unit
 	// tests) skip the limiter on purpose.
 	// Pool-only routing: a credential matching API_KEYS uses the pool; any
-	// other credential is rejected here. Bridge relay is removed: no request
-	// may carry a client token upstream.
+	// other credential is rejected here.
 	var up io.ReadCloser
 	var lease *pool.Lease
 	// One request, one snapshot: requireAuth pinned the config it made its

@@ -10,7 +10,7 @@ import (
 )
 
 // handleHealthz reports uptime, model count, the per-token snapshot, the
-// cached bridge entries (bridge mode), the effective routing mode, and the
+// effective routing mode, and the
 // resolved session-locality zone + source + detected egress region.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	snaps := s.pool.Snapshot()
@@ -79,42 +79,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		}
 		tokens = append(tokens, tok)
 	}
-	// Bridge token snapshots (#187): per-entry data when in bridge mode.
-	bridgeSnaps := s.pool.BridgeSnapshot()
-	bridgeEntries := make([]map[string]any, 0, len(bridgeSnaps))
-	for _, bs := range bridgeSnaps {
-		entry := map[string]any{
-			"key":            bs.Key[:min(8, len(bs.Key))] + "…",
-			"locked":         bs.Locked,
-			"session_active": bs.SessionActive,
-			"active_runs":    bs.ActiveRuns,
-			"requests":       bs.Requests,
-			"model":          bs.Model,
-			"spend_day":      bs.SpendDay,
-		}
-		if bs.CooldownUntil.After(time.Now()) {
-			entry["cooldown_until"] = bs.CooldownUntil
-		}
-		if len(bs.QuotaByModel) > 0 {
-			quota := make(map[string]any, len(bs.QuotaByModel))
-			for model, q := range bs.QuotaByModel {
-				qEntry := map[string]any{
-					"limit":        q.Limit,
-					"recent_count": q.RecentCount,
-					"period":       q.Period,
-				}
-				if !q.ResetAt.IsZero() {
-					qEntry["reset_at"] = q.ResetAt
-				}
-				if len(q.Entitlement) > 0 {
-					qEntry["entitlement"] = q.Entitlement
-				}
-				quota[model] = qEntry
-			}
-			entry["quota"] = quota
-		}
-		bridgeEntries = append(bridgeEntries, entry)
-	}
 	// Session locality (feat/session-locality-region): which IANA zone the
 	// gateway declares on session reads, which rule picked it, and the
 	// detected egress country. Additive fields; the egress IP is deliberately
@@ -127,8 +91,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"uptime_seconds":          time.Since(s.started).Seconds(),
 		"models":                  s.servedModelCount(),
 		"tokens":                  tokens,
-		"bridge_tokens":           s.pool.BridgeCount(),
-		"bridge_entries":          bridgeEntries,
 		"session_timezone":        sessionTimezone,
 		"session_timezone_source": sessionTimezoneSource,
 		"egress_region":           egressRegion,

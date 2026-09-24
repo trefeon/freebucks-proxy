@@ -520,12 +520,6 @@ func Serve(configPath string, verbose bool, version string) int {
 	// checking if the output is a character device (terminal).
 	if stderrIsCharDevice() {
 		mode := fmt.Sprintf("pooled (%d tokens)", len(cfg.AuthTokens))
-		switch {
-		case cfg.BridgeMode():
-			mode = "bridge (clients send their own token)"
-		case cfg.HybridBridgeMode():
-			mode = fmt.Sprintf("hybrid (%d pooled tokens + bridge relay)", len(cfg.AuthTokens))
-		}
 		fmt.Fprintf(os.Stderr, "\n"+
 			"  freebucks-proxy %s is running!\n"+
 			"\n"+

@@ -287,7 +287,6 @@ func TestRecordSpendSurfacesInSnapshot(t *testing.T) {
 	}
 }
 
-
 func TestLeaseAbandonFinishesRun(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
