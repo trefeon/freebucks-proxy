@@ -109,6 +109,7 @@ test.describe("MASQ mock-data scenarios (centralized factory)", () => {
     await expect(row).toContainText("8 Freebucks spendable");
     await expect(row).toContainText("8 left");
     await expect(row).toContainText("Wallet 5");
+    await expect(row).not.toContainText("Resets in");
     await expect(
       page.locator('[data-testid="freebucks-header"]').first(),
     ).not.toContainText("daily +");

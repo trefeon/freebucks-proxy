@@ -60,6 +60,9 @@ test.describe("user flows", () => {
     // whole list instead.
     await expect(page.getByTestId("reset-strip")).toHaveCount(1);
     await expect(page.getByTestId("reset-strip")).toContainText("resets in");
+    await expect(page.getByTestId("account-row").first()).not.toContainText(
+      "Resets in",
+    );
     await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Probe all" })).toBeVisible();
   });
