@@ -386,6 +386,11 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	case errors.Is(err, upstream.ErrWaitingRoom):
 		status, code = http.StatusServiceUnavailable, "waiting_room_queued"
 		message = err.Error()
+		// No concrete window rides this fallback (every classifier builds a
+		// *WaitingRoomError matched above): still hand the client the same
+		// 10s honor window the chat path waits, so a 503 never means
+		// "retry now".
+		retryAfter = 10 * time.Second
 	case errors.As(err, &cbe):
 		status, code = http.StatusForbidden, "country_blocked"
 		message = cbe.Error()

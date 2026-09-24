@@ -186,3 +186,32 @@ func TestQueueRetryAfterWindows(t *testing.T) {
 		t.Error("capacity-deferred must NOT classify as waiting room (own counter)")
 	}
 }
+
+// TestQueueWaitJitterBounds pins the anti-lockstep jitter: the honor window
+// is never undercut (the floor holds) and never stretched past +30%, so
+// concurrent turns refused by the same queue spread their re-POSTs instead
+// of firing in lockstep.
+func TestQueueWaitJitterBounds(t *testing.T) {
+	for _, window := range []time.Duration{10 * time.Second, 11 * time.Second, time.Second} {
+		ceil := window + window/10*3
+		spread := false
+		for range 200 {
+			got := queueWait(window)
+			if got < window || got > ceil {
+				t.Fatalf("queueWait(%v) = %v, want within [%v, %v]", window, got, window, ceil)
+			}
+			if got != window {
+				spread = true
+			}
+		}
+		if !spread {
+			t.Errorf("queueWait(%v) never jittered in 200 draws (want spread)", window)
+		}
+	}
+	if got := queueWait(0); got != 0 {
+		t.Errorf("queueWait(0) = %v, want 0 (passthrough)", got)
+	}
+	if got := queueWait(-time.Second); got != -time.Second {
+		t.Errorf("queueWait(-1s) = %v, want -1s (passthrough)", got)
+	}
+}

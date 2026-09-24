@@ -58,6 +58,22 @@ type ChatOptions struct {
 	ExtraCodebuffMetadata map[string]string
 }
 
+// queueWait jitters the transient-queue honor window (+0-30%, never below
+// the window upstream asked for): concurrent turns refused by the same 503
+// would otherwise sleep the identical window and re-POST in lockstep.
+// Same distribution as the transport retryDelay; the CLI's session poll
+// jitters ±20% (polling-backoff.ts:48-59).
+func queueWait(window time.Duration) time.Duration {
+	if window <= 0 {
+		return window
+	}
+	var b [8]byte
+	_, _ = cryptoRand.Read(b[:])
+	u := binary.BigEndian.Uint64(b[:])
+	jitterMax := int64(window)/10*3 + 1
+	return window + time.Duration(u%uint64(jitterMax))
+}
+
 // ChatCompletions POSTs an OpenAI-shaped request to the upstream chat
 // endpoint, injecting the CLI envelope, and returns the raw SSE body reader
 // on 2xx. On error status it drains (up to 500 chars), classifies, and
@@ -185,13 +201,17 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 				if d := queueRetryAfter(cerr); d > 0 {
 					ra = d
 				}
+				// Jitter the honor window so concurrent turns refused by the
+				// same queue do not re-POST in lockstep (thundering herd);
+				// queueWait only ever extends the window, never undercuts it.
+				wait := queueWait(ra)
 				// Same-session retry after the parsed wait: Debug like the
 				// transport retry in do(), carrying the same join keys.
 				slog.Debug(msg,
 					"method", req.Method, "path", req.URL.Path,
 					"status", resp.StatusCode, "class", errClassName(cerr),
-					"retry_after", ra.String(), "req_id", ReqID(ctx))
-				timer := time.NewTimer(ra)
+					"retry_after", wait.String(), "req_id", ReqID(ctx))
+				timer := time.NewTimer(wait)
 				select {
 				case <-timer.C:
 				case <-ctx.Done():
