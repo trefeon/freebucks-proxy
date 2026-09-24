@@ -384,7 +384,6 @@
           </a>
         </div>
       {/if}
-
     {:else}
       <!-- Empty pool summary -->
       <KpiGrid

@@ -124,9 +124,7 @@
   let errorLines = $derived.by(() => {
     const lines = [];
     if (summaryErrors > 0)
-      lines.push(
-        $tr("{count} recorded in summary", { count: summaryErrors }),
-      );
+      lines.push($tr("{count} recorded in summary", { count: summaryErrors }));
     for (const r of legErrors.slice(0, 3))
       lines.push(`${r.leg} \u00b7 ${r.surface} \u00b7 ${r.error}`);
     return lines;
@@ -135,8 +133,8 @@
     summary !== null && (summaryErrors > 0 || legErrors.length > 0),
   );
   let allQuiet = $derived(
-    totals.auction + totals.impression + totals.streak + creditsGranted ===
-      0 && legRows.length === 0,
+    totals.auction + totals.impression + totals.streak + creditsGranted === 0 &&
+      legRows.length === 0,
   );
   let empty = $derived(
     summary !== null && legs !== null && allQuiet
@@ -153,7 +151,9 @@
 <PageShell
   crumb="freebucks-proxy / Admin / ads.conf"
   title={$tr("Ads")}
-  description={$tr("Upstream ad auction and impression legs fired by the proxy")}
+  description={$tr(
+    "Upstream ad auction and impression legs fired by the proxy",
+  )}
   {loading}
   {error}
   {empty}
@@ -314,8 +314,10 @@
             </div>
             {#if r.title || r.brand}
               <div class="min-w-0 break-words text-xs text-[var(--fp-text)]">
-                {r.title}{#if r.title && r.brand} · {/if}{#if r.brand}<span
-                    class="text-[var(--fp-muted)]">{r.brand}</span
+                {r.title}{#if r.title && r.brand}
+                  ·
+                {/if}{#if r.brand}<span class="text-[var(--fp-muted)]"
+                    >{r.brand}</span
                   >{/if}
               </div>
             {/if}
