@@ -98,7 +98,7 @@ func (c *Client) FireWaitingRoomChain(ctx context.Context) {
 		if impURL == "" {
 			continue
 		}
-		if err := c.postAdEvent(ctx, "/api/v1/ads/impression", impressionPayload(impURL)); err != nil {
+		if _, err := c.postAdEvent(ctx, "/api/v1/ads/impression", impressionPayload(impURL)); err != nil {
 			slog.Debug("waiting room chain: ads impression failed", "provider", provider, "err", err)
 		}
 	}
@@ -111,15 +111,41 @@ func (c *Client) FireWaitingRoomChain(ctx context.Context) {
 // (freebuff2api-optimized config.py: ad_providers=("gravity","zeroclick")).
 var waitingRoomAdProviders = []string{"gravity", "zeroclick"}
 
-// requestAds POSTs one /api/v1/ads payload (reference cli/src/hooks/
-// use-gravity-ad.ts fetchAd + common/src/util/ad-user-agent.ts: provider +
-// device block + browser-like body userAgent + Freebuff-CLI header UA).
+// auctionedAd is the first creative of an auction response: the
+// server-issued impUrl the impression leg acks (never invented locally),
+// plus best-effort display metadata for the ads ledger. Title/brand keys
+// beyond impUrl are UNVERIFIED on the wire: they ride the ledger only when
+// the server actually sends them, and impUrl/clickUrl values never reach
+// the ledger (titles/brands only).
+type auctionedAd struct {
+	ImpURL string
+	Title  string
+	Brand  string
+}
+
+// requestAds POSTs one /api/v1/ads payload on the waiting-room surface
+// (reference cli/src/hooks/use-gravity-ad.ts fetchAd +
+// common/src/util/ad-user-agent.ts: provider + device block + browser-like
+// body userAgent + Freebuff-CLI header UA).
 // Faithful details kept: messages stays [] and sessionId is omitted (the
 // chain fires before a session exists — a fresh waiting-room).
 // On success it returns the first auctioned ad's server-issued impUrl ("" when
 // the auction answered with no ads), which the impression leg acks;
 // the impUrl is never invented locally.
 func (c *Client) requestAds(ctx context.Context, provider string) (string, error) {
+	ad, err := c.requestAdsForSurface(ctx, provider, "waiting_room")
+	if err != nil {
+		return "", err
+	}
+	return ad.ImpURL, nil
+}
+
+// requestAdsForSurface is requestAds parameterized by surface: the chat ad
+// loop auctions on surface cli_chat (reference chat.tsx useGravityAd
+// surface:'cli_chat') with the same body shape. messages stays [] and
+// sessionId is omitted on both surfaces: the proxy auctions for upstream
+// proofing, never to render, so it sends no transcript text and no session id.
+func (c *Client) requestAdsForSurface(ctx context.Context, provider, surface string) (auctionedAd, error) {
 	payload := map[string]any{
 		"provider": provider,
 		"messages": []any{},
@@ -132,12 +158,12 @@ func (c *Client) requestAds(ctx context.Context, provider string) (string, error
 		// every ad provider sees a usable targeting signal — the CLI sends
 		// getAdUserAgent() here (#124).
 		"userAgent": adBrowserUserAgent(),
-		"surface":   "waiting_room",
+		"surface":   surface,
 	}
 	body, _ := json.Marshal(payload)
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/ads", body)
 	if err != nil {
-		return "", err
+		return auctionedAd{}, err
 	}
 	// Header UA: Freebuff-CLI/<version> (getCliAdRequestUserAgent), NOT the
 	// chat ai-sdk UA newRequest set — the CLI's ads POST carries exactly
@@ -145,7 +171,7 @@ func (c *Client) requestAds(ctx context.Context, provider string) (string, error
 	req.Header.Set("User-Agent", freebuffCliUA)
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
-		return "", classErr
+		return auctionedAd{}, classErr
 	}
 	// do() returns a nil cancel when the context already carried a deadline
 	// (the chain's own timeout), so guard the defer.
@@ -157,7 +183,7 @@ func (c *Client) requestAds(ctx context.Context, provider string) (string, error
 		// do() classified a >=400 response once; the ads path keeps its own
 		// descriptive error from the (already-read) body.
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxAdResponseRead))
-		return "", fmt.Errorf("ads status %d: %s", resp.StatusCode, truncate(string(raw), 200))
+		return auctionedAd{}, fmt.Errorf("ads status %d: %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 	// The auction body carries the ads array (fetchAd reads data.ads); parse
 	// it on a wider cap than the error path — an ad payload exceeds 512B.
@@ -165,12 +191,18 @@ func (c *Client) requestAds(ctx context.Context, provider string) (string, error
 	var auction struct {
 		Ads []struct {
 			ImpURL string `json:"impUrl"`
+			Title  string `json:"title"`
+			Brand  string `json:"brand"`
 		} `json:"ads"`
 	}
 	if err := json.Unmarshal(raw, &auction); err != nil || len(auction.Ads) == 0 {
-		return "", nil
+		return auctionedAd{}, nil
 	}
-	return auction.Ads[0].ImpURL, nil
+	return auctionedAd{
+		ImpURL: auction.Ads[0].ImpURL,
+		Title:  auction.Ads[0].Title,
+		Brand:  auction.Ads[0].Brand,
+	}, nil
 }
 
 // adEventIDHeader is the per-event id header the server reads (reference
@@ -198,11 +230,15 @@ func impressionPayload(impURL string) map[string]any {
 // override, and the caller-minted X-Freebuff-Event-Id echoed in the body.
 // Best-effort transport like the rest of the chain: the caller logs and
 // swallows errors so ad failures never fail admission.
-func (c *Client) postAdEvent(ctx context.Context, path string, payload map[string]any) error {
+// On success it returns the server's creditsGranted grant, if any
+// (reference use-gravity-ad.ts recordImpressionOnce: the impression
+// response carries {creditsGranted}, applied when >0); 0 when the server
+// sent none.
+func (c *Client) postAdEvent(ctx context.Context, path string, payload map[string]any) (float64, error) {
 	body, _ := json.Marshal(payload)
 	req, err := c.newRequest(ctx, http.MethodPost, path, body)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("User-Agent", freebuffCliUA)
 	if eventID, ok := payload["clientEventId"].(string); ok && eventID != "" {
@@ -210,7 +246,7 @@ func (c *Client) postAdEvent(ctx context.Context, path string, payload map[strin
 	}
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
-		return classErr
+		return 0, classErr
 	}
 	if cancel != nil {
 		defer cancel()
@@ -218,10 +254,14 @@ func (c *Client) postAdEvent(ctx context.Context, path string, payload map[strin
 	defer func() { _ = resp.Body.Close() }()
 	if classErr != nil {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxAdResponseRead))
-		return fmt.Errorf("ads event %s status %d: %s", path, resp.StatusCode, truncate(string(raw), 200))
+		return 0, fmt.Errorf("ads event %s status %d: %s", path, resp.StatusCode, truncate(string(raw), 200))
 	}
-	_, _ = io.ReadAll(io.LimitReader(resp.Body, maxAdResponseRead))
-	return nil
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxAdResponseRead))
+	var grant struct {
+		CreditsGranted float64 `json:"creditsGranted"`
+	}
+	_ = json.Unmarshal(raw, &grant)
+	return grant.CreditsGranted, nil
 }
 
 // newAdEventID mints one UUIDv4 event id per ads event, mirroring the CLI's
