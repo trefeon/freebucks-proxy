@@ -10,6 +10,7 @@ package pool
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -334,22 +335,48 @@ func (p *Pool) maturityTouchRun(ctx context.Context, tok *tokenEntry, model stri
 
 	turnErr := p.maturityTouchTurn(ctx, tok, model, agentID, runID, instanceID)
 	finStatus := "completed"
+	// A failed turn records NO step: the vendor step enum allows only
+	// running|completed|skipped (sdk/src/impl/database.ts pendingAgentStepSchema),
+	// matching the runtime's own writers (run-agent-step.ts records
+	// 'completed', run-programmatic-step.ts 'skipped'), and the CLI's
+	// addAgentStep only ever records a real LLM step. The run-level status
+	// carries the failure (agent-runtime finishAgentRun 'failed'). The old
+	// status:"failed" step 400'd the whole FINISH — reproduced live:
+	// "Invalid option: expected one of \"running\"|\"completed\"|\"skipped\"".
+	var steps []upstream.RunStep
 	if turnErr != nil {
 		finStatus = "failed"
+	} else {
+		steps = []upstream.RunStep{{
+			ID:         newTouchStepID(),
+			StepNumber: 1,
+			Status:     finStatus,
+			StartTime:  now.UTC().Format(time.RFC3339Nano),
+		}}
 	}
-
-	step := upstream.RunStep{
-		ID:         fmt.Sprintf("maturity-touch-%d", now.UnixNano()),
-		StepNumber: 1,
-		Status:     finStatus,
-		StartTime:  now.UTC().Format(time.RFC3339Nano),
-	}
-	_ = tok.client.FinishRun(ctx, runID, finStatus, 1, []upstream.RunStep{step}, "")
+	_ = tok.client.FinishRun(ctx, runID, finStatus, len(steps), steps, "")
 
 	if turnErr != nil {
 		return fmt.Errorf("touch turn: %w", turnErr)
 	}
 	return nil
+}
+
+// newTouchStepID mints the RFC 4122 v4 step id the FINISH wire schema
+// requires: upstream/freebuff sdk/src/impl/database.ts pendingAgentStepSchema
+// pins `id: z.string().uuid()`. A non-UUID id fails the whole FINISH with
+// 400 {"error":"Invalid request body","details":{"steps":{"0":{"id":
+// {"_errors":["Invalid UUID"]}}}}} (reproduced against the live gateway).
+// Mirrors runs.newTraceSessionID: a crypto/rand failure falls back to a
+// time-seeded hex id rather than panicking mid-touch.
+func newTouchStepID() string {
+	var b [16]byte
+	if _, err := cryptoRand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 func (p *Pool) maturityTouchTurn(ctx context.Context, tok *tokenEntry, model, agentID, runID, instanceID string) error {

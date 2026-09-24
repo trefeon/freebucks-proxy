@@ -361,7 +361,7 @@ var keyCatalog = []KeyDef{
 	{
 		Key: "TRANSIENT_RETRIES", Group: GroupUpstream, Kind: "int", RestartOnly: true, Hidden: true,
 		Default:     "1",
-		Description: `Max additional attempts after a transient transport failure (never retries 429/403/401; 0 disables).`,
+		Description: `Max additional attempts after a transient failure: transport failures retry on a fresh connection, transient upstream queues (free_mode_capacity_deferred, the waiting room) retry in place against the same session; other upstream errors never retry (0 disables).`,
 	},
 	{
 		Key: "UPSTREAM_BASE_URL", Group: GroupUpstream, Kind: "text", RestartOnly: true, Hidden: true,

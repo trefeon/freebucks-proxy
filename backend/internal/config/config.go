@@ -91,7 +91,7 @@ type Config struct {
 	// {0: "z-ai/glm-5.2"}. Slots without an entry are unpinned (serve any
 	// model). Parsed at Load; malformed values reject the config.
 	PinModel         map[int]string
-	TransientRetries int    // max additional attempts after a transient transport failure (0 = disabled; default 1)
+	TransientRetries int    // max additional attempts after a transient failure: transport on a fresh connection, transient upstream queues in place same-session (0 = disabled; default 1)
 	SessionPersist   bool   // true = persist session state to disk so restart resumes unexpired sessions (SESSION_PERSIST)
 	SessionStateFile string // path to the session state file (SESSION_STATE_FILE; default .freebuff-session-state.json)
 	// SessionTimezone is the IANA zone the gateway declares on session reads

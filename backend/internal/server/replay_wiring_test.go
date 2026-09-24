@@ -89,6 +89,81 @@ func TestReplayMessagesHierarchyGate(t *testing.T) {
 	}
 }
 
+// TestChatCostModeGateSurfaced403 replays the cost-mode escalation refusal: a
+// 403 free_mode_cost_mode_required body must reach the OpenAI client as 403
+// free_mode_cost_mode_required carrying the fix hint (send cost_mode "free"
+// or a non-Freebuff agent id) — never the dead 502 the default branch would
+// write. Marker: vendor common/src/constants/freebuff-cost-mode.ts
+// FREEBUFF_COST_MODE_ESCALATION_ERROR.
+func TestChatCostModeGateSurfaced403(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"free_mode_cost_mode_required","message":"Freebuff agents run in free mode."}`)
+	}
+	ts, _ := newTestServerCfg(t, nil, nil, mock)
+
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403: %s", resp.StatusCode, data)
+	}
+	if got := errorCode(t, data); got != "free_mode_cost_mode_required" {
+		t.Errorf("code = %q, want free_mode_cost_mode_required: %s", got, data)
+	}
+	if !strings.Contains(string(data), "non-Freebuff agent id") {
+		t.Errorf("body missing the cost-mode fix hint: %s", data)
+	}
+	if !strings.Contains(string(data), "Freebuff agents run in free mode.") {
+		t.Errorf("body missing the upstream message: %s", data)
+	}
+}
+
+// TestReplayMessagesCostModeGate replays the same refusal on the Anthropic
+// surface: identical 403 + code, in the Anthropic envelope
+// (permission_error / free_mode_cost_mode_required).
+func TestReplayMessagesCostModeGate(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"free_mode_cost_mode_required","message":"Freebuff agents run in free mode."}`)
+	}
+	ts, _ := newTestServerCfg(t, []string{"replay-key"}, nil, mock)
+	headers := map[string]string{
+		"Content-Type":      "application/json",
+		"x-api-key":         "replay-key",
+		"anthropic-version": "2023-06-01",
+	}
+	body := `{"model":"deepseek/deepseek-v4-flash","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/messages", []byte(body), headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403: %s", resp.StatusCode, truncate(string(data), 300))
+	}
+	var envelope struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatalf("403 response is not parseable: %v: %s", err, data)
+	}
+	if envelope.Type != "error" {
+		t.Errorf("top-level type = %q, want error (Anthropic envelope)", envelope.Type)
+	}
+	if envelope.Error.Type != "permission_error" {
+		t.Errorf("error.type = %q, want permission_error", envelope.Error.Type)
+	}
+	if envelope.Error.Code != "free_mode_cost_mode_required" {
+		t.Errorf("error.code = %q, want free_mode_cost_mode_required", envelope.Error.Code)
+	}
+}
+
 // TestChatPeakHoursUnderscoreSurfaced429 replays the underscore body form: a
 // 429 carrying peak_hours must surface as 429 peak_hours with no synthesized
 // Retry-After (the body carries no upstream window) — never generic

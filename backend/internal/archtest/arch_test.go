@@ -79,6 +79,12 @@ var allowed = map[string][]string{
 		"internal/config",
 		"internal/stealth",
 		"internal/telemetry",
+		// Deliberate extension (2026-09-24): the ads request UA must claim the
+		// CLI version whose wire this client speaks, and wirefacts.VendorVersion
+		// is the generated pin for exactly that (ads.go freebuffCliUA). The
+		// wirefacts leaf imports nothing internal, so the edge is downward and
+		// acyclic.
+		"internal/wirefacts",
 		"internal/upstream/login",
 	},
 	"internal/upstream/login": {},

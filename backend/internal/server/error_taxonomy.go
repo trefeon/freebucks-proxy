@@ -38,6 +38,8 @@ func defaultHintForCode(code, message string) string {
 		return "Upstream free tier gate requires official CLI traffic envelope. See FAQ: https://github.com/trefeon/freebucks-proxy#faq"
 	case code == "free_mode_invalid_agent_hierarchy" || strings.Contains(lowerMsg, "free_mode_invalid_agent_hierarchy"):
 		return "Upstream hierarchy gate rejected the subagent (not in its root's allowlist). Retry with a root agent id from the registry."
+	case code == "free_mode_cost_mode_required" || strings.Contains(lowerMsg, "free_mode_cost_mode_required"):
+		return `A Freebuff agent id arrived with codebuff_metadata.cost_mode != "free". Send cost_mode = "free", or pick a non-Freebuff agent id.`
 	case code == "free_mode_unavailable" || strings.Contains(lowerMsg, "free_mode_unavailable"):
 		return "Free-tier region/egress gate (403, terminal). Anonymous-network blocks: disable VPN/proxy/Tor and retry; recent_limited_country: verify at freebuff.com/account?tab=country. Never a token problem — do not rotate keys."
 	case code == "provider_usage_exhausted":

@@ -278,6 +278,17 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sb.WriteString("\n")
+	sb.WriteString("# HELP freebucks_proxy_queue_retries_total Same-session transient-queue retries per token, split by queue\n")
+	sb.WriteString("# TYPE freebucks_proxy_queue_retries_total counter\n")
+	for _, snap := range snaps {
+		if snap.CapacityDeferredRetries > 0 {
+			fmt.Fprintf(&sb, "freebucks_proxy_queue_retries_total{token=\"%d\",queue=\"capacity_deferred\"} %d\n", snap.Token+1, snap.CapacityDeferredRetries)
+		}
+		if snap.WaitingRoomRetries > 0 {
+			fmt.Fprintf(&sb, "freebucks_proxy_queue_retries_total{token=\"%d\",queue=\"waiting_room\"} %d\n", snap.Token+1, snap.WaitingRoomRetries)
+		}
+	}
+	sb.WriteString("\n")
 
 	sb.WriteString("# HELP freebucks_proxy_fingerprint_rotations_total TLS fingerprint rotations per token\n")
 	sb.WriteString("# TYPE freebucks_proxy_fingerprint_rotations_total counter\n")
