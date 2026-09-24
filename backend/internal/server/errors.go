@@ -395,6 +395,14 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	case errors.Is(err, upstream.ErrFreeModeInvalidAgentHierarchy):
 		status, code = http.StatusForbidden, "free_mode_invalid_agent_hierarchy"
 		message = err.Error()
+	case errors.Is(err, upstream.ErrFreeModeCostModeRequired):
+		// 403 free_mode_cost_mode_required: a Freebuff agent id sent with
+		// cost_mode != "free" (docs/CLI-Limitations.md row 38). Terminal
+		// config refusal — the caller fixes the request; no Retry-After,
+		// no cooldown, no key rotation.
+		status, code = http.StatusForbidden, "free_mode_cost_mode_required"
+		message = err.Error()
+		retryAfter = 0
 	case errors.As(err, &fue):
 		// 403 free_mode_unavailable (docs/CLI-Limitations.md P0-1): the
 		// region/egress gate. Terminal — no Retry-After (retrying the

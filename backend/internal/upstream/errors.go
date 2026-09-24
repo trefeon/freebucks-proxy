@@ -39,6 +39,16 @@ var (
 	// free_mode_invalid_agent_hierarchy; vendor free-agents.ts hierarchy
 	// gate, mirrored in backend/internal/registry/testdata/upstream).
 	ErrFreeModeInvalidAgentHierarchy = errors.New("upstream free mode subagent hierarchy rejected")
+	// ErrFreeModeCostModeRequired: the request named a Freebuff-only agent
+	// id while declaring a cost mode other than free (403
+	// free_mode_cost_mode_required; vendor
+	// common/src/constants/freebuff-cost-mode.ts FREEBUFF_COST_MODE_ESCALATION_ERROR).
+	// Declaring `normal` switches off every free-mode gate — session/waiting
+	// room, model allowlist, Freebucks metering, rate limits, fanout guard,
+	// ad loop — in one client-supplied field, so the refusal is terminal:
+	// a config refusal like free_mode_cli_required, never a cooldown and
+	// never the generic 502.
+	ErrFreeModeCostModeRequired = errors.New("upstream free mode requires Freebuff agents to declare the free cost mode")
 	// ErrCredits: 402 payment required — the account has no credits / free
 	// quota left to spend.
 	ErrCredits = errors.New("upstream payment required")

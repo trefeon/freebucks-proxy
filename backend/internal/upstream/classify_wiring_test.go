@@ -41,6 +41,44 @@ func TestClassifyFreeModeInvalidAgentHierarchy(t *testing.T) {
 	}
 }
 
+// TestClassifyFreeModeCostModeRequired pins the cost-mode escalation gate: a
+// 403 carrying free_mode_cost_mode_required is a dedicated config refusal
+// (mirroring free_mode_invalid_agent_hierarchy), never a generic 502 and
+// never a cooldown-bearing RateLimitError. Vendor
+// common/src/constants/freebuff-cost-mode.ts
+// FREEBUFF_COST_MODE_ESCALATION_ERROR defines the marker. The 403 gate stays
+// tight: the same marker on any other status must not match the arm.
+func TestClassifyFreeModeCostModeRequired(t *testing.T) {
+	body := `{"error":"free_mode_cost_mode_required","message":"Freebuff agents run in free mode."}`
+	err := classifyError(http.StatusForbidden, body, http.Header{})
+	if !errors.Is(err, ErrFreeModeCostModeRequired) {
+		t.Fatalf("errors.Is(ErrFreeModeCostModeRequired) = false, got %T %v", err, err)
+	}
+	for _, sibling := range []error{ErrFreeModeCLIRequired, ErrFreeModeInvalidAgentHierarchy} {
+		if errors.Is(err, sibling) {
+			t.Errorf("cost-mode refusal unwraps to %v, want the dedicated sentinel", sibling)
+		}
+	}
+	var rle *RateLimitError
+	if errors.As(err, &rle) {
+		t.Errorf("cost-mode refusal = RateLimitError (%v), want the cooldown-free 403 sentinel", rle)
+	}
+
+	// Off-status bodies must not match: the gate is 403-only, so a 429 with
+	// the marker stays on the rate-limit path and a 400 stays generic.
+	if err := classifyError(http.StatusTooManyRequests, body, http.Header{}); errors.Is(err, ErrFreeModeCostModeRequired) {
+		t.Errorf("429 cost-mode body matched the 403 arm: %v", err)
+	}
+	if err := classifyError(http.StatusBadRequest, body, http.Header{}); errors.Is(err, ErrFreeModeCostModeRequired) {
+		t.Errorf("400 cost-mode body matched the 403 arm: %v", err)
+	}
+
+	// A bare 403 without the marker stays generic.
+	if err := classifyError(http.StatusForbidden, `{"error":"forbidden"}`, http.Header{}); errors.Is(err, ErrFreeModeCostModeRequired) {
+		t.Errorf("marker-less 403 matched the cost-mode arm: %v", err)
+	}
+}
+
 // TestClassifyPeakHoursUnderscore pins the underscore body form: a 429
 // carrying peak_hours classifies exactly like the space form ("peak hours") —
 // distinct peak_hours status, header-verbatim RetryAfter (zero here — the
@@ -121,7 +159,7 @@ func TestClassifyVendorUICopyStaysDefault(t *testing.T) {
 		if ue.Retryable {
 			t.Errorf("status %d body %q: Retryable = true, want the non-retryable default", tc.status, tc.body)
 		}
-		for _, typed := range []error{ErrBanned, ErrCountryBlocked, ErrRateLimited, ErrSessionInvalid, ErrRunInvalid, ErrTurnSpendLimited, ErrFreeModeCLIRequired, ErrFreeModeInvalidAgentHierarchy} {
+		for _, typed := range []error{ErrBanned, ErrCountryBlocked, ErrRateLimited, ErrSessionInvalid, ErrRunInvalid, ErrTurnSpendLimited, ErrFreeModeCLIRequired, ErrFreeModeInvalidAgentHierarchy, ErrFreeModeCostModeRequired} {
 			if errors.Is(err, typed) {
 				t.Errorf("status %d body %q: unwraps to %v, want no typed refusal", tc.status, tc.body, typed)
 			}

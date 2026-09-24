@@ -107,6 +107,7 @@ REGISTRY_FILES=(
 )
 WIRE_FILES=(
 	cli/src/components/freebuff-model-selector.tsx
+	common/src/constants/freebuff-cost-mode.ts
 	common/src/constants/freebuff-peak-hours.ts
 	common/src/constants/freebuff-signup-block.ts
 	common/src/constants/freebuff-spend-ceilings.ts
@@ -121,7 +122,8 @@ WIRE_FILES=(
 )
 # NOTE: foreign-client-signals.ts deleted upstream at 0ae8779d2 (see
 # check-upstream.sh); cf-worker-signals.ts deliberately untracked
-# (observe-only edge detection).
+# (observe-only edge detection); freebuff-cost-mode.ts tracked for the
+# free_mode_cost_mode_required marker classify.go matches on.
 
 group_of() {
 	local p="$1" f

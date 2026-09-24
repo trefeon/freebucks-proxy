@@ -1,4 +1,5 @@
 cd5d2ab9ef15 cli/src/components/freebuff-model-selector.tsx
+108515630f4e common/src/constants/freebuff-cost-mode.ts
 8cb33dfeaf17 common/src/constants/freebuff-peak-hours.ts
 b42006247502 common/src/constants/freebuff-signup-block.ts
 5f40df1b178c common/src/constants/freebuff-spend-ceilings.ts

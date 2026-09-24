@@ -143,6 +143,18 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// never a cooldown, never the generic 502. The 403 gate stays
 		// tight — the same marker on any other status falls to default.
 		return fmt.Errorf("%w: %d %s", ErrFreeModeInvalidAgentHierarchy, status, truncate(body, 200))
+	case status == http.StatusForbidden && strings.Contains(lower, string(WireCodeFreeModeCostModeRequired)):
+		// free_mode_cost_mode_required: a Freebuff-only agent id arrived
+		// with codebuff_metadata.cost_mode != "free", the field that would
+		// otherwise turn off every free-mode gate at once (vendor
+		// common/src/constants/freebuff-cost-mode.ts
+		// FREEBUFF_COST_MODE_ESCALATION_ERROR, server-emitted marker).
+		// Dedicated 403 sentinel mirroring free_mode_invalid_agent_hierarchy:
+		// a config refusal the caller clears by sending cost_mode "free" or
+		// a non-Freebuff agent id — never a cooldown, never the generic
+		// 502. The 403 gate stays tight: the same marker on any other
+		// status falls to default.
+		return fmt.Errorf("%w: %d %s", ErrFreeModeCostModeRequired, status, truncate(body, 200))
 	case status == http.StatusForbidden && strings.Contains(lower, string(WireCodeCountryBlocked)):
 		return parseCountryBlock(body)
 	case containsAny(lower, string(WireCodeIpCapped)):
