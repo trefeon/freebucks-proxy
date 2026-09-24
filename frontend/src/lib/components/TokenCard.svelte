@@ -4,6 +4,7 @@
     ChevronDown,
     ChevronRight,
     Flame,
+    Globe,
     LogOut,
     Unlock,
     Lock,
@@ -20,6 +21,7 @@
     resetTimeFor,
     cooldownLabel,
   } from "../utils/tokenStatus.js";
+  import { countryBadgeFor } from "../utils/country.js";
   import { formatLocalDate } from "../utils/format.js";
   import { tr } from "../i18n.js";
 
@@ -89,6 +91,7 @@
   );
 
   const st = $derived(statusFor(token));
+  const countryBadge = $derived(countryBadgeFor(token));
 </script>
 
 <tr
@@ -172,6 +175,19 @@
           title={token.email || token.account_id}
         >
           {token.email || token.account_id}
+        </span>
+      {/if}
+      {#if countryBadge}
+        <span
+          class="inline-flex items-center gap-1 text-[11px] whitespace-nowrap {countryBadge.tone ===
+          'good'
+            ? 'text-[var(--fp-accent)]'
+            : 'text-[var(--fp-warning)]'}"
+          aria-label={countryBadge.aria}
+          data-testid="country-badge-{idx}"
+        >
+          <Globe size={11} aria-hidden="true" class="shrink-0" />
+          {countryBadge.label}
         </span>
       {/if}
       {#if token.pinned_model}

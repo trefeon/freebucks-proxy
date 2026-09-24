@@ -4,6 +4,7 @@
     ChevronDown,
     ChevronDown as ChevronExpand,
     Flame,
+    Globe,
     Unlock,
     Lock,
     Trash2,
@@ -19,6 +20,7 @@
     isExhausted,
     resetTimeFor,
   } from "../utils/tokenStatus.js";
+  import { countryBadgeFor } from "../utils/country.js";
   import { formatLocalDate } from "../utils/format.js";
   import { tr } from "../i18n.js";
 
@@ -68,6 +70,7 @@
   } = $props();
 
   const st = $derived(statusFor(token));
+  const countryBadge = $derived(countryBadgeFor(token));
 
   // Live session countdown (same tick model as the desktop card). Anchor to
   // the server's ABSOLUTE expiry when present (relative re-anchors every
@@ -137,6 +140,19 @@
           <Flame size={11} aria-hidden="true" />
           {streak.label}
         </span>
+        {#if countryBadge}
+          <span
+            class="inline-flex items-center gap-1 text-[11px] whitespace-nowrap shrink-0 {countryBadge.tone ===
+            'good'
+              ? 'text-[var(--fp-accent)]'
+              : 'text-[var(--fp-warning)]'}"
+            aria-label={countryBadge.aria}
+            data-testid="country-badge-{idx}"
+          >
+            <Globe size={11} aria-hidden="true" />
+            {countryBadge.label}
+          </span>
+        {/if}
       </div>
       {#if token.email || token.account_id}
         <span

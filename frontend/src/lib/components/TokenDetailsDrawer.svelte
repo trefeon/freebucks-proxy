@@ -21,6 +21,11 @@
   import { isExhausted } from "../utils/tokenStatus.js";
   import { formatLocalDateTime } from "../utils/format.js";
   import {
+    countryCodeOf,
+    countryReasonOf,
+    countryAdviceFor,
+  } from "../utils/country.js";
+  import {
     spawnIntent,
     firstTabListPriceFor,
     formatFreebucks,
@@ -82,6 +87,15 @@
     }
     return `Parked — upstream 429${kind} until ${until || "—"} — spills to next account${resets}`;
   });
+  // Region view: last admitted country + remembered country_blocked reason
+  // (live keys, absent on older servers — the section hides then). A block
+  // parks the account in a ~15m cooldown (never quarantine); the parkedNote
+  // above already names the cooldown clock, this names the layer to fix.
+  let drawerCountry = $derived(countryCodeOf(token));
+  let drawerReason = $derived(countryReasonOf(token));
+  let drawerAdvice = $derived(
+    drawerReason ? countryAdviceFor(drawerReason) : null,
+  );
   // Crossed-out list price for one model option (<option> carries text
   // only, so the strike renders as a ~N~ prefix): "" unless the first-tab
   // offer actually moved the row (available + list > price).
@@ -258,6 +272,38 @@
     >
       {parkedNote}
     </p>
+  {/if}
+  {#if drawerCountry || drawerReason}
+    <div
+      class="mb-2 px-2 py-1.5 rounded bg-[var(--fp-bg)]/40"
+      data-testid="country-detail"
+    >
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+        <span
+          class="font-semibold uppercase tracking-wider text-[var(--fp-muted)]"
+          >{$tr("Upstream country")}</span
+        >
+        {#if drawerCountry}
+          <span
+            class="fp-num font-semibold {drawerCountry === 'US'
+              ? 'text-[var(--fp-accent)]'
+              : 'text-[var(--fp-warning)]'}">{drawerCountry}</span
+          >
+        {/if}
+        {#if drawerReason}
+          <span class="fp-num text-[var(--fp-warning)]">{drawerReason}</span>
+        {/if}
+      </div>
+      {#if drawerAdvice}
+        <p class="mt-1 text-xs text-[var(--fp-dim)]">{drawerAdvice.detail}</p>
+      {:else if drawerCountry && drawerCountry !== "US"}
+        <p class="mt-1 text-xs text-[var(--fp-dim)]">
+          {$tr(
+            "Non-US egress loses the Tier-1 full-access seat. Re-admit over clean US egress; no proxy knob can force it.",
+          )}
+        </p>
+      {/if}
+    </div>
   {/if}
   {#if token.has_standing}
     <!-- Standing / trust block (issue #140): level,

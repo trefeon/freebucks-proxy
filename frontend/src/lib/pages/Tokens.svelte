@@ -38,6 +38,8 @@
     refreshTokens,
   } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
+  import { fleetCountrySummary } from "../utils/country.js";
+  import { formatLocalDateTime } from "../utils/format.js";
   import { spawnIntent, intentAskLine } from "../utils/freebucks.js";
   import { fallbackModelOptions, cheapestFreeOption } from "../modelOptions.js";
   import { confirmAction } from "../stores/confirm.js";
@@ -98,6 +100,17 @@
   let spawnModels = $state({});
   let actionPending = $state(false);
   let now = $state(Date.now());
+  // Fleet region view: per-account upstream country + remembered
+  // country_blocked reasons (live keys `country_code` /
+  // `country_block_reason`, absent on older servers — the summary is empty
+  // then and no banner renders). The server resolves country from egress
+  // IP only, so the banner names the layer to fix (egress path vs the
+  // account floor cleared via the human web verify flow), never a proxy
+  // action.
+  const countrySummary = $derived(fleetCountrySummary(data?.tokens ?? []));
+  function countryTokenFor(idx) {
+    return (data?.tokens ?? []).find((t) => (t.index ?? -1) === idx) ?? {};
+  }
 
   const tokenValid = $derived(
     newToken.trim() === ""
@@ -669,6 +682,64 @@
         {/if}
       </form>
     </Card>
+    {#if countrySummary.nonUS.length > 0 || countrySummary.blocked.length > 0}
+      {@const blockedByIdx = new Map(
+        countrySummary.blocked.map((b) => [b.idx, b]),
+      )}
+      <div data-testid="country-banner">
+        <Alert
+          tone="warning"
+          sticky
+          title={$tr(
+            "{nonUS} account(s) read as non-US upstream · {blocked} country-blocked",
+            {
+              nonUS: countrySummary.nonUS.length,
+              blocked: countrySummary.blocked.length,
+            },
+          )}
+        >
+          <p class="mb-1.5">
+            {$tr(
+              "Upstream resolves country from egress IP only. Non-US egress loses the Tier-1 full-access seat and the US-or-paid models — fix the named layer, not the proxy.",
+            )}
+          </p>
+          <ul class="flex flex-col gap-1.5">
+            {#each countrySummary.blocked as b (b.idx)}
+              {@const bt = countryTokenFor(b.idx)}
+              <li data-testid="country-blocked-{b.idx}">
+                <span class="font-semibold text-[var(--fp-text)]"
+                  >{$tr("Account #{idx}", { idx: b.idx + 1 })} · {b.code ||
+                    $tr("unknown country")} · {b.reason}</span
+                >
+                {#if bt.cooldown_active && bt.cooldown_until}
+                  <span class="fp-num">
+                    {$tr(" · parked until {until}{kind}", {
+                      until: formatLocalDateTime(bt.cooldown_until),
+                      kind: bt.cooldown_kind ? ` (${bt.cooldown_kind})` : "",
+                    })}
+                  </span>
+                {/if}
+                <br />
+                <span>{b.advice.detail}</span>
+              </li>
+            {/each}
+            {#each countrySummary.nonUS.filter((n) => !blockedByIdx.has(n.idx)) as n (n.idx)}
+              <li data-testid="country-nonus-{n.idx}">
+                <span class="font-semibold text-[var(--fp-text)]"
+                  >{$tr("Account #{idx}", { idx: n.idx + 1 })} · {n.code}</span
+                >
+                <br />
+                <span
+                  >{$tr(
+                    "Non-US egress. Re-admit over clean US egress for the Tier-1 seat; no proxy knob can force it.",
+                  )}</span
+                >
+              </li>
+            {/each}
+          </ul>
+        </Alert>
+      </div>
+    {/if}
     <TokenTable
       tokens={data?.tokens ?? []}
       tokenCount={data?.token_count ?? 0}
