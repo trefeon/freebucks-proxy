@@ -37,10 +37,16 @@ func fileSource(t *testing.T, path string) string {
 // first-seen assignment (exactly like a live refresh). The six base models
 // route to their per-model roots (not the generic base2-free), the gemini
 // helper models belong to file-picker / file-picker-max, and every upstream-
-// retired id is absent. Supplier additions in the 0.0.188 snapshot:
-// Solar Mini 4 takes Solar Pro 4's picker slot on the same Upstage lane
-// (own root base2-free-solar-mini4); stealth Space Bunny Alpha joins every
-// surface (own root base2-free-space-bunny-alpha).
+// retired id is absent. Supplier changes in the 0.0.191 snapshot (vendor
+// a9ef9942d): the three -max rows (deepseek-v4-pro-max, deepseek-v4-flash-max,
+// gpt-5.6-luna-max), deepseek-v4.1-pro, and the two staff/test-only rows
+// (claude-fable-5.1-test, gpt-6-astra-discount-test) are OUT; 41 new
+// provisioned rows are IN (GPT-6 Astra/Sol families, GPT-5.6 Sol/Terra
+// families, GPT-5.5 pair, GPT-5.4 Pro, o3-pro, Claude Opus 5/5.5/4.8 and
+// Sonnet 5/4.6, Qwen3.6–3.8 family, Grok-4.5–4.7 + 4.20, Gemini 3.5–3.7,
+// Kimi K3, GLM-5 Turbo/Prime/FlashX, Mistral Large, Codestral, Llama 4
+// Maverick). Solar Pro 4 stays recognized (registry row, picker-unserved —
+// its slot moved to Solar Mini 4 with the 40c75256 catalog).
 var expectedFallback = map[string]string{
 	"minimax/minimax-m3": "base2-free-minimax-m3",
 	// base2-free-luna is retired upstream (free_mode_legacy_luna_agent);
@@ -55,34 +61,61 @@ var expectedFallback = map[string]string{
 	"z-ai/glm-5.2":                    "base2-free-glm",
 	"z-ai/glm-5.3-flash":              "base2-free-glm-5-3-flash",
 	"crof/kimi-k3-eco":                "base2-free-kimi-k3-eco",
-	"deepseek/deepseek-v4-pro-max":    "base2-free-deepseek-pro-max",
-	"deepseek/deepseek-v4-flash-max":  "base2-free-deepseek-flash-max",
-	"openai/gpt-5.6-luna-max":         "base2-free-luna-max",
-	"meta/muse-spark-1.2-contributor": "base2-free-muse-spark",
-	"meta/muse-spark-1.3-contributor": "base2-free-muse-spark-1-3",
-	"anthropic/claude-fable-5.1":      "base2-free-fable",
 	"openai/gpt-5.6-luna-es":          "base2-free-luna-es",
 	"stealth/ox-alpha":                "base2-free-ox-alpha",
 	"google/gemini-3.8-flash":         "base2-free-gemini-3-8-flash",
 	"google/gemini-2.5-flash-lite":    "file-picker",
 	"google/gemini-3.1-flash-lite":    "file-picker-max",
 	"google/gemini-3.5-flash-lite":    "file-picker-max",
-	// Supplier additions in the 0.0.180 registry snapshot (deepseek v4.1
-	// pair, plain GLM 5.3, and the two staff/test-only rows).
-	"deepseek/deepseek-v4.1-flash":     "base2-free-deepseek-v4-1-flash",
-	"deepseek/deepseek-v4.1-pro":       "base2-free-deepseek-v4-1-pro",
-	"z-ai/glm-5.3":                     "base2-free-glm-5-3",
-	"anthropic/claude-fable-5.1-test":  "base2-free-fable-test",
-	"openai/gpt-6-astra-discount-test": "base2-free-astra-discount-test",
-	// Supplier addition in the 0.0.183 registry snapshot: MiMo 2.6 Pro, which
-	// takes its own wire id and its own root agent (one id per entitlement).
-	"mimo/mimo-v2.6-pro": "base2-free-mimo-2-6-pro",
-	// Supplier addition in the 0.0.185 registry snapshot: GPT-6 Luna. Its own
-	// wire id and its own root agent ('base2-free-luna-6'), parsed straight
-	// from FREEBUFF_ROOT_AGENT_ID_BY_MODEL — unlike 5.6, whose still-listed
-	// base2-free-luna root is retired server-side and needs the
-	// retiredRootOverrides remap (see parse.go).
-	"openai/gpt-6-luna": "base2-free-luna-6",
+	"deepseek/deepseek-v4.1-flash":    "base2-free-deepseek-v4-1-flash",
+	"z-ai/glm-5.3":                    "base2-free-glm-5-3",
+	"mimo/mimo-v2.6-pro":              "base2-free-mimo-2-6-pro",
+	"openai/gpt-6-luna":               "base2-free-luna-6",
+	"meta/muse-spark-1.2-contributor": "base2-free-muse-spark",
+	"meta/muse-spark-1.3-contributor": "base2-free-muse-spark-1-3",
+	"anthropic/claude-fable-5.1":      "base2-free-fable",
+	// Supplier additions in the 0.0.191 registry snapshot (vendor a9ef9942d).
+	"anthropic/claude-opus-4.8":   "base2-free-claude-opus-4-8",
+	"anthropic/claude-opus-5":     "base2-free-claude-opus-5",
+	"anthropic/claude-opus-5.5":   "base2-free-claude-opus-5-5",
+	"anthropic/claude-sonnet-4.6": "base2-free-claude-sonnet-4-6",
+	"anthropic/claude-sonnet-5":   "base2-free-claude-sonnet-5",
+	"google/gemini-3.5-flash":     "base2-free-gemini-3-5-flash",
+	"google/gemini-3.6-flash":     "base2-free-gemini-3-6-flash",
+	"google/gemini-3.7-flash":     "base2-free-gemini-3-7-flash",
+	"meta-llama/llama-4-maverick": "base2-free-llama-4-maverick",
+	"mistralai/codestral-2508":    "base2-free-codestral-2508",
+	"mistralai/mistral-large":     "base2-free-mistral-large",
+	"moonshotai/kimi-k3":          "base2-free-kimi-k3",
+	"openai/gpt-5.4-pro":          "base2-free-gpt-5-4-pro",
+	"openai/gpt-5.5":              "base2-free-gpt-5-5",
+	"openai/gpt-5.5-pro":          "base2-free-gpt-5-5-pro",
+	"openai/gpt-5.6-luna-pro":     "base2-free-gpt-5-6-luna-pro",
+	"openai/gpt-5.6-sol":          "base2-free-gpt-5-6-sol",
+	"openai/gpt-5.6-sol-pro":      "base2-free-gpt-5-6-sol-pro",
+	"openai/gpt-5.6-terra":        "base2-free-gpt-5-6-terra",
+	"openai/gpt-5.6-terra-pro":    "base2-free-gpt-5-6-terra-pro",
+	"openai/gpt-6-astra":          "base2-free-gpt-6-astra",
+	"openai/gpt-6-astra-pro":      "base2-free-gpt-6-astra-pro",
+	"openai/gpt-6-luna-pro":       "base2-free-gpt-6-luna-pro",
+	"openai/gpt-6-sol":            "base2-free-gpt-6-sol",
+	"openai/gpt-6-sol-pro":        "base2-free-gpt-6-sol-pro",
+	"openai/o3-pro":               "base2-free-o3-pro",
+	"qwen/qwen3.6-max-preview":    "base2-free-qwen3-6-max-preview",
+	"qwen/qwen3.6-plus":           "base2-free-qwen3-6-plus",
+	"qwen/qwen3.7-max":            "base2-free-qwen3-7-max",
+	"qwen/qwen3.7-plus":           "base2-free-qwen3-7-plus",
+	"qwen/qwen3.8-27b":            "base2-free-qwen3-8-27b",
+	"qwen/qwen3.8-flash":          "base2-free-qwen3-8-flash",
+	"qwen/qwen3.8-max-0902":       "base2-free-qwen3-8-max-0902",
+	"qwen/qwen3.8-max-prime":      "base2-free-qwen3-8-max-prime",
+	"x-ai/grok-4.20":              "base2-free-grok-4-20",
+	"x-ai/grok-4.5":               "base2-free-grok-4-5",
+	"x-ai/grok-4.6":               "base2-free-grok-4-6",
+	"x-ai/grok-4.7":               "base2-free-grok-4-7",
+	"z-ai/glm-5-turbo":            "base2-free-glm-5-turbo",
+	"z-ai/glm-5.3-flashx":         "base2-free-glm-5-3-flashx",
+	"z-ai/glm-5.3-prime":          "base2-free-glm-5-3-prime",
 }
 
 func TestFallbackMap(t *testing.T) {
