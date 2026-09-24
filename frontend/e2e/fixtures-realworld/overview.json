@@ -1,19 +1,6 @@
 {
   "base_url": "http://127.0.0.1:3457/v1",
   "mode": "pooled",
-  "in_bridge": false,
-  "show_bridge": true,
-  "bridge_tokens": 2,
-  "bridge_token_cards": [
-    {
-      "key": "a1b2c3d4e5f60718293a4b5c6",
-      "status": "active"
-    },
-    {
-      "key": "f6e5d4c3b2a10928374655647",
-      "status": "cooldown"
-    }
-  ],
   "models": [
     "deepseek/deepseek-v4-flash",
     "mimo/mimo-v2.5",

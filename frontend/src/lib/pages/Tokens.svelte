@@ -7,7 +7,6 @@
   import { push as pushToast } from "../stores/toast.js";
   import CopyButton from "../components/CopyButton.svelte";
   import PageShell from "../components/PageShell.svelte";
-  import BridgeTokenCard from "../components/BridgeTokenCard.svelte";
   import TokenTable from "./tokens/TokenTable.svelte";
   import SegmentedControl from "../components/SegmentedControl.svelte";
   import MaturityPanel from "../components/MaturityPanel.svelte";
@@ -83,12 +82,6 @@
   // legacy #maturity hash redirects here one-shot via sessionStorage (see
   // onMount).
   let tab = $state("accounts");
-  // Bridge-gated rows (BRIDGE_IDLE_EVICT in Pool Tuning) hide unless bridge
-  // mode can serve: BRIDGE_ENABLED on (default true).
-  let bridgePossible = $derived(
-    String($settingsFormValues.BRIDGE_ENABLED ?? "true").toLowerCase() !==
-      "false",
-  );
 
   // Device login flow
   let oauthStarting = $state(false);
@@ -808,22 +801,6 @@
         refreshTokens();
       }}
     />
-    {#if data?.show_bridge && data?.bridge_token_cards?.length > 0}
-      <Card
-        title={$tr("Bridge Clients")}
-        description={$tr(
-          "{count} active bridge client(s) relaying their own FreeBuff tokens",
-          { count: data.bridge_token_cards.length },
-        )}
-        pad="none"
-      >
-        <div class="flex flex-col gap-3 p-4">
-          {#each data.bridge_token_cards as bc (bc.key)}
-            <BridgeTokenCard card={bc} {now} />
-          {/each}
-        </div>
-      </Card>
-    {/if}
   {:else if tab === "controls"}
     {#if $settingsDegraded}
       <Alert tone="warning" title={$tr("DB overlay unavailable")}>
@@ -863,7 +840,6 @@
       onlyGroups={["pool"]}
       cardTitle="Pool Tuning"
       cardDescription="Pool sizing, sessions, streak maintenance, and quota probing."
-      {bridgePossible}
       degraded={$settingsDegraded}
     />
   {:else if tab === "warming"}

@@ -20,22 +20,18 @@ import (
 // --- overview ---
 
 type overviewData struct {
-	BaseURL              string            `json:"base_url"`
-	Mode                 string            `json:"mode"`
-	InBridge             bool              `json:"in_bridge"`
-	ShowBridge           bool              `json:"show_bridge"`
-	BridgeTokens         int               `json:"bridge_tokens"`
-	BridgeTokenCards     []bridgeTokenCard `json:"bridge_token_cards,omitempty"`
-	Models               []string          `json:"models"`
-	ModelCount           int               `json:"model_count"`
-	Uptime               string            `json:"uptime"`
-	SafeMode             bool              `json:"safe_mode"`
-	TransientRetries     int64             `json:"transient_retries"`
-	FingerprintRotations int64             `json:"fingerprint_rotations"`
-	Tokens               []tokenCard       `json:"tokens"`
-	HasTokens            bool              `json:"has_tokens"`
-	IsDefaultAdminToken  bool              `json:"is_default_admin_token"`
-	RequireLogin         bool              `json:"require_login"`
+	BaseURL              string      `json:"base_url"`
+	Mode                 string      `json:"mode"`
+	Models               []string    `json:"models"`
+	ModelCount           int         `json:"model_count"`
+	Uptime               string      `json:"uptime"`
+	SafeMode             bool        `json:"safe_mode"`
+	TransientRetries     int64       `json:"transient_retries"`
+	FingerprintRotations int64       `json:"fingerprint_rotations"`
+	Tokens               []tokenCard `json:"tokens"`
+	HasTokens            bool        `json:"has_tokens"`
+	IsDefaultAdminToken  bool        `json:"is_default_admin_token"`
+	RequireLogin         bool        `json:"require_login"`
 	// UpstreamSync summarises the latest .github/workflows/upstream-drift
 	// run (compiled into the binary). Users on an out-of-date build see
 	// HasDrift=true + DriftedFiles and know to update.
@@ -288,49 +284,6 @@ type standingStepCard struct {
 	Href   string  `json:"href,omitempty"`
 }
 
-// bridgeTokenCard is a dashboard-ready view of one bridge entry (#187).
-type bridgeTokenCard struct {
-	Key           string         `json:"key"`    // masked hash prefix
-	Status        string         `json:"status"` // active|cooldown|locked
-	Model         string         `json:"model"`
-	ActiveRuns    int            `json:"active_runs"`
-	Requests      int            `json:"requests"`
-	Locked        bool           `json:"locked"`
-	CooldownUntil string         `json:"cooldown_until"`
-	SessionActive bool           `json:"session_active"`
-	SpendDay      float64        `json:"spend_day"`
-	BanType       string         `json:"ban_type,omitempty"`
-	BannedUntil   string         `json:"banned_until,omitempty"`
-	Freebucks     *freebucksCard `json:"freebucks,omitempty"`
-}
-
-func bridgeCardFromSnapshot(snap pool.BridgeTokenSnapshot) bridgeTokenCard {
-	status := "active"
-	if snap.Locked {
-		status = "locked"
-	} else if snap.CooldownUntil.After(time.Now()) {
-		status = "cooldown"
-	}
-	bannedUntil := ""
-	if !snap.BannedUntil.IsZero() && snap.BanType == "temporary" {
-		bannedUntil = snap.BannedUntil.Format(time.RFC3339)
-	}
-	return bridgeTokenCard{
-		Key:           shortKey(snap.Key),
-		Status:        status,
-		Model:         snap.Model,
-		ActiveRuns:    snap.ActiveRuns,
-		Requests:      snap.Requests,
-		Locked:        snap.Locked,
-		CooldownUntil: shortTime(snap.CooldownUntil),
-		SessionActive: snap.SessionActive,
-		SpendDay:      snap.SpendDay,
-		BanType:       snap.BanType,
-		BannedUntil:   bannedUntil,
-		Freebucks:     freebucksCardFromInfo(snap.Freebucks),
-	}
-}
-
 type configData struct {
 	EnvContent string     `json:"env_content"`
 	HasEnvFile bool       `json:"has_env_file"`
@@ -407,15 +360,12 @@ func (d *Dashboard) overviewData(r *http.Request) overviewData {
 	od := overviewData{
 		BaseURL:              baseURLForRequest(cfg, r),
 		Mode:                 mode,
-		InBridge:             mode == "bridge",
-		ShowBridge:           mode == "bridge" || mode == "hybrid",
 		Models:               servedModels(d.reg),
 		ModelCount:           len(servedModels(d.reg)),
 		Uptime:               humanDuration(time.Since(d.started)),
 		SafeMode:             cfg.SafeMode,
 		TransientRetries:     ps.TransientRetries,
 		FingerprintRotations: ps.FingerprintRotations,
-		BridgeTokens:         d.pool.BridgeCount(),
 		IsDefaultAdminToken:  cfg.IsDefaultAdminToken(),
 		RequireLogin:         cfg.RequireLogin(),
 	}
@@ -426,12 +376,6 @@ func (d *Dashboard) overviewData(r *http.Request) overviewData {
 	// has_tokens permanently false so pooled operators saw "No upstream
 	// tokens configured" on Overview while the Tokens tab worked.
 	od.HasTokens = len(od.Tokens) > 0
-	// Bridge token cards (#187): live snapshots of bridge-mode entries.
-	if od.ShowBridge {
-		for _, snap := range d.pool.BridgeSnapshot() {
-			od.BridgeTokenCards = append(od.BridgeTokenCards, bridgeCardFromSnapshot(snap))
-		}
-	}
 	od.UpstreamSync = parseUpstreamSync(upstreamDriftJSON)
 	return od
 }
@@ -442,45 +386,32 @@ func (d *Dashboard) overviewData(r *http.Request) overviewData {
 // fields ride the once-per-mount full fetch; the SPA merges them back over
 // this shape.
 type overviewLiveData struct {
-	Uptime           string            `json:"uptime"`
-	Tokens           []tokenLiveCard   `json:"tokens"`
-	HasTokens        bool              `json:"has_tokens"`
-	BridgeTokens     int               `json:"bridge_tokens"`
-	BridgeTokenCards []bridgeTokenCard `json:"bridge_token_cards,omitempty"`
+	Uptime    string          `json:"uptime"`
+	Tokens    []tokenLiveCard `json:"tokens"`
+	HasTokens bool            `json:"has_tokens"`
 }
 
-// overviewLiveData builds the 15s hot-poll payload: uptime, per-token live
-// cards, and bridge relay state. Uptime is string-formatted like the full
-// view; bridge cards are live snapshots, identical to the full shape.
+// overviewLiveData builds the 15s hot-poll payload: uptime and per-token
+// live cards. Uptime is string-formatted like the full view.
 func (d *Dashboard) overviewLiveData() overviewLiveData {
 	ps := d.pool.PoolSnapshot()
 	od := overviewLiveData{
-		Uptime:       humanDuration(time.Since(d.started)),
-		BridgeTokens: d.pool.BridgeCount(),
+		Uptime: humanDuration(time.Since(d.started)),
 	}
 	for _, t := range ps.Tokens {
 		od.Tokens = append(od.Tokens, liveCardFromSnapshot(t))
 	}
 	od.HasTokens = len(od.Tokens) > 0
-	if mode := d.cfg().EffectiveMode(); mode == "bridge" || mode == "hybrid" {
-		for _, snap := range d.pool.BridgeSnapshot() {
-			od.BridgeTokenCards = append(od.BridgeTokenCards, bridgeCardFromSnapshot(snap))
-		}
-	}
 	return od
 }
 
 // --- tokens ---
 
 type tokensData struct {
-	Mode             string            `json:"mode"`
-	InBridge         bool              `json:"in_bridge"`
-	ShowBridge       bool              `json:"show_bridge"`
-	BridgeTokens     int               `json:"bridge_tokens"`
-	BridgeTokenCards []bridgeTokenCard `json:"bridge_token_cards,omitempty"`
-	TokenCount       int               `json:"token_count"`
-	Tokens           []tokenDetail     `json:"tokens"`
-	HasTokens        bool              `json:"has_tokens"`
+	Mode       string        `json:"mode"`
+	TokenCount int           `json:"token_count"`
+	Tokens     []tokenDetail `json:"tokens"`
+	HasTokens  bool          `json:"has_tokens"`
 	// UnmeteredModels is the modelcat-derived unlimited-session rows
 	// (issue #342); the SPA falls back to its static list when absent.
 	UnmeteredModels []unmeteredRow `json:"unmetered_models,omitempty"`
@@ -555,10 +486,8 @@ func (d *Dashboard) tokensData() tokensData {
 	cfg := d.cfg()
 	mode := cfg.EffectiveMode()
 	td := tokensData{
-		BridgeTokens:    d.pool.BridgeCount(),
 		TokenCount:      d.pool.TokenCount(),
 		Mode:            mode,
-		InBridge:        mode == "bridge",
 		MaturityEnabled: cfg.MaturityEnabled,
 		// Queue posture: same knobs slotParams resolves for the slot
 		// wall, so the console never has to infer the cap.
@@ -574,9 +503,6 @@ func (d *Dashboard) tokensData() tokensData {
 			td.MaturityWindowEnd = wEnd.Format(time.RFC3339)
 		}
 	}
-	// client cards. Pure bridge hides the (empty) pooled table; pure pooled
-	// has no bridge cards.
-	td.ShowBridge = td.Mode == "bridge" || td.Mode == "hybrid"
 	for _, t := range d.pool.Snapshot() {
 		td.Tokens = append(td.Tokens, tokenDetail{
 			tokenCard:         cardFromSnapshot(t),
@@ -585,8 +511,6 @@ func (d *Dashboard) tokensData() tokensData {
 	}
 	td.HasTokens = len(td.Tokens) > 0
 	td.UnmeteredModels = unmeteredModels(d.reg)
-	// Bridge token cards (#187): live snapshots of bridge-mode entries.
-	td.BridgeTokenCards = d.bridgeCards(td.ShowBridge)
 	return td
 }
 
@@ -714,12 +638,10 @@ type tokenLiveDetail struct {
 
 // tokensLiveData is the hot-poll subset of tokensData: live numbers only.
 type tokensLiveData struct {
-	BridgeTokens     int               `json:"bridge_tokens"`
-	BridgeTokenCards []bridgeTokenCard `json:"bridge_token_cards,omitempty"`
-	TokenCount       int               `json:"token_count"`
-	Tokens           []tokenLiveDetail `json:"tokens"`
-	HasTokens        bool              `json:"has_tokens"`
-	MaturityEnabled  bool              `json:"maturity_enabled"`
+	TokenCount      int               `json:"token_count"`
+	Tokens          []tokenLiveDetail `json:"tokens"`
+	HasTokens       bool              `json:"has_tokens"`
+	MaturityEnabled bool              `json:"maturity_enabled"`
 	// Queue posture, mirroring tokensData: the live poll must not drop the
 	// knobs the console labels the queue with.
 	QueueWait        string `json:"queue_wait"`
@@ -734,9 +656,7 @@ type tokensLiveData struct {
 // hot poll by construction — there is no strip list to keep in sync.
 func (d *Dashboard) tokensLiveData() tokensLiveData {
 	cfg := d.cfg()
-	mode := cfg.EffectiveMode()
 	live := tokensLiveData{
-		BridgeTokens:     d.pool.BridgeCount(),
 		TokenCount:       d.pool.TokenCount(),
 		MaturityEnabled:  cfg.MaturityEnabled,
 		QueueWait:        cfg.QueueWait.String(),
@@ -744,8 +664,6 @@ func (d *Dashboard) tokensLiveData() tokensLiveData {
 		SlotsPerAccount:  cfg.SlotsPerAccount,
 		MaxSpillAccounts: cfg.MaxSpillAccounts,
 	}
-	showBridge := mode == "bridge" || mode == "hybrid"
-	live.BridgeTokenCards = d.bridgeCards(showBridge)
 	for _, t := range d.pool.Snapshot() {
 		live.Tokens = append(live.Tokens, tokenLiveDetail{
 			tokenLiveCard:     liveCardFromSnapshot(t),
@@ -754,19 +672,6 @@ func (d *Dashboard) tokensLiveData() tokensLiveData {
 	}
 	live.HasTokens = len(live.Tokens) > 0
 	return live
-}
-
-// bridgeCards snapshots bridge-mode entries for the client cards. Pure pooled
-// mode has none; both the full and live tokens builders share it.
-func (d *Dashboard) bridgeCards(show bool) []bridgeTokenCard {
-	if !show {
-		return nil
-	}
-	var out []bridgeTokenCard
-	for _, snap := range d.pool.BridgeSnapshot() {
-		out = append(out, bridgeCardFromSnapshot(snap))
-	}
-	return out
 }
 
 // --- models ---

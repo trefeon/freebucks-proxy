@@ -31,7 +31,7 @@ type UsageRecord struct {
 	Total     int64  `json:"total"`
 	OK        bool   `json:"ok"`
 	// ClientKeyHash is the caller's pooled API-key identity
-	// (hex(sha256(rawKey))[:16]), "" for bridge/no-key requests. The raw
+	// (hex(sha256(rawKey))[:16]), "" for keyless requests. The raw
 	// key never reaches this ring.
 	ClientKeyHash string `json:"client_key_hash,omitempty"`
 }
@@ -115,8 +115,8 @@ type usageKeyModelStats struct {
 }
 
 // usageKeyEntry is one client key's range aggregate for ?group_by=key:
-// key_id is the hex(sha256(rawKey))[:16] identity ("" buckets bridge and
-// no-key requests), success_rate is the 0..1 share of OK entries,
+// key_id is the hex(sha256(rawKey))[:16] identity ("" buckets keyless
+// requests), success_rate is the 0..1 share of OK entries,
 // first_seen/last_seen are Unix-millis, freebucks sums the wire
 // per-session price per entry (same unit as usageTotals cost).
 type usageKeyEntry struct {

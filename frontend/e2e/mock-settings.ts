@@ -42,10 +42,7 @@ export const STRATEGY_KEYS = [
 ] as const;
 
 // Pool Controls card (Pool page Controls tab).
-export const POOL_CONTROLS_KEYS = [
-  "RATE_LIMIT_PER_IP",
-  "BRIDGE_ENABLED",
-] as const;
+export const POOL_CONTROLS_KEYS = ["RATE_LIMIT_PER_IP"] as const;
 
 // Catalog-hidden, editor-less pool keys: the session/cache knobs the Pool
 // page's removed "Custom advanced" card used to edit. The catalog flags all
@@ -62,7 +59,6 @@ export const HIDDEN_READONLY_KEYS = [
 
 // Pool Tuning card (Pool page Controls tab): remaining visible pool keys.
 export const POOL_TUNING_KEYS = [
-  "BRIDGE_IDLE_EVICT",
   "IDLE_ROTATION_TIMEOUT",
   "RATE_LIMIT_BURST",
 ] as const;
@@ -117,8 +113,6 @@ export const KEY_HOME: Record<string, "pool" | "settings" | "usage"> = {
   QUEUE_WAIT: "pool",
   QUEUE_DEPTH: "pool",
   RATE_LIMIT_PER_IP: "pool",
-  BRIDGE_ENABLED: "pool",
-  BRIDGE_IDLE_EVICT: "pool",
   IDLE_ROTATION_TIMEOUT: "pool",
   RATE_LIMIT_BURST: "pool",
   SAFE_MODE: "settings",
@@ -166,8 +160,6 @@ export function fullMatrixDbSeed(): OverlaySeed[] {
     QUEUE_WAIT: "45s",
     QUEUE_DEPTH: "32",
     RATE_LIMIT_PER_IP: "20",
-    BRIDGE_ENABLED: "true",
-    BRIDGE_IDLE_EVICT: "48h",
     IDLE_ROTATION_TIMEOUT: "1h",
     RATE_LIMIT_BURST: "40",
     SAFE_MODE: "false",

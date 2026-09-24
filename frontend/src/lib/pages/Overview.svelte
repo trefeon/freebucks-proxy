@@ -36,12 +36,10 @@
   // (email, standing_*, referral_*) ride a once-per-mount full fetch; the
   // 15s hot poll hits ?view=live and merges over the cached static
   // snapshot. A full refresh every ~5min (or when the cache is empty) picks
-  // up mid-session changes (mode switches, trust updates, registry syncs).
+  // up mid-session changes (trust updates, registry syncs).
   const STATIC_TOP_KEYS = [
     "base_url",
     "mode",
-    "in_bridge",
-    "show_bridge",
     "models",
     "model_count",
     "safe_mode",
@@ -305,7 +303,7 @@
 >
   {#snippet actions()}
     {#if data}
-      <StatusBadge status={data.mode} tone={data.in_bridge ? "good" : "info"} />
+      <StatusBadge status={data.mode} tone="info" />
       <span class="fp-num text-xs text-[var(--fp-dim)]">up {data.uptime}</span>
     {/if}
   {/snippet}
@@ -387,70 +385,14 @@
         </div>
       {/if}
 
-      <!-- Hybrid mode: pool summary above plus a compact bridge-relay card -->
-      {#if data.mode === "hybrid"}
-        {#if (data.bridge_tokens ?? 0) > 0 || data.bridge_token_cards?.length}
-          <Card title={$tr("Bridge relay")}>
-            <p class="text-sm text-[var(--fp-muted)]">
-              {$tr(
-                "{count} active bridge client(s) relaying their own FreeBuff tokens",
-                { count: data.bridge_tokens ?? 0 },
-              )}
-            </p>
-            {#if data.bridge_token_cards?.length}
-              <ul class="mt-2 flex flex-col gap-1.5">
-                {#each data.bridge_token_cards.slice(0, 4) as bc (bc.key)}
-                  <li class="flex flex-wrap items-center gap-2 text-xs">
-                    <StatusBadge status={bc.status} />
-                    <code class="fp-num font-mono text-[var(--fp-text)]"
-                      >{bc.key}</code
-                    >
-                    {#if bc.model}
-                      <code class="fp-num font-mono text-[var(--fp-muted)]"
-                        >{bc.model}</code
-                      >
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </Card>
-        {:else}
-          <div
-            class="flex items-center justify-between px-3.5 py-2 rounded-[3px] border border-[var(--fp-border)] bg-[var(--fp-surface)] text-xs text-[var(--fp-muted)]"
-          >
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="led led-idle shrink-0" aria-hidden="true"></span>
-              <span class="font-medium text-[var(--fp-text)]"
-                >{$tr("Bridge relay")}</span
-              >
-              <span class="text-[var(--fp-dim)]">·</span>
-              <span class="truncate"
-                >{$tr("0 active bridge clients (hybrid relay ready)")}</span
-              >
-            </div>
-            <span
-              class="text-[11px] font-mono text-[var(--fp-dim)] shrink-0 hidden sm:inline"
-              >{$tr("API_KEYS or token auth")}</span
-            >
-          </div>
-        {/if}
-      {/if}
     {:else}
-      <!-- Bridge mode / empty pool summary -->
+      <!-- Empty pool summary -->
       <KpiGrid
         items={[
           {
-            label: $tr("Relay Mode"),
-            value: data.in_bridge ? "Bridge" : "Hybrid",
-            hint: data.in_bridge
-              ? $tr("client-supplied tokens")
-              : $tr("shared pool + bridge"),
-          },
-          {
-            label: $tr("Active Bridge Clients"),
-            value: data.bridge_tokens ?? 0,
-            hint: $tr("relaying upstream sessions"),
+            label: $tr("Fleet accounts"),
+            value: 0,
+            hint: $tr("upstream accounts in pool"),
           },
           {
             label: $tr("Served Models"),
@@ -461,9 +403,9 @@
       />
 
       <Card
-        title={$tr("Gateway Ready — Bridge & Pooled Relay")}
+        title={$tr("Gateway Ready — Pooled Relay")}
         description={$tr(
-          "The gateway is online and ready for traffic. Connect your tools directly in Bridge mode, or add FreeBuff accounts to create a shared token pool.",
+          "The gateway is online and ready for traffic. Add FreeBuff accounts to create a shared token pool.",
         )}
       >
         {#snippet actions()}
@@ -477,14 +419,6 @@
         <div class="text-xs text-[var(--fp-muted)] space-y-2">
           <p>
             <strong class="text-[var(--fp-text)]"
-              >{$tr("Bridge Mode (Active):")}</strong
-            >
-            {$tr(
-              "Clients can send requests using their own FreeBuff token as the Bearer or x-api-key credential.",
-            )}
-          </p>
-          <p>
-            <strong class="text-[var(--fp-text)]"
               >{$tr("Pooled Mode (Ready):")}</strong
             >
             {$tr(
@@ -493,26 +427,6 @@
           </p>
         </div>
       </Card>
-
-      {#if data.bridge_token_cards?.length}
-        <Card title={$tr("Active Bridge Clients")}>
-          <ul class="flex flex-col gap-1.5">
-            {#each data.bridge_token_cards as bc (bc.key)}
-              <li class="flex flex-wrap items-center gap-2 text-xs">
-                <StatusBadge status={bc.status} />
-                <code class="fp-num font-mono text-[var(--fp-text)]"
-                  >{bc.key}</code
-                >
-                {#if bc.model}
-                  <code class="fp-num font-mono text-[var(--fp-muted)]"
-                    >{bc.model}</code
-                  >
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        </Card>
-      {/if}
     {/if}
 
     <!-- Universal Client Integration & Endpoints Card (Always Available) -->

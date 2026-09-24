@@ -1,14 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard } from "./mocks.js";
 
-// Real-world pack: every fixture carries production-shaped data (bridge
-// cards, bans, locks, cooldowns, freebucks, streaks, traffic counters, peak
-// pricing) so each page proves it renders the full backend contract.
+// Real-world pack: every fixture carries production-shaped data (bans,
+// locks, cooldowns, freebucks, streaks, traffic counters, peak pricing) so
+// each page proves it renders the full backend contract.
 const RW = "e2e/fixtures-realworld";
 const admin = (hash: string) => `http://127.0.0.1:4173/admin/#${hash}`;
 
 test.describe("real-world data", () => {
-  test("overview: KPIs, both notices, peak window, bridge card", async ({
+  test("overview: KPIs, both notices, peak window", async ({
     page,
   }) => {
     const f = loadFixtures(RW);
@@ -53,7 +53,7 @@ test.describe("real-world data", () => {
     expect(second).not.toEqual(first);
   });
 
-  test("tokens: every account state + bridge clients", async ({ page }) => {
+  test("tokens: every account state", async ({ page }) => {
     const f = loadFixtures(RW);
     // Pin the banned account's cooldown 30d out: the static fixture date
     // would otherwise age past "Nd" into "expiring" and break the countdown
@@ -86,33 +86,6 @@ test.describe("real-world data", () => {
     await expect(
       page.getByRole("button", { name: "Unlock" }).first(),
     ).toBeVisible();
-    await expect(page.getByText("Bridge Clients")).toBeVisible();
-    await expect(
-      page.getByText(
-        "2 active bridge client(s) relaying their own FreeBuff tokens",
-      ),
-    ).toBeVisible();
-    await expect(page.getByText("Requests 37")).toBeVisible();
-    await expect(page.getByText("SPEND TODAY")).toHaveCount(2);
-    // Bridge cards render the Freebucks bar now (session quota bars gone).
-    await expect(page.getByText("Daily").first()).toBeVisible();
-    // Window reset clock: the fixture carries BOTH the vendor display string
-    // ("15:04 Jan 2") and the absolute instant, and the absolute one renders —
-    // re-anchored to the operator's zone. Asserted on the clock span because
-    // Playwright matches text per text node, not per composed line.
-    const windowClock = page
-      .locator("span")
-      .filter({ hasText: "Resets in" })
-      .first();
-    await expect(windowClock).toContainText(
-      /Resets in\s+[\s\S]*Jan 1, \d{2}:\d{2} [AP]M \(.+\)/,
-    );
-    // Display-only window (no absolute stamp): the vendor clock renders with
-    // the zone it was formatted in and is never read as an elapsed local
-    // reset, so the refill-pending copy stays out of both windows.
-    await expect(page.getByText(/15:04 Jan 2 \(.+\)/).first()).toBeVisible();
-    await expect(page.getByText("Updating balance…")).toHaveCount(0);
-    await expect(page.getByText("Banned — TEMPORARY")).toBeVisible();
     // Drawer: standing + session + pinned models for the trusted account.
     await page.locator("table tbody tr button[aria-expanded]").first().click();
     await expect(page.getByText("Trusted").first()).toBeVisible();
@@ -282,7 +255,7 @@ test.describe("real-world data", () => {
     await expect(page.getByText("Requests (24h)").first()).toBeVisible();
   });
 
-  test("pool renders traffic caps, hybrid bridge", async ({ page }) => {
+  test("pool renders traffic caps", async ({ page }) => {
     await mockDashboard(page, loadFixtures(RW));
     await page.goto(admin("tokens"));
     // Pool controls moved behind the Controls tab.

@@ -712,7 +712,6 @@ test.describe("operator UX journey (hermetic mocks)", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          bridge_tokens: 0,
           token_count: 1,
           has_tokens: true,
           tokens: [

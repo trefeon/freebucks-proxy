@@ -225,17 +225,6 @@
         ],
         "type": "object"
       },
-      "ModeSwitchRequest": {
-        "properties": {
-          "mode": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "mode"
-        ],
-        "type": "object"
-      },
       "NoticesResponse": {
         "properties": {
           "count": {
@@ -1523,243 +1512,10 @@
           "base_url": {
             "type": "string"
           },
-          "bridge_token_cards": {
-            "items": {
-              "properties": {
-                "active_runs": {
-                  "type": "integer"
-                },
-                "ban_type": {
-                  "type": "string"
-                },
-                "banned_until": {
-                  "type": "string"
-                },
-                "cooldown_until": {
-                  "type": "string"
-                },
-                "freebucks": {
-                  "nullable": true,
-                  "properties": {
-                    "balance": {
-                      "type": "number"
-                    },
-                    "daily": {
-                      "properties": {
-                        "limit": {
-                          "type": "number"
-                        },
-                        "percent_used": {
-                          "type": "number"
-                        },
-                        "remaining": {
-                          "type": "number"
-                        },
-                        "reset_at": {
-                          "type": "string"
-                        },
-                        "reset_time_zone": {
-                          "type": "string"
-                        },
-                        "spent": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "limit",
-                        "percent_used",
-                        "remaining",
-                        "spent"
-                      ],
-                      "type": "object"
-                    },
-                    "first_tab_discount": {
-                      "nullable": true,
-                      "properties": {
-                        "amount": {
-                          "type": "number"
-                        },
-                        "available": {
-                          "type": "boolean"
-                        },
-                        "holder_surface": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "amount",
-                        "available"
-                      ],
-                      "type": "object"
-                    },
-                    "list_prices": {
-                      "additionalProperties": {
-                        "type": "number"
-                      },
-                      "type": "object"
-                    },
-                    "monthly": {
-                      "nullable": true,
-                      "properties": {
-                        "limit": {
-                          "type": "number"
-                        },
-                        "percent_used": {
-                          "type": "number"
-                        },
-                        "remaining": {
-                          "type": "number"
-                        },
-                        "reset_at": {
-                          "type": "string"
-                        },
-                        "reset_time_zone": {
-                          "type": "string"
-                        },
-                        "spent": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "limit",
-                        "percent_used",
-                        "remaining",
-                        "spent"
-                      ],
-                      "type": "object"
-                    },
-                    "off_peak": {
-                      "additionalProperties": {
-                        "properties": {
-                          "end_hour_utc": {
-                            "type": "integer"
-                          },
-                          "price": {
-                            "type": "number"
-                          },
-                          "regular_price": {
-                            "type": "number"
-                          },
-                          "start_hour_utc": {
-                            "type": "integer"
-                          }
-                        },
-                        "required": [
-                          "end_hour_utc",
-                          "price",
-                          "regular_price",
-                          "start_hour_utc"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "object"
-                    },
-                    "plan_id": {
-                      "type": "string"
-                    },
-                    "price_notices": {
-                      "additionalProperties": {
-                        "type": "string"
-                      },
-                      "type": "object"
-                    },
-                    "prices": {
-                      "additionalProperties": {
-                        "type": "number"
-                      },
-                      "type": "object"
-                    },
-                    "quota_exempt": {
-                      "type": "boolean"
-                    },
-                    "spend": {
-                      "properties": {
-                        "limit_usd": {
-                          "type": "number"
-                        },
-                        "reset_at": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "limit_usd"
-                      ],
-                      "type": "object"
-                    },
-                    "wallet": {
-                      "properties": {
-                        "balance": {
-                          "type": "number"
-                        },
-                        "monthly_bonus": {
-                          "type": "number"
-                        },
-                        "next_bonus_at": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "balance",
-                        "monthly_bonus"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "balance",
-                    "daily",
-                    "spend",
-                    "wallet"
-                  ],
-                  "type": "object"
-                },
-                "key": {
-                  "type": "string"
-                },
-                "locked": {
-                  "type": "boolean"
-                },
-                "model": {
-                  "type": "string"
-                },
-                "requests": {
-                  "type": "integer"
-                },
-                "session_active": {
-                  "type": "boolean"
-                },
-                "spend_day": {
-                  "type": "number"
-                },
-                "status": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "active_runs",
-                "cooldown_until",
-                "key",
-                "locked",
-                "model",
-                "requests",
-                "session_active",
-                "spend_day",
-                "status"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "bridge_tokens": {
-            "type": "integer"
-          },
           "fingerprint_rotations": {
             "type": "integer"
           },
           "has_tokens": {
-            "type": "boolean"
-          },
-          "in_bridge": {
             "type": "boolean"
           },
           "is_default_admin_token": {
@@ -1781,9 +1537,6 @@
             "type": "boolean"
           },
           "safe_mode": {
-            "type": "boolean"
-          },
-          "show_bridge": {
             "type": "boolean"
           },
           "tokens": {
@@ -2307,17 +2060,14 @@
         },
         "required": [
           "base_url",
-          "bridge_tokens",
           "fingerprint_rotations",
           "has_tokens",
-          "in_bridge",
           "is_default_admin_token",
           "mode",
           "model_count",
           "models",
           "require_login",
           "safe_mode",
-          "show_bridge",
           "tokens",
           "transient_retries",
           "uptime"
@@ -2378,12 +2128,6 @@
           "base_url": {
             "type": "string"
           },
-          "bridge": {
-            "type": "boolean"
-          },
-          "bridge_tokens": {
-            "type": "integer"
-          },
           "has_tokens": {
             "type": "boolean"
           },
@@ -2408,8 +2152,6 @@
         },
         "required": [
           "base_url",
-          "bridge",
-          "bridge_tokens",
           "has_tokens",
           "key_hint",
           "mode",
@@ -2421,240 +2163,7 @@
       },
       "tokensData": {
         "properties": {
-          "bridge_token_cards": {
-            "items": {
-              "properties": {
-                "active_runs": {
-                  "type": "integer"
-                },
-                "ban_type": {
-                  "type": "string"
-                },
-                "banned_until": {
-                  "type": "string"
-                },
-                "cooldown_until": {
-                  "type": "string"
-                },
-                "freebucks": {
-                  "nullable": true,
-                  "properties": {
-                    "balance": {
-                      "type": "number"
-                    },
-                    "daily": {
-                      "properties": {
-                        "limit": {
-                          "type": "number"
-                        },
-                        "percent_used": {
-                          "type": "number"
-                        },
-                        "remaining": {
-                          "type": "number"
-                        },
-                        "reset_at": {
-                          "type": "string"
-                        },
-                        "reset_time_zone": {
-                          "type": "string"
-                        },
-                        "spent": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "limit",
-                        "percent_used",
-                        "remaining",
-                        "spent"
-                      ],
-                      "type": "object"
-                    },
-                    "first_tab_discount": {
-                      "nullable": true,
-                      "properties": {
-                        "amount": {
-                          "type": "number"
-                        },
-                        "available": {
-                          "type": "boolean"
-                        },
-                        "holder_surface": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "amount",
-                        "available"
-                      ],
-                      "type": "object"
-                    },
-                    "list_prices": {
-                      "additionalProperties": {
-                        "type": "number"
-                      },
-                      "type": "object"
-                    },
-                    "monthly": {
-                      "nullable": true,
-                      "properties": {
-                        "limit": {
-                          "type": "number"
-                        },
-                        "percent_used": {
-                          "type": "number"
-                        },
-                        "remaining": {
-                          "type": "number"
-                        },
-                        "reset_at": {
-                          "type": "string"
-                        },
-                        "reset_time_zone": {
-                          "type": "string"
-                        },
-                        "spent": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "limit",
-                        "percent_used",
-                        "remaining",
-                        "spent"
-                      ],
-                      "type": "object"
-                    },
-                    "off_peak": {
-                      "additionalProperties": {
-                        "properties": {
-                          "end_hour_utc": {
-                            "type": "integer"
-                          },
-                          "price": {
-                            "type": "number"
-                          },
-                          "regular_price": {
-                            "type": "number"
-                          },
-                          "start_hour_utc": {
-                            "type": "integer"
-                          }
-                        },
-                        "required": [
-                          "end_hour_utc",
-                          "price",
-                          "regular_price",
-                          "start_hour_utc"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "object"
-                    },
-                    "plan_id": {
-                      "type": "string"
-                    },
-                    "price_notices": {
-                      "additionalProperties": {
-                        "type": "string"
-                      },
-                      "type": "object"
-                    },
-                    "prices": {
-                      "additionalProperties": {
-                        "type": "number"
-                      },
-                      "type": "object"
-                    },
-                    "quota_exempt": {
-                      "type": "boolean"
-                    },
-                    "spend": {
-                      "properties": {
-                        "limit_usd": {
-                          "type": "number"
-                        },
-                        "reset_at": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "limit_usd"
-                      ],
-                      "type": "object"
-                    },
-                    "wallet": {
-                      "properties": {
-                        "balance": {
-                          "type": "number"
-                        },
-                        "monthly_bonus": {
-                          "type": "number"
-                        },
-                        "next_bonus_at": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "balance",
-                        "monthly_bonus"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "balance",
-                    "daily",
-                    "spend",
-                    "wallet"
-                  ],
-                  "type": "object"
-                },
-                "key": {
-                  "type": "string"
-                },
-                "locked": {
-                  "type": "boolean"
-                },
-                "model": {
-                  "type": "string"
-                },
-                "requests": {
-                  "type": "integer"
-                },
-                "session_active": {
-                  "type": "boolean"
-                },
-                "spend_day": {
-                  "type": "number"
-                },
-                "status": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "active_runs",
-                "cooldown_until",
-                "key",
-                "locked",
-                "model",
-                "requests",
-                "session_active",
-                "spend_day",
-                "status"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "bridge_tokens": {
-            "type": "integer"
-          },
           "has_tokens": {
-            "type": "boolean"
-          },
-          "in_bridge": {
             "type": "boolean"
           },
           "maturity_enabled": {
@@ -2677,9 +2186,6 @@
           },
           "queue_wait": {
             "type": "string"
-          },
-          "show_bridge": {
-            "type": "boolean"
           },
           "slots_per_account": {
             "type": "integer"
@@ -3241,15 +2747,12 @@
           }
         },
         "required": [
-          "bridge_tokens",
           "has_tokens",
-          "in_bridge",
           "maturity_enabled",
           "max_spill_accounts",
           "mode",
           "queue_depth",
           "queue_wait",
-          "show_bridge",
           "slots_per_account",
           "token_count",
           "tokens"
@@ -4730,78 +4233,6 @@
         ]
       }
     },
-    "/admin/bridge-tokens/{key}/lock": {
-      "post": {
-        "operationId": "bridgeTokenLock",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResultEnvelope"
-                }
-              }
-            },
-            "description": "Lock one bridge-mode entry"
-          }
-        },
-        "security": [
-          {
-            "cookieAuth": []
-          }
-        ],
-        "summary": "Lock one bridge-mode entry",
-        "tags": [
-          "tokens"
-        ]
-      }
-    },
-    "/admin/bridge-tokens/{key}/unlock": {
-      "post": {
-        "operationId": "bridgeTokenUnlock",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResultEnvelope"
-                }
-              }
-            },
-            "description": "Unlock one bridge-mode entry"
-          }
-        },
-        "security": [
-          {
-            "cookieAuth": []
-          }
-        ],
-        "summary": "Unlock one bridge-mode entry",
-        "tags": [
-          "tokens"
-        ]
-      }
-    },
     "/admin/config": {
       "get": {
         "operationId": "spaConfig",
@@ -5082,42 +4513,6 @@
         "summary": "SPA shell (HTML)",
         "tags": [
           "views"
-        ]
-      }
-    },
-    "/admin/mode": {
-      "post": {
-        "operationId": "modeSwitch",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ModeSwitchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResultEnvelope"
-                }
-              }
-            },
-            "description": "Switch bridge/pooled mode (loopback rules apply)"
-          }
-        },
-        "security": [
-          {
-            "cookieAuth": []
-          }
-        ],
-        "summary": "Switch bridge/pooled mode (loopback rules apply)",
-        "tags": [
-          "system"
         ]
       }
     },

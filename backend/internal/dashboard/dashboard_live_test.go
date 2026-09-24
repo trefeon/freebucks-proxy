@@ -89,7 +89,7 @@ func TestLiveViewOverviewOmitsStatic(t *testing.T) {
 			t.Errorf("live overview carries static %q", k)
 		}
 	}
-	for _, k := range []string{"uptime", "tokens", "has_tokens", "bridge_tokens"} {
+	for _, k := range []string{"uptime", "tokens", "has_tokens"} {
 		if _, ok := live[k]; !ok {
 			t.Errorf("live overview missing live %q", k)
 		}
@@ -139,12 +139,12 @@ func TestLiveViewTokensOmitsStatic(t *testing.T) {
 	if _, ok := full["mode"]; !ok {
 		t.Errorf("full tokens missing mode")
 	}
-	for _, k := range []string{"mode", "in_bridge", "show_bridge"} {
+	for _, k := range []string{"mode"} {
 		if _, ok := live[k]; ok {
 			t.Errorf("live tokens carries static %q", k)
 		}
 	}
-	for _, k := range []string{"tokens", "has_tokens", "token_count", "bridge_tokens"} {
+	for _, k := range []string{"tokens", "has_tokens", "token_count"} {
 		if _, ok := live[k]; !ok {
 			t.Errorf("live tokens missing live %q", k)
 		}
