@@ -805,3 +805,21 @@ func TestWriteErrorNoEndpoints(t *testing.T) {
 		t.Errorf("message = %q, want without-tools hint", writeBody.Error.Message)
 	}
 }
+
+// TestWriteErrorWaitingRoomFallbackFloor: a bare ErrWaitingRoom wrap (no
+// concrete *WaitingRoomError window — unreachable from the classifiers
+// today, which always build the concrete type) must still surface 503
+// waiting_room_queued WITH the 10s honor window, never a retry-now 503.
+func TestWriteErrorWaitingRoomFallbackFloor(t *testing.T) {
+	err := fmt.Errorf("queue race: %w", upstream.ErrWaitingRoom)
+	status, hdr, body := errorResponse(t, err)
+	if status != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", status)
+	}
+	if body.Error.Code != "waiting_room_queued" {
+		t.Errorf("code = %q, want waiting_room_queued", body.Error.Code)
+	}
+	if got := hdr.Get("Retry-After"); got != "10" {
+		t.Errorf("Retry-After = %q, want 10 (honor floor on the windowless fallback)", got)
+	}
+}
