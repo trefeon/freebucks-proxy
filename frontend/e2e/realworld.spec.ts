@@ -194,6 +194,10 @@ test.describe("real-world data", () => {
     await expect(row).toContainText("8 left");
     await expect(row).toContainText("Wallet 5");
     await expect(row).toContainText("$258 monthly usage left");
+    // Per-card refill lines are gone: the row carries neither the countdown
+    // nor the refill-pending copy — the shared strip below owns both.
+    await expect(row).not.toContainText("Resets in");
+    await expect(row).not.toContainText("Updating balance…");
     await expect(page.getByTestId("reset-strip")).toContainText(
       "Updating balance…",
     );

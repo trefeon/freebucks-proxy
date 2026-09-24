@@ -172,6 +172,21 @@
     }
     return out;
   }
+  // Fleet-wide off-peak lines for the header: ordered-dedupe of the
+  // per-account offPeakLines detail strings across every token.
+  function fleetOffPeakLines() {
+    const seen = new Set();
+    const out = [];
+    for (const token of (data?.tokens ?? [])) {
+      for (const line of offPeakLines(token)) {
+        if (!seen.has(line)) {
+          seen.add(line);
+          out.push(line);
+        }
+      }
+    }
+    return out;
+  }
 
   let unsubStore = null;
   let unsubErr = null;
@@ -265,6 +280,14 @@
       </p>
     {/if}
   {/if}
+  {#each fleetOffPeakLines() as line, i (i)}
+    <p
+      class="fp-num text-[11px] text-[var(--fp-muted)] tabular-nums"
+      data-testid="off-peak-line"
+    >
+      {line}
+    </p>
+  {/each}
   <ul
     class="grid grid-cols-1 lg:grid-cols-2 gap-2.5"
     aria-label={$tr("Accounts")}
@@ -334,9 +357,8 @@
             </p>
           {/if}
           {#if fb.dailyLimit != null || fb.dailyLeft != null}
-            <!-- The daily pool, stated once: meter, used/left line, and this
-                 account's own refill stamp (the shared strip above carries the
-                 all-accounts countdown; this one names the zone). -->
+            <!-- The daily pool, stated once: meter and used/left line (the
+                 shared strip above carries the all-accounts countdown). -->
             <div class="flex flex-col gap-1">
               <div
                 class="h-[5px] w-full rounded-full bg-[var(--fp-inset)] overflow-hidden"
@@ -366,18 +388,6 @@
                 >
                 {$tr("left")}
               </p>
-              {#if fb.resetLine}
-                <p class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
-                  {#if fb.resetLine.shape === "pending"}
-                    {$tr("Updating balance…")}
-                  {:else if fb.resetLine.shape === "countdown"}
-                    {$tr("Resets in")}
-                    {fb.resetLine.rel} — {fb.resetLine.clock}
-                  {:else}
-                    {fb.resetLine.clock}
-                  {/if}
-                </p>
-              {/if}
             </div>
           {/if}
           {#if fb.wallet != null || fb.perkNote}
@@ -407,14 +417,6 @@
               {discountLine(token.freebucks.first_tab_discount)}
             </p>
           {/if}
-          {#each offPeakLines(token) as line, i (i)}
-            <p
-              class="fp-num text-[11px] text-[var(--fp-muted)] tabular-nums"
-              data-testid="off-peak-line"
-            >
-              {line}
-            </p>
-          {/each}
           {#if monthly}
             <p class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums">
               {$tr("Monthly")}

@@ -297,6 +297,7 @@ test.describe("keys, usage and logs (mock backend)", () => {
       "shared for all accounts",
     );
     await expect(page.getByTestId("reset-strip")).toHaveCount(1);
+    await expect(row).not.toContainText("Resets in");
   });
 
   test("usage: first-tab discount line when offered, absent otherwise", async ({

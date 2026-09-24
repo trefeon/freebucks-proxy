@@ -421,6 +421,8 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(row).toContainText("Used 45 / 75");
     await expect(row).toContainText("30 left");
     await expect(row).toContainText("Wallet 20");
+    await expect(row).not.toContainText("Resets in");
+    await expect(page.getByTestId("reset-strip")).toHaveCount(1);
     await expect(page.getByTestId("reset-strip")).toContainText("resets in");
   });
 

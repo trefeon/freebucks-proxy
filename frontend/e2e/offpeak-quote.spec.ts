@@ -21,10 +21,17 @@ test.describe("off-peak quote (mock backend)", () => {
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
     // Fixture token 0 carries the live-shape snake_case offer (22–06 UTC at
-    // 10/hr against a regular 15/hr): the account card renders its line.
+    // 10/hr against a regular 15/hr): the fleet header renders its line once,
+    // never one per account card.
+    await expect(
+      page.getByTestId("account-row").getByTestId("off-peak-line"),
+    ).toHaveCount(0);
     const line = page.getByTestId("off-peak-line").first();
     await expect(line).toBeVisible();
     await expect(line).toContainText(/Off-peak/);
+    // Fleet dedup: no two rendered lines carry identical copy.
+    const texts = await page.getByTestId("off-peak-line").allTextContents();
+    expect(new Set(texts.map((t) => t.trim())).size).toBe(texts.length);
     // The quote resolves client-side without throwing, so the panel leaves
     // the loading state behind instead of freezing on it.
     await expect(page.getByRole("status", { name: "Loading" })).toHaveCount(0);
@@ -66,7 +73,7 @@ test.describe("off-peak quote (mock backend)", () => {
     await page.goto(adminUrl("tokens"));
     await page.getByRole("button", { name: "Allowances" }).click();
     // A windowless offer resolves to no copy (never an Invalid Date throw),
-    // so the account still renders — minus the off-peak line — and Loading
+    // so the fleet header renders no off-peak line — and Loading
     // clears instead of freezing the tab.
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
@@ -95,13 +102,20 @@ test.describe("off-peak quote (mock backend)", () => {
     await mockSettingsOverlay(page, []);
     await page.goto(adminUrl("tokens"));
     await page.getByRole("button", { name: "Allowances" }).click();
-    // The wire-camelCase twin of the fixture offer renders the same line:
-    // assert the render, not the absence of a throw.
+    // The wire-camelCase twin of the fixture offer renders the same fleet
+    // line: assert the header render, not the absence of a throw — and never
+    // one per account card.
     await expect(
       page.getByRole("heading", { name: "Account #1" }),
     ).toBeVisible();
+    await expect(
+      page.getByTestId("account-row").getByTestId("off-peak-line"),
+    ).toHaveCount(0);
     const line = page.getByTestId("off-peak-line").first();
     await expect(line).toBeVisible();
     await expect(line).toContainText(/Off-peak/);
+    // Fleet dedup: no two rendered lines carry identical copy.
+    const texts = await page.getByTestId("off-peak-line").allTextContents();
+    expect(new Set(texts.map((t) => t.trim())).size).toBe(texts.length);
   });
 });
