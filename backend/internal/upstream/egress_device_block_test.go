@@ -16,6 +16,8 @@ import (
 	// Hermetic timezone derivation: real IANA zone names must resolve via
 	// LoadLocation on every test host (Windows ships no system zoneinfo).
 	_ "time/tzdata"
+
+	"freebucks-proxy/backend/internal/wirefacts"
 )
 
 // TestEgressDeviceBlockMatrix pins the device-block derivation matrix:
@@ -74,9 +76,17 @@ func TestEgressDeviceBlockMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("ads request header UA stays the CLI product UA", func(t *testing.T) {
-		if freebuffCliUA != "Freebuff-CLI/1.0.0" {
-			t.Errorf("freebuffCliUA = %q, want the pinned Freebuff-CLI product UA", freebuffCliUA)
+	t.Run("ads request header UA carries the vendored CLI version", func(t *testing.T) {
+		// The version in the product UA is part of the emulated client's
+		// identity, so it must track the vendor pin rather than a frozen
+		// literal: releases advertise the wrapper version the binary was built
+		// from (cli/src/hooks/use-gravity-ad.ts:817-821,
+		// freebuff/cli/build.ts:23,33), which is what wirefacts.VendorVersion
+		// records for the snapshots the proxy speaks. The old hardcoded
+		// Freebuff-CLI/1.0.0 (the monorepo placeholder cli/package.json
+		// version) fails this pin.
+		if want := "Freebuff-CLI/" + wirefacts.VendorVersion; freebuffCliUA != want {
+			t.Errorf("freebuffCliUA = %q, want %q", freebuffCliUA, want)
 		}
 	})
 

@@ -10,6 +10,7 @@ package pool
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -339,7 +340,7 @@ func (p *Pool) maturityTouchRun(ctx context.Context, tok *tokenEntry, model stri
 	}
 
 	step := upstream.RunStep{
-		ID:         fmt.Sprintf("maturity-touch-%d", now.UnixNano()),
+		ID:         newTouchStepID(),
 		StepNumber: 1,
 		Status:     finStatus,
 		StartTime:  now.UTC().Format(time.RFC3339Nano),
@@ -350,6 +351,23 @@ func (p *Pool) maturityTouchRun(ctx context.Context, tok *tokenEntry, model stri
 		return fmt.Errorf("touch turn: %w", turnErr)
 	}
 	return nil
+}
+
+// newTouchStepID mints the RFC 4122 v4 step id the FINISH wire schema
+// requires: upstream/freebuff sdk/src/impl/database.ts pendingAgentStepSchema
+// pins `id: z.string().uuid()`. A non-UUID id fails the whole FINISH with
+// 400 {"error":"Invalid request body","details":{"steps":{"0":{"id":
+// {"_errors":["Invalid UUID"]}}}}} (reproduced against the live gateway).
+// Mirrors runs.newTraceSessionID: a crypto/rand failure falls back to a
+// time-seeded hex id rather than panicking mid-touch.
+func newTouchStepID() string {
+	var b [16]byte
+	if _, err := cryptoRand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 func (p *Pool) maturityTouchTurn(ctx context.Context, tok *tokenEntry, model, agentID, runID, instanceID string) error {
