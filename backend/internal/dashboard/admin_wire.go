@@ -355,6 +355,8 @@ func AdminAPIPaths() []AdminAPIPath {
 		{Method: "GET", Path: "/admin/api/events", OperationID: "events", Summary: "Server-sent event stream (dashboard live updates)", Auth: "dashboard", Kind: AdminAPIKindSSE},
 		{Method: "GET", Path: "/admin/api/auth/status", OperationID: "getAuthStatus", Summary: "Dashboard auth state (login mode, factory-default check)", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: AuthStatusResponse{}},
 		{Method: "GET", Path: "/admin/api/notices", OperationID: "getNotices", Summary: "Upstream announcements and live broadcasts", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: NoticesResponse{}},
+		{Method: "GET", Path: "/admin/api/ads/summary", OperationID: "getAdsSummary", Summary: "Ad-leg firing totals (auction/impression/streak, credits, per-provider and per-surface)", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: pool.AdSummary{}},
+		{Method: "GET", Path: "/admin/api/ads/legs", OperationID: "getAdsLegs", Summary: "Recent ad-leg firing events, newest first (titles/brands only, never URLs)", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: []pool.AdLegEvent{}, Query: []AdminAPIQuery{{Name: "limit", Description: "Max events, newest first (default 50, capped at 200)"}}},
 
 		{Method: "GET", Path: "/admin", OperationID: "spaRoot", Summary: "SPA shell (HTML)", Auth: "dashboard", Kind: AdminAPIKindPage},
 		{Method: "GET", Path: "/admin/", OperationID: "spaRootSlash", Summary: "SPA shell (HTML)", Auth: "dashboard", Kind: AdminAPIKindPage},

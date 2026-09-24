@@ -29,6 +29,8 @@ export const adminApi = {
   metrics: "/admin/api/metrics",
   usage: "/admin/api/usage",
   traces: "/admin/api/traces",
+  adsSummary: "/admin/api/ads/summary",
+  adsLegs: "/admin/api/ads/legs",
   setup: "/admin/api/setup",
   version: "/admin/api/version",
   authStatus: "/admin/api/auth/status",

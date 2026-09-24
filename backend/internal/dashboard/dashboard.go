@@ -207,6 +207,10 @@ func (d *Dashboard) dataFor(name string, r *http.Request) any {
 		return d.upstreamData()
 	case "notices":
 		return d.noticesData()
+	case "ads/summary":
+		return d.adsSummaryData()
+	case "ads/legs":
+		return d.adsLegsData(r)
 	default:
 		return nil
 	}
