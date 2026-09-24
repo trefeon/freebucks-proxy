@@ -9,11 +9,10 @@ lifecycle.
 
 - Speaks OpenAI chat (`POST /v1/chat/completions`, `GET /v1/models`) and an
   Anthropic-compatible layer, then translates to the upstream wire protocol.
-- Runs in pooled, bridge, or hybrid mode (`EffectiveMode`):
-  - **Pooled** — `AUTH_TOKENS` set + `BRIDGE_ENABLED=0`; pool only.
-  - **Bridge** — `AUTH_TOKENS` empty; each request carries its own token.
-  - **Hybrid** (default with `AUTH_TOKENS`) — `API_KEYS` credential uses the
-    pool, any other credential relays upstream as a bridge token.
+- Pooled-only: every request authenticates against the `AUTH_TOKENS` pool
+  via an `API_KEYS` credential match. Any other credential gets `401`;
+  with no `AUTH_TOKENS` configured the gateway serves errors — configure
+  pool tokens to serve traffic.
 - Dashboard at `/admin` (Svelte SPA embedded in the binary).
 - Credit metering follows the wire `prices` map (upstream credits, wire fields
   `freebucks*`): charged once per session-hour at session start, refunded on

@@ -168,7 +168,6 @@
           </div>
         </SettingsRow>
       {/if}
-
     {/if}
   </SettingsCard>
 {/if}

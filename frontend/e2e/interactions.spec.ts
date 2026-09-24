@@ -695,9 +695,7 @@ test.describe("operator interactions (hermetic mocks)", () => {
   // -------------------------------------------------------------------------
   // 10. Pool: rate-limit input instant-saves per key.
   // -------------------------------------------------------------------------
-  test("pool: rate-limit input instant-saves per key", async ({
-    page,
-  }) => {
+  test("pool: rate-limit input instant-saves per key", async ({ page }) => {
     const f = loadFixtures();
     await mockDashboard(page, f, { configWithApiKeys: settingsConfig(f) });
     const posted: PostedSetting[] = [];

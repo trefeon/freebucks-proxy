@@ -1,7 +1,7 @@
-# Session locality — the timezone the gateway declares for the account's reset zone
+# Session locality â€” the timezone the gateway declares for the account's reset zone
 
 Status: **shipped**. The resolver is `backend/internal/egress/locality.go`
-(rule + country→zone table), the background probe is
+(rule + countryâ†’zone table), the background probe is
 `backend/internal/egress/tracker.go`, and the wiring is the upstream resolver
 (`backend/internal/upstream/client.go`, `session.go`), the server's
 `SetEgressTracker` (`backend/internal/server/server_init.go`), the serve path
@@ -24,8 +24,8 @@ The only locality the client declares is the timezone header.
 contract is `backend/internal/upstream/session.go:33-42`: a timezone is a
 **scheduling preference, never proof of country or access**.
 `cli/src/utils/freebuff-session-api.ts` spreads `freebucksTimeZoneHeaders()`
-into **every** session call — admission POST, poll GET, probe GET, and the
-DELETE/refund — so the declaration is unconditional, not a probe-only flourish
+into **every** session call â€” admission POST, poll GET, probe GET, and the
+DELETE/refund â€” so the declaration is unconditional, not a probe-only flourish
 (`session.go:456-457` stamps it at the `sessionCall` chokepoint, `:281-288` on
 the DELETE, which returns a receipt rather than a `SessionState` and therefore
 bypasses that chokepoint).
@@ -51,20 +51,20 @@ Priority order, `backend/internal/egress/locality.go:203-237`:
 | 5 | otherwise | `UTC` | `utc` |
 
 `BoringZone` (`locality.go:149-169`) is the whole point: empty, `Local`, and the
-UTC/GMT class (`UTC`, `GMT`, `Etc/UTC`, `Etc/GMT`, `Etc/GMT±N`) carry no
+UTC/GMT class (`UTC`, `GMT`, `Etc/UTC`, `Etc/GMT`, `Etc/GMTÂ±N`) carry no
 locality, so they do not out-rank detection. A *real* host zone is a deliberate
 choice and always wins; the region only fills the silence. `ValidZone`
 (`locality.go:190-201`) is `time.LoadLocation`; the binary gets tzdata from
 `cli/cli_serve.go` (`_ "time/tzdata"`), so a minimal image still resolves the
 table's zones.
 
-### The table is lossy on purpose — the knob is the escape hatch
+### The table is lossy on purpose â€” the knob is the escape hatch
 
 `countryZones` (`locality.go:38-127`) maps one country to **one** representative
 zone (the most populous, and the comment above each multi-zone entry says so).
 The wire carries exactly one timezone string and the server only uses it to pick
 a reset day, so "which zone inside the country" has to be plausible, not exact.
-An operator who needs the precise zone sets `SESSION_TIMEZONE` — which is why
+An operator who needs the precise zone sets `SESSION_TIMEZONE` â€” which is why
 the override ranks above everything, and why the region branch is a default, not
 a claim.
 
@@ -84,7 +84,7 @@ reach the same place: the host zone when it is real, else UTC. The country is
 reported as `""` when unknown, and the zone branch reports `utc`.
 
 The probe runs on its fixed `DefaultTTL` cadence **regardless of whether
-`SESSION_TIMEZONE` is set** — it is the same unauthenticated `cdn-cgi/trace`
+`SESSION_TIMEZONE` is set** â€” it is the same unauthenticated `cdn-cgi/trace`
 GET `-doctor` already used, it carries no credentials and no token material,
 and only its country is ever consulted. Setting the override does not stop it
 (the region branch simply never wins); nothing but the serve path starts it.
@@ -100,9 +100,9 @@ the egress IP; Codebuff learns nothing).
 
 ## Privacy: country on `/healthz`, never the IP
 
-`/healthz` is **unauthenticated**, so it gains three additive fields —
+`/healthz` is **unauthenticated**, so it gains three additive fields â€”
 `session_timezone`, `session_timezone_source`, `egress_region`
-(`backend/internal/server/health.go:117-134`) — and deliberately **not** the
+(`backend/internal/server/health.go:117-134`) â€” and deliberately **not** the
 probe's public IP. The doctor, which the operator runs deliberately and locally,
 keeps the IP: `Egress region: <country> (<ip>)` is byte-identical
 (`doctor/doctor.go:26-36`, pinned by `doctor_test.go:51-70`), with the new
@@ -113,7 +113,7 @@ at `:233-234`).
 
 | Knob | Default | Meaning |
 |---|---|---|
-| `SESSION_TIMEZONE` | `""` | The declared zone. Empty = auto (the rule above). An invalid value falls back to auto and warns once (`server_init.go:201-213`) — it is never a load error, because the loader accepts any text and a typo must not stop the gateway. |
+| `SESSION_TIMEZONE` | `""` | The declared zone. Empty = auto (the rule above). An invalid value falls back to auto and warns once (`server_init.go:201-213`) â€” it is never a load error, because the loader accepts any text and a typo must not stop the gateway. |
 | probe interval | `DefaultTTL` (10m) | `egress.NewTracker(..., egress.DefaultTTL)` in `cli_serve.go:427-432`; non-positive means the same 10m. |
 
 `SESSION_TIMEZONE` is live: the resolver closure reads `s.cfg.Load()`
@@ -125,13 +125,14 @@ constructor, so tests that build a `Server` open no sockets; tests point
 
 ## Files it touches
 
-- `backend/internal/egress/locality.go`, `tracker.go` — the rule, the table, the
+- `backend/internal/egress/locality.go`, `tracker.go` â€” the rule, the table, the
   probe loop (no server imports; the table is data).
 - `backend/internal/upstream/client.go` (`SetLocalityResolver`), `session.go`
   (the chokepoint + the DELETE).
-- `backend/internal/pool/pool.go` (`SetLocalityResolver`, `applyLocality`) — the
-  pool owns the clients, so it is the fan-out point for fixed, runtime-added, and
-  bridge clients.
+- `backend/internal/pool/pool.go` (`SetLocalityResolver`, `applyLocality`) â€” the
+  pool owns the clients, so it is the fan-out point for fixed and runtime-added
+  pool clients. (Pre-pool-only text mentioned bridge clients here; removed —
+  see `docs/decisions/pool-only-removal.md`.)
 - `backend/internal/server/server_init.go` (`SetEgressTracker`,
   `sessionLocality`, `applyConfig`), `health.go`.
 - `backend/internal/cli/cli_serve.go` (tracker construction + start), `doctor/doctor.go`.
@@ -140,13 +141,13 @@ constructor, so tests that build a `Server` open no sockets; tests point
 
 ## Verification
 
-- `go test ./backend/internal/egress/` — the rule's priority, the boring-zone
+- `go test ./backend/internal/egress/` â€” the rule's priority, the boring-zone
   class, the table, and the tracker's snapshot/fail-open semantics.
-- `go test ./backend/internal/upstream/` —
+- `go test ./backend/internal/upstream/` â€”
   `TestProbeAccountSendsCLIParityHeaders` still pins the host zone with no
   resolver installed, and the resolver tests pin the declared zone on the
   admission POST and the poll GET.
-- `go test ./backend/internal/server/ -run 'SessionLocality|Healthz'` — the
+- `go test ./backend/internal/server/ -run 'SessionLocality|Healthz'` â€” the
   additive `/healthz` fields and the override/region/host/UTC outcomes.
-- `go test ./backend/internal/cli/...` — the doctor row, including the
+- `go test ./backend/internal/cli/...` â€” the doctor row, including the
   byte-identical `Egress region:` line.

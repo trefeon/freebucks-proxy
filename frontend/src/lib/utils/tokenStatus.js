@@ -49,9 +49,11 @@ export function isExhausted(token) {
   return false;
 }
 
-/** ISO timestamp when the token's window or cooldown resets. */
+/** ISO timestamp when the token's window or cooldown resets. Server-truth
+ * first: the daily reset_at_utc anchor wins over its legacy reset_at twin. */
 export function resetTimeFor(token) {
   return (
+    token?.freebucks?.daily?.reset_at_utc ||
     token?.freebucks?.daily?.reset_at ||
     token?.cooldown_resets_at ||
     token?.cooldown_until ||

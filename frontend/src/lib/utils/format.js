@@ -26,6 +26,22 @@ export function formatLocalDate(utcIso) {
 const CLOCK_LOCALE = "en-US";
 
 /**
+ * IANA name of the viewer's own zone ("Asia/Jakarta", "America/New_York"),
+ * probed from the runtime for skew debugging. The reset strip stamps it into
+ * the page (data-testid="tz-probe") so a wall clock that looks wrong can be
+ * traced to the browser's zone instead of the server instant. "UTC" when the
+ * runtime names nothing.
+ * @returns {string}
+ */
+export function viewerTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/**
  * Short zone label at an instant ("WIB", "PDT", "GMT+7"), resolved with the
  * viewer's locale. A wire display string like "15:04 Jan 2" names no year, so
  * its label is read at whatever instant the runtime makes of it — which is

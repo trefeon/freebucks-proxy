@@ -8,9 +8,7 @@ const RW = "e2e/fixtures-realworld";
 const admin = (hash: string) => `http://127.0.0.1:4173/admin/#${hash}`;
 
 test.describe("real-world data", () => {
-  test("overview: KPIs, both notices, peak window", async ({
-    page,
-  }) => {
+  test("overview: KPIs, both notices, peak window", async ({ page }) => {
     const f = loadFixtures(RW);
     // Pin the peak window relative to now: the static fixture date would
     // otherwise age the live countdown into fallback text on later runs.

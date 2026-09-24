@@ -67,14 +67,7 @@
     "key": "HTTP_READ_TIMEOUT",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "60s",
-      "90s",
-      "120s",
-      "180s",
-      "300s",
-      "0"
-    ],
+    "enum": ["60s", "90s", "120s", "180s", "300s", "0"],
     "default": "60s",
     "restart_only": true,
     "secret": false,
@@ -118,10 +111,7 @@
     "key": "LOG_FORMAT",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "text",
-      "json"
-    ],
+    "enum": ["text", "json"],
     "default": "text",
     "restart_only": true,
     "secret": false,
@@ -132,13 +122,7 @@
     "key": "LOG_LEVEL",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "debug",
-      "info",
-      "warn",
-      "error",
-      "trace"
-    ],
+    "enum": ["debug", "info", "warn", "error", "trace"],
     "default": "debug",
     "restart_only": true,
     "secret": false,
@@ -175,7 +159,7 @@
     "secret": true,
     "essential": false,
     "hidden": true,
-    "description": "Comma-separated client keys required for /v1/* (empty = open; ignored in bridge mode). Managed in the Overview and Client API Keys section."
+    "description": "Comma-separated client keys required for /v1/* (empty = open). Managed in the Overview and Client API Keys section."
   },
   {
     "key": "AUTH_TOKENS",
@@ -187,26 +171,6 @@
     "essential": false,
     "hidden": true,
     "description": "Comma-separated upstream FreeBuff tokens. Managed in the Pool page and Device Login."
-  },
-  {
-    "key": "BRIDGE_ENABLED",
-    "group": "pool",
-    "kind": "bool",
-    "default": "true",
-    "restart_only": false,
-    "secret": false,
-    "essential": true,
-    "description": "With AUTH_TOKENS set, accept bridge-mode clients (their own token relayed) alongside the pool — hybrid mode. 0 = locked-down pooled-only instance."
-  },
-  {
-    "key": "BRIDGE_IDLE_EVICT",
-    "group": "pool",
-    "kind": "text",
-    "default": "72h",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "description": "How long a bridge entry may sit unused before its runs are FINISHed and it is evicted from the cache (sliding TTL; empty or 0 → 72h)."
   },
   {
     "key": "IDLE_ROTATION_TIMEOUT",
@@ -483,9 +447,7 @@
     "key": "COST_MODE",
     "group": "upstream",
     "kind": "select",
-    "enum": [
-      "free"
-    ],
+    "enum": ["free"],
     "default": "free",
     "restart_only": true,
     "secret": false,
