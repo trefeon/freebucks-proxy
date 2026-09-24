@@ -108,12 +108,12 @@ plan.md
 PLAN.md
 *.plan.md
 
-# ── dev docs & study (local only, not repo content) ──
-devdocs/
+# dev docs & study (local only, not repo content)
+devdocs/*
 !devdocs/re-kit/
-!devdocs/re-kit/**
 # Private-repo exception: the reverse-engineering kit is tracked intentionally.
-# Everything else under devdocs/ (bundles, backups, local env) stays ignored.
+# NOTE: parent uses devdocs/* (not devdocs/) so the exception can match;
+# everything else under devdocs/ (bundles, backups, local env) stays ignored.
 
 # ── docs/ is public: only top-level .md files are committed ──
 docs/*
