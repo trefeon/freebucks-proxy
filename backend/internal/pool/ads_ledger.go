@@ -14,6 +14,8 @@ package pool
 import (
 	"sync"
 	"time"
+
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // Ad surfaces and legs, matching the wire surfaces the proxy mirrors.
@@ -77,6 +79,30 @@ var (
 	adLegErrors     int
 	adLegLastAt     string
 )
+
+// WireChatAdLegs connects the upstream chat ad loop to this ledger. It
+// assigns upstream.RecordChatAdLeg so chat-surface legs land here; the
+// assignment lives pool-side because pool already imports upstream and the
+// reverse import would cycle. Called from New; unwired legs are dropped by
+// the emitter until then. Safe to call repeatedly (idempotent overwrite).
+func WireChatAdLegs() {
+	upstream.RecordChatAdLeg = func(l upstream.ChatAdLeg) {
+		var credits float64
+		if l.Credits != nil {
+			credits = *l.Credits
+		}
+		RecordAdLeg(AdLegEvent{
+			TS:       l.TS.UTC().Format(time.RFC3339),
+			Surface:  l.Surface,
+			Provider: l.Provider,
+			Leg:      l.Leg,
+			Title:    l.Title,
+			Brand:    l.Brand,
+			Credits:  credits,
+			Error:    l.Error,
+		})
+	}
+}
 
 // RecordAdLeg appends one fired leg to the retained window, evicting the
 // oldest event past maxAdLegEvents (aggregates track the retained window,

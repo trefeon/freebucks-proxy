@@ -675,6 +675,7 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 		return nil, fmt.Errorf("pool: %d sessions for %d tokens", len(sessions), len(cfg.AuthTokens))
 	}
 
+	WireChatAdLegs() // chat-surface ad legs land in the ads ledger
 	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), admissions: make(map[string]int), cooldownHints: make(map[string]poolCooldownBlob)}
 	p.cfg.Store(cfg)
 	toks := make([]*tokenEntry, 0, len(cfg.AuthTokens))
