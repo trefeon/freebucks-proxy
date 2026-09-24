@@ -272,6 +272,12 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	case errors.As(err, &uwr):
 		status, code = http.StatusServiceUnavailable, "waiting_room_queued"
 		message, retryAfter = uwr.Error(), uwr.RetryAfter
+		if retryAfter <= 0 {
+			// Upstream sent no window (the live 503 carries no Retry-After
+			// header): hand the client the same 10s honor window the chat
+			// path itself waits, so a 503 never means "retry now".
+			retryAfter = 10 * time.Second
+		}
 	case errors.As(err, &wrr):
 		// #116: 428 waiting_room_required (endsTheSession:true — the seat
 		// is gone; chatAttempt already dropped the cached session and

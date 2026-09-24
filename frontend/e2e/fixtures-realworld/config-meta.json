@@ -67,7 +67,14 @@
     "key": "HTTP_READ_TIMEOUT",
     "group": "general",
     "kind": "select",
-    "enum": ["60s", "90s", "120s", "180s", "300s", "0"],
+    "enum": [
+      "60s",
+      "90s",
+      "120s",
+      "180s",
+      "300s",
+      "0"
+    ],
     "default": "60s",
     "restart_only": true,
     "secret": false,
@@ -111,7 +118,10 @@
     "key": "LOG_FORMAT",
     "group": "general",
     "kind": "select",
-    "enum": ["text", "json"],
+    "enum": [
+      "text",
+      "json"
+    ],
     "default": "text",
     "restart_only": true,
     "secret": false,
@@ -122,7 +132,13 @@
     "key": "LOG_LEVEL",
     "group": "general",
     "kind": "select",
-    "enum": ["debug", "info", "warn", "error", "trace"],
+    "enum": [
+      "debug",
+      "info",
+      "warn",
+      "error",
+      "trace"
+    ],
     "default": "debug",
     "restart_only": true,
     "secret": false,
@@ -467,7 +483,9 @@
     "key": "COST_MODE",
     "group": "upstream",
     "kind": "select",
-    "enum": ["free"],
+    "enum": [
+      "free"
+    ],
     "default": "free",
     "restart_only": true,
     "secret": false,
@@ -600,7 +618,7 @@
     "secret": false,
     "essential": false,
     "hidden": true,
-    "description": "Max additional attempts after a transient transport failure (never retries 429/403/401; 0 disables)."
+    "description": "Max additional attempts after a transient failure: transport failures retry on a fresh connection, transient upstream queues (free_mode_capacity_deferred, the waiting room) retry in place against the same session; other upstream errors never retry (0 disables)."
   },
   {
     "key": "UPSTREAM_BASE_URL",

@@ -711,6 +711,30 @@ func isCapacityDeferred(err error) bool {
 	return errors.As(err, &cde)
 }
 
+// isWaitingRoom reports whether err is an upstream waiting-room refusal: any
+// 503 (the model has no serving slot right now) or the 429
+// waiting_room_queued admission race. Both are transient queue conditions
+// the chat path waits out same-session under the TRANSIENT_RETRIES budget.
+func isWaitingRoom(err error) bool {
+	var wr *WaitingRoomError
+	return errors.As(err, &wr)
+}
+
+// queueRetryAfter extracts the honor-this-window delay from a transient
+// queue error: the parsed Retry-After when upstream sent one, else 0 (the
+// caller applies the 10s AI-SDK default).
+func queueRetryAfter(err error) time.Duration {
+	var cde *CapacityDeferredError
+	if errors.As(err, &cde) && cde.RetryAfter > 0 {
+		return cde.RetryAfter
+	}
+	var wr *WaitingRoomError
+	if errors.As(err, &wr) && wr.RetryAfter > 0 {
+		return wr.RetryAfter
+	}
+	return 0
+}
+
 // parseRetryAfter reads the Retry-After header (seconds or HTTP date).
 func parseRetryAfter(hdr http.Header) time.Duration {
 	raw := hdr.Get("Retry-After")
