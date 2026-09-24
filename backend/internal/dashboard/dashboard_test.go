@@ -25,7 +25,7 @@ import (
 )
 
 // newTestDashboard wires a real (mock-upstream) stack behind the dashboard:
-// one pooled token by default, or bridge mode when tokens is 0.
+// a pooled pool with the given fixed-token count (0 = empty pool).
 func newTestDashboard(t *testing.T, tokens int) *httptest.Server {
 	t.Helper()
 	cfg := &config.Config{
@@ -63,7 +63,7 @@ func newTestDashboard(t *testing.T, tokens int) *httptest.Server {
 }
 
 func TestPageOverviewFull(t *testing.T) {
-	ts := newTestDashboard(t, 0) // bridge mode: no fixed tokens
+	ts := newTestDashboard(t, 1) // pooled mode: one fixed token
 	resp, err := http.Get(ts.URL + "/admin")
 	if err != nil {
 		t.Fatal(err)
@@ -77,8 +77,8 @@ func TestPageOverviewFull(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &data); err != nil {
 		t.Fatalf("response is not valid JSON: %v", err)
 	}
-	if data["mode"] != "bridge" {
-		t.Errorf("mode = %v, want bridge", data["mode"])
+	if data["mode"] != "pooled" {
+		t.Errorf("mode = %v, want pooled", data["mode"])
 	}
 	if data["model_count"] == nil || data["model_count"].(float64) == 0 {
 		t.Error("model_count missing or zero")
@@ -667,7 +667,7 @@ func TestTokensDataGlmPromoSynthesis(t *testing.T) {
 		t.Errorf("recent = %v, want 0", glm["recent"])
 	}
 }
-func TestTokensPagePureBridgeInBridgeCard(t *testing.T) {
+func TestTokensPageEmptyPool(t *testing.T) {
 	ts, _ := pageServer(t, 0, "tokens", nil, nil)
 	resp, err := http.Get(ts.URL + "/tokens")
 	if err != nil {
@@ -678,11 +678,16 @@ func TestTokensPagePureBridgeInBridgeCard(t *testing.T) {
 	if err := json.Unmarshal(mustReadAll(t, resp), &data); err != nil {
 		t.Fatalf("response is not valid JSON: %v", err)
 	}
-	if data["in_bridge"] != true {
-		t.Errorf("in_bridge = %v, want true", data["in_bridge"])
+	if data["mode"] != "pooled" {
+		t.Errorf("mode = %v, want pooled", data["mode"])
 	}
 	if data["token_count"].(float64) != 0 {
 		t.Errorf("token_count = %v, want 0", data["token_count"])
+	}
+	for _, k := range []string{"in_bridge", "show_bridge", "bridge_tokens", "bridge_token_cards"} {
+		if _, ok := data[k]; ok {
+			t.Errorf("tokens carries retired %q", k)
+		}
 	}
 }
 
@@ -738,7 +743,7 @@ func TestOverviewPageHasTokens(t *testing.T) {
 func TestTracesPageWithLiveTrace(t *testing.T) {
 	ring := logring.NewHandler(slog.NewTextHandler(io.Discard, nil), 100)
 	slog.New(ring).Info("chat trace", "token", "1", "model", dashModel, "status", "ok", "ms", 42)
-	slog.New(ring).Info("chat trace", "token", "bridge", "model", "deepseek/deepseek-v4-flash", "status", "error", "ms", 7, "error", "upstream")
+	slog.New(ring).Info("chat trace", "token", "2", "model", "deepseek/deepseek-v4-flash", "status", "error", "ms", 7, "error", "upstream")
 	ts, _ := pageServer(t, 1, "traces", nil, ring)
 	resp, err := http.Get(ts.URL + "/traces")
 	if err != nil {
@@ -755,10 +760,10 @@ func TestTracesPageWithLiveTrace(t *testing.T) {
 	}
 }
 
-// TestSetupPageKeyHintModes pins the setup KeyHint per mode in JSON.
-func TestSetupPageKeyHintModes(t *testing.T) {
-	tsBridge, _ := pageServer(t, 0, "setup", nil, nil)
-	resp, err := http.Get(tsBridge.URL + "/setup")
+// TestSetupPageKeyHintPooled pins the pooled setup KeyHint in JSON.
+func TestSetupPageKeyHintPooled(t *testing.T) {
+	ts, _ := pageServer(t, 1, "setup", nil, nil)
+	resp, err := http.Get(ts.URL + "/setup")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,11 +772,16 @@ func TestSetupPageKeyHintModes(t *testing.T) {
 		t.Fatalf("response is not valid JSON: %v", err)
 	}
 	_ = resp.Body.Close()
-	if data["bridge"] != true {
-		t.Errorf("bridge setup should have bridge=true")
+	if data["mode"] != "pooled" {
+		t.Errorf("mode = %v, want pooled", data["mode"])
 	}
 	if data["key_hint"] == nil || data["key_hint"].(string) == "" {
 		t.Error("setup page missing key_hint")
+	}
+	for _, k := range []string{"bridge", "bridge_tokens"} {
+		if _, ok := data[k]; ok {
+			t.Errorf("setup carries retired %q", k)
+		}
 	}
 }
 
@@ -870,12 +880,12 @@ func TestRenderSmokeResultFragment(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/admin/smoke", nil)
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()
-	d.RenderSmokeResult(rec, req, dashModel, "bridge", 123, []byte("preview bytes"), []dashboard.PhaseKV{{Name: "acquire_ms", Ms: 5}, {Name: "total_ms", Ms: 123}})
+	d.RenderSmokeResult(rec, req, dashModel, "1", 123, []byte("preview bytes"), []dashboard.PhaseKV{{Name: "acquire_ms", Ms: 5}, {Name: "total_ms", Ms: 123}})
 	frag := rec.Body.String()
 	if strings.Contains(frag, "<html") {
 		t.Error("HX-Request smoke result rendered a full page")
 	}
-	for _, want := range []string{`"ok":true`, `"model":"` + dashModel + `"`, `"token":"bridge"`, `"ms":123`, `"preview":"preview bytes"`, `"name":"acquire_ms"`, `"name":"total_ms"`} {
+	for _, want := range []string{`"ok":true`, `"model":"` + dashModel + `"`, `"token":"1"`, `"ms":123`, `"preview":"preview bytes"`, `"name":"acquire_ms"`, `"name":"total_ms"`} {
 		if !strings.Contains(frag, want) {
 			t.Errorf("smoke fragment missing %q: %s", want, frag)
 		}

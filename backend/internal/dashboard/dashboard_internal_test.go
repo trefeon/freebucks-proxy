@@ -5,18 +5,19 @@ package dashboard
 // package (43.8% → the functions below were almost entirely untested).
 
 import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/modelcat"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/upstream"
-	"slices"
-	"strings"
-	"testing"
-	"time"
 )
 
-// testDashboard builds a dashboard over an empty (bridge-mode) pool: enough
+// testDashboard builds a dashboard over an empty pool: enough
 // for the metrics/hist path, which only needs PoolSnapshot + registry.
 func testDashboard(t *testing.T) *Dashboard {
 	t.Helper()
@@ -353,15 +354,6 @@ func TestCardFromSnapshotBanAndLocked(t *testing.T) {
 	card = cardFromSnapshot(pool.TokenSnapshot{Token: 2})
 	if card.Locked || card.BanType != "" || card.BannedUntil != "" {
 		t.Errorf("clean card = %v/%q/%q, want false/empty/empty", card.Locked, card.BanType, card.BannedUntil)
-	}
-
-	bc := bridgeCardFromSnapshot(pool.BridgeTokenSnapshot{
-		Key:         "abcd1234efgh",
-		BanType:     "temporary",
-		BannedUntil: until,
-	})
-	if bc.BanType != "temporary" || bc.BannedUntil != until.Format(time.RFC3339) {
-		t.Errorf("bridge card ban = %q/%q, want temporary/%s", bc.BanType, bc.BannedUntil, until.Format(time.RFC3339))
 	}
 }
 

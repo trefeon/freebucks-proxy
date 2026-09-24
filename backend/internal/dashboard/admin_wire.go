@@ -261,8 +261,9 @@ type SpawnSessionRequest struct {
 }
 
 // --- system ---
-
-// ModeSwitchRequest is the POST /admin/mode body.
+// ModeSwitchRequest is the POST /admin/mode body. The dashboard no longer
+// advertises the route (pool-only); the type stays until the server-owned
+// handler is excised.
 type ModeSwitchRequest struct {
 	Mode string `json:"mode"`
 }
@@ -285,7 +286,7 @@ type DiagResponse struct {
 	Checks []DiagCheck `json:"checks"`
 }
 
-// SmokeRequest is the POST /admin/smoke body (bridge mode relays Token).
+// SmokeRequest is the POST /admin/smoke body (Token names a pool token index).
 type SmokeRequest struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`
@@ -376,8 +377,6 @@ func AdminAPIPaths() []AdminAPIPath {
 		{Method: "POST", Path: "/admin/tokens/{id}/unlock", OperationID: "tokenUnlock", Summary: "Return one token to rotation", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/lock", OperationID: "tokenLock", Summary: "Take one token out of rotation", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/unlock-lock", OperationID: "tokenUnlockLock", Summary: "Unlock then immediately re-lock (cooldown reset)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
-		{Method: "POST", Path: "/admin/bridge-tokens/{key}/lock", OperationID: "bridgeTokenLock", Summary: "Lock one bridge-mode entry", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
-		{Method: "POST", Path: "/admin/bridge-tokens/{key}/unlock", OperationID: "bridgeTokenUnlock", Summary: "Unlock one bridge-mode entry", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/finish", OperationID: "tokenFinish", Summary: "FINISH one token's upstream runs", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/drop-session", OperationID: "tokenDropSession", Summary: "Drop one token's upstream session", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/{id}/refund-refresh", OperationID: "tokenRefundRefresh", Summary: "Replay one token's parked pending-refund DELETE (same instance; drops the result if the account changed)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: ResultEnvelope{}},
@@ -388,7 +387,6 @@ func AdminAPIPaths() []AdminAPIPath {
 		{Method: "POST", Path: "/admin/tokens/add", OperationID: "tokenAdd", Summary: "Add one upstream token to the pool and persist to .env", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenAddRequest{}, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/remove", OperationID: "tokenRemove", Summary: "Remove one pool token (absent index removes the last)", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenRemoveRequest{}, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/tokens/swap", OperationID: "tokenSwap", Summary: "Swap two pool positions", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: TokenSwapRequest{}, Response: ResultEnvelope{}},
-		{Method: "POST", Path: "/admin/mode", OperationID: "modeSwitch", Summary: "Switch bridge/pooled mode (loopback rules apply)", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: ModeSwitchRequest{}, Response: ResultEnvelope{}},
 		{Method: "POST", Path: "/admin/diag", OperationID: "diag", Summary: "Configuration and upstream reachability checks", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: DiagResponse{}},
 		{Method: "POST", Path: "/admin/api/change-password", OperationID: "changePassword", Summary: "Rotate the admin dashboard password", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: ChangePasswordRequest{}, Response: ChangePasswordResponse{}},
 		{Method: "POST", Path: "/admin/api/require-login", OperationID: "requireLogin", Summary: "Enable/disable dashboard login (open mode is loopback-only)", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: RequireLoginRequest{}, Response: RequireLoginResponse{}},

@@ -10,7 +10,7 @@ import { settingsConfig, tokenRow, tokensPayload } from "./mock-data.js";
 // flows; this suite pins every remaining button, toggle, select, radio and
 // dialog on the operator path: token reorder/clear/probe/finish/drop-session,
 // dialog dismiss, strategy preset radios, slots stepper, log view/filter/paging
-// controls, settings discard/bridge/rate-limit/password, setup key buttons,
+// controls, settings discard/rate-limit/password, setup key buttons,
 // sidebar navigation and the overview error-retry path.
 // ---------------------------------------------------------------------------
 
@@ -693,9 +693,9 @@ test.describe("operator interactions (hermetic mocks)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 10. Pool: bridge toggle and rate-limit input instant-save per key.
+  // 10. Pool: rate-limit input instant-saves per key.
   // -------------------------------------------------------------------------
-  test("pool: bridge toggle and rate-limit input instant-save per key", async ({
+  test("pool: rate-limit input instant-saves per key", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -711,15 +711,6 @@ test.describe("operator interactions (hermetic mocks)", () => {
     // Pool controls moved behind the Strategy tab.
     await page.getByRole("button", { name: "Strategy" }).click();
 
-    // Absent from .env, the bridge switch defaults to on.
-    const bridge = page.getByRole("switch", { name: "BRIDGE_ENABLED" });
-    const bridgeReq = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
-      { timeout: 10000 },
-    );
-    await bridge.click();
-    await bridgeReq;
-
     const ipReq = page.waitForRequest(
       (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
       { timeout: 10000 },
@@ -727,9 +718,6 @@ test.describe("operator interactions (hermetic mocks)", () => {
     await page.locator('input[aria-label="RATE_LIMIT_PER_IP"]').fill("25");
     await ipReq;
 
-    await expect
-      .poll(() => posted.find((p) => p.key === "BRIDGE_ENABLED")?.value)
-      .toBe("false");
     await expect
       .poll(() => posted.find((p) => p.key === "RATE_LIMIT_PER_IP")?.value)
       .toBe("25");

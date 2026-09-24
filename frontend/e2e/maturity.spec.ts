@@ -20,9 +20,6 @@ function tonightPacific() {
 function maintenanceTokens() {
   return {
     mode: "pooled",
-    in_bridge: false,
-    show_bridge: false,
-    bridge_tokens: 0,
     token_count: 3,
     has_tokens: true,
     maturity_enabled: true,

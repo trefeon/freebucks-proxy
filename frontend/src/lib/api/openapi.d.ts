@@ -38,6 +38,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/admin/api/ads/legs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Recent ad-leg firing events, newest first (titles/brands only, never URLs) */
+    get: operations["getAdsLegs"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/api/ads/summary": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Ad-leg firing totals (auction/impression/streak, credits, per-provider and per-surface) */
+    get: operations["getAdsSummary"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/api/auth/status": {
     parameters: {
       query?: never;
@@ -482,40 +516,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/admin/bridge-tokens/{key}/lock": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Lock one bridge-mode entry */
-    post: operations["bridgeTokenLock"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/admin/bridge-tokens/{key}/unlock": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Unlock one bridge-mode entry */
-    post: operations["bridgeTokenUnlock"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/admin/config": {
     parameters: {
       query?: never;
@@ -648,23 +648,6 @@ export interface paths {
     get: operations["spaMetrics"];
     put?: never;
     post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/admin/mode": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Switch bridge/pooled mode (loopback rules apply) */
-    post: operations["modeSwitch"];
     delete?: never;
     options?: never;
     head?: never;
@@ -835,6 +818,23 @@ export interface paths {
     put?: never;
     /** Remove one pool token (absent index removes the last) */
     post: operations["tokenRemove"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/tokens/streak-touch": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Run on-demand streak touches for eligible accounts */
+    post: operations["tokensStreakTouch"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1032,6 +1032,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    AdSummary: {
+      byProvider: {
+        [key: string]: number;
+      };
+      bySurface: {
+        [key: string]: number;
+      };
+      creditsGranted: number;
+      errors: number;
+      lastEventAt: string;
+      totals: {
+        auction: number;
+        impression: number;
+        streak: number;
+      };
+    };
     AuthStatusResponse: {
       authenticated: boolean;
       has_password: boolean;
@@ -1075,9 +1091,6 @@ export interface components {
     };
     LogoutResponse: {
       ok: boolean;
-    };
-    ModeSwitchRequest: {
-      mode: string;
     };
     NoticesResponse: {
       count: number;
@@ -1179,6 +1192,19 @@ export interface components {
     SpawnSessionRequest: {
       model?: string;
     };
+    StreakTouchResponse: {
+      ok: boolean;
+      results: {
+        email: string;
+        model: string;
+        reason?: string;
+        status: string;
+        streak: number;
+        timestamp: number;
+        token: number;
+      }[];
+      total: number;
+    };
     TokenAddRequest: {
       token: string;
     };
@@ -1210,6 +1236,16 @@ export interface components {
       env_content: string;
       has_env_file: boolean;
     };
+    getAdsLegsResponse: {
+      brand?: string;
+      credits?: number;
+      error?: string;
+      leg: string;
+      provider: string;
+      surface: string;
+      title?: string;
+      ts: string;
+    }[];
     getConfigMetaResponse: {
       default: string;
       description: string;
@@ -1354,6 +1390,8 @@ export interface components {
         display_name?: string;
         efforts?: string[];
         id: string;
+        list_price?: number;
+        list_price_label?: string;
         notice?: string;
         offer?: {
           joinable: boolean;
@@ -1362,6 +1400,7 @@ export interface components {
           total: number;
           user_remaining: number;
         } | null;
+        plan_required: boolean;
         pool?: string;
         price: number;
         price_label?: string;
@@ -1370,87 +1409,20 @@ export interface components {
         served: boolean;
         tagline?: string;
         tiers?: string[];
+        tooltip?: string;
         withdrawn: boolean;
       }[];
     };
     overviewData: {
       base_url: string;
-      bridge_token_cards?: {
-        active_runs: number;
-        ban_type?: string;
-        banned_until?: string;
-        cooldown_until: string;
-        freebucks?: {
-          balance: number;
-          daily: {
-            limit: number;
-            percent_used: number;
-            remaining: number;
-            reset_at?: string;
-            reset_time_zone?: string;
-            spent: number;
-          };
-          first_tab_discount?: {
-            amount: number;
-            available: boolean;
-            holder_surface?: string;
-          } | null;
-          list_prices?: {
-            [key: string]: number;
-          };
-          monthly?: {
-            limit: number;
-            percent_used: number;
-            remaining: number;
-            reset_at?: string;
-            reset_time_zone?: string;
-            spent: number;
-          } | null;
-          off_peak?: {
-            [key: string]: {
-              end_hour_utc: number;
-              price: number;
-              regular_price: number;
-              start_hour_utc: number;
-            };
-          };
-          plan_id?: string;
-          price_notices?: {
-            [key: string]: string;
-          };
-          prices?: {
-            [key: string]: number;
-          };
-          quota_exempt?: boolean;
-          spend: {
-            limit_usd: number;
-            reset_at?: string;
-          };
-          wallet: {
-            balance: number;
-            monthly_bonus: number;
-            next_bonus_at?: string;
-          };
-        } | null;
-        key: string;
-        locked: boolean;
-        model: string;
-        requests: number;
-        session_active: boolean;
-        spend_day: number;
-        status: string;
-      }[];
-      bridge_tokens: number;
       fingerprint_rotations: number;
       has_tokens: boolean;
-      in_bridge: boolean;
       is_default_admin_token: boolean;
       mode: string;
       model_count: number;
       models: string[];
       require_login: boolean;
       safe_mode: boolean;
-      show_bridge: boolean;
       tokens: {
         access_tier?: string;
         account_id?: string;
@@ -1612,8 +1584,6 @@ export interface components {
     };
     setupData: {
       base_url: string;
-      bridge: boolean;
-      bridge_tokens: number;
       has_tokens: boolean;
       key_hint: string;
       mode: string;
@@ -1622,74 +1592,7 @@ export interface components {
       token_count: number;
     };
     tokensData: {
-      bridge_token_cards?: {
-        active_runs: number;
-        ban_type?: string;
-        banned_until?: string;
-        cooldown_until: string;
-        freebucks?: {
-          balance: number;
-          daily: {
-            limit: number;
-            percent_used: number;
-            remaining: number;
-            reset_at?: string;
-            reset_time_zone?: string;
-            spent: number;
-          };
-          first_tab_discount?: {
-            amount: number;
-            available: boolean;
-            holder_surface?: string;
-          } | null;
-          list_prices?: {
-            [key: string]: number;
-          };
-          monthly?: {
-            limit: number;
-            percent_used: number;
-            remaining: number;
-            reset_at?: string;
-            reset_time_zone?: string;
-            spent: number;
-          } | null;
-          off_peak?: {
-            [key: string]: {
-              end_hour_utc: number;
-              price: number;
-              regular_price: number;
-              start_hour_utc: number;
-            };
-          };
-          plan_id?: string;
-          price_notices?: {
-            [key: string]: string;
-          };
-          prices?: {
-            [key: string]: number;
-          };
-          quota_exempt?: boolean;
-          spend: {
-            limit_usd: number;
-            reset_at?: string;
-          };
-          wallet: {
-            balance: number;
-            monthly_bonus: number;
-            next_bonus_at?: string;
-          };
-        } | null;
-        key: string;
-        locked: boolean;
-        model: string;
-        requests: number;
-        session_active: boolean;
-        spend_day: number;
-        status: string;
-      }[];
-      bridge_tokens: number;
       has_tokens: boolean;
-      in_bridge: boolean;
       maturity_enabled: boolean;
       maturity_window_end?: string;
       maturity_window_start?: string;
@@ -1697,7 +1600,6 @@ export interface components {
       mode: string;
       queue_depth: number;
       queue_wait: string;
-      show_bridge: boolean;
       slots_per_account: number;
       token_count: number;
       tokens: {
@@ -1976,6 +1878,49 @@ export interface operations {
         };
         content: {
           "text/html": string;
+        };
+      };
+    };
+  };
+  getAdsLegs: {
+    parameters: {
+      query?: {
+        /** @description Max events, newest first (default 50, capped at 200) */
+        limit?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Recent ad-leg firing events, newest first (titles/brands only, never URLs) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["getAdsLegsResponse"];
+        };
+      };
+    };
+  };
+  getAdsSummary: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Ad-leg firing totals (auction/impression/streak, credits, per-provider and per-surface) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdSummary"];
         };
       };
     };
@@ -2624,50 +2569,6 @@ export interface operations {
       };
     };
   };
-  bridgeTokenLock: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        key: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Lock one bridge-mode entry */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ResultEnvelope"];
-        };
-      };
-    };
-  };
-  bridgeTokenUnlock: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        key: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Unlock one bridge-mode entry */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ResultEnvelope"];
-        };
-      };
-    };
-  };
   spaConfig: {
     parameters: {
       query?: never;
@@ -2882,30 +2783,6 @@ export interface operations {
       };
     };
   };
-  modeSwitch: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["ModeSwitchRequest"];
-      };
-    };
-    responses: {
-      /** @description Switch bridge/pooled mode (loopback rules apply) */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ResultEnvelope"];
-        };
-      };
-    };
-  };
   spaModels: {
     parameters: {
       query?: never;
@@ -3114,6 +2991,26 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ResultEnvelope"];
+        };
+      };
+    };
+  };
+  tokensStreakTouch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Run on-demand streak touches for eligible accounts */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StreakTouchResponse"];
         };
       };
     };

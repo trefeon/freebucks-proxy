@@ -115,8 +115,7 @@
   // Per-trace LLM token counts ride the Contract UsageRecord keys verbatim
   // (input/output/cached/reasoning/total); older rows without them render
   // no token line. Never confuse these with the Account column: that value
-  // is the serving pool account index ("bridge" for client-supplied
-  // tokens), not LLM token usage.
+  // is the serving pool account index, not LLM token usage.
   function num(n) {
     const v = Number(n);
     return Number.isFinite(v) ? v.toLocaleString() : "0";

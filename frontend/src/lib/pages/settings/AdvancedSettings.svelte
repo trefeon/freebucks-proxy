@@ -37,10 +37,9 @@
    *   otherwise only the listed catalog group ids (e.g. ["pool"])
    * @prop {Array<string> | null} [onlyKeys] - explicit white-list of catalog
    *   keys this card owns; it WINS over the COVERED set, the group filter,
-   *   the bridge gate, and the catalog `hidden` flag (secrets never render)
+   *   and the catalog `hidden` flag (secrets never render)
    * @prop {string} [cardTitle] - card heading, translated at render
    * @prop {string} [cardDescription] - card subheading, translated at render
-   * @prop {boolean} [bridgePossible=true] - BRIDGE_IDLE_EVICT hides unless set
    * @prop {boolean} [degraded=false] - settings store offline: rows render
    *   an honest offline note and stay read-only for saves
    */
@@ -58,7 +57,6 @@
     onlyKeys = null,
     cardTitle = "Advanced",
     cardDescription = "Every remaining tunable with its decided default. Restart-only keys need a container restart; the rest apply on save.",
-    bridgePossible = true,
     degraded = false,
   } = $props();
   // Keys owned by the curated section components above (Gateway, Traffic,
@@ -75,8 +73,10 @@
   // session/cache knobs (ADOPT_CLI_SESSION, MODEL_UNAVAILABLE_CACHE_TTL,
   // SESSION_PERSIST, SESSION_PROBE_CACHE_TTL) need no entry either: the
   // catalog flags them `hidden`, so the Hidden keys disclosure owns them.
+  // RETIRED keys are never rendered even if an older backend still
+  // advertises them in the catalog (pool-only excision).
+  const RETIRED = new Set(["BRIDGE_ENABLED", "BRIDGE_IDLE_EVICT"]);
   const COVERED = new Set([
-    "BRIDGE_ENABLED",
     "DASHBOARD_REQUIRE_LOGIN",
     "HTTP_READ_TIMEOUT",
     "LOG_LEVEL",
@@ -101,19 +101,17 @@
     security: "Security",
   };
   let env = $derived(parseEnv(rawText));
-  // BRIDGE_IDLE_EVICT only makes sense while bridge mode can serve: hidden
-  // unless the parent reports bridge as possible (BRIDGE_ENABLED on).
   let rows = $derived(
     (meta ?? []).filter((e) => {
       if (!e || !e.key || e.secret) return false;
       // An explicit white-list wins over every other rule: the caller names
-      // the exact keys its card owns, so COVERED, the group filter, the
-      // bridge gate, and the catalog `hidden` flag cannot drop them.
+      // the exact keys its card owns, so COVERED, the group filter, and the
+      // catalog `hidden` flag cannot drop them.
       if (onlyKeys) return onlyKeys.includes(e.key);
       return (
         !e.hidden &&
+        !RETIRED.has(e.key) &&
         !COVERED.has(e.key) &&
-        (e.key !== "BRIDGE_IDLE_EVICT" || bridgePossible) &&
         (!onlyGroups || onlyGroups.includes(e.group))
       );
     }),

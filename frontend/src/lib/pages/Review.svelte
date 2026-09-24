@@ -139,21 +139,6 @@
       ],
     },
     {
-      title: "Bridge (kept-for-human)",
-      rows: [
-        {
-          m: "POST",
-          p: "/admin/bridge-tokens/{key}/lock",
-          note: "Lock bridge token {key}",
-        },
-        {
-          m: "POST",
-          p: "/admin/bridge-tokens/{key}/unlock",
-          note: "Unlock bridge token {key}",
-        },
-      ],
-    },
-    {
       title: "Config & settings",
       rows: [
         {
@@ -232,12 +217,6 @@
           p: "/admin/restart",
           note: "DESTRUCTIVE: restart gateway (confirm)",
           danger: true,
-          json: true,
-        },
-        {
-          m: "POST",
-          p: "/admin/mode",
-          note: "Kept-for-human: switch gateway mode",
           json: true,
         },
         {

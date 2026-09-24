@@ -12,7 +12,7 @@ import (
 // TestAggregateUsageByKey pins the ?group_by=key contract: per-key request
 // counts, 0..1 success rates, token totals, per-model splits, first/last
 // seen bounds, wire-price freebucks, deterministic key_id order, and the ""
-// bucket for bridge/no-key requests.
+// bucket for keyless requests.
 func TestAggregateUsageByKey(t *testing.T) {
 	now := time.Now().UnixMilli()
 	entries := []UsageRecord{

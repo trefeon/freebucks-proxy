@@ -25,7 +25,6 @@ func TestHandleEventsStreamInitialSnapshotAndPing(t *testing.T) {
 		SessionCallTimeout: 5 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    "https://www.codebuff.com",
-		BridgeEnabled:      true,
 	}
 	reg := registry.New(cfg, nil)
 	p, err := pool.New(cfg, nil, nil, reg)
@@ -74,8 +73,8 @@ func TestHandleEventsStreamInitialSnapshotAndPing(t *testing.T) {
 	if err := json.Unmarshal([]byte(dataLine), &td); err != nil {
 		t.Fatalf("first event data is not valid tokensData JSON: %v\npayload: %s", err, dataLine)
 	}
-	if td.Mode != "bridge" {
-		t.Errorf("initial snapshot Mode = %q, want bridge", td.Mode)
+	if td.Mode != "pooled" {
+		t.Errorf("initial snapshot Mode = %q, want pooled", td.Mode)
 	}
 }
 
@@ -88,7 +87,6 @@ func TestEventStreamHubLifecycle(t *testing.T) {
 		SessionCallTimeout: 5 * time.Second,
 		RegistryRefresh:    6 * time.Hour,
 		UpstreamBaseURL:    "https://www.codebuff.com",
-		BridgeEnabled:      true,
 	}
 	reg := registry.New(cfg, nil)
 	p, err := pool.New(cfg, nil, nil, reg)
