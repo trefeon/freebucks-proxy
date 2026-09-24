@@ -6,11 +6,13 @@ import {
   ScrollText,
   FlaskConical,
   AlertTriangle,
+  Megaphone,
 } from "@lucide/svelte";
 import Overview from "./pages/Overview.svelte";
 import Tokens from "./pages/Tokens.svelte";
 import Plans from "./pages/Plans.svelte";
 import Activity from "./pages/Activity.svelte";
+import Ads from "./pages/Ads.svelte";
 import Settings from "./pages/Settings.svelte";
 import DevTools from "./pages/DevTools.svelte";
 import Review from "./pages/Review.svelte";
@@ -43,6 +45,7 @@ export const NAV_ITEMS = [
   { id: "tokens", component: Tokens, label: "Accounts", icon: Users },
   { id: "plans", component: Plans, label: "Models", icon: Cpu },
   { id: "activity", component: Activity, label: "Logs", icon: ScrollText },
+  { id: "ads", component: Ads, label: "Ads", icon: Megaphone },
   {
     id: "settings",
     component: Settings,
