@@ -80,7 +80,10 @@
     const until = formatLocalDateTime(token.cooldown_until);
     const kind = token.cooldown_kind ? ` (${token.cooldown_kind})` : "";
     const resetsAt =
-      token.cooldown_resets_at || token.freebucks?.daily?.reset_at || "";
+      token.cooldown_resets_at ||
+      token.freebucks?.daily?.reset_at_utc ||
+      token.freebucks?.daily?.reset_at ||
+      "";
     const resets = resetsAt ? ` · resets ${formatLocalDateTime(resetsAt)}` : "";
     if (isExhausted(token)) {
       return `Exhausted — upstream 429${kind} until ${until || "—"} — spills to next account${resets}`;

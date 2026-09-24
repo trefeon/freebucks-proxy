@@ -1434,6 +1434,8 @@ export interface components {
         cooldown_resets_at?: string;
         cooldown_until: string;
         cooldown_window_hours?: number;
+        country_block_reason?: string;
+        country_code?: string;
         email?: string;
         freebucks?: {
           balance: number;
@@ -1442,6 +1444,7 @@ export interface components {
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_at_utc?: string;
             reset_time_zone?: string;
             spent: number;
           };
@@ -1458,6 +1461,7 @@ export interface components {
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_at_utc?: string;
             reset_time_zone?: string;
             spent: number;
           } | null;
@@ -1613,6 +1617,8 @@ export interface components {
         cooldown_resets_at?: string;
         cooldown_until: string;
         cooldown_window_hours?: number;
+        country_block_reason?: string;
+        country_code?: string;
         email?: string;
         freebucks?: {
           balance: number;
@@ -1621,6 +1627,7 @@ export interface components {
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_at_utc?: string;
             reset_time_zone?: string;
             spent: number;
           };
@@ -1637,6 +1644,7 @@ export interface components {
             percent_used: number;
             remaining: number;
             reset_at?: string;
+            reset_at_utc?: string;
             reset_time_zone?: string;
             spent: number;
           } | null;

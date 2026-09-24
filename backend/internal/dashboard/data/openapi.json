@@ -1572,6 +1572,12 @@
                 "cooldown_window_hours": {
                   "type": "integer"
                 },
+                "country_block_reason": {
+                  "type": "string"
+                },
+                "country_code": {
+                  "type": "string"
+                },
                 "email": {
                   "type": "string"
                 },
@@ -1593,6 +1599,9 @@
                           "type": "number"
                         },
                         "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_at_utc": {
                           "type": "string"
                         },
                         "reset_time_zone": {
@@ -1648,6 +1657,9 @@
                           "type": "number"
                         },
                         "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_at_utc": {
                           "type": "string"
                         },
                         "reset_time_zone": {
@@ -2226,6 +2238,12 @@
                 "cooldown_window_hours": {
                   "type": "integer"
                 },
+                "country_block_reason": {
+                  "type": "string"
+                },
+                "country_code": {
+                  "type": "string"
+                },
                 "email": {
                   "type": "string"
                 },
@@ -2247,6 +2265,9 @@
                           "type": "number"
                         },
                         "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_at_utc": {
                           "type": "string"
                         },
                         "reset_time_zone": {
@@ -2302,6 +2323,9 @@
                           "type": "number"
                         },
                         "reset_at": {
+                          "type": "string"
+                        },
+                        "reset_at_utc": {
                           "type": "string"
                         },
                         "reset_time_zone": {

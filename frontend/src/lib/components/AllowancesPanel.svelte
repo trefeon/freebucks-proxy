@@ -26,7 +26,7 @@
     offPeakCopy,
   } from "../utils/freebucks.js";
   import { streakBadgeFor } from "../utils/tokenStatus.js";
-  import { formatLocalDateTime } from "../utils/format.js";
+  import { formatLocalDateTime, viewerTimeZone } from "../utils/format.js";
 
   let data = $state(null);
   let loading = $state(true);
@@ -117,10 +117,23 @@
 
   // Global reset strip: the first account carrying a daily reset time sets
   // the shared Pacific-midnight countdown for every account on the page.
+  // Server-truth first: reset_at_utc is the authoritative refill instant,
+  // reset_at its legacy twin — the countdown below anchors to whichever
+  // ships, so old servers keep working.
   const resetSource = $derived(
-    (data?.tokens ?? []).find((t) => t.freebucks?.daily?.reset_at),
+    (data?.tokens ?? []).find(
+      (t) => t.freebucks?.daily?.reset_at_utc ?? t.freebucks?.daily?.reset_at,
+    ),
   );
-  const resetAt = $derived(resetSource?.freebucks?.daily?.reset_at ?? "");
+  const resetAt = $derived(
+    resetSource?.freebucks?.daily?.reset_at_utc ??
+      resetSource?.freebucks?.daily?.reset_at ??
+      "",
+  );
+  // Skew probe: the browser zone every wall clock on this page renders in.
+  // Stamped into the page so a wrong-looking clock traces to the viewer, not
+  // the server instant.
+  const viewerZone = viewerTimeZone();
   const resetCountdown = $derived(
     resetAt ? freebucksResetCountdown(resetAt, now) : "",
   );
@@ -177,7 +190,7 @@
   function fleetOffPeakLines() {
     const seen = new Set();
     const out = [];
-    for (const token of (data?.tokens ?? [])) {
+    for (const token of data?.tokens ?? []) {
       for (const line of offPeakLines(token)) {
         if (!seen.has(line)) {
           seen.add(line);
@@ -280,6 +293,15 @@
       </p>
     {/if}
   {/if}
+  <p
+    class="text-[11px] text-[var(--fp-dim)] font-mono"
+    data-testid="tz-probe"
+    title={$tr(
+      "Server instants render in this browser zone; a wrong-looking clock is viewer skew, not server drift",
+    )}
+  >
+    {$tr("Times shown in {zone}", { zone: viewerZone })}
+  </p>
   {#each fleetOffPeakLines() as line, i (i)}
     <p
       class="fp-num text-[11px] text-[var(--fp-muted)] tabular-nums"
