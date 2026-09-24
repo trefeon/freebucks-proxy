@@ -250,6 +250,24 @@
   },
   {
     "method": "GET",
+    "path": "/admin/api/ads/summary",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "adsSummary"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/ads/legs",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "adsLegs"
+    }
+  },
+  {
+    "method": "GET",
     "path": "/admin",
     "auth": "dashboard",
     "js": null

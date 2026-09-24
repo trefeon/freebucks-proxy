@@ -1,6 +1,59 @@
 {
   "components": {
     "schemas": {
+      "AdSummary": {
+        "properties": {
+          "byProvider": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "bySurface": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "creditsGranted": {
+            "type": "number"
+          },
+          "errors": {
+            "type": "integer"
+          },
+          "lastEventAt": {
+            "type": "string"
+          },
+          "totals": {
+            "properties": {
+              "auction": {
+                "type": "integer"
+              },
+              "impression": {
+                "type": "integer"
+              },
+              "streak": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "auction",
+              "impression",
+              "streak"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "byProvider",
+          "bySurface",
+          "creditsGranted",
+          "errors",
+          "lastEventAt",
+          "totals"
+        ],
+        "type": "object"
+      },
       "AuthStatusResponse": {
         "properties": {
           "authenticated": {
@@ -736,6 +789,44 @@
           "has_env_file"
         ],
         "type": "object"
+      },
+      "getAdsLegsResponse": {
+        "items": {
+          "properties": {
+            "brand": {
+              "type": "string"
+            },
+            "credits": {
+              "type": "number"
+            },
+            "error": {
+              "type": "string"
+            },
+            "leg": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "surface": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "leg",
+            "provider",
+            "surface",
+            "ts"
+          ],
+          "type": "object"
+        },
+        "type": "array"
       },
       "getConfigMetaResponse": {
         "items": {
@@ -3528,6 +3619,69 @@
           }
         ],
         "summary": "SPA shell (HTML)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/admin/api/ads/legs": {
+      "get": {
+        "operationId": "getAdsLegs",
+        "parameters": [
+          {
+            "description": "Max events, newest first (default 50, capped at 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/getAdsLegsResponse"
+                }
+              }
+            },
+            "description": "Recent ad-leg firing events, newest first (titles/brands only, never URLs)"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Recent ad-leg firing events, newest first (titles/brands only, never URLs)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/admin/api/ads/summary": {
+      "get": {
+        "operationId": "getAdsSummary",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdSummary"
+                }
+              }
+            },
+            "description": "Ad-leg firing totals (auction/impression/streak, credits, per-provider and per-surface)"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Ad-leg firing totals (auction/impression/streak, credits, per-provider and per-surface)",
         "tags": [
           "views"
         ]
