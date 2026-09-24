@@ -1,6 +1,6 @@
-# DIVERGENCES — 9 proxy-vs-CLI divergences (static, pin 0.0.193)
+# DIVERGENCES — 9 proxy-vs-CLI divergences (static, pin 0.0.194)
 
-> Version: live CLI 0.0.194 vs static pin 0.0.193. Proxy side = repo backend (current); CLI side = pin-0.0.193 vendor tree. No tokens/hosts.
+> Version: npm freebuff 0.0.194 @ 08b5a38f3 (re-pinned 2026-09-24). Proxy side = repo backend (current); CLI side = pin-0.0.194 vendor tree. No tokens/hosts.
 
 | # | Title | CLI does | Proxy assumes/diverges | Evidence |
 |---|---|---|---|---|
@@ -19,3 +19,8 @@ Extra proxy-only deltas noted in ModelSelectFlow (not counted above): LimitedMod
 ## UNVERIFIED
 - Whether 0.0.194 closes or widens any of D1–D9 (live capture required).
 - Server-side truth for D7/D9 (no web/ source).
+
+## 0.0.194 pin delta (2026-09-24, 276db8d -> 08b5a38f3)
+- Registry pins (6/6) SAME: catalog/notice/status sources unchanged at the pin, so D8 (session-types SAME) and notice copy (spend-ceilings/model-availability/peak-hours SAME) stand as written.
+- Wire drift (classified BEFORE baseline refresh): FUNCTIONAL in common/src/tools/constants.ts (new `report_project_profile` tool) and packages/agent-runtime/src/run-agent-step.ts (project-profile offer/report loop); other 11 wire files SAME.
+- Neither FUNCTIONAL row needs a Go-side port: wiregen extracts only param constants from tools/constants.ts (toolnames_gen header-only change), and the proxy runs no agent-step loop. D1-D7 files sit outside the pin set and were not re-verified by this re-pin.
