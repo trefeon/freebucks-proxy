@@ -1,13 +1,13 @@
 # Data architecture: DB vs env vs JSON vs log vs mem
 
-Status: proposed · 2026-09-18 · supersedes hallway discussion on
+Status: proposed Â· 2026-09-18 Â· supersedes hallway discussion on
 "why is so much temp, why can't we persist like 9router".
 
 ## Context
 
 `reference/routers/9router` was researched as the durability comparison
 (`src/lib/db/*`, `src/sse/services/auth.js`, `open-sse/services/combo.js`,
-`ARCHITECTURE.md` — note: that doc is stale, still claims `db.json`).
+`ARCHITECTURE.md` â€” note: that doc is stale, still claims `db.json`).
 Finding: 9router persists CONFIG + append-only history in SQLite and keeps
 hot runtime ephemeral, exactly like us. Its one real divergence is
 persisting timestamped cooldown locks (`modelLock_*` in the connection row);
@@ -37,30 +37,30 @@ defaults < JSON -config (explicit path only) < dotenv ./.env (cwd-wins seed)
 
 Authority + staleness + latency decides the home:
 
-- Dashboard edits it and it must survive restart → `DB` (`settings` overlay).
-- Container binding resolves before `DB` loads → `env` only.
-- Sockets/goroutines, upstream-owned, or sub-second hot path → `mem`
+- Dashboard edits it and it must survive restart â†’ `DB` (`settings` overlay).
+- Container binding resolves before `DB` loads â†’ `env` only.
+- Sockets/goroutines, upstream-owned, or sub-second hot path â†’ `mem`
   (+ timestamped `DB-hint` at most, re-validated, never authoritative).
-- Queryable/auditable/retained → `DB` table with `Purge` cutoff.
-- Tail/debug bulk → `log` file, never `DB`. Ad-hoc `JSON` forbidden
+- Queryable/auditable/retained â†’ `DB` table with `Purge` cutoff.
+- Tail/debug bulk â†’ `log` file, never `DB`. Ad-hoc `JSON` forbidden
   outside explicit `-config`.
 
-### Config plane → `DB` overlay is truth, `env` wins, files are seed
+### Config plane â†’ `DB` overlay is truth, `env` wins, files are seed
 
 | Datum | Home |
 |---|---|
 | `AUTH_TOKENS`, `ADMIN_TOKEN`, `API_KEYS`, `WEBHOOK_URL` | `DB` rows (`0600`) + dedicated endpoints; `.env` = boot seed only |
-| Live knobs (`SAFE_MODE`, `BRIDGE_ENABLED`, `MODELS_ALLOW`, `PIN_MODEL`, `SLOTS_*`, `QUEUE_*`, `COOLDOWN_*`, `SESSION_*`, `MATURITY_*`, `QUOTA_*`, `RATE_LIMIT_*`, `CORS_*`, …) | `DB`, live-apply via reload fan-out |
-| Restart-only tunables (`UPSTREAM_BASE_URL`, `REQUEST_TIMEOUT`, `TLS_FINGERPRINT`, `LOG_LEVEL`, …) | `DB` persist + honest `restart_only` response |
+| Live knobs (`SAFE_MODE`, `MODELS_ALLOW`, `PIN_MODEL`, `SLOTS_*`, `QUEUE_*`, `COOLDOWN_*`, `SESSION_*`, `MATURITY_*`, `QUOTA_*`, `RATE_LIMIT_*`, `CORS_*`, â€¦) | `DB`, live-apply via reload fan-out |
+| Restart-only tunables (`UPSTREAM_BASE_URL`, `REQUEST_TIMEOUT`, `TLS_FINGERPRINT`, `LOG_LEVEL`, â€¦) | `DB` persist + honest `restart_only` response |
 | `LISTEN_ADDR`, `DB_PATH` | `env` only (socket/`sqliteDSN` resolve before overlay loads; `DB_PATH` has no catalog entry) |
-| `SESSION_STATE_FILE`/`SESSION_PERSIST`, `LOG_FILE`, `HTTP_READ_TIMEOUT`, `AUTO_DISCOVER_TOKEN`, `ADMIN_FORCE_SECURE_COOKIES` | `env` only (proposed; readers consult `env/.env`, never overlay — a saved row is an inert lie) |
+| `SESSION_STATE_FILE`/`SESSION_PERSIST`, `LOG_FILE`, `HTTP_READ_TIMEOUT`, `AUTO_DISCOVER_TOKEN`, `ADMIN_FORCE_SECURE_COOKIES` | `env` only (proposed; readers consult `env/.env`, never overlay â€” a saved row is an inert lie) |
 | `-config JSON` / `.env` / `.env.example` | `JSON` explicit path only; `.env` seed + break-glass editor; `.example` docs |
 | `SSE tokenStateHash` (`dashboard/events.go`) | `mem` (1s view fingerprint, never disk) |
 
 One-shot `config:migrated_env_v1` converges effective config into the overlay;
 `env` still wins at runtime (`settings_migrate.go`).
 
-### Runtime/session plane → `DB-hint` vs `mem`
+### Runtime/session plane â†’ `DB-hint` vs `mem`
 
 | Datum | Home | Restart |
 |---|---|---|
@@ -68,19 +68,21 @@ One-shot `config:migrated_env_v1` converges effective config into the overlay;
 | Queue view (`position/queueDepth/pollAt`) | `mem`, never adopt | N (seconds-fresh upstream queue) |
 | Quota last-seen + referral/freebucks/standing/promo blocks | `DB-hint`, stale-marked, display-only | Y |
 | Active run (`runID/agentID/traceSessionID`) | `DB-hint` (runs blob) | Y, adopt-or-`re-START` |
-| Slot counters + FIFO queues (`pool/slot_ledger.go`) | `mem`, zero on boot | N — waiters are parked goroutines; counters without waiters park fresh traffic behind dead holders; WAL on hot path rejected |
-| Cooldown/ban/rate windows, `ip_capped`/burst timers | `mem` (+ optional timestamped hint, never authoritative) | N — stale rows park healthy tokens; `ip_capped` is a per-IP wall, persisting per-token spreads one IP's limit to all accounts |
-| Single-flight `refreshErr`/gates, probe backoff, refund trackers, bridge entries/LRU, spend pacing | `mem` | N — un-rehydratable or derived; persisted error = permanent boot failure |
+| Slot counters + FIFO queues (`pool/slot_ledger.go`) | `mem`, zero on boot | N â€” waiters are parked goroutines; counters without waiters park fresh traffic behind dead holders; WAL on hot path rejected |
+| Cooldown/ban/rate windows, `ip_capped`/burst timers | `mem` (+ optional timestamped hint, never authoritative) | N â€” stale rows park healthy tokens; `ip_capped` is a per-IP wall, persisting per-token spreads one IP's limit to all accounts |
+| Single-flight `refreshErr`/gates, probe backoff, refund trackers, spend pacing | `mem` | N â€” un-rehydratable or derived; persisted error = permanent boot failure |
+
+> Pool-only removal: bridge entries/LRU formerly lived on this row; removed with the pool-only excision (see `docs/decisions/pool-only-removal.md`).
 | Spend/ledger/admissions (`pool/ledger/<hash>`, `pool/admissions`) | `DB-hint`, window-clipped | Y (`installLedger` drops out-of-window) |
 
 Why `instanceId` is temp by necessity: upstream mints + rotates it on every
 admission `POST` (`session/session_admission.go`); the repo's own session
 windows are a 5s pre-expiry margin and a 30-minute grace drain
-(`session/session.go:22-28` — `expiryMargin`, `graceWindow`), with no
-heartbeat — a stored id without re-validation buys a `428/410/409` round-trip
+(`session/session.go:22-28` â€” `expiryMargin`, `graceWindow`), with no
+heartbeat â€” a stored id without re-validation buys a `428/410/409` round-trip
 at best, a stuck re-poll loop at worst.
 
-### History/observability plane → `DB` tables vs `log` vs `mem`
+### History/observability plane â†’ `DB` tables vs `log` vs `mem`
 
 | Datum | Home | Retention |
 |---|---|---|
@@ -89,10 +91,10 @@ at best, a stuck re-poll loop at worst.
 | `quota_snapshots` (change-point only) | `DB`, boot seed | `90d` |
 | `maturity_events` | `DB` | `90d` |
 | `pages_state` | `DB` upsert | none (missing = default) |
-| Rollups/dailies (`p50/90/99`) | `mem` recomputed (`GROUP BY`, `168h` clamp) | — (no stored table, avoids dual-write staleness) |
-| `UsageRecord` ring (`5000`, evict-oldest) | `mem`, reset on restart by design | — (sync-`DB` on hot chat path rejected; future table only via spill channel) |
-| Live rings (`logring 500`, `metricHist`, traces) | `mem` | — |
-| Process log (`stderr` + `LOG_FILE`) | `log` file, append, external rotation | — (`0644`: no secrets; `telemetry.go` redaction) |
+| Rollups/dailies (`p50/90/99`) | `mem` recomputed (`GROUP BY`, `168h` clamp) | â€” (no stored table, avoids dual-write staleness) |
+| `UsageRecord` ring (`5000`, evict-oldest) | `mem`, reset on restart by design | â€” (sync-`DB` on hot chat path rejected; future table only via spill channel) |
+| Live rings (`logring 500`, `metricHist`, traces) | `mem` | â€” |
+| Process log (`stderr` + `LOG_FILE`) | `log` file, append, external rotation | â€” (`0644`: no secrets; `telemetry.go` redaction) |
 | `DEBUG_DUMP ./dump/` | `log` file only, `0600` redacted | delete after session; never `DB` |
 
 Raw tokens/keys never reach `DB`/rings/logs: `hex(sha256)[:16]` only
@@ -101,9 +103,9 @@ Raw tokens/keys never reach `DB`/rings/logs: `hex(sha256)[:16]` only
 ## Crash / update / backup law
 
 - Live `DB` on `db_data` survives recreate. Never plain-`cp` live
-  `.db/-wal/-shm` mid-checkpoint — stop first or `backup()/VACUUM INTO`
-  (`scripts/backup-state.sh` → recreate → `verify-state.sh`).
-- Corrupt source → warn + boot live-only (reads empty, mutations `503`).
+  `.db/-wal/-shm` mid-checkpoint â€” stop first or `backup()/VACUUM INTO`
+  (`scripts/backup-state.sh` â†’ recreate â†’ `verify-state.sh`).
+- Corrupt source â†’ warn + boot live-only (reads empty, mutations `503`).
 - Legacy carry (`persist_carry.go`, `ImportLegacyHistoryDB`): per-table
   empty-gate, idempotent no-op when converged; never cross-file merge.
 - Safety backups EXCLUDE bulk (`log_entries`/`request_records`, 9router
@@ -115,11 +117,11 @@ Raw tokens/keys never reach `DB`/rings/logs: `hex(sha256)[:16]` only
 1. Gate `SESSION_STATE_FILE`/`SESSION_PERSIST`/`LOG_FILE`/`HTTP_READ_TIMEOUT`/
    `AUTO_DISCOVER_TOKEN` to `env`-only `400` (extend `ADMIN_FORCE_SECURE_COOKIES`
    precedent; old rows cleared by `DELETE :key`).
-2. ~~Optional timestamped cooldown-hint + bridge-survivor blob~~ — **shipped**
+2. ~~Optional timestamped cooldown-hint + bridge-survivor blob~~ â€” **shipped**
    (`pool/cooldown_hint.go`; hints only, expiry-checked, `mem` stays the
-   authority).
+   authority); the bridge-survivor blob was removed with the pool-only excision (see `docs/decisions/pool-only-removal.md`). History kept legible; do not re-add bridge persistence.
 3. Optional: dedupe quota double-writer to the session row; fix
-   `pool_persist.go` header claiming bridge rows `snapshotPoolState` doesn't stage.
+   `pool_persist.go` header claiming removed bridge rows `snapshotPoolState` doesn't stage (historical; rows deleted by pool-only excision).
 
 ## Open questions
 
