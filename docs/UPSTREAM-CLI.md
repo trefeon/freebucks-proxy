@@ -1023,6 +1023,17 @@ model selector (hash still `cd5d2ab9…`), agent-runtime constants,
 byte-identical. Dashboard pickers mirror the catalog swap (#725).
 `freebuff/cli/release/package.json` reads `0.0.188`, matching the npm tag at
 this tip.
+### 14.9 Delta `40c75256` → `a9ef9942d` (0.0.188 → 0.0.191)
+
+Pin-vs-tip classification over the thirteen wire-tracked files (wire lane
+port; `freebuff/cli/release/package.json` reads `0.0.191`, matching the npm
+tag at this tip):
+
+| File | Change | Disposition |
+|---|---|---|
+| `common/src/constants/foreign-client-signals.ts` | **DELETED** upstream (`0ae8779d2`, with 3 test files): the client-chosen foreign-client detector is gone entirely — no `GENERIC_TOOL_NAMES`, `FOREIGN_HARNESS_*`, `foreign_toolset`, or `detectForeign*` remains anywhere at tip (each `git grep` exits 1). The commit history cites a 659-account false-positive ban reversal. Its replacement is `common/src/constants/cf-worker-signals.ts` (edge-stamped `CF-Worker`/`CF-Ray` detection, `looksLikeProxyClientId` `^wf-[a-z0-9]{8}$` corroboration only) | **MISSING** — snapshot + `snapshots.json` entry + `wiregen` input + `WIRE_FILES` entries removed; `convert/foreign_signals.go` re-headered as a pinned historical reference (diagnostic-only, injection intact); `cf-worker-signals.ts` deliberately **not** tracked (keys on edge headers the proxy never sees — observe-only) |
+| `common/src/types/freebuff-session.ts` | **+2 `FreebuffPrivacyDecision` members** (`spur_suspicious_limited`, `client_hints_limited`, with doc comments) | **DRIFT** — snapshot re-pinned; parse coverage is the egress lane's gap 5 (passthrough expected, regression test with both literals) |
+| the other 11 wire files | byte-identical pin → tip | **SAME** — no snapshot rewrite (the pre-refresh baseline anchors for `freebuff-model-availability.ts`, `run-agent-step.ts`, and `prompt-agent-stream.ts` predated the `40c75256` pin and read DRIFT against it spuriously; the baseline refresh in this port corrects that, no new drift) |
 
 ## 15. Proxy cross-reference
 
@@ -1046,8 +1057,8 @@ Notes:
 - The port audit (`CLI-Limitations.md`) is written against the `0.0.178`
   (`e2b911eca`) pin; §14 lists which of its audited files changed in `0.0.180`
   and §14.6/§14.7 the 24 commits after it, plus §14.8 the 28 commits to the
-  tip. The wirefacts pin has since been
-  re-recorded at `40c75256f` (`0.0.188`), so the drift those sections describe is
+- The wirefacts pin has since been
+  re-recorded at `a9ef9942d` (`0.0.191`), so the drift those sections describe is
   closed against the checkout.
 - Presentation surfaces (TUI screens, ads rendering, copy) are intentionally
   client-only — see the WONT rows in `CLI-Limitations.md`.

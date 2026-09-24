@@ -3,13 +3,22 @@ package convert
 import "strings"
 
 // Foreign-harness signal mirror (vendor 3420c99,
-// common/src/constants/foreign-client-signals.ts).
+// common/src/constants/foreign-client-signals.ts — DELETED upstream at
+// 0ae8779d2, 0.0.189+, after a 659-account false-positive ban reversal).
+// Retained as a PINNED historical reference, not a live port: upstream no
+// longer keys any gate on client-chosen signals (tool names, system prompt,
+// fingerprint_id). Its replacement is edge-stamped CF-Worker detection
+// (common/src/constants/cf-worker-signals.ts), which the proxy does not
+// mirror — observe-only, see the wiregen pin comment in
+// backend/internal/wirefacts/emit_tools.go.
 //
-// Upstream detects third-party clients offering tools on the free lane and
-// downgrades the enforced signals to FREEBUFF_DOWNGRADE_MODEL_ID. This file
-// mirrors the enforcement-relevant semantics so the proxy can classify its
-// OWN wire the way upstream will — for diagnosis (issue #630), never for
-// enforcement: the proxy serves whatever the client declared.
+// What upstream ENFORCED while the file lived: third-party clients offering
+// tools on the free lane were downgraded to FREEBUFF_DOWNGRADE_MODEL_ID.
+// This file mirrors those enforcement-relevant semantics so the proxy can
+// classify its OWN wire the way upstream did — for diagnosis (issue #630),
+// never for enforcement: the proxy serves whatever the client declared.
+// The end_turn/decide injection (schemacache_endturn.go) stays: both are
+// valid signature names on any detector, old or new.
 //
 // Enforcement order upstream (detectForeignFreebuffClient):
 //  0. foreign_tool_names / foreign_system_prompt — a harness tool name or

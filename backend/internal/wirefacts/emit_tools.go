@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -17,9 +16,27 @@ import (
 // Snapshots are read-only: unexpected shapes fail explicitly, never silent.
 const (
 	toolsConstantsPath = "common/src/tools/constants.ts"
-	foreignSignalsPath = "common/src/constants/foreign-client-signals.ts"
 	sessionTypesPath   = "common/src/types/freebuff-session.ts"
 )
+
+// pinnedGenericToolNames is the last upstream GENERIC_TOOL_NAMES value
+// (apply_patch, glob, skill, web_search, write_file at 40c75256), pinned
+// here because upstream deleted its source file
+// (common/src/constants/foreign-client-signals.ts, removed at 0ae8779d2)
+// along with the client-chosen foreign-client detector it fed. The proxy's
+// end_turn/decide injection (convert/schemacache_endturn.go) and its guard
+// test still read GenericToolNames, so the table stays generated from this
+// pin instead of a snapshot. Upstream's replacement is edge-stamped
+// CF-Worker detection (common/src/constants/cf-worker-signals.ts), which
+// keys on infrastructure headers rather than tool names: observe-only for
+// the proxy, deliberately not tracked as a snapshot.
+var pinnedGenericToolNames = []string{
+	"apply_patch",
+	"glob",
+	"skill",
+	"web_search",
+	"write_file",
+}
 
 // EmitTools verifies the tool-name sources plus the session envelope at
 // upstreamSHA and writes the generated convert table to out (nothing on error).
@@ -58,10 +75,6 @@ func EmitTools(upstreamSHA, wireDir, registryDir string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	signalsSrc, err := mustPinned(foreignSignalsPath)
-	if err != nil {
-		return err
-	}
 	sessionSrc, err := mustPinned(sessionTypesPath)
 	if err != nil {
 		return err
@@ -78,10 +91,7 @@ func EmitTools(upstreamSHA, wireDir, registryDir string, out io.Writer) error {
 		params[name] = v
 	}
 	toolNameParam, endsAgentStepParam, toolXMLName := params["toolNameParam"], params["endsAgentStepParam"], params["toolXmlName"]
-	generic, err := parseGenericToolNames(signalsSrc, m.UpstreamSHA)
-	if err != nil {
-		return err
-	}
+	generic := pinnedGenericToolNames
 	if err := verifySessionStatuses(sessionSrc, m.UpstreamSHA); err != nil {
 		return err
 	}
@@ -125,53 +135,6 @@ func parseToolConst(path string, src []byte, name, commit string) (string, error
 		return fail("%s:%d: %q is empty at upstream commit %s", path, lineOf(src, i), name, commit)
 	}
 	return val, nil
-}
-
-// parseGenericToolNames extracts the GENERIC_TOOL_NAMES set entries; a
-// spread or non-literal fails explicitly instead of a partial table.
-func parseGenericToolNames(src []byte, commit string) ([]string, error) {
-	const path = foreignSignalsPath
-	i := strings.Index(string(src), "GENERIC_TOOL_NAMES")
-	if i < 0 {
-		return nil, fmt.Errorf("wiregen: %s: missing GENERIC_TOOL_NAMES at upstream commit %s — teach backend/internal/wirefacts/emit_tools.go before regenerating", path, commit)
-	}
-	set := strings.Index(string(src[i:]), "new Set([")
-	if set < 0 {
-		return nil, fmt.Errorf("wiregen: %s:%d: GENERIC_TOOL_NAMES is not a new Set([...]) literal at upstream commit %s — teach backend/internal/wirefacts/emit_tools.go before regenerating", path, lineOf(src, i), commit)
-	}
-	span, ok := bracketSpan(string(src[i+set+len("new Set(["):]), '[', ']')
-	if !ok {
-		return nil, fmt.Errorf("wiregen: %s:%d: GENERIC_TOOL_NAMES set literal never closes at upstream commit %s — teach backend/internal/wirefacts/emit_tools.go before regenerating", path, lineOf(src, i), commit)
-	}
-	span = stripTSComments(span)
-	var names []string
-	for j := 0; j < len(span); {
-		if span[j] != '\'' {
-			if span[j] == '.' {
-				return nil, fmt.Errorf("wiregen: %s:%d: GENERIC_TOOL_NAMES has a non-literal entry at upstream commit %s — teach backend/internal/wirefacts/emit_tools.go before regenerating", path, lineOf(src, i), commit)
-			}
-			j++
-			continue
-		}
-		k := strings.IndexByte(span[j+1:], '\'')
-		if k < 0 {
-			return nil, fmt.Errorf("wiregen: %s:%d: GENERIC_TOOL_NAMES has an unterminated string at upstream commit %s — teach backend/internal/wirefacts/emit_tools.go before regenerating", path, lineOf(src, i), commit)
-		}
-		names = append(names, span[j+1:j+1+k])
-		j += 1 + k + 1
-	}
-	seen := make(map[string]bool, len(names))
-	for _, n := range names {
-		if n == "" || seen[n] {
-			return nil, fmt.Errorf("wiregen: %s:%d: GENERIC_TOOL_NAMES has an empty or duplicate entry at upstream commit %s — teach backend/internal/wirefacts/emit_tools.go before regenerating", path, lineOf(src, i), commit)
-		}
-		seen[n] = true
-	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("wiregen: %s:%d: GENERIC_TOOL_NAMES parsed empty at upstream commit %s — refusing to emit an empty table", path, lineOf(src, i), commit)
-	}
-	sort.Strings(names)
-	return names, nil
 }
 
 // pinnedSessionStatuses is the session status envelope at the current
@@ -251,23 +214,6 @@ func verifySessionStatuses(src []byte, commit string) error {
 	return nil
 }
 
-// bracketSpan returns the interior of the first balanced pair in s.
-func bracketSpan(s string, open, close byte) (string, bool) {
-	depth := 1
-	for j := 0; j < len(s); j++ {
-		switch s[j] {
-		case open:
-			depth++
-		case close:
-			depth--
-			if depth == 0 {
-				return s[:j], true
-			}
-		}
-	}
-	return "", false
-}
-
 // stripTSComments removes // and /* */ comments (newlines preserved, so
 // line numbers still match) while keeping quoted comment markers as code.
 func stripTSComments(s string) string {
@@ -335,7 +281,9 @@ func emitToolsSource(upstreamSHA, toolNameParam, endsAgentStepParam, toolXMLName
 // Sources (verbatim snapshots, never edited):
 //
 //	%s (toolNameParam, endsAgentStepParam, toolXmlName)
-//	%s (GENERIC_TOOL_NAMES)
+//
+// GenericToolNames is a static pin (last upstream value at 40c75256):
+// upstream deleted foreign-client-signals.ts at 0ae8779d2.
 //
 // Session envelope verified, no code emitted:
 //
@@ -354,11 +302,12 @@ const EndsAgentStepParam = %q
 // vendor tool calls in model output.
 const ToolXMLName = %q
 
-// GenericToolNames mirrors upstream GENERIC_TOOL_NAMES: tool names we define
-// that third-party harnesses also ship, so they carry no signature weight in
-// the foreign-client gate.
+// GenericToolNames is the last upstream GENERIC_TOOL_NAMES value, pinned:
+// tool names we define that third-party harnesses also ship, so they carry
+// no signature weight in the (upstream-removed) foreign-client gate.
+// Retained for the end_turn/decide injection guard.
 var GenericToolNames = map[string]bool{
-`, upstreamSHA, toolsConstantsPath, foreignSignalsPath, sessionTypesPath, toolNameParam, endsAgentStepParam, toolXMLName)
+`, upstreamSHA, toolsConstantsPath, sessionTypesPath, toolNameParam, endsAgentStepParam, toolXMLName)
 	for _, n := range generic {
 		fmt.Fprintf(&b, "\t%q: true,\n", n)
 	}

@@ -1,14 +1,10 @@
 {
-  "upstream_sha": "40c75256f4c082b0e0d4310fbbb7ddce19a8d430",
-  "vendor_version": "0.0.188",
+  "upstream_sha": "a9ef9942d9c36703a7c9fed39d70aec7c173bc14",
+  "vendor_version": "0.0.191",
   "files": [
     {
       "path": "common/src/constants/freebuff-standing.ts",
       "sha256": "555339c61867c8201bca066765f8b4497b874e62a142be9f2d30996d46b3fb32"
-    },
-    {
-      "path": "common/src/constants/foreign-client-signals.ts",
-      "sha256": "35d02fc5bf6dcbcd063c41e199e1d1cb047dc9c181c1b94570952e4413ea6c8a"
     },
     {
       "path": "common/src/constants/freebuff-spend-ceilings.ts",
@@ -32,7 +28,7 @@
     },
     {
       "path": "common/src/types/freebuff-session.ts",
-      "sha256": "ab9eaee4e002ff5d3ac8bd65103658ae6648abb9c0c65a7a913d7ee6144df784"
+      "sha256": "dbb5f2ec2b318f9a2c5d8ac5e0661c7f8d3ff136ded65745d364b3dab78d53da"
     },
     {
       "path": "packages/agent-runtime/src/constants.ts",

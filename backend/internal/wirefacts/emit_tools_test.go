@@ -35,7 +35,7 @@ func toolsFixtureStage(t *testing.T, override map[string]func(string) string) (w
 	wireDir, regDir = t.TempDir(), t.TempDir()
 	sha = "0000000000000000000000000000000000000002"
 	var files []WireFile
-	for _, rel := range []string{toolsConstantsPath, foreignSignalsPath, sessionTypesPath} {
+	for _, rel := range []string{toolsConstantsPath, sessionTypesPath} {
 		raw, err := os.ReadFile(filepath.Join(testWireDir, filepath.FromSlash(rel)))
 		if err != nil {
 			t.Fatal(err)
