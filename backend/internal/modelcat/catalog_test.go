@@ -368,7 +368,7 @@ func catalogIDs() []string {
 // TestCatalogFactsPinned asserts the documented catalog reality directly:
 // the served set, the shared premium pool (Luna + Muse Spark 1.2 since
 // 2026-09-07, when 1.3 was withdrawn; GLM 5.3 Flash is unmetered), the
-// paused map (all five withdrawn rows recommend the default model), and
+// paused map (all six withdrawn rows recommend the default model), and
 // per-model effort ladders. This pins what the doc comments CLAIM so a
 // stale claim (e.g. "GLM 5.3 Flash is premium") fails here before an
 // operator reads it.
@@ -409,6 +409,7 @@ func TestCatalogFactsPinned(t *testing.T) {
 		"stealth/ox-alpha":                DefaultModelID,
 		"deepseek/deepseek-v4-pro":        DefaultModelID,
 		"minimax/minimax-m3":              DefaultModelID,
+		"openai/gpt-5.6-luna":             DefaultModelID,
 		"z-ai/glm-5.2":                    DefaultModelID,
 		"meta/muse-spark-1.3-contributor": DefaultModelID,
 	}

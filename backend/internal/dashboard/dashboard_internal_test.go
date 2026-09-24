@@ -385,11 +385,12 @@ func TestLiveCardPerDayDisplay(t *testing.T) {
 // still get a coercion) but it is no longer served and no tier admits it.
 // retiredPickerModels are the retired-from-picker rows: still recognized
 // (released clients get a coercion) but served by nothing and admitted by
-// no tier. 5.6 lost its slot to GPT-6 Luna (c2d2958b); Solar Pro 4 lost its
-// slot to Solar Mini 4 (40c75256).
+// no tier. Solar Pro 4 lost its slot to Solar Mini 4 (40c75256). 5.6 lost
+// its slot to GPT-6 Luna (c2d2958b) and was then withdrawn outright on
+// 2026-09-24 (FREEBUFF_PAUSED_FREE_MODEL_IDS), so it is a withdrawn row now,
+// not a retired one.
 var retiredPickerModels = map[string]bool{
-	"openai/gpt-5.6-luna": true,
-	"upstage/solar-pro4":  true,
+	"upstage/solar-pro4": true,
 }
 
 // TestModelsDataCatalogTierFacts pins the full-catalog models view: every
@@ -398,10 +399,9 @@ var retiredPickerModels = map[string]bool{
 // Served rows keep served=true; withdrawn rows carry served=false +
 // withdrawn=true + the refusal copy and no tiers; tier-only rows (paid,
 // offer) are unserved but carry the tier that admits them; the
-// retired-from-picker rows (openai/gpt-5.6-luna, whose slot moved to
-// openai/gpt-6-luna with the c2d2958b catalog; upstage/solar-pro4, whose
-// slot moved to upstage/solar-mini4 with the 40c75256 catalog) are unserved,
-// not withdrawn and tierless, because no tier admits them any more. God-only/eval registry
+// retired-from-picker row (upstage/solar-pro4, whose slot moved to
+// upstage/solar-mini4 with the 40c75256 catalog) is unserved, not withdrawn
+// and tierless, because no tier admits it any more. God-only/eval registry
 // rows (luna-es) stay out. Count is the row count.
 func TestModelsDataCatalogTierFacts(t *testing.T) {
 	cfg := &config.Config{
