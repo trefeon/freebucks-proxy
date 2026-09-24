@@ -150,6 +150,12 @@ type TokenSnapshot struct {
 	// annotation and healthz.
 	CountryCode        string
 	CountryBlockReason string
+	// IPPrivacySignals is the upstream's own egress-IP classification
+	// (e.g. vpn/proxy/tor/hosting/relay) from the last admission or the
+	// remembered country block. A non-empty value with no block yet is the
+	// early "this egress looks anonymized" warning: the verdict is already
+	// at risk before upstream refuses. Omitted on the wire when empty.
+	IPPrivacySignals []string `json:"ip_privacy_signals,omitempty"`
 	// AccessTier is the upstream access tier from the last session admission
 	// ("full", "limited", "free"); "" until reported.
 	AccessTier string `json:"access_tier,omitempty"`

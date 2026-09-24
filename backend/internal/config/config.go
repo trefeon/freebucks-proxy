@@ -101,6 +101,16 @@ type Config struct {
 	// else UTC. A value that does not load as an IANA zone falls back to auto
 	// with a warning (never a load error).
 	SessionTimezone string
+	// USConsistency pins every client-controlled signal to US values
+	// (US_CONSISTENCY; default false). When set, the session declaration
+	// defaults to USConsistencyZone unless SESSION_TIMEZONE is explicitly
+	// set, and the ads device block follows the declared zone with
+	// USConsistencyLocale. This aligns consistency signals only: it NEVER
+	// changes the server-resolved country, which the upstream derives from
+	// the egress IP alone - a non-US or anonymized egress still resolves
+	// non-US, and mismatched signals add suspicion. Fix the egress exit
+	// (clean, non-anonymized US IP on every call) to move the verdict.
+	USConsistency bool
 	// RunFinishQueueSize is the bounded deferred-FINISH worker queue size
 	// (issue #90, RUN_FINISH_QUEUE_SIZE default 64): rotated/drained runs
 	// are FINISHed by a background worker; when the queue is full the caller

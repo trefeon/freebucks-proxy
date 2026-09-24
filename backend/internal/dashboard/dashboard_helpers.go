@@ -12,23 +12,25 @@ import (
 
 func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 	card := tokenCard{
-		Index:            t.Token,
-		Email:            t.Email,
-		AccountID:        t.AccountID,
-		SessionStatus:    t.SessionStatus,
-		AccessTier:       t.AccessTier,
-		QueuePosition:    t.SessionQueuePosition,
-		QueueDepth:       t.SessionQueueDepth,
-		ActiveRuns:       t.ActiveRuns,
-		Requests:         t.Requests,
-		Messages24h:      t.Messages24h,
-		LiveTurns:        t.LiveTurns,
-		QueuedWaiters:    t.QueuedWaiters,
-		OldestWaiterMS:   t.OldestWaiterMS,
-		RequestsPerDay:   t.RequestsPerDay,
-		TransientRetries: t.TransientRetries,
-		PinSkips:         t.PinSkips,
-		Locked:           t.Locked,
+		Index:              t.Token,
+		Email:              t.Email,
+		AccountID:          t.AccountID,
+		SessionStatus:      t.SessionStatus,
+		AccessTier:         t.AccessTier,
+		CountryCode:        t.CountryCode,
+		CountryBlockReason: t.CountryBlockReason,
+		QueuePosition:      t.SessionQueuePosition,
+		QueueDepth:         t.SessionQueueDepth,
+		ActiveRuns:         t.ActiveRuns,
+		Requests:           t.Requests,
+		Messages24h:        t.Messages24h,
+		LiveTurns:          t.LiveTurns,
+		QueuedWaiters:      t.QueuedWaiters,
+		OldestWaiterMS:     t.OldestWaiterMS,
+		RequestsPerDay:     t.RequestsPerDay,
+		TransientRetries:   t.TransientRetries,
+		PinSkips:           t.PinSkips,
+		Locked:             t.Locked,
 	}
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
 		card.CooldownActive = true
@@ -133,11 +135,17 @@ type tokenLiveCard struct {
 	Index         int    `json:"index"`
 	SessionStatus string `json:"session_status"`
 	AccessTier    string `json:"access_tier,omitempty"`
-	QueuePosition int    `json:"queue_position"`
-	QueueDepth    int    `json:"queue_depth"`
-	ActiveRuns    int    `json:"active_runs"`
-	Requests      int    `json:"requests"`
-	Messages24h   int    `json:"messages_24h"`
+	// CountryCode / CountryBlockReason ride the hot poll like cooldown_until
+	// itself: a block (or its lift) lands between full fetches, and the
+	// account card must render the warning from the merged view. Same
+	// additive/omitempty contract as tokenCard.
+	CountryCode        string `json:"country_code,omitempty"`
+	CountryBlockReason string `json:"country_block_reason,omitempty"`
+	QueuePosition      int    `json:"queue_position"`
+	QueueDepth         int    `json:"queue_depth"`
+	ActiveRuns         int    `json:"active_runs"`
+	Requests           int    `json:"requests"`
+	Messages24h        int    `json:"messages_24h"`
 	// LiveTurns / QueuedWaiters / OldestWaiterMS are live by nature (they
 	// change every second), so they ride the hot poll exactly like
 	// ActiveRuns: the console's "who is waiting" view must not wait for a
@@ -179,20 +187,22 @@ type tokenLiveCard struct {
 // liveCardFromSnapshot builds the hot-poll card for one token snapshot.
 func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 	card := tokenLiveCard{
-		Index:            t.Token,
-		SessionStatus:    t.SessionStatus,
-		AccessTier:       t.AccessTier,
-		QueuePosition:    t.SessionQueuePosition,
-		QueueDepth:       t.SessionQueueDepth,
-		ActiveRuns:       t.ActiveRuns,
-		Requests:         t.Requests,
-		Messages24h:      t.Messages24h,
-		LiveTurns:        t.LiveTurns,
-		QueuedWaiters:    t.QueuedWaiters,
-		OldestWaiterMS:   t.OldestWaiterMS,
-		RequestsPerDay:   t.RequestsPerDay,
-		TransientRetries: t.TransientRetries,
-		Locked:           t.Locked,
+		Index:              t.Token,
+		SessionStatus:      t.SessionStatus,
+		AccessTier:         t.AccessTier,
+		CountryCode:        t.CountryCode,
+		CountryBlockReason: t.CountryBlockReason,
+		QueuePosition:      t.SessionQueuePosition,
+		QueueDepth:         t.SessionQueueDepth,
+		ActiveRuns:         t.ActiveRuns,
+		Requests:           t.Requests,
+		Messages24h:        t.Messages24h,
+		LiveTurns:          t.LiveTurns,
+		QueuedWaiters:      t.QueuedWaiters,
+		OldestWaiterMS:     t.OldestWaiterMS,
+		RequestsPerDay:     t.RequestsPerDay,
+		TransientRetries:   t.TransientRetries,
+		Locked:             t.Locked,
 	}
 	card.PinSkips = t.PinSkips
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
