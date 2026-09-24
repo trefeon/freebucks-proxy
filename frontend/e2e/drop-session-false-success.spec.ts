@@ -294,3 +294,104 @@ test("drop session on a real drop toasts the frontend copy and retires the kill 
     "kill switch retires once the session is gone",
   ).toHaveCount(0);
 });
+
+// Force-drop leg: the first POST answers {ok:true, kept:true} (precious),
+// the UI warns and asks a second explicit confirm, then re-POSTs the same
+// URL with ?force=1. The forced answer is the bare {ok:true, kept:false},
+// which toasts the frontend-side success copy and retires the kill switch.
+test("drop session on a kept session force-drops after the second confirm", async ({
+  page,
+}) => {
+  const state = {
+    tokens: [
+      tokenRow(0, {
+        session_status: "active",
+        session_instance: "inst-force-abcdefghijklmnop",
+        session_model: "stealth/ox-alpha",
+        session_remaining_seconds: 4620,
+        session_expires_at: new Date(Date.now() + 4620_000).toISOString(),
+        active_runs: 1,
+      }),
+    ],
+  };
+  await mockDashboard(page, loadFixtures());
+  await page.unroute("**/admin/api/tokens*");
+  await page.route("**/admin/api/tokens*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(tokensPayload(state.tokens)),
+    });
+  });
+  // Regex (not glob): the forced re-POST carries ?force=1 and must hit the
+  // same handler.
+  await page.route(/\/admin\/tokens\/0\/drop-session/, async (route) => {
+    if (route.request().url().includes("force=1")) {
+      state.tokens[0].session_status = "idle";
+      state.tokens[0].session_instance = "";
+      state.tokens[0].session_model = "";
+      state.tokens[0].session_remaining_seconds = 0;
+      state.tokens[0].active_runs = 0;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, kept: false }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        kept: true,
+        message: "Session kept (precious) — next request still rides it.",
+      }),
+    });
+  });
+
+  await page.goto("http://127.0.0.1:4173/admin/#tokens");
+  const table = page.locator("table.fp-table");
+  const row = table.locator("tbody tr").filter({ hasText: "Account #1" });
+  await expect(
+    row.getByRole("button", { name: "Drop Session" }),
+    "live row offers Drop Session",
+  ).toBeVisible({ timeout: 10000 });
+
+  // Both confirms auto-accept: the second dialog fires immediately after
+  // the kept response (no test-side gap to register a second one-shot
+  // handler — an unhandled dialog auto-dismisses and the force POST never
+  // fires). All waiters register before the click for the same reason.
+  page.on("dialog", (d) => d.accept());
+  const plainReq = page.waitForRequest(
+    (r) =>
+      r.method() === "POST" && r.url().endsWith("/admin/tokens/0/drop-session"),
+  );
+  const forceReq = page.waitForRequest(
+    (r) =>
+      r.method() === "POST" &&
+      r.url().includes("/admin/tokens/0/drop-session?force=1"),
+  );
+  const refetch = page.waitForResponse(
+    (r) => r.url().includes("/admin/api/tokens") && r.status() === 200,
+  );
+  await row.getByRole("button", { name: "Drop Session" }).click();
+  await plainReq;
+
+  // The keep warns first — never a success toast for the surviving session.
+  await expect(
+    page.getByText("Session kept (precious) — next request still rides it."),
+    "kept warning precedes the force confirm",
+  ).toBeVisible();
+  await forceReq;
+  await refetch;
+
+  await expect(
+    page.getByText("Session dropped — next request will re-admit fresh."),
+    "forced drop toasts the frontend-side success copy",
+  ).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: "Drop Session" }),
+    "kill switch retires once the forced drop lands",
+  ).toHaveCount(0);
+});
