@@ -424,7 +424,9 @@ func Serve(configPath string, verbose bool, version string) int {
 	// server derives the account's daily reset zone from it. The detected
 	// egress region supplies that zone ONLY when the host zone carries no
 	// locality (UTC/Local — egress.BoringZone); an explicit SESSION_TIMEZONE,
-	// or any real host zone, always wins. Started here, never in a server
+	// or any real host zone, always wins — unless the US-consistency preset
+	// (US_CONSISTENCY with no explicit SESSION_TIMEZONE) pins the US zone
+	// over host and region alike. Started here, never in a server
 	// constructor, so tests stay hermetic; it stops with the same shutdown
 	// context as the pool.
 	//

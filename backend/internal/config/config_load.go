@@ -112,6 +112,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.RunsDrainTTL, "RUNS_DRAIN_TTL")
 	overrideString(&raw.SessionReAdmitLead, "SESSION_RE_ADMIT_LEAD")
 	overrideString(&raw.SessionTimezone, "SESSION_TIMEZONE")
+	overrideBool(&raw.USConsistency, "US_CONSISTENCY")
 	overrideString(&raw.SessionProbeCacheTTL, "SESSION_PROBE_CACHE_TTL")
 	overrideString(&raw.ModelUnavailableCacheTTL, "MODEL_UNAVAILABLE_CACHE_TTL")
 	overrideString(&raw.WebhookURL, "WEBHOOK_URL")
@@ -413,6 +414,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		RunsDrainQueueCap:        runsDrainQueueCap,
 		RunsDrainTTL:             runsDrainTTL,
 		SessionTimezone:          strings.TrimSpace(raw.SessionTimezone),
+		USConsistency:            raw.USConsistency,
 		SessionReAdmitLead:       sessionReAdmitLead,
 		SessionProbeCacheTTL:     sessionProbeCacheTTL,
 		ModelUnavailableCacheTTL: modelUnavailableCacheTTL,
@@ -598,6 +600,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideIntFrom(&raw.RunsDrainQueueCap, get, "RUNS_DRAIN_QUEUE_CAP")
 	overrideStringFrom(&raw.RunsDrainTTL, get, "RUNS_DRAIN_TTL")
 	overrideStringFrom(&raw.SessionTimezone, get, "SESSION_TIMEZONE")
+	overrideBoolFrom(&raw.USConsistency, get, "US_CONSISTENCY")
 	overrideStringFrom(&raw.SessionReAdmitLead, get, "SESSION_RE_ADMIT_LEAD")
 	overrideStringFrom(&raw.SessionProbeCacheTTL, get, "SESSION_PROBE_CACHE_TTL")
 	overrideStringFrom(&raw.ModelUnavailableCacheTTL, get, "MODEL_UNAVAILABLE_CACHE_TTL")

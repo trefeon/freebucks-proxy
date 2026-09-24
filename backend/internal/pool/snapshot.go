@@ -97,6 +97,19 @@ func cloneLimitedModelOffers(in []upstream.LimitedModelOffer) []upstream.Limited
 	return out
 }
 
+// cloneStrings detaches a string slice from pooled live state (same copy-bug
+// class cloneLimitedModelOffers guards): the snapshot is consumed outside the
+// pool and must never alias it. Nil/empty stays nil - never zero-allocated,
+// so the omitempty wire shape is unchanged when there is nothing to report.
+func cloneStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
+
 // Snapshot returns the per-token healthz view.
 func (p *Pool) Snapshot() []TokenSnapshot {
 	toks := p.roster.Load()
@@ -121,12 +134,16 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 		// block (the session never admitted after a block, so its snapshot
 		// would be empty for the blocked country).
 		countryCode, countryReason := ss.CountryCode, ss.CountryBlockReason
+		ipPrivacySignals := cloneStrings(ss.IPPrivacySignals)
 		if cbe := tok.runs.CountryBlockedError(); cbe != nil {
 			if cbe.CountryCode != "" {
 				countryCode = cbe.CountryCode
 			}
 			if cbe.CountryBlockReason != "" {
 				countryReason = cbe.CountryBlockReason
+			}
+			if len(cbe.IpPrivacySignals) > 0 {
+				ipPrivacySignals = cloneStrings(cbe.IpPrivacySignals)
 			}
 		}
 
@@ -241,6 +258,7 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			SessionExpiresAt:        sessionExpiresAt,
 			CountryCode:             countryCode,
 			CountryBlockReason:      countryReason,
+			IPPrivacySignals:        ipPrivacySignals,
 			AccessTier:              ss.AccessTier,
 			SubscriptionTierID:      ss.SubscriptionTierID,
 			LimitedModelOffers:      cloneLimitedModelOffers(ss.LimitedModelOffers),

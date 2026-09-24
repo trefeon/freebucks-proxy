@@ -199,6 +199,7 @@ func (s *Server) applyConfig(cfg *config.Config) {
 	}
 	s.cfg.Store(cfg)
 	s.warnInvalidSessionTimezone(cfg.SessionTimezone)
+	s.applyConsistencyAds()
 }
 
 // warnInvalidSessionTimezone logs once per distinct invalid zone value. An
@@ -216,14 +217,15 @@ func (s *Server) warnInvalidSessionTimezone(zone string) {
 }
 
 // sessionLocality resolves the zone the gateway declares on session reads,
-// the rule that picked it (override|host|region|utc), and the detected egress
-// region ("" when unknown), all from the LIVE config plus the tracker's
-// cached country. It never probes: the tracker serves its last known region.
+// the rule that picked it (override|host|region|utc|us-consistency), and the
+// detected egress region ("" when unknown), all from the LIVE config plus the
+// tracker's cached country. It never probes: the tracker serves its last
+// known region. Under the US-consistency preset (US_CONSISTENCY with no
+// explicit SESSION_TIMEZONE) the preset US zone wins over host and region
+// alike, reported as source "us-consistency".
 func (s *Server) sessionLocality() (zone, source, region string) {
-	override := ""
-	if cfg := s.cfg.Load(); cfg != nil {
-		override = cfg.SessionTimezone
-	}
+	cfg := s.cfg.Load()
+	override := cfg.EffectiveSessionTimezone()
 	if t := s.egressTracker.Load(); t != nil {
 		region = t.Country()
 	}
@@ -234,7 +236,28 @@ func (s *Server) sessionLocality() (zone, source, region string) {
 		host = (*fn)()
 	}
 	zone, source = egress.SessionTimezone(override, host, region)
+	if cfg.USPresetActive() && source == "override" {
+		source = "us-consistency"
+	}
 	return zone, source, region
+}
+
+// applyConsistencyAds installs or clears the ads device-block pin from the
+// LIVE config (US_CONSISTENCY): under the preset the device block follows the
+// declared session zone with an en-US locale; otherwise the host-derived
+// values apply. Runs on boot (New -> applyConfig) and on every config
+// reload, so the pin tracks dashboard saves without a restart. Clearing on
+// preset-off matters: a stale pin would otherwise outlive the knob.
+func (s *Server) applyConsistencyAds() (zone, locale string, active bool) {
+	cfg := s.cfg.Load()
+	if cfg == nil || !cfg.USConsistency {
+		upstream.SetConsistencyAdsOverride("", "")
+		return "", "", false
+	}
+	zone, _, _ = s.sessionLocality()
+	locale = config.USConsistencyLocale
+	upstream.SetConsistencyAdsOverride(zone, locale)
+	return zone, locale, true
 }
 
 // SetHostZoneSource installs the source of the host's configured IANA zone for

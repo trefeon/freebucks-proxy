@@ -106,6 +106,12 @@ type rawConfig struct {
 	// MaxSpillAccounts records MAX_SPILL_ACCOUNTS (default 0): the spill
 	// walk bound, 0 = unbounded.
 	MaxSpillAccounts *int `json:"MAX_SPILL_ACCOUNTS"`
+	// USConsistency pins every client-controlled signal to US values
+	// (US_CONSISTENCY): the session declaration defaults to
+	// America/New_York unless SESSION_TIMEZONE is explicitly set, and the
+	// ads device block follows the declared zone with an en-US locale.
+	// It never changes the server-resolved country - the egress IP decides.
+	USConsistency bool `json:"US_CONSISTENCY"`
 }
 
 // modelsAllowList is the raw MODELS_ALLOW value. The README documents list

@@ -71,11 +71,19 @@ type tokenCard struct {
 	AccountID     string `json:"account_id,omitempty"`
 	SessionStatus string `json:"session_status"`
 	AccessTier    string `json:"access_tier,omitempty"`
-	QueuePosition int    `json:"queue_position"`
-	QueueDepth    int    `json:"queue_depth"`
-	ActiveRuns    int    `json:"active_runs"`
-	Requests      int    `json:"requests"`
-	Messages24h   int    `json:"messages_24h"`
+	// CountryCode / CountryBlockReason are the token's last known upstream
+	// region-block state (plain strings from pool.TokenSnapshot): "" when the
+	// account admitted cleanly, the blocking country + reason (anonymized /
+	// missing / unresolved / ip_privacy_lookup_failed vs recent_limited_country
+	// vs hard block) otherwise. The operator fixes the egress exit (or the
+	// human web verify flow for account-floor cases) - never a client flag.
+	CountryCode        string `json:"country_code,omitempty"`
+	CountryBlockReason string `json:"country_block_reason,omitempty"`
+	QueuePosition      int    `json:"queue_position"`
+	QueueDepth         int    `json:"queue_depth"`
+	ActiveRuns         int    `json:"active_runs"`
+	Requests           int    `json:"requests"`
+	Messages24h        int    `json:"messages_24h"`
 	// LiveTurns / QueuedWaiters / OldestWaiterMS are the MASQ slot-ledger
 	// lane view (SLOTS_PER_ACCOUNT, slot_ledger.go): how many turns hold
 	// this account's slots, how many requests are parked on its FIFO

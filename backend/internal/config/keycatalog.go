@@ -369,6 +369,12 @@ var keyCatalog = []KeyDef{
 		Description: `Upstream API endpoint (codebuff.com is normalized to www.codebuff.com).`,
 	},
 
+	{
+		Key: "US_CONSISTENCY", Group: GroupUpstream, Kind: "bool",
+		Default:     "false",
+		Description: `US-consistency preset: pins every client-controlled signal to US values (session calls declare America/New_York unless SESSION_TIMEZONE is explicitly set; the ads device block follows the declared zone with an en-US locale). Aligns consistency signals ONLY - it NEVER changes the server-resolved country, which the upstream derives from the egress IP alone: a non-US or anonymized (VPN/proxy/Tor/hosting/relay) egress still resolves non-US. To read as US, egress every session admission, poll, and chat call from a clean, non-anonymized US IP; when a block persists after moving, verify the account country in the human web flow at /account?tab=country. Applies live on reload.`,
+	},
+
 	// ── security ─────────────────────────────────────────────────────────
 	{
 		Key: "ADMIN_FORCE_SECURE_COOKIES", Group: GroupSecurity, Kind: "bool", Hidden: true,

@@ -67,7 +67,14 @@
     "key": "HTTP_READ_TIMEOUT",
     "group": "general",
     "kind": "select",
-    "enum": ["60s", "90s", "120s", "180s", "300s", "0"],
+    "enum": [
+      "60s",
+      "90s",
+      "120s",
+      "180s",
+      "300s",
+      "0"
+    ],
     "default": "60s",
     "restart_only": true,
     "secret": false,
@@ -111,7 +118,10 @@
     "key": "LOG_FORMAT",
     "group": "general",
     "kind": "select",
-    "enum": ["text", "json"],
+    "enum": [
+      "text",
+      "json"
+    ],
     "default": "text",
     "restart_only": true,
     "secret": false,
@@ -122,7 +132,13 @@
     "key": "LOG_LEVEL",
     "group": "general",
     "kind": "select",
-    "enum": ["debug", "info", "warn", "error", "trace"],
+    "enum": [
+      "debug",
+      "info",
+      "warn",
+      "error",
+      "trace"
+    ],
     "default": "debug",
     "restart_only": true,
     "secret": false,
@@ -467,7 +483,9 @@
     "key": "COST_MODE",
     "group": "upstream",
     "kind": "select",
-    "enum": ["free"],
+    "enum": [
+      "free"
+    ],
     "default": "free",
     "restart_only": true,
     "secret": false,
@@ -612,6 +630,16 @@
     "essential": false,
     "hidden": true,
     "description": "Upstream API endpoint (codebuff.com is normalized to www.codebuff.com)."
+  },
+  {
+    "key": "US_CONSISTENCY",
+    "group": "upstream",
+    "kind": "bool",
+    "default": "false",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "US-consistency preset: pins every client-controlled signal to US values (session calls declare America/New_York unless SESSION_TIMEZONE is explicitly set; the ads device block follows the declared zone with an en-US locale). Aligns consistency signals ONLY - it NEVER changes the server-resolved country, which the upstream derives from the egress IP alone: a non-US or anonymized (VPN/proxy/Tor/hosting/relay) egress still resolves non-US. To read as US, egress every session admission, poll, and chat call from a clean, non-anonymized US IP; when a block persists after moving, verify the account country in the human web flow at /account?tab=country. Applies live on reload."
   },
   {
     "key": "ADMIN_FORCE_SECURE_COOKIES",

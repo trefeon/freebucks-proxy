@@ -38,10 +38,16 @@ func egressRegionRow(cache *egress.Cache) (line string, warn bool) {
 // sessionTimezoneRow renders the doctor's session-locality line: the IANA zone
 // the gateway declares on every session call (x-fb-timezone, the zone the
 // upstream server derives the account's daily reset zone from) and the rule
-// that picked it (override|host|region|utc). It reads the same resolver the
+// that picked it (override|host|region|utc|us-consistency). It reads the same
+// resolver the
 // serving path installs, so the doctor shows exactly what will be declared.
+// Under the US-consistency preset the source reads "us-consistency", matching
+// /healthz.
 func sessionTimezoneRow(cfg config.Config, country string) string {
-	zone, source := egress.SessionTimezone(cfg.SessionTimezone, upstream.HostZone(), country)
+	zone, source := egress.SessionTimezone(cfg.EffectiveSessionTimezone(), upstream.HostZone(), country)
+	if cfg.USPresetActive() && source == "override" {
+		source = "us-consistency"
+	}
 	return fmt.Sprintf("Session timezone: %s (%s)", zone, source)
 }
 
