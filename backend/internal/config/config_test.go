@@ -167,7 +167,7 @@ func TestAutoDiscoverStripsCredentialsBOM(t *testing.T) {
 // TestAutoDiscoverWarnsOnEmptyToPooled verifies that auto-discovery filling
 // an empty AUTH_TOKENS (which must stay pooled-empty)
 // emits a prominent slog warning naming the source file and the off switch.
-func TestAutoDiscoverWarnsOnBridgeToPooled(t *testing.T) {
+func TestAutoDiscoverWarnsOnEmptyToPooled(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("AUTO_DISCOVER_TOKEN", "")
 

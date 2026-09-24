@@ -58,7 +58,7 @@ func adminTokenCleartextWarning(adminToken, listenAddr string) string {
 // openAPIWarning returns the startup warning for a pooled deployment whose
 // /v1 surface is reachable without client credentials: AUTH_TOKENS set, no
 // API_KEYS, non-loopback LISTEN_ADDR. Empty when there is nothing to warn
-// about (bridge mode, API_KEYS set, or loopback-only listen).
+// about (no servable tokens, API_KEYS set, or loopback-only listen).
 func openAPIWarning(authTokens, apiKeys []string, listenAddr string) string {
 	if len(authTokens) == 0 || len(apiKeys) > 0 || listenIsLoopback(listenAddr) {
 		return ""

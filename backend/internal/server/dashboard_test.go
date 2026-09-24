@@ -561,9 +561,6 @@ func TestDashboardTokenAddRemoveMode(t *testing.T) {
 	cookie := authedCookie(t, ts)
 
 	// Add a token: pool grows, .env updated.
-	// (The /admin/mode switch is a pooled-only stub slated for deletion at
-	// integration; its behavior is pinned by the internal stub tests. It is
-	// not exercised here because the dashboard route row is Lane B owned.)
 	resp := postJSON(t, ts.URL, cookie, "/admin/tokens/add", `{"token":"cb_newtoken123"}`)
 	if body := bodyOf(t, resp); !strings.Contains(body, "Token added") {
 		t.Errorf("add response = %q, want success", body)

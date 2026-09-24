@@ -68,7 +68,7 @@ func (a *adminHandlers) syncTokensAfterMutation(tokens []string) error {
 	// (runtime truth — the DB holds secrets at mode 0600 since the env-to-DB
 	// migration), plus the auth/tokens_configured presence marker, via
 	// tokenMarkerDelta. A reload-verification failure restores BOTH layers
-	// (mirrors handleModeSwitch's persist → verify → rollback). Otherwise
+	// (persist → verify → rollback). Otherwise
 	// the failed add leaves AUTH_TOKENS=<new> in .env while the live pool
 	// holds the old list — the very divergence the caller is trying to
 	// avoid.

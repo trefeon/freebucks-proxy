@@ -495,9 +495,6 @@ func TestChatCountryBlockCooldown(t *testing.T) {
 	}
 }
 
-// TestBridgeChatSessionSupersededTerminal pins #159 on the bridge path: 409
-// session_superseded is TERMINAL — the cached session is dropped immediately
-// and the error surfaces with NO in-request retry (the #119 re-admit-once
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

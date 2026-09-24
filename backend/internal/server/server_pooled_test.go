@@ -124,6 +124,3 @@ func TestPooledRejectsUnknownCredential(t *testing.T) {
 		t.Errorf("upstream Authorization = %q, want %q", got, "Bearer tok-0")
 	}
 }
-
-// TestHybridModeAnthropicRoutesByCredential: the hybrid routing rule holds
-// on the Anthropic surface — API key → pooled, other credential → bridge.

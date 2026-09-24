@@ -261,13 +261,6 @@ type SpawnSessionRequest struct {
 }
 
 // --- system ---
-// ModeSwitchRequest is the POST /admin/mode body. The dashboard no longer
-// advertises the route (pool-only); the type stays until the server-owned
-// handler is excised.
-type ModeSwitchRequest struct {
-	Mode string `json:"mode"`
-}
-
 // ReloadResponse is the POST /admin/reload answer.
 type ReloadResponse struct {
 	AuthTokens int    `json:"auth_tokens"`

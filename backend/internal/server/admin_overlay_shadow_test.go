@@ -52,29 +52,6 @@ func shadowLogin(t *testing.T, h http.Handler, password string) *http.Cookie {
 // STUB (pool-only excision, Lane A): the mode switch is pooled-only and
 // converges nothing. Lane B removes the dashboard call sites; the
 // integration commit deletes the stubs + server_routes entries.
-func TestModeSwitchPooledStub(t *testing.T) {
-	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n", nil)
-	st := attachShadowStore(t, s)
-	_ = st
-	// Direct handler calls (see TestDualWriteModeSwitchPooledStub): the
-	// /admin/mode dashboard route row is Lane B owned.
-	for _, tc := range []struct{ mode, want string }{
-		{"pooled", "Already in pooled mode"},
-		{"bridge", "Only pooled mode exists"},
-		{"hybrid", "Only pooled mode exists"},
-	} {
-		req := httptest.NewRequest(http.MethodPost, "/admin/mode", strings.NewReader(`{"mode":"`+tc.mode+`"}`))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		s.admin.handleModeSwitch(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("%s switch status = %d, want 400: %s", tc.mode, rec.Code, rec.Body.String())
-		}
-		if body := rec.Body.String(); !strings.Contains(body, tc.want) {
-			t.Errorf("%s response = %q, want %q", tc.mode, body, tc.want)
-		}
-	}
-}
 
 // TestRequireLoginConvergesOverlay: with DASHBOARD_REQUIRE_LOGIN pinned to
 // true by a stale DB overlay row, the require-login toggle converges the row

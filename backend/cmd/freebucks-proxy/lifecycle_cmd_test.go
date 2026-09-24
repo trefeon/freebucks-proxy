@@ -38,7 +38,7 @@ var lifecycleSemver = regexp.MustCompile(`^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)
 //	-setup configures detected client tools (Continue / opencode / aider);
 //	it does NOT write the proxy .env (env creation is the installer /
 //	gen-token / dashboard's job, documented in docs/user-lifecycle.md).
-//	-doctor loads the config, reports bridge mode + local availability, and
+//	-doctor loads the config, reports mode + local availability, and
 //	fails only on the offline upstream reachability check — a fully green
 //	doctor needs a reachable upstream, which a hermetic test cannot fake on
 //	Windows (Go ignores SSL_CERT_FILE for the system pool).

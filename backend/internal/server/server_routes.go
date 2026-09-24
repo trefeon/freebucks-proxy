@@ -139,10 +139,6 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return http.HandlerFunc(s.admin.handleTokenLock)
 	case "POST /admin/tokens/{id}/unlock-lock":
 		return http.HandlerFunc(s.admin.handleTokenUnlockLock)
-	case "POST /admin/bridge-tokens/{key}/lock":
-		return http.HandlerFunc(s.admin.handleBridgeTokenLock)
-	case "POST /admin/bridge-tokens/{key}/unlock":
-		return http.HandlerFunc(s.admin.handleBridgeTokenUnlock)
 	case "POST /admin/tokens/{id}/finish":
 		return http.HandlerFunc(s.admin.handleTokenFinish)
 	case "POST /admin/tokens/{id}/drop-session":
@@ -163,8 +159,6 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return http.HandlerFunc(s.admin.handleTokenRemove)
 	case "POST /admin/tokens/swap":
 		return http.HandlerFunc(s.admin.handleTokenSwap)
-	case "POST /admin/mode":
-		return http.HandlerFunc(s.admin.handleModeSwitch)
 	case "POST /admin/diag":
 		return http.HandlerFunc(s.admin.handleDiag)
 	case "POST /admin/api/change-password":

@@ -178,33 +178,6 @@ func TestDualWriteRequireLoginRollbackBothLayers(t *testing.T) {
 	}
 }
 
-// STUB (pool-only excision, Lane A): the mode switch is pooled-only.
-// These pin the stub: pooled reports already-pooled, bridge/hybrid report
-// pooled-only. Lane B removes the dashboard call sites; the integration
-// commit deletes the stubs + server_routes entries.
-func TestDualWriteModeSwitchPooledStub(t *testing.T) {
-	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n", nil)
-	// Direct handler calls: the /admin/mode dashboard route row is Lane B
-	// owned and already gone from the merged table, so exercise the stub
-	// without the mux.
-	for _, tc := range []struct{ mode, want string }{
-		{"pooled", "Already in pooled mode"},
-		{"bridge", "Only pooled mode exists"},
-		{"hybrid", "Only pooled mode exists"},
-	} {
-		req := httptest.NewRequest(http.MethodPost, "/admin/mode", strings.NewReader(`{"mode":"`+tc.mode+`"}`))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		s.admin.handleModeSwitch(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("%s switch status = %d, want 400: %s", tc.mode, rec.Code, rec.Body.String())
-		}
-		if body := rec.Body.String(); !strings.Contains(body, tc.want) {
-			t.Errorf("%s response = %q, want %q", tc.mode, body, tc.want)
-		}
-	}
-}
-
 // TestTokenMarkerDelta pins the write-through mapping: pooled lists set the
 // presence flag AND converge the config:AUTH_TOKENS overlay row to the same
 // list; an emptied pool converges the row empty and drops the marker row.
