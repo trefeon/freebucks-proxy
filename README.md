@@ -1,3 +1,11 @@
+# ⚠️ DEPRECATED & UNMAINTAINED
+
+> **IMPORTANT NOTICE**: This repository is **deprecated and no longer maintained**. Development and updates have ceased.
+> 
+> If you need this gateway or want to continue using/maintaining it, please **fork it and maintain it yourself**.
+
+---
+
 # freebucks-proxy
 
 freebucks-proxy is a Go wire gateway in front of the upstream service: pooled
