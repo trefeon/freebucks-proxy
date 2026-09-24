@@ -1278,6 +1278,7 @@ func TestMetricsFamiliesContract(t *testing.T) {
 		"freebucks_proxy_quota_remaining":               "gauge",
 		"freebucks_proxy_session_remaining_seconds":     "gauge",
 		"freebucks_proxy_transient_retries_total":       "counter",
+		"freebucks_proxy_queue_retries_total":           "counter",
 		"freebucks_proxy_fingerprint_rotations_total":   "counter",
 		"freebucks_proxy_rate_limit_events_total":       "counter",
 		"freebucks_proxy_model_locked_total":            "counter",

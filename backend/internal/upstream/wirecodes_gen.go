@@ -43,6 +43,9 @@ const (
 	// WireCodeFreeModeInvalidAgentHierarchy: the subagent id is not in its root's allowlist (hierarchy gate).
 	// pinned server-observed body marker (absent from the snapshots).
 	WireCodeFreeModeInvalidAgentHierarchy WireCode = "free_mode_invalid_agent_hierarchy"
+	// WireCodeFreeModeCostModeRequired: a Freebuff-only agent id arrived outside free mode (403; vendor freebuff-cost-mode.ts FREEBUFF_COST_MODE_ESCALATION_ERROR).
+	// pinned server-observed body marker (absent from the snapshots).
+	WireCodeFreeModeCostModeRequired WireCode = "free_mode_cost_mode_required"
 	// WireCodeSessionSuperseded: another instance took over the account (409).
 	// snapshot: common/src/types/freebuff-session.ts.
 	WireCodeSessionSuperseded WireCode = "session_superseded"

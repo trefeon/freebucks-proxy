@@ -272,6 +272,12 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	case errors.As(err, &uwr):
 		status, code = http.StatusServiceUnavailable, "waiting_room_queued"
 		message, retryAfter = uwr.Error(), uwr.RetryAfter
+		if retryAfter <= 0 {
+			// Upstream sent no window (the live 503 carries no Retry-After
+			// header): hand the client the same 10s honor window the chat
+			// path itself waits, so a 503 never means "retry now".
+			retryAfter = 10 * time.Second
+		}
 	case errors.As(err, &wrr):
 		// #116: 428 waiting_room_required (endsTheSession:true — the seat
 		// is gone; chatAttempt already dropped the cached session and
@@ -389,6 +395,14 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	case errors.Is(err, upstream.ErrFreeModeInvalidAgentHierarchy):
 		status, code = http.StatusForbidden, "free_mode_invalid_agent_hierarchy"
 		message = err.Error()
+	case errors.Is(err, upstream.ErrFreeModeCostModeRequired):
+		// 403 free_mode_cost_mode_required: a Freebuff agent id sent with
+		// cost_mode != "free" (docs/CLI-Limitations.md row 38). Terminal
+		// config refusal — the caller fixes the request; no Retry-After,
+		// no cooldown, no key rotation.
+		status, code = http.StatusForbidden, "free_mode_cost_mode_required"
+		message = err.Error()
+		retryAfter = 0
 	case errors.As(err, &fue):
 		// 403 free_mode_unavailable (docs/CLI-Limitations.md P0-1): the
 		// region/egress gate. Terminal — no Retry-After (retrying the

@@ -418,6 +418,15 @@
   },
   {
     "method": "POST",
+    "path": "/admin/tokens/streak-touch",
+    "auth": "sensitive",
+    "js": {
+      "export": "adminActions",
+      "key": "streakTouch"
+    }
+  },
+  {
+    "method": "POST",
     "path": "/admin/tokens/test-all",
     "auth": "sensitive"
   },

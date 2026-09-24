@@ -345,6 +345,8 @@ func (c *Client) probeSession(ctx context.Context) (TokenHealthState, string) {
 		return TokenUnknown, "free-mode CLI envelope rejected (403 free_mode_cli_required)"
 	case errors.Is(err, ErrFreeModeInvalidAgentHierarchy):
 		return TokenUnknown, "free-mode subagent hierarchy rejected (403 free_mode_invalid_agent_hierarchy)"
+	case errors.Is(err, ErrFreeModeCostModeRequired):
+		return TokenUnknown, "free-mode cost-mode escalation refused (403 free_mode_cost_mode_required)"
 	case errors.Is(err, ErrSessionInvalid):
 		return TokenUnknown, "session invalid upstream (stale row; refresh on demand)"
 	default:

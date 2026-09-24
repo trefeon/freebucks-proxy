@@ -43,9 +43,11 @@ const (
 	// FirstTabDiscountHeader folds the first-tab offer into the quoted
 	// prices (vendor 3420c99,
 	// common/src/util/freebuff-first-tab-discount.ts
-	// FIRST_TAB_DISCOUNT_HEADER). The probe sends the boring value "0":
-	// it claims no discount, exactly like the CLI's unpicked GET
-	// (callFreebuffSession defaults firstTabDiscount to '0').
+	// FIRST_TAB_DISCOUNT_HEADER). callFreebuffSession stamps it on EVERY
+	// session call — POST, GET and DELETE alike, "1"|"0"
+	// (cli/src/utils/freebuff-session-api.ts:163-167) — so sessionCall and
+	// EndSession send the boring value "0": the proxy holds no first-tab
+	// discount, exactly like a CLI call with firstTabDiscount unset.
 	FirstTabDiscountHeader = "x-freebuff-first-tab-discount"
 	// SessionUnsupportedMessage is the verbatim fail-closed copy for
 	// servers predating the admission route
@@ -133,7 +135,8 @@ func (c *Client) GetSessionWithOpts(ctx context.Context, instanceID string, comp
 // claims no session slot and burns none of the daily session allowance. The
 // probe carries the CLI-parity read headers (x-fb-timezone with the declared
 // locality zone — the resolver's when installed, else the host zone — and
-// x-freebuff-first-tab-discount "0" claiming no discount), and the response
+// x-freebuff-first-tab-discount "0" claiming no discount, both stamped by
+// sessionCall for every session call), and the response
 // carries the live pre-join meter — Freebucks, Referral,
 // RateLimitsByModel, Standing — plus the account/session state, which
 // callers surface for token checks and doctor diagnostics.
@@ -167,7 +170,6 @@ func (c *Client) ProbeAccount(ctx context.Context) (*SessionState, error) {
 	// (x-fb-timezone from the installed resolver, else the host zone; the
 	// first-tab flag folds the offer into prices). Still zero-cost: no
 	// instance header is set, so no slot is claimed.
-	req.Header.Set(FirstTabDiscountHeader, "0")
 	state, err := c.sessionCall(req)
 	if err != nil {
 		return nil, err

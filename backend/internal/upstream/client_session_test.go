@@ -349,9 +349,12 @@ func TestStartAndFinishRun(t *testing.T) {
 	}
 
 	msg1 := "msg-1"
+	// Step ids are UUIDs, like the CLI's crypto.randomUUID() per step — the
+	// vendor schema (pendingAgentStepSchema id: z.string().uuid()) rejects
+	// anything else, so non-UUID fixtures would let a bad FINISH shape pass.
 	steps := []RunStep{
-		{ID: "step-1", StepNumber: 1, MessageID: &msg1, Status: "completed", StartTime: "2026-08-18T00:00:00.000Z"},
-		{ID: "step-2", StepNumber: 2, Status: "completed", StartTime: "2026-08-18T00:00:01.000Z"},
+		{ID: "2f1a9c3e-5b7d-4a11-8f2e-6c0d9b4a7e31", StepNumber: 1, MessageID: &msg1, Status: "completed", StartTime: "2026-08-18T00:00:00.000Z"},
+		{ID: "9c4b2e77-1d38-4f6a-9c05-73e8a1b2d4f6", StepNumber: 2, Status: "completed", StartTime: "2026-08-18T00:00:01.000Z"},
 	}
 	if err := client.FinishRun(context.Background(), runID, "completed", len(steps), steps, ""); err != nil {
 		t.Fatal(err)

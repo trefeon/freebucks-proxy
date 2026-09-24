@@ -5,7 +5,6 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -89,17 +88,24 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 		return nil, fmt.Errorf("upstream: envelope: %w", err)
 	}
 
-	// free_mode_capacity_deferred is the free tier's transient capacity queue:
-	// upstream says "your request will be retried automatically" and a
-	// same-session retry recovers immediately (empirically common on
-	// deepseek-v4-flash). It is retried IN PLACE against the same lease and
-	// session (opts are unchanged, so the instance id is reused), bounded by
-	// the TRANSIENT_RETRIES budget — never a token cooldown, never a session
-	// invalidation (reference/freebucks-proxy-hengxin proxy.js:652-668).
-	// capacityDeferredAttempts is the per-request budget: a fresh call starts
+	// Transient upstream queues are retried IN PLACE against the same lease
+	// and session (opts are unchanged, so the instance id is reused),
+	// bounded by the TRANSIENT_RETRIES budget — never a token cooldown,
+	// never a session invalidation:
+	//   - free_mode_capacity_deferred (429): upstream says "your request
+	//     will be retried automatically" and a same-session retry recovers
+	//     immediately (empirically common on deepseek-v4-flash;
+	//     reference/freebucks-proxy-hengxin proxy.js:652-668).
+	//   - the waiting room (503, incl. the 429 waiting_room_queued race):
+	//     the model has no serving slot right now; the CLI keeps polling
+	//     the session on 503 instead of failing the chat
+	//     (upstream/freebuff cli/src/utils/freebuff-session-api.ts:48-72),
+	//     so the proxy waits out the same window in-request before
+	//     surfacing 503 + Retry-After.
+	// transientQueueAttempts is the per-request budget: a fresh call starts
 	// at zero, so every request gets its own TRANSIENT_RETRIES allowance
-	// (the client-lifetime atomic only tracks the metric).
-	capacityDeferredAttempts := 0
+	// (the client-lifetime atomics only track the metrics).
+	transientQueueAttempts := 0
 	for {
 		req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/chat/completions", enveloped)
 		if err != nil {
@@ -152,29 +158,36 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 			// Classified >=400 response: do() already classified the body once
 			// (the 428 waiting-room flag and the rate-limit ledger are
 			// recorded). Preserve the chat path's debug dump and the
-			// same-session capacity-deferred retry.
+			// same-session transient-queue retry.
 			bodyText := drainBody(resp.Body)
 			_ = resp.Body.Close()
 			releaseCancel(cancel)
 			c.dump("chat", req, resp.StatusCode, bodyText)
-			if isCapacityDeferred(cerr) && capacityDeferredAttempts < c.transientRetriesLimit {
-				capacityDeferredAttempts++
-				c.capacityDeferredRetries.Add(1) // lifetime metric
-				// #105: the free-tier capacity queue asks the client to WAIT
-				// before retrying — the AI SDK absorbs the deferral silently,
+			deferred := isCapacityDeferred(cerr)
+			waitingRoom := isWaitingRoom(cerr)
+			if (deferred || waitingRoom) && transientQueueAttempts < c.transientRetriesLimit {
+				transientQueueAttempts++
+				msg := "upstream capacity deferred, retrying same session"
+				if waitingRoom {
+					msg = "upstream waiting room, retrying same session"
+					c.waitingRoomRetries.Add(1) // lifetime metric
+				} else {
+					c.capacityDeferredRetries.Add(1) // lifetime metric
+				}
+				// #105: a queued upstream asks the client to WAIT before
+				// retrying — the AI SDK absorbs the deferral silently,
 				// honoring retry-after with a 10s default
 				// (upstream/freebuff sdk model-provider.ts:41-49,62-81). Sleep
 				// the parsed retry-after (floor 10s) so the same-session retry
 				// does not re-POST immediately (amplification); ctx
 				// cancellation aborts the sleep like every other upstream wait.
 				ra := 10 * time.Second
-				var cde *CapacityDeferredError
-				if errors.As(cerr, &cde) && cde.RetryAfter > 0 {
-					ra = cde.RetryAfter
+				if d := queueRetryAfter(cerr); d > 0 {
+					ra = d
 				}
 				// Same-session retry after the parsed wait: Debug like the
 				// transport retry in do(), carrying the same join keys.
-				slog.Debug("upstream capacity deferred, retrying same session",
+				slog.Debug(msg,
 					"method", req.Method, "path", req.URL.Path,
 					"status", resp.StatusCode, "class", errClassName(cerr),
 					"retry_after", ra.String(), "req_id", ReqID(ctx))

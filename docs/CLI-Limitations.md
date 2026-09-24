@@ -222,7 +222,7 @@ error envelopes.
 | 19 | Session DELETE + refund receipt + 404 tolerance | `freebuff-session-store.ts:90-93`, `freebuff-session-api.ts:122-124` | `session.go:264-273`, `session_parse.go:447-451` | PORTED | — |
 | 20 | Chat-gate recovery (`session_expired`/`waiting_room_*`/`superseded`) | `send-message.ts:580-631` | `errors.go:269-295,313-339` (+ pool re-admit) | PORTED | — |
 | 21 | `402` out-of-credits (user-billing shape) | `error-handling.ts:43-53`, `:243` | `classify.go:101-102`, `errors.go:431-437` | PORTED (copy differs, semantics same) | — |
-| 22 | `free_mode_cli_required` / `invalid_agent_hierarchy` 403 | `freebuff-models.ts` gate codes | `classify.go:102-110`, `errors.go:371-376` | PORTED | — |
+| 22 | `free_mode_cli_required` / `invalid_agent_hierarchy` / `cost_mode_required` 403 | `freebuff-models.ts` gate codes; `common/src/constants/freebuff-cost-mode.ts:63-66` (`FREEBUFF_COST_MODE_ESCALATION_ERROR`) | `classify.go:129-130,139-157`, `wirecodes_gen.go:22-24,43-48`, `upstream/errors.go:34-51` (sentinels), `server/errors.go:392-405` (403 mapping), `error_taxonomy.go:37-42` (hints) | PORTED | — |
 | 23 | Waiting-room queued/required, superseded, fanout, capacity-deferred, ip_capped, load-shedding, peak-hours, no-endpoints, outside-hours | `freebuff-session.ts` gate codes | `classify.go` full matrix + `errors.go:191-341` | PORTED | — |
 | 24 | `session_limit_reached` excluded from CLI recovery (Desktop cap) | `error-handling.ts:213-241` | `errors.go:238-245` (distinct 409, never session-invalid) | PORTED+ (superset) | — |
 | 25 | Strict gates before conversion, all 3 surfaces | n/a (proxy-only) | `strict_tools.go`, `openai.go:77`, `responses.go:94`, `anthropic.go:98`, `anthropic_json.go:54` | PORTED+ | Hermes/OpenClaw protected |

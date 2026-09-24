@@ -210,8 +210,13 @@ type TokenSnapshot struct {
 	// TransientRetries / FingerprintRotations are this token's upstream
 	// client counters (TRANSIENT_RETRIES): retried transport failures and
 	// pinned TLS fingerprint swaps. Surfaced per-token in /metrics.
-	TransientRetries     int64
-	FingerprintRotations int64
+	// CapacityDeferredRetries / WaitingRoomRetries are the same-session
+	// transient-queue retries served under the same budget, split out so
+	// the operator can tell transport blips from upstream queues.
+	TransientRetries        int64
+	CapacityDeferredRetries int64
+	WaitingRoomRetries      int64
+	FingerprintRotations    int64
 	// RateLimitEvents is this token's upstream rate-limit classification
 	// ledger, keyed by upstream body code (rate_limited, ip_capped,
 	// spend_limited, insufficient_quota, limit_burst_rate,
