@@ -1,6 +1,6 @@
 {
-  "upstream_sha": "276db8dff9a3d4dc323232dd8c39140cbb02538b",
-  "vendor_version": "0.0.193",
+  "upstream_sha": "08b5a38f3123eaddf6b7d29aba0613e15ba929e5",
+  "vendor_version": "0.0.194",
   "files": [
     {
       "path": "common/src/constants/freebuff-standing.ts",
@@ -40,7 +40,7 @@
     },
     {
       "path": "packages/agent-runtime/src/run-agent-step.ts",
-      "sha256": "2dd3a5c2a58836cbabb46d23f61be828b7715cf7bd5d94fe058da106641bd786"
+      "sha256": "19cb9d141a6504aec6d1fc2a3df95cec9b7eb4d3c03fefcbac1da92dacaafe6a"
     },
     {
       "path": "packages/agent-runtime/src/run-programmatic-step.ts",
@@ -48,7 +48,7 @@
     },
     {
       "path": "common/src/tools/constants.ts",
-      "sha256": "c2508c4590f2b8dacf72075d32a0f21099037cb4cf3a37b097fafd670bf110b9"
+      "sha256": "037988823de507f102f0800a4edd6831843266aa8b8c34ab0fca2fcb72809f28"
     }
   ]
 }
