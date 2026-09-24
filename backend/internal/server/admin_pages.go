@@ -32,6 +32,7 @@ const maxPageStateBytes = 64 << 10
 // exactly like sidebar pages: the shell restores lastHash across them and
 // each mounts its own snapshot key, so rejecting them would 404 real visits.
 var validPageIDs = map[string]bool{
+	"ads":        true,
 	"overview":   true,
 	"tokens":     true,
 	"maturity":   true,

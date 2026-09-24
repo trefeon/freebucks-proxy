@@ -187,3 +187,6 @@ freebuff-chat-*.md
 docker-compose.override.yml
 docker-compose.*.local.yml
 compose.override.yml
+
+# Web RE cookie dump (user-provided session material; never commit)
+/this are web dump cookies
