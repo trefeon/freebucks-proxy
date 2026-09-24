@@ -57,27 +57,6 @@ func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
 // deleted cap scale is never refused locally: with slot gating off, 50
 // sequential bridge acquires for one client token all succeed. Any
 // reintroduced bridge rpm/daily/global cap check would refuse partway.
-func TestBridgeBurstHasNoLocalRefusal(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) {
-		c.UpstreamBaseURL = mock.URL()
-		c.SlotsPerAccount = 0
-	}, mock)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	for i := range 50 {
-		lease, err := p.AcquireBridge(ctx, "burst-client", modelA)
-		if err != nil {
-			if strings.Contains(err.Error(), "limit") || errors.Is(err, upstream.ErrRateLimited) {
-				t.Fatalf("bridge acquire %d refused (%v), want success (no local caps remain)", i, err)
-			}
-			t.Fatalf("bridge acquire %d err = %v, want success (no local caps remain)", i, err)
-		}
-		p.LeaseRelease(lease)
-	}
-}
 
 // TestUnlimitedDefaultPerDayGate proves successful chats never trip the
 // daily gate when unconfigured: the day bucket fills but no cap applies.

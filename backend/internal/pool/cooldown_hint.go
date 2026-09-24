@@ -5,14 +5,13 @@ import (
 	"time"
 )
 
-// cooldown_hint.go — timestamped DB-hints for terminal cooldowns + bridge
-// idle-eviction survivors (data-architecture "Changes proposed" §2).
+// cooldown_hint.go — timestamped DB-hints for terminal cooldowns.
 //
-// Both are hints, never authoritative: readers treat a missing row as
+// Hints, never authoritative: readers treat a missing row as
 // eligible and an expired row as absent, the request hot path reads memory
 // only (never the store), and deleting the keys restores exactly today's
-// behavior (mem-only). Raw tokens/keys never cross the boundary: every key
-// is a SHA-256 hex (poolTokenHash) or the bridge map key (tokenKey).
+// behavior (mem-only). Raw tokens never cross the boundary: every key
+// is a SHA-256 hex (poolTokenHash).
 
 const (
 	// Terminal hint kinds — the only kinds ever stored. 429s (including
@@ -21,10 +20,6 @@ const (
 	// it per-token spreads one IP's limit to all accounts.
 	cooldownHintKindBan            = "banned"
 	cooldownHintKindCountryBlocked = "country_blocked"
-
-	// maxBridgeSurvivors caps the survivor list: captures past the cap drop
-	// the oldest, so the blob stays small and recent.
-	maxBridgeSurvivors = 64
 )
 
 // poolCooldownBlob is one token's terminal-cooldown hint. UntilMs is Unix
@@ -33,21 +28,6 @@ const (
 type poolCooldownBlob struct {
 	Kind    string `json:"kind"`
 	UntilMs int64  `json:"until_ms"`
-}
-
-// bridgeSurvivor is one idle-evicted bridge entry's usage contribution. Key
-// is the bridge map key (tokenKey: SHA-256 hex truncated to 32 chars),
-// never the raw client token. AtMs bounds the record's life: it expires one
-// usageWindow after eviction. Chats/Day carry the evicted entry's in-window
-// counters so a restart does not reset its contribution to the bridge usage
-// accounting; DayStart (Pacific-day bucket start, unix seconds) scopes Day
-// to the day it was counted on.
-type bridgeSurvivor struct {
-	Key      string `json:"key"`
-	AtMs     int64  `json:"at_ms"`
-	Chats    int    `json:"chats"`
-	Day      int    `json:"day"`
-	DayStart int64  `json:"day_start"`
 }
 
 // poolCooldownKey returns the pool_state key for one token's cooldown hint.
@@ -255,139 +235,4 @@ func (p *Pool) snapshotCooldownHints(now time.Time) (staged []poolKV, live map[s
 		staged = append(staged, poolKV{key: key, val: mustMarshalPool(b)})
 	}
 	return staged, live
-}
-
-// captureBridgeSurvivor appends one idle-evicted entry's usage contribution.
-// The entry is already unlinked from the cache (no new traffic can target
-// it) and carries no in-flight lease, so its ledger is stable without
-// bridgeMu. Entries with no in-window usage record nothing (the eviction
-// itself still proceeds). Raw tokens never cross: the record is keyed by
-// the entry's SHA map key.
-func (p *Pool) captureBridgeSurvivor(mapKey string, entry *bridgeEntry, now time.Time) {
-	if mapKey == "" || entry == nil || entry.ledger == nil {
-		return
-	}
-	cutoff := now.Add(-usageWindow)
-	chats := 0
-	for _, t := range entry.ledger.usage {
-		if !t.Before(cutoff) {
-			chats++
-		}
-	}
-	day := 0
-	var dayStart int64
-	if entry.ledger.reqDayCount > 0 {
-		if start := bucketStart(now, "day"); start == entry.ledger.reqDayStart {
-			day = int(entry.ledger.reqDayCount)
-			dayStart = start
-		}
-	}
-	if chats == 0 && day == 0 {
-		return
-	}
-	rec := bridgeSurvivor{Key: mapKey, AtMs: now.UnixMilli(), Chats: chats, Day: day, DayStart: dayStart}
-	p.bridgeSurvivorMu.Lock()
-	p.bridgeSurvivors = append(p.bridgeSurvivors, rec)
-	if len(p.bridgeSurvivors) > maxBridgeSurvivors {
-		p.bridgeSurvivors = append([]bridgeSurvivor(nil), p.bridgeSurvivors[len(p.bridgeSurvivors)-maxBridgeSurvivors:]...)
-	}
-	p.bridgeSurvivorMu.Unlock()
-	p.markPersistDirty()
-	if st := p.poolPersistBackend(); st != nil {
-		// Best-effort immediate write: an eviction between flushes must
-		// not lose the contribution. The flush stages the same blob.
-		_ = st.SavePoolState(poolBridgeSurvivorsKey, p.marshalBridgeSurvivors())
-	}
-}
-
-// marshalBridgeSurvivors renders the survivor blob (oldest first).
-func (p *Pool) marshalBridgeSurvivors() []byte {
-	p.bridgeSurvivorMu.Lock()
-	defer p.bridgeSurvivorMu.Unlock()
-	out := p.bridgeSurvivors
-	if out == nil {
-		out = []bridgeSurvivor{}
-	}
-	return mustMarshalPool(out)
-}
-
-// snapshotBridgeSurvivors stages the survivor blob for the flush (nil when
-// the list is empty: nothing to write).
-func (p *Pool) snapshotBridgeSurvivors() []poolKV {
-	p.bridgeSurvivorMu.Lock()
-	defer p.bridgeSurvivorMu.Unlock()
-	if len(p.bridgeSurvivors) == 0 {
-		return nil
-	}
-	cp := make([]bridgeSurvivor, len(p.bridgeSurvivors))
-	copy(cp, p.bridgeSurvivors)
-	return []poolKV{{key: poolBridgeSurvivorsKey, val: mustMarshalPool(cp)}}
-}
-
-// restoreBridgeSurvivors loads the survivor blob into memory, dropping
-// records evicted over one usageWindow ago and enforcing the cap (newest
-// win). It converges the row when anything was dropped, so one boot
-// settles the namespace.
-func (p *Pool) restoreBridgeSurvivors(st PoolPersist, now time.Time) {
-	raw, ok, err := st.LoadPoolState(poolBridgeSurvivorsKey)
-	if err != nil {
-		p.logger.Warn("pool: bridge survivor restore failed (starting fresh)", "error", err)
-		return
-	}
-	if !ok {
-		return
-	}
-	var list []bridgeSurvivor
-	if err := json.Unmarshal(raw, &list); err != nil {
-		p.logger.Warn("pool: bridge survivor row corrupt (starting fresh)", "error", err)
-		_ = st.DeletePoolState(poolBridgeSurvivorsKey)
-		return
-	}
-	cutoff := now.Add(-usageWindow)
-	kept := make([]bridgeSurvivor, 0, len(list))
-	for _, r := range list {
-		if r.Key == "" || time.UnixMilli(r.AtMs).Before(cutoff) {
-			continue
-		}
-		kept = append(kept, r)
-	}
-	if len(kept) > maxBridgeSurvivors {
-		kept = kept[len(kept)-maxBridgeSurvivors:]
-	}
-	p.bridgeSurvivorMu.Lock()
-	p.bridgeSurvivors = kept
-	p.bridgeSurvivorMu.Unlock()
-	if len(kept) != len(list) {
-		if len(kept) == 0 {
-			_ = st.DeletePoolState(poolBridgeSurvivorsKey)
-		} else {
-			_ = st.SavePoolState(poolBridgeSurvivorsKey, mustMarshalPool(kept))
-		}
-	}
-}
-
-// bridgeSurvivorUsage folds survivors into the bridge usage accounting as of
-// now: in-window Chats plus today's Day counts. Display only — no local cap
-// reads it (upstream quota/429 is the enforcement).
-func (p *Pool) bridgeSurvivorUsage(now time.Time) (chats24h, pacificDay int) {
-	cutoff := now.Add(-usageWindow)
-	today := bucketStart(now, "day")
-	p.bridgeSurvivorMu.Lock()
-	defer p.bridgeSurvivorMu.Unlock()
-	for _, r := range p.bridgeSurvivors {
-		if time.UnixMilli(r.AtMs).Before(cutoff) {
-			continue
-		}
-		chats24h += r.Chats
-		if r.DayStart == today && r.DayStart != 0 {
-			pacificDay += r.Day
-		}
-	}
-	return chats24h, pacificDay
-}
-
-// BridgeSurvivorUsage is the exported survivor-accounting view (dashboard,
-// tests): surviving in-window usage of idle-evicted bridge entries.
-func (p *Pool) BridgeSurvivorUsage() (chats24h, pacificDay int) {
-	return p.bridgeSurvivorUsage(time.Now())
 }

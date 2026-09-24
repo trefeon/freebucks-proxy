@@ -130,26 +130,6 @@ func (e *atomicErr) get() error {
 
 // newBridgePool wires a pool in bridge mode (no AUTH_TOKENS) whose lazily
 // created per-client-token clients talk to the given mock upstream.
-func newBridgePool(t *testing.T, mock *testutil.MockUpstream) *Pool {
-	t.Helper()
-	cfg := &config.Config{
-		RotationInterval:   time.Hour,
-		RequestTimeout:     15 * time.Minute,
-		SessionCallTimeout: 5 * time.Second,
-		RegistryRefresh:    6 * time.Hour,
-		UpstreamBaseURL:    mock.URL(),
-		// Park-OFF like newTestPoolCfg above (hand-built Config zero-values
-		// the flag; production Load defaults ON).
-		SessionParkEnabledFlag: false,
-	}
-	reg := registry.New(cfg, nil)
-	reg.LoadFallback()
-	p, err := New(cfg, nil, nil, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
 
 // flakyFirstRT fails the very first request with a transient transport error
 // and delegates everything else to base. It drives a real retry through the

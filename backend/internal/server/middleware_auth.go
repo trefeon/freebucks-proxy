@@ -63,10 +63,10 @@ func hashClientKey(raw string) string {
 }
 
 // requireAuth wraps a handler with client-auth enforcement. When no API keys
-// are configured the handler passes through untouched; /healthz is always
-// exempt (the caller wires it without requireAuth). Bridge mode (no
-// AUTH_TOKENS) also passes through: the Authorization header IS the upstream
-// token there, and API_KEYS is meaningless.
+// are configured the handler passes through untouched (the historic open
+// behavior); /healthz is always exempt (the caller wires it without
+// requireAuth). Pool-only: any other credential is rejected here, and
+// chatCore re-checks from the same pinned snapshot.
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.cfg.Load()
@@ -74,20 +74,16 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		// below must route this same request from the same config view.
 		ctx := withCfgSnapshot(r.Context(), cfg)
 		// Stamp the caller's key identity best-effort: a credential
-		// matching API_KEYS hashes to its tracking id; bridge tokens and
-		// missing credentials stamp "". chatCore re-stamps authoritatively
-		// after the pooled-vs-bridge decision.
+		// matching API_KEYS hashes to its tracking id; missing or unknown
+		// credentials stamp "". chatCore re-stamps authoritatively after
+		// its own check.
 		if ok, hash := s.authorizedWithIdentity(cfg, r); ok {
 			ctx = withClientKeyHash(ctx, hash)
 		} else {
 			ctx = withClientKeyHash(ctx, "")
 		}
 		r = r.WithContext(ctx)
-		// Hybrid mode (AUTH_TOKENS + BRIDGE_ENABLED) passes through too:
-		// the per-request decision — pooled vs bridge — happens in
-		// chatCore, where a credential matching API_KEYS uses the pool and
-		// any other credential is relayed as a bridge token.
-		if len(cfg.APIKeys) == 0 || cfg.BridgeMode() || cfg.HybridBridgeMode() {
+		if len(cfg.APIKeys) == 0 {
 			next(w, r)
 			return
 		}

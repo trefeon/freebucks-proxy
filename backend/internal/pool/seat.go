@@ -62,17 +62,14 @@ func (s *seatCounter) idle() bool {
 }
 
 // releaseSeat drops the seat count held by this lease. Nil-safe; paired with
-// the acquire inside admitOnLane / AcquireBridge. LeaseRelease and
-// LeaseAbandon are the only release paths, and a lease is released by one of
-// them (a double call is absorbed by the saturating release).
+// the acquire inside admitOnLane. LeaseRelease and LeaseAbandon are the only
+// release paths, and a lease is released by one of them (a double call is
+// absorbed by the saturating release).
 func (l *Lease) releaseSeat() {
 	if l == nil {
 		return
 	}
-	switch {
-	case l.entry != nil:
+	if l.entry != nil {
 		l.entry.seat.release()
-	case l.Bridge != nil:
-		l.Bridge.seat.release()
 	}
 }

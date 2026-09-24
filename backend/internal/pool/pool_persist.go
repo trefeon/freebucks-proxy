@@ -41,7 +41,6 @@ const (
 	poolStateAdmissions    = "pool/admissions"
 	poolLedgerPrefix       = "pool/ledger/"
 	poolCooldownPrefix     = "pool/cooldown/"
-	poolBridgeSurvivorsKey = "pool/bridge/survivors"
 	// retiredProbeQuotaPrefix is the drained quota-cache namespace (see the
 	// allowlist above): the flush deletes these keys and nothing writes them.
 	retiredProbeQuotaPrefix = "pool/probe/quota/"
@@ -210,9 +209,6 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 	hintStaged, liveCooldowns = p.snapshotCooldownHints(time.Now())
 	staged = append(staged, hintStaged...)
 
-	// Bridge idle-eviction survivors (single blob).
-	staged = append(staged, p.snapshotBridgeSurvivors()...)
-
 	// Admissions (transient in-flight counts; restored as-is, self-heals
 	// on the next admission cycle).
 	p.admissionsMu.Lock()
@@ -322,7 +318,6 @@ func (p *Pool) RestorePoolPersist() {
 	p.restoreLedgers(st, now)
 	p.restoreAdmissions(st)
 	p.restoreCooldownHints(st, now)
-	p.restoreBridgeSurvivors(st, now)
 }
 
 func (p *Pool) restoreLedgers(st PoolPersist, now time.Time) {

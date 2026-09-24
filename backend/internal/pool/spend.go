@@ -365,7 +365,6 @@ func (p *Pool) recordSpendEntry(entry *tokenEntry, tokens int64) {
 	p.markPersistDirty()
 }
 
-// bridgeRecordSpend adds tokens to a bridge entry's ledger.
 func (p *Pool) bridgeRecordSpend(entry *bridgeEntry, tokens int64) {
 	if entry == nil {
 		return
@@ -401,7 +400,6 @@ func (p *Pool) ledgerSnapshot(token int) (int, spendView, int) {
 	return p.roster.ledgerSnapshot(token)
 }
 
-// bridgeSpendSnapshot returns the bridge entry's ledger view.
 func (p *Pool) bridgeSpendSnapshot(entry *bridgeEntry) spendView {
 	if entry == nil {
 		return spendView{}
@@ -434,8 +432,6 @@ func (p *Pool) recordSpendLimited(token int) {
 	p.markPersistDirty()
 }
 
-// bridgeRecordSpendLimited marks one upstream spend_limited refusal on a
-// bridge entry's ledger (issue #122). Caller holds Pool.bridgeMu.
 func (p *Pool) bridgeRecordSpendLimited(entry *bridgeEntry) {
 	if entry == nil {
 		return

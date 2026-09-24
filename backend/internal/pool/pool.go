@@ -50,12 +50,11 @@ const shutdownTimeout = 10 * time.Second
 // token. The caller must call Pool.LeaseRelease when the request completes
 // or fails (it decrements the run's inflight counter).
 type Lease struct {
-	Token             int    // index into config.AuthTokens (-1 for bridge leases)
+	Token             int    // index into config.AuthTokens
 	Model             string // the model this lease's session/run is bound to (authoritative for opts.Model; may differ from the requested model after upstream coercion)
 	AgentID           string
 	Run               *runs.Run
 	SessionInstanceID string       // "" when the session is disabled
-	Bridge            *bridgeEntry // nil for pooled (fixed-token) leases
 	// entry is the fixed-token entry backing this lease. Set by Acquire so
 	// LeaseRelease always releases through the right run manager: after a
 	// concurrent RemoveLastToken, the Token index may be out of range (or
@@ -333,17 +332,6 @@ type Pool struct {
 	// by refundMu; entries are deleted when the flight lands.
 	refundMu       sync.Mutex
 	refundInflight map[int]*refundFlight
-	// Bridge mode (no AUTH_TOKENS): lazily-created per-client-token entries.
-	// bridgeOrder keeps the LRU order, oldest first. Guarded by bridgeMu.
-	bridgeMu    sync.RWMutex
-	bridge      map[string]*bridgeEntry
-	bridgeOrder []string
-
-	// bridgeCreateGate bounds concurrent bridge client creation:
-	// upstream.New involves network calls; limiting concurrency to 4
-	// prevents thundering-herd creation when many new client tokens
-	// arrive simultaneously.
-	bridgeCreateGate chan struct{}
 	// admissions tracks in-flight session admissions per model across the pool
 	// (issue #191: prevents concurrent requests from creating duplicate sessions
 	// on different tokens for the same model). Guarded by admissionsMu.
@@ -388,23 +376,15 @@ type Pool struct {
 	cooldownHintMu sync.Mutex
 	cooldownHints  map[string]poolCooldownBlob
 
-	// Bridge idle-eviction survivors (cooldown_hint.go): bounded,
-	// timestamped usage contributions of idle-evicted bridge entries.
-	// Guarded by bridgeSurvivorMu, never nested under bridgeMu (eviction
-	// captures after unlinking; snapshot/restore take it alone).
-	bridgeSurvivorMu sync.Mutex
-	bridgeSurvivors  []bridgeSurvivor
-
 	// MASQ slot ledger (slot_ledger.go): per-lane live-turn slot
 	// semaphores with FIFO waiter queues (routeSlots, keyed by
-	// slotKey{entry, model} - *tokenEntry pooled, *bridgeEntry bridge -
-	// so dashboard reorders and concurrent clients never merge lanes).
+	// slotKey{entry, model} - so dashboard reorders and concurrent clients
+	// never merge lanes).
 	// Guarded by routeMu. In-memory only: a restart resets every counter
 	// to zero (same discipline as the probe scheduler's transient flags)
 	// - no pool_state rows, no SQL.
 	// Smart model queues (model_queue.go) share routeMu: one
-	// work-conserving FIFO per model for pooled entries (bridge entries
-	// keep the per-lane park above). Lazily created like routeSlots, so
+	// work-conserving FIFO per model. Lazily created like routeSlots, so
 	// no constructor change is needed.
 	routeMu     sync.Mutex
 	routeSlots  map[slotKey]*slotState
@@ -649,17 +629,13 @@ type leaseTarget struct {
 	runs   *runs.RunManager
 	client *upstream.Client
 	entry  *tokenEntry
-	bridge *bridgeEntry
 }
 
 // leaseTarget resolves the lease's backing run manager, upstream client and
-// entry (pooled) or bridge entry. Returns nil for a synthetic lease.
+// entry. Returns nil for a synthetic lease.
 func (l *Lease) leaseTarget() *leaseTarget {
 	if l.entry != nil {
 		return &leaseTarget{runs: l.entry.runs, client: l.entry.client, entry: l.entry}
-	}
-	if l.Bridge != nil {
-		return &leaseTarget{runs: l.Bridge.runs, client: l.Bridge.client, bridge: l.Bridge}
 	}
 	return nil
 }
@@ -682,7 +658,7 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 	}
 
 	WireChatAdLegs() // chat-surface ad legs land in the ads ledger
-	p := &Pool{reg: reg, logger: slog.Default(), bridge: make(map[string]*bridgeEntry), bridgeCreateGate: make(chan struct{}, 4), admissions: make(map[string]int), cooldownHints: make(map[string]poolCooldownBlob)}
+	p := &Pool{reg: reg, logger: slog.Default(), admissions: make(map[string]int), cooldownHints: make(map[string]poolCooldownBlob)}
 	p.cfg.Store(cfg)
 	toks := make([]*tokenEntry, 0, len(cfg.AuthTokens))
 	for i := range cfg.AuthTokens {
@@ -738,13 +714,6 @@ func (p *Pool) SetLocalityResolver(fn func() string) {
 			tok.client.SetLocalityResolver(fn)
 		}
 	}
-	p.bridgeMu.RLock()
-	for _, entry := range p.bridge {
-		if entry != nil && entry.client != nil {
-			entry.client.SetLocalityResolver(fn)
-		}
-	}
-	p.bridgeMu.RUnlock()
 }
 
 // applyLocality installs the pool's configured locality resolver on a client
@@ -773,15 +742,6 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 		tok.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		tok.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 	}
-	p.bridgeMu.Lock()
-	for _, entry := range p.bridge {
-		entry.session.SetReAdmitLead(cfg.SessionReAdmitLead)
-		entry.session.SetReAdmitGate(entry.seat.idle)
-		entry.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
-		entry.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
-	}
-	p.bridgeMu.Unlock()
-
 	// AUTH_TOKENS slot reconciliation. A quarantine is bound to the exact
 	// account string an entry was built from; when a reload replaces the
 	// account at a slot (operator edited AUTH_TOKENS in .env), the old
@@ -943,20 +903,6 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 	return entry, nil
 }
 
-// isPooledToken reports whether raw matches one of the fixed AUTH_TOKENS
-// entries (exact string compare against the pool's own in-memory copies).
-func (p *Pool) isPooledToken(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	for _, tok := range *p.roster.Load() {
-		if tok.token == raw {
-			return true
-		}
-	}
-	return false
-}
-
 // AddToken adds a token to the pool at runtime (dashboard action): builds
 // the client/session/run-manager triple and appends it, returning the new
 // token index. The config must be updated separately (AUTH_TOKENS + reload)
@@ -981,7 +927,7 @@ func (p *Pool) TokenCount() int {
 }
 
 // SetSessionStore injects the shared session-state store used by runtime
-// token additions (AddToken) and bridge entries. Call before the pool
+// token additions (AddToken). Call before the pool
 // starts serving requests; the fixed-token session managers are built by the
 // caller and must use the same store instance. A nil store disables
 // persistence. The persistence config is captured here so SetConfig can warn

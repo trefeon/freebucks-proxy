@@ -7,29 +7,6 @@ import (
 	"time"
 )
 
-// BridgeTokenSnapshot is a dashboard-ready view of one bridge entry (#187).
-type BridgeTokenSnapshot struct {
-	Key           string                           `json:"key"` // raw client token (hashed for display)
-	LastUsed      time.Time                        `json:"last_used"`
-	ActiveRuns    int                              `json:"active_runs"`
-	Requests      int                              `json:"requests"`
-	Locked        bool                             `json:"locked"`
-	CooldownUntil time.Time                        `json:"cooldown_until"`
-	SessionActive bool                             `json:"session_active"`
-	Model         string                           `json:"model"`
-	AccessTier    string                           `json:"access_tier,omitempty"`
-	QuotaByModel  map[string]session.QuotaSnapshot `json:"quota_by_model,omitempty"`
-	// Freebucks is the upstream Freebucks allowance block (issue #232); nil
-	// when the bridge entry has no Freebucks quota.
-	Freebucks *upstream.FreebucksInfo `json:"freebucks,omitempty"`
-	SpendDay  float64                 `json:"spend_day"`
-	// BanType / BannedUntil mirror TokenSnapshot's active-ban view
-	// (issues #198/#199): "temporary" (auto-lifts at BannedUntil) vs
-	// "hard" (never self-heals); zero values when no ban is active.
-	BanType     string    `json:"ban_type,omitempty"`
-	BannedUntil time.Time `json:"banned_until,omitempty"`
-}
-
 // banView derives the snapshot ban view from a remembered runs ban
 // (issues #198/#199). A hard ban (zero ResumesAt) is PERMANENT —
 // runs.CooldownBan keeps no timed window for it, so BannedUntil stays zero
@@ -340,15 +317,5 @@ func (p *Pool) PoolSnapshot() PoolSnapshot {
 			ps.Quarantined++
 		}
 	}
-	// Live bridge entries: their counters survive while the entry is cached
-	// (LRU eviction drops old ones — the view is "recent bridge activity").
-	p.bridgeMu.Lock()
-	for _, be := range p.bridge {
-		ps.TransientRetries += be.client.TransientRetries()
-		ps.CapacityDeferredRetries += be.client.CapacityDeferredRetries()
-		ps.WaitingRoomRetries += be.client.WaitingRoomRetries()
-		ps.FingerprintRotations += be.client.FingerprintRotations()
-	}
-	p.bridgeMu.Unlock()
 	return ps
 }

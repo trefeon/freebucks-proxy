@@ -37,7 +37,7 @@ func (p *Pool) CooldownTokenRateLimit(token int, rle *upstream.RateLimitError) {
 	if rle.Status == "spend_limited" {
 		p.recordSpendLimited(token)
 	}
-	p.recordMismatchEscalation(token+1, rle) // 1-based key: 0 is the bridge-shared window
+	p.recordMismatchEscalation(token+1, rle)
 }
 
 // CooldownTokenBan applies a ban cooldown to token (remembered so
@@ -117,7 +117,7 @@ func (p *Pool) CooldownLeaseRateLimit(lease *Lease, rle *upstream.RateLimitError
 		lease.entry.ledger.recordSpendLimited()
 	}
 	if idx := p.indexOfEntry(lease.entry); idx >= 0 {
-		p.recordMismatchEscalation(idx+1, rle) // 1-based key: 0 is the bridge-shared window
+		p.recordMismatchEscalation(idx+1, rle)
 	}
 }
 
@@ -152,56 +152,8 @@ func (p *Pool) CooldownLeaseCountryBlocked(lease *Lease, cbe *upstream.CountryBl
 	p.storeCountryHint(lease.entry, lease.entry.runs.CooldownUntil())
 }
 
-// CooldownBridge puts the bridge entry's token in a cooldown window of
-// duration d (auth-reject recovery).
-func (p *Pool) CooldownBridge(lease *Lease, d time.Duration) {
-	if lease == nil || lease.Bridge == nil {
-		return
-	}
-	lease.Bridge.runs.Cooldown(d)
-}
-
-// CooldownBridgeRateLimit applies a rate-limit cooldown to the bridge entry
-// (remembered so AcquireBridge surfaces 429 + Retry-After). When the refusal
-// is spend_limited (issue #122), the event is also counted on the entry's
-// spend ledger — the $ ceiling is server-enforced, so the ledger only
-// records the event.
-func (p *Pool) CooldownBridgeRateLimit(lease *Lease, rle *upstream.RateLimitError) {
-	if lease == nil || lease.Bridge == nil || rle == nil {
-		return
-	}
-	lease.Bridge.runs.CooldownRateLimit(rle)
-	if rle.Status == "spend_limited" {
-		p.bridgeMu.Lock()
-		defer p.bridgeMu.Unlock()
-		p.bridgeRecordSpendLimited(lease.Bridge)
-	}
-	p.recordMismatchEscalation(0, rle) // bridge: tokenIndex 0, shared window
-}
-
-// CooldownBridgeBan applies a ban cooldown to the bridge entry (remembered
-// so AcquireBridge surfaces 403 banned + resumes-at during the window) and
-// fires the token_banned webhook alert (issue #48, throttled).
-func (p *Pool) CooldownBridgeBan(lease *Lease, be *upstream.BanError) {
-	if lease == nil || lease.Bridge == nil || be == nil {
-		return
-	}
-	lease.Bridge.runs.CooldownBan(be)
-	p.notifyBan(0, "")
-}
-
-// CooldownBridgeCountryBlocked applies a country-block cooldown to the
-// bridge entry (remembered so AcquireBridge surfaces the region-block error
-// during the ~15m window instead of re-hitting upstream).
-func (p *Pool) CooldownBridgeCountryBlocked(lease *Lease, cbe *upstream.CountryBlockedError) {
-	if lease == nil || lease.Bridge == nil || cbe == nil {
-		return
-	}
-	lease.Bridge.runs.CooldownCountryBlocked(cbe)
-}
-
 // notifyBan fires the token_banned webhook (issue #48). tokenIndex is the
-// 1-based pooled token index (0 = bridge). model is the requested model
+// 1-based pooled token index. model is the requested model
 // when the caller knows it ("" otherwise). Throttled by the sender.
 func (p *Pool) notifyBan(tokenIndex int, model string) {
 	p.notifyMu.Lock()
@@ -218,13 +170,12 @@ func (p *Pool) notifyBan(tokenIndex int, model string) {
 
 // classifyTarget selects the mode-specific recovery policy in
 // classifyAndCooldown (issue #260): pooled quarantines a live-banned
-// account while bridge evicts a dead token on 401 and never quarantines
-// (per-request client tokens are never marked terminal). Country blocks
-// and 401 invalids are time-bound parks, never quarantine.
+// account. Country blocks and 401 invalids are time-bound parks, never
+// quarantine.
 
 // classifiedError carries the classification result of one upstream error:
 // the mode-agnostic recovery policy is applied first (Cooldown*), and the
-// site-specific recovery (pooled quarantine vs bridge eviction, webhook
+// site-specific recovery (pooled quarantine, webhook
 // notify index/model, spend_limited ledger, quota fallback, bucket
 // aggregation) reads the flags at the calling site.
 type classifiedError struct {
@@ -299,12 +250,9 @@ const (
 
 // recordMismatchEscalation counts one free_mode_invalid_agent_model hit for
 // token and fires agent_model_mismatch_escalation once per window when the
-// count crosses the threshold. Bridge entries share the pooled path through
-// CooldownTokenRateLimit/CooldownBridgeRateLimit, so both surfaces alert.
-// tokenIndex is the 1-based pooled token index (0 = bridge, the shared
-// window) — the same convention as notifyBan and the
-// RemoveTokenAt/RemoveLastToken reindex — so a pooled token never shares
-// its window with the bridge entries.
+// count crosses the threshold.
+// tokenIndex is the 1-based pooled token index — the same convention as
+// notifyBan and the RemoveTokenAt/RemoveLastToken reindex.
 func (p *Pool) recordMismatchEscalation(tokenIndex int, rle *upstream.RateLimitError) {
 	fire, model := p.roster.recordMismatch(tokenIndex, rle)
 	if !fire {
@@ -347,9 +295,7 @@ func (p *Pool) UnlockToken(token int) error {
 // the acquire paths). The marker survives across Acquire calls (the
 // failover loop skips it every pass, so no re-admission attempts) and is
 // cleared by ban-expiry lift, by UnlockToken, or by the entry rebuild an
-// AUTH_TOKENS change triggers (SetConfig replaces the whole entry). It is
-// a no-op for bridge entries (per-request tokens are never quarantined — a
-// bridge refusal surfaces to the client as today).
+// AUTH_TOKENS change triggers (SetConfig replaces the whole entry).
 //
 // The caller passes the ENTRY it holds, not an index: an index could be
 // reused by a concurrent RemoveLastToken+AddToken, and quarantining by
@@ -436,31 +382,5 @@ func (p *Pool) UnlockLockToken(token int) error {
 		return fmt.Errorf("pool: token %d out of range", token)
 	}
 	(*toks)[token].locked.Store(false)
-	return nil
-}
-
-// LockBridgeEntry administratively excludes a bridge entry from
-// AcquireBridge. key is the SHA-256 hash prefix (tokenKey) (#187).
-func (p *Pool) LockBridgeEntry(key string) error {
-	p.bridgeMu.Lock()
-	defer p.bridgeMu.Unlock()
-	e, ok := p.bridge[key]
-	if !ok {
-		return fmt.Errorf("pool: bridge entry %s not found", key)
-	}
-	e.locked.Store(true)
-	return nil
-}
-
-// UnlockBridgeEntry clears the administrative lock on a bridge entry so
-// AcquireBridge can use it again (#187).
-func (p *Pool) UnlockBridgeEntry(key string) error {
-	p.bridgeMu.Lock()
-	defer p.bridgeMu.Unlock()
-	e, ok := p.bridge[key]
-	if !ok {
-		return fmt.Errorf("pool: bridge entry %s not found", key)
-	}
-	e.locked.Store(false)
 	return nil
 }

@@ -259,88 +259,10 @@ func TestCooldownHintClearedByUnlock(t *testing.T) {
 // TestBridgeSurvivorCapDropsOldest pins the survivor bound: captures past
 // maxBridgeSurvivors drop the oldest, the blob carries SHA keys only (raw
 // client tokens never), and the retained list folds into the accounting.
-func TestBridgeSurvivorCapDropsOldest(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mem := newMemPoolPersist()
-	p := newBridgePool(t, mock)
-	p.SetPoolPersist(mem)
-	now := time.Now()
-	total := maxBridgeSurvivors + 10
-	for i := range total {
-		raw := fmt.Sprintf("raw-secret-client-%d", i)
-		entry, err := p.bridgeEntryFor(raw)
-		if err != nil {
-			t.Fatalf("bridgeEntryFor: %v", err)
-		}
-		p.bridgeMu.Lock()
-		entry.ledger.recordChat(now)
-		entry.ledger.recordDayRequest(now)
-		p.bridgeMu.Unlock()
-		p.captureBridgeSurvivor(tokenKey(raw), entry, now)
-	}
-	p.bridgeSurvivorMu.Lock()
-	n := len(p.bridgeSurvivors)
-	var first string
-	if n > 0 {
-		first = p.bridgeSurvivors[0].Key
-	}
-	p.bridgeSurvivorMu.Unlock()
-	if n != maxBridgeSurvivors {
-		t.Fatalf("survivors = %d, want cap %d", n, maxBridgeSurvivors)
-	}
-	if want := tokenKey(fmt.Sprintf("raw-secret-client-%d", total-maxBridgeSurvivors)); first != want {
-		t.Errorf("oldest survivor = %q, want %q (oldest dropped)", first, want)
-	}
-	blob, ok, err := mem.LoadPoolState(poolBridgeSurvivorsKey)
-	if err != nil || !ok {
-		t.Fatalf("survivor blob present = %v,%v, want true,nil", ok, err)
-	}
-	for i := range total {
-		if strings.Contains(string(blob), fmt.Sprintf("raw-secret-client-%d", i)) {
-			t.Fatalf("raw client token %d leaked into survivor blob", i)
-		}
-	}
-	if chats, _ := p.bridgeSurvivorUsage(now); chats != maxBridgeSurvivors {
-		t.Errorf("survivor chats fold = %d, want %d", chats, maxBridgeSurvivors)
-	}
-}
 
 // TestBridgeSurvivorExpiry pins the survivor TTL: records evicted over one
 // usageWindow ago drop on restore (and converge the row); today's Pacific-day
 // counts fold only while their day bucket is current.
-func TestBridgeSurvivorExpiry(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mem := newMemPoolPersist()
-	now := time.Now()
-	today := bucketStart(now, "day")
-	seed := []bridgeSurvivor{
-		{Key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AtMs: now.Add(-25 * time.Hour).UnixMilli(), Chats: 3, Day: 3, DayStart: today},
-		{Key: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", AtMs: now.UnixMilli(), Chats: 5, Day: 5, DayStart: today},
-	}
-	if err := mem.SavePoolState(poolBridgeSurvivorsKey, mustMarshalPool(seed)); err != nil {
-		t.Fatalf("seed survivors: %v", err)
-	}
-	p := newBridgePool(t, mock)
-	p.SetPoolPersist(mem)
-	p.RestorePoolPersist()
-	chats, day := p.bridgeSurvivorUsage(now)
-	if chats != 5 || day != 5 {
-		t.Errorf("survivor fold = (%d,%d), want (5,5) (aged record expired)", chats, day)
-	}
-	raw, ok, err := mem.LoadPoolState(poolBridgeSurvivorsKey)
-	if err != nil || !ok {
-		t.Fatalf("converged survivor row present = %v,%v, want true,nil", ok, err)
-	}
-	var kept []bridgeSurvivor
-	if err := json.Unmarshal(raw, &kept); err != nil {
-		t.Fatalf("unmarshal converged survivors: %v", err)
-	}
-	if len(kept) != 1 || kept[0].Key != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
-		t.Errorf("converged survivors = %+v, want only the fresh record", kept)
-	}
-}
 
 // TestQuotaSingleWriterRetiresProbeNamespace pins the quota cutover: with
 // live session quota present, the flush stages NO pool/probe/quota/* row and

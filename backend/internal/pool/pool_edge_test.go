@@ -186,53 +186,6 @@ func TestAcquireCancelledMidFailover(t *testing.T) {
 // maintain pass indefinitely. Bridge traffic must mark the pool active, and
 // once idle a maintain pass must not touch the upstream at all. Fails
 // before the fix (lastActive stays zero → every pass maintains the entry).
-func TestBridgeIdlePause(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgePool(t, mock)
-	cfg := p.cfg.Load()
-	cfg.IdleRotationTimeout = 10 * time.Millisecond
-	p.cfg.Store(cfg)
-
-	lease, err := p.AcquireBridge(context.Background(), "client-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-	if got := mock.StartedRunsSnapshot(); len(got) != 1 {
-		t.Fatalf("started runs = %v, want 1", got)
-	}
-
-	// The fix: bridge traffic must mark the pool active — without it
-	// lastActive stays zero, idleFor() reports 0, and the pool never enters
-	// the idle branch (IDLE_ROTATION_TIMEOUT is dead config in bridge
-	// mode). Fails before the fix.
-	p.lastActiveMu.Lock()
-	active := !p.lastActive.IsZero()
-	p.lastActiveMu.Unlock()
-	if !active {
-		t.Fatal("AcquireBridge did not mark the pool active (lastActive zero)")
-	}
-
-	// Cross the idle threshold by mutating lastActive (deterministic — a
-	// fixed sleep would race the 10ms threshold on slow CI), then assert
-	// idle passes are quiet.
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-time.Second)
-	p.lastActiveMu.Unlock()
-
-	// Idle passes must not touch the upstream (no session poll / queued
-	// advance / rotation) and must not evict the recently-used entry.
-	reqs := mock.RequestsSnapshot()
-	p.maintainTick(context.Background())
-	p.maintainTick(context.Background())
-	if got := mock.RequestsSnapshot(); got != reqs {
-		t.Errorf("upstream requests during idle passes = %d, want %d (no maintain activity)", got, reqs)
-	}
-	if got := p.bridgeLen(); got != 1 {
-		t.Errorf("bridge entries = %d, want 1 (recently-used entry not evicted)", got)
-	}
-}
 
 // TestBridgeMaintainRunsOnIdlePass is the regression guard for the idle
 // sweep bug: maintainTick's idle branch returned before bridgeMaintain, so
@@ -241,87 +194,12 @@ func TestBridgeIdlePause(t *testing.T) {
 // expiry. An idle pass must still run the bridge sweep (only the per-token
 // session-poll/queued-advance pauses). Fails before the fix (the idle branch
 // returns before the sweep).
-func TestBridgeMaintainRunsOnIdlePass(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newTestPoolCfg(t, func(c *config.Config) {
-		c.UpstreamBaseURL = mock.URL() // bridge entries must hit the mock, not the real gateway
-	}, mock) // one fixed token: mixed mode
-	cfg := p.cfg.Load()
-	cfg.IdleRotationTimeout = 10 * time.Millisecond
-	p.cfg.Store(cfg)
-
-	// A pooled acquire marks the pool active (lastActive); then a bridge
-	// entry is created and aged past defaultBridgeIdleEvict.
-	lease, err := p.Acquire(context.Background(), modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-	bridgeLease, err := p.AcquireBridge(context.Background(), "idle-bridge-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(bridgeLease)
-	entry := p.bridgeToken("idle-bridge-tok")
-	if entry == nil {
-		t.Fatal("bridge entry missing")
-		return
-	}
-	entry.lastUsed = time.Now().Add(-defaultBridgeIdleEvict - time.Minute)
-
-	// Cross the idle threshold by mutating lastActive (deterministic).
-	p.lastActiveMu.Lock()
-	p.lastActive = time.Now().Add(-time.Second)
-	p.lastActiveMu.Unlock()
-
-	// The idle pass must evict the idle bridge entry: its run is FINISHed
-	// and its session ended, and the entry is dropped from the cache. The
-	// fixed token's run is FINISHed by the idle pass too (idle semantics).
-	p.maintainTick(context.Background())
-	if got := p.bridgeToken("idle-bridge-tok"); got != nil {
-		t.Error("idle bridge entry not evicted on an idle pass")
-	}
-	if got := mock.FinishedRunsSnapshot(); len(got) < 2 {
-		t.Errorf("finished runs = %d, want >= 2 (fixed + bridge idle FINISH)", len(got))
-	}
-	if mock.SessionEnds == 0 {
-		t.Error("bridge session not ended on idle eviction")
-	}
-}
 
 // TestBridgeIdleSweepSkipsBusy pins the busy-entry rule for the IDLE sweep
 // (TestBridgeEvictionSkipsBusyEntry covers LRU eviction): an entry idle past
 // defaultBridgeIdleEvict with an outstanding lease must NOT be evicted — FINISHing
 // its run would kill the in-flight chat — even though the sweep considers
 // it idle.
-func TestBridgeIdleSweepSkipsBusy(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgePool(t, mock)
-
-	lease, err := p.AcquireBridge(context.Background(), "busy-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.LeaseRelease(lease)
-
-	entry := p.bridgeToken("busy-tok")
-	if entry == nil {
-		t.Fatal("bridge entry missing")
-		return
-	}
-	entry.lastUsed = time.Now().Add(-defaultBridgeIdleEvict - time.Minute)
-
-	p.bridgeMaintain(context.Background(), false)
-
-	if p.bridgeToken("busy-tok") == nil {
-		t.Error("busy bridge entry evicted while its lease is outstanding")
-	}
-	if got := mock.FinishedRunsSnapshot(); len(got) != 0 {
-		t.Errorf("finished runs = %d, want 0 (busy run must not be finished)", len(got))
-	}
-}
 
 // TestBridgeDeadTokenEvictDefersWhenBusy is the regression guard for the
 // dead-token eviction race: a token confirmed dead (ErrAuthRejected)
@@ -333,108 +211,10 @@ func TestBridgeIdleSweepSkipsBusy(t *testing.T) {
 // cached (cooled down, so no new request passes it) until its leases
 // drain and it sits idle past defaultBridgeIdleEvict. Fails before the fix (the
 // dead-token path FINISHed the busy entry's run and ended its session).
-func TestBridgeDeadTokenEvictDefersWhenBusy(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgePool(t, mock)
-
-	// A live chat holds a lease on the token (inflight = 1).
-	lease, err := p.AcquireBridge(context.Background(), "dead-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mock.SessionCreatesSnapshot() != 1 {
-		t.Fatalf("session creates = %d, want 1", mock.SessionCreatesSnapshot())
-	}
-
-	// The token dies while the chat is in flight: a concurrent request on
-	// the same token hits a 401 (session admission for another model forces
-	// an upstream create past the cached session) and triggers the
-	// dead-token eviction path.
-	mock.SetAuthReject(true)
-	_, err = p.AcquireBridge(context.Background(), "dead-tok", modelB)
-	if !errors.Is(err, upstream.ErrAuthRejected) {
-		t.Fatalf("second acquire err = %v, want ErrAuthRejected", err)
-	}
-
-	// The busy entry must NOT be evicted or cleaned up: the in-flight run
-	// is not FINISHed and the session is not ended.
-	if got := p.bridgeToken("dead-tok"); got == nil {
-		t.Fatal("busy dead-token entry evicted while its lease is outstanding")
-		return
-	}
-	if got := mock.FinishedRunsSnapshot(); len(got) != 0 {
-		t.Errorf("finished runs = %d, want 0 (busy run must not be finished)", len(got))
-	}
-	if mock.SessionEnds != 0 {
-		t.Errorf("session ends = %d, want 0 (busy entry session must not be ended)", mock.SessionEnds)
-	}
-	// The token-death knob also 401s the FINISH/EndSession cleanup calls,
-	// so restore it before the reclaim phase (the eviction decision, not
-	// the mock's persistent rejection, is what the sweep must honor).
-	mock.SetAuthReject(false)
-
-	// Once the lease drains and the entry idles, the sweep reclaims it:
-	// FINISH + EndSession + cache removal.
-	p.LeaseRelease(lease)
-	entry := p.bridgeToken("dead-tok")
-	if entry == nil {
-		t.Fatal("deferred dead-token entry missing")
-		return
-	}
-	entry.lastUsed = time.Now().Add(-defaultBridgeIdleEvict - time.Minute)
-	p.bridgeMaintain(context.Background(), false)
-	if got := p.bridgeToken("dead-tok"); got != nil {
-		t.Error("idle dead-token entry not evicted by the sweep")
-	}
-	if got := mock.FinishedRunsSnapshot(); len(got) != 1 {
-		t.Errorf("finished runs = %d, want 1 (idle sweep FINISH)", len(got))
-	}
-	if mock.SessionEnds != 1 {
-		t.Errorf("session ends = %d, want 1 (idle sweep EndSession)", mock.SessionEnds)
-	}
-}
 
 // TestBridgeSweepParksShortCooldown pins the cooling-entry hold: an idle
 // bridge entry riding out a live cooldown stays cached so the next request
 // reuses its session once the window lapses.
-func TestBridgeSweepParksShortCooldown(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	cfg := &config.Config{
-		RotationInterval:   time.Hour,
-		RequestTimeout:     15 * time.Minute,
-		SessionCallTimeout: 5 * time.Second,
-		RegistryRefresh:    6 * time.Hour,
-		UpstreamBaseURL:    mock.URL(),
-		// Live cooldown is the point of this test: the sweep holds the
-		// entry while its cooldown window is live.
-	}
-	reg := registry.New(cfg, nil)
-	reg.LoadFallback()
-	p, err := New(cfg, nil, nil, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := p.AcquireBridge(context.Background(), "park-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Short transient: a live 5m cooldown window holds the entry through
-	// the sweep.
-	p.CooldownBridge(lease, 5*time.Minute)
-	p.LeaseRelease(lease)
-	entry := p.bridgeToken("park-tok")
-	if entry == nil {
-		t.Fatal("park entry missing before sweep")
-		return
-	}
-	entry.lastUsed = time.Now().Add(-defaultBridgeIdleEvict - time.Minute)
-	p.bridgeMaintain(context.Background(), false)
-	if got := p.bridgeToken("park-tok"); got == nil {
-		t.Error("short-cooldown entry evicted by the sweep, want kept (park window)")
-	}
-}
 
 // TestBridgeDeadTokenEvictsWhenIdle pins the non-racing half of the B6
 // gate: a dead token with NO outstanding lease is still evicted
@@ -445,29 +225,6 @@ func TestBridgeSweepParksShortCooldown(t *testing.T) {
 // TestBridgeDeadTokenEvictDefersWhenBusy; this test calls the eviction
 // directly so the cleanup assertions are deterministic (the mock's
 // AuthReject knob 401s the FINISH/EndSession calls too).
-func TestBridgeDeadTokenEvictsWhenIdle(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	p := newBridgePool(t, mock)
-
-	lease, err := p.AcquireBridge(context.Background(), "dead-tok", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.LeaseRelease(lease)
-
-	p.bridgeEvictToken("dead-tok")
-
-	if got := p.bridgeToken("dead-tok"); got != nil {
-		t.Error("idle dead-token entry not evicted immediately")
-	}
-	if got := mock.FinishedRunsSnapshot(); len(got) != 1 {
-		t.Errorf("finished runs = %d, want 1 (dead-token FINISH)", len(got))
-	}
-	if mock.SessionEnds != 1 {
-		t.Errorf("session ends = %d, want 1 (dead-token EndSession)", mock.SessionEnds)
-	}
-}
 
 // TestBridgeEvictionAllBusyKeepsCap pins the all-busy eviction behavior:
 // when every cached entry holds an outstanding lease, a new distinct token
@@ -479,54 +236,6 @@ func TestBridgeDeadTokenEvictsWhenIdle(t *testing.T) {
 // and Pool.Shutdown (leaked upstream + a daily session slot burned per new
 // client under saturation). The cache may sit one over the cap until an
 // older entry's lease drains and the idle sweep reclaims it.
-func TestBridgeEvictionAllBusyKeepsCap(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	ids := make([]string, maxBridgeEntries+4)
-	for i := range ids {
-		ids[i] = fmt.Sprintf("run-%04d", i)
-	}
-	mock.RunIDs = ids
-	p := newBridgePool(t, mock)
-
-	// Hold leases on ALL cache slots.
-	held := make([]*Lease, 0, maxBridgeEntries)
-	for i := 0; i < maxBridgeEntries; i++ {
-		lease, err := p.AcquireBridge(context.Background(), fmt.Sprintf("client-tok-%02d", i), modelA)
-		if err != nil {
-			t.Fatal(err)
-		}
-		held = append(held, lease)
-	}
-
-	// A 33rd distinct token: the existing entries are all busy, and the new
-	// (still unleased) entry cannot be its own eviction victim either — no
-	// eviction happens this pass and the cache sits at cap+1.
-	lease33, err := p.AcquireBridge(context.Background(), "client-tok-new", modelA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := p.bridgeLen(); got != maxBridgeEntries+1 {
-		t.Errorf("bridge entries = %d, want %d (new entry kept; cap briefly exceeded until a lease drains)", got, maxBridgeEntries+1)
-	}
-	if e := p.bridgeToken("client-tok-new"); e == nil {
-		t.Error("new entry not cached after all-busy creation, want kept (its run would otherwise leak)")
-	}
-	// The busy entries all survived.
-	for i := 0; i < maxBridgeEntries; i++ {
-		if e := p.bridgeToken(fmt.Sprintf("client-tok-%02d", i)); e == nil {
-			t.Errorf("busy entry client-tok-%02d evicted", i)
-		}
-	}
-	// No runs were FINISHed: nothing was evictable this pass.
-	if got := mock.FinishedRunsSnapshot(); len(got) != 0 {
-		t.Errorf("finished runs = %d, want 0 (nothing evictable while all entries busy)", len(got))
-	}
-	for _, l := range held {
-		p.LeaseRelease(l)
-	}
-	p.LeaseRelease(lease33)
-}
 
 // TestRemoveLastTokenDrainsRun is the regression guard for the removal
 // leak: RemoveLastToken removed the token without finishing its run or
