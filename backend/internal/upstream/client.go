@@ -25,6 +25,7 @@ import (
 
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/stealth"
+	"freebucks-proxy/backend/internal/wirefacts"
 )
 
 // Client speaks the codebuff.com wire protocol for a single token.
@@ -123,25 +124,31 @@ func (c *Client) TokenKey() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// cliUserAgent mirrors the official CLI chat user agent: the pinned
-// @codebuff/llm-providers version, NOT the CLI_VERSION knob
-// (upstream/freebuff model-provider.ts:150; llm-providers package.json
-// 1.0.0). The upstream free-tier gate (403 free_mode_cli_required) keys on
+// cliUserAgent mirrors the official CLI chat user agent: the
+// @codebuff/llm-providers version interpolated at
+// sdk/src/impl/model-provider.ts:432 (NOT the CLI_VERSION knob), recorded
+// as wirefacts.LlmProvidersVersion from
+// upstream/freebuff/packages/llm-providers/package.json at re-pin time.
+// The upstream free-tier gate (403 free_mode_cli_required) keys on
 // the CLI request envelope (x-freebuff-* headers, codebuff_metadata and
 // forced streaming — see the package comment), but the server still
 // fingerprints the UA. ChatCompletions is the
 // ONLY caller:
 // empirically + snapshot-verified, the real CLI emits this UA on chat only;
 // every other upstream call goes through plain Bun fetch (#108/#109
-// rationale superseded by newest-source evidence).
-const cliUserAgent = "ai-sdk/openai-compatible/1.0.0/codebuff"
+// rationale superseded by newest-source evidence). The literal is the
+// empty-fact fallback: a manifest predating the fact still yields the
+// last-pinned UA, never an empty version segment.
+var cliUserAgent = "ai-sdk/openai-compatible/" + firstOfN(wirefacts.LlmProvidersVersion, "1.0.0") + "/codebuff"
 
 // bunUserAgent is the default Bun fetch User-Agent the real CLI's non-chat
 // calls carry: session POST/GET/probe/DELETE, agent-runs START/FINISH,
 // auth login code/status and usage all use bare fetch() with no UA override,
-// so Bun sends its own default `Bun/<version>`. 1.3.14 matches the pinned
-// upstream/freebuff/.bun-version and the live probe.
-const bunUserAgent = "Bun/1.3.14"
+// so Bun sends its own default `Bun/<version>`. The version is
+// wirefacts.BunVersion, recorded from upstream/freebuff/.bun-version at
+// re-pin time (matching the live probe); the literal is the empty-fact
+// fallback.
+var bunUserAgent = "Bun/" + firstOfN(wirefacts.BunVersion, "1.3.14")
 
 const (
 	// maxErrorBodyRead caps the upstream error response body read for
