@@ -106,7 +106,7 @@ func TestPreciousTwoAccountsSameModel(t *testing.T) {
 
 	// An operator drop on a precious session keeps it too: kept reports
 	// the no-op so the dashboard can say so instead of claiming a drop.
-	kept, err := p.DropTokenSession(ctx, 1)
+	kept, err := p.DropTokenSession(ctx, 1, false)
 	if err != nil {
 		t.Fatalf("DropTokenSession on precious: %v", err)
 	}

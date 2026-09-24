@@ -146,7 +146,7 @@ func (a *adminHandlers) handleTokenDropSession(w http.ResponseWriter, r *http.Re
 	if err == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		kept, err = a.pool.DropTokenSession(ctx, id)
+		kept, err = a.pool.DropTokenSession(ctx, id, false)
 	}
 	if err != nil {
 		a.dash.RenderConfigResult(w, r, false, "Drop session failed: "+err.Error())

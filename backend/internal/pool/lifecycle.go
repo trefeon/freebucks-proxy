@@ -408,12 +408,14 @@ func (p *Pool) FinishTokenRuns(ctx context.Context, token int) error {
 	return nil
 }
 
-// DropTokenSession forcibly ends the active session and finishes all runs for token (dashboard action).
-// Forcibly ends the active session so the operator can change model immediately;
-// the next request re-admits fresh. It reports whether the session was KEPT
-// instead: a precious session (precious.go) is never proactively dropped, so
-// the drop is a no-op and the next request still rides the live instance.
-func (p *Pool) DropTokenSession(ctx context.Context, token int) (bool, error) {
+// DropTokenSession ends the active session and finishes all runs for token
+// (dashboard action) so the next request re-admits fresh. It reports whether
+// the session was KEPT instead: a precious session (precious.go) is never
+// proactively dropped, so a plain drop is a no-op and the next request still
+// rides the live instance. force=true ends a precious session anyway: the
+// entry's precious marks are dropped first so the next Acquire re-admits a
+// fresh instance instead of reusing the ended one.
+func (p *Pool) DropTokenSession(ctx context.Context, token int, force bool) (bool, error) {
 	toks := p.roster.Load()
 	if token < 0 || token >= len(*toks) {
 		return false, fmt.Errorf("pool: token %d out of range", token)
@@ -423,18 +425,21 @@ func (p *Pool) DropTokenSession(ctx context.Context, token int) (bool, error) {
 	// MASQ precious (precious.go): an operator drop keeps a live precious
 	// session — model switches re-admit naturally through the session
 	// manager, so the drop would only churn a healthy upstream slot.
-	if p.keepSession(entry) {
+	if !force && p.keepSession(entry) {
 		p.logger.Info("pool: keeping precious session", "token", token+1, "model", snap.Model, "instance", snap.InstanceID)
 		return true, nil
 	}
-	p.logger.Info("pool: dropping session", "token", token+1, "model", snap.Model, "instance", snap.InstanceID)
+	if force {
+		p.unmarkPreciousEntry(entry)
+	}
+	p.logger.Info("pool: dropping session", "token", token+1, "model", snap.Model, "instance", snap.InstanceID, "force", force)
 	dropStart := time.Now()
 	entry.runs.FinishAllRuns(ctx)
 	if err := entry.session.EndSession(ctx); err != nil {
-		p.logger.Warn("pool: drop session EndSession failed", "token", token+1, "model", snap.Model, "ms", time.Since(dropStart).Milliseconds(), "err", err)
+		p.logger.Warn("pool: drop session EndSession failed", "token", token+1, "model", snap.Model, "ms", time.Since(dropStart).Milliseconds(), "force", force, "err", err)
 		return false, err
 	}
-	p.logger.Info("pool: session dropped", "token", token+1, "model", snap.Model, "ms", time.Since(dropStart).Milliseconds())
+	p.logger.Info("pool: session dropped", "token", token+1, "model", snap.Model, "ms", time.Since(dropStart).Milliseconds(), "force", force)
 	return false, nil
 }
 
