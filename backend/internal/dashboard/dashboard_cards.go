@@ -181,15 +181,20 @@ type maturityCard struct {
 }
 
 // freebucksWindowCard is one window of the Freebucks allowance (issue #232):
-// limit/spent/remaining + reset_at (RFC3339 string; empty when zero) +
-// percent_used (spent/limit*100, 0 when limit==0). Mirrors
-// upstream.FreebucksWindow but with string times and snake_case JSON for the
-// dashboard API (daily/weekly/monthly).
+// limit/spent/remaining + reset instants + percent_used (spent/limit*100, 0
+// when limit==0). Mirrors upstream.FreebucksWindow but with string times and
+// snake_case JSON for the dashboard API (daily/weekly/monthly).
+//
+// Time contract: reset_at_utc is the server-truth refill instant (absolute
+// UTC, RFC3339; empty when zero) — countdowns anchor to it and wall clocks
+// render it in the viewer's own zone. reset_at carries the same instant for
+// older SPAs; new code MUST prefer reset_at_utc.
 type freebucksWindowCard struct {
 	Limit       float64 `json:"limit"`
 	Spent       float64 `json:"spent"`
 	Remaining   float64 `json:"remaining"`
 	ResetAt     string  `json:"reset_at,omitempty"`
+	ResetAtUTC  string  `json:"reset_at_utc,omitempty"`
 	PercentUsed float64 `json:"percent_used"`
 	// ResetTimeZone is the IANA zone the pool refills in (vendor 6cd8970);
 	// empty on older servers, which refill at Pacific midnight.

@@ -270,7 +270,10 @@ export function freebucksDisplayModel(token, nowMs = Date.now()) {
   const decomposition = coheres
     ? `${formatFreebucks(dailyLeft)} daily + ${formatFreebucks(wallet)} wallet`
     : null;
-  const resetAt = daily?.reset_at ?? "";
+  // Server-truth first: reset_at_utc is the authoritative refill instant;
+  // reset_at is its legacy twin. The countdown below anchors to whichever
+  // ships, so old servers keep working.
+  const resetAt = daily?.reset_at_utc ?? daily?.reset_at ?? "";
   const resetLine = resetAt
     ? freebucksResetLine(
         {
