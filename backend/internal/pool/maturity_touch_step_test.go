@@ -45,3 +45,41 @@ func TestMaturityTouchFinishStepCarriesUUID(t *testing.T) {
 		t.Errorf("touch step id = %q, want RFC4122 v4 UUID (upstream rejects non-UUID step ids with 400 Invalid request body)", id)
 	}
 }
+
+// TestMaturityTouchFailedTurnOmitsStep pins the other half of the wire rule:
+// a failed touch turn must ship NO step at all. The vendor step enum allows
+// only running|completed|skipped and the CLI records a step only for a real
+// LLM step, so the old status:"failed" step 400'd the whole FINISH (live:
+// `"status":{"_errors":["Invalid option: expected one of \"running\"|
+// \"completed\"|\"skipped\""]}`). The run-level "failed" status carries the
+// failure instead.
+func TestMaturityTouchFailedTurnOmitsStep(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.ChatStatus = 503
+	mock.ChatErrorBody = `{"error":{"message":"The model is temporarily unavailable. Please try again later.","code":503}}`
+	p := newTestPool(t, mock)
+
+	toks := p.roster.Load()
+	if toks == nil || len(*toks) != 1 {
+		t.Fatalf("roster = %v, want 1 token", toks)
+	}
+	err := p.maturityTouchRun(context.Background(), (*toks)[0], modelA, 0, "tok-0", time.Now())
+	if err == nil {
+		t.Fatal("maturityTouchRun succeeded, want the failed-turn error")
+	}
+
+	fins := mock.FinishedRunsSnapshot()
+	if len(fins) != 1 {
+		t.Fatalf("FINISH payloads = %d, want 1", len(fins))
+	}
+	if len(fins[0].Steps) != 0 {
+		t.Errorf("FINISH steps = %d, want 0 on a failed turn (vendor enum has no \"failed\"; the CLI records only real LLM steps)", len(fins[0].Steps))
+	}
+	if fins[0].Status != "failed" {
+		t.Errorf("FINISH status = %q, want failed", fins[0].Status)
+	}
+	if fins[0].TotalSteps != 0 {
+		t.Errorf("FINISH totalSteps = %d, want 0 (one recorded step per shipped step)", fins[0].TotalSteps)
+	}
+}

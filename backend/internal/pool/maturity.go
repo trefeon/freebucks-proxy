@@ -335,17 +335,26 @@ func (p *Pool) maturityTouchRun(ctx context.Context, tok *tokenEntry, model stri
 
 	turnErr := p.maturityTouchTurn(ctx, tok, model, agentID, runID, instanceID)
 	finStatus := "completed"
+	// A failed turn records NO step: the vendor step enum allows only
+	// running|completed|skipped (sdk/src/impl/database.ts pendingAgentStepSchema),
+	// matching the runtime's own writers (run-agent-step.ts records
+	// 'completed', run-programmatic-step.ts 'skipped'), and the CLI's
+	// addAgentStep only ever records a real LLM step. The run-level status
+	// carries the failure (agent-runtime finishAgentRun 'failed'). The old
+	// status:"failed" step 400'd the whole FINISH — reproduced live:
+	// "Invalid option: expected one of \"running\"|\"completed\"|\"skipped\"".
+	var steps []upstream.RunStep
 	if turnErr != nil {
 		finStatus = "failed"
+	} else {
+		steps = []upstream.RunStep{{
+			ID:         newTouchStepID(),
+			StepNumber: 1,
+			Status:     finStatus,
+			StartTime:  now.UTC().Format(time.RFC3339Nano),
+		}}
 	}
-
-	step := upstream.RunStep{
-		ID:         newTouchStepID(),
-		StepNumber: 1,
-		Status:     finStatus,
-		StartTime:  now.UTC().Format(time.RFC3339Nano),
-	}
-	_ = tok.client.FinishRun(ctx, runID, finStatus, 1, []upstream.RunStep{step}, "")
+	_ = tok.client.FinishRun(ctx, runID, finStatus, len(steps), steps, "")
 
 	if turnErr != nil {
 		return fmt.Errorf("touch turn: %w", turnErr)
