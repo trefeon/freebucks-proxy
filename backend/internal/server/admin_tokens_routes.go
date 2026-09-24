@@ -140,13 +140,33 @@ func (a *adminHandlers) handleTokenFinish(w http.ResponseWriter, r *http.Request
 	a.dash.RenderConfigResult(w, r, true, "Token "+strconv.Itoa(id)+" runs finished.")
 }
 
+// dropSessionForceFromRequest reads the operator force flag for a
+// drop-session request: ?force=1/true/yes in the query wins, then a
+// {"force":true} JSON body (the SPA posts JSON via postAPI; Go FormValue
+// never parses a JSON body). Anything else is a plain,
+// precious-respecting drop.
+func dropSessionForceFromRequest(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("force"))) {
+	case "1", "true", "yes":
+		return true
+	}
+	var req struct {
+		Force bool `json:"force"`
+	}
+	if body, err := io.ReadAll(io.LimitReader(r.Body, 4<<10)); err == nil {
+		_ = json.Unmarshal(body, &req)
+	}
+	return req.Force
+}
+
 func (a *adminHandlers) handleTokenDropSession(w http.ResponseWriter, r *http.Request) {
 	id, err := tokenActionID(r)
+	force := dropSessionForceFromRequest(r)
 	var kept bool
 	if err == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		kept, err = a.pool.DropTokenSession(ctx, id, false)
+		kept, err = a.pool.DropTokenSession(ctx, id, force)
 	}
 	if err != nil {
 		a.dash.RenderConfigResult(w, r, false, "Drop session failed: "+err.Error())
@@ -161,7 +181,14 @@ func (a *adminHandlers) handleTokenDropSession(w http.ResponseWriter, r *http.Re
 		a.dash.RenderDropSessionResult(w, r, true, "Session kept (precious) — next request still rides it.")
 		return
 	}
-	a.logfunc().Info("dashboard token session dropped", "token", id)
+	if force {
+		// Distinct line for the forced path: it ends a precious session
+		// upstream and burns one upstream slot. Only the token id rides
+		// along — never instance or credential values.
+		a.logfunc().Info("dashboard token session force-dropped", "token", id, "forced", true)
+	} else {
+		a.logfunc().Info("dashboard token session dropped", "token", id)
+	}
 	a.dash.RenderDropSessionResult(w, r, false, "")
 }
 

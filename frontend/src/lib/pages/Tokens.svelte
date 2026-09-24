@@ -319,19 +319,65 @@
     );
   }
 
-  function handleDropSession(idx) {
-    return triggerAction(
-      tokenActions.dropSession(idx),
-      {},
-      $tr(
+  async function handleDropSession(idx) {
+    const url = tokenActions.dropSession(idx);
+    const firstOK = await confirmAction({
+      title: $tr("Confirm Action"),
+      message: $tr(
         "Drop active session on account #{idx}? This ends the current session upstream (e.g. luna) so the next request admits fresh for the model you want. Use this when you need to switch models immediately.",
         { idx: idx + 1 },
       ),
-      undefined,
-      "warn",
-      "",
-      $tr("Session dropped — next request will re-admit fresh."),
-    );
+      confirmText: $tr("Confirm"),
+      tone: "warn",
+    });
+    if (!firstOK) return;
+    actionPending = true;
+    try {
+      let result = await postAPI(url, {});
+      // Precious-keep honesty: the gateway answers {ok:true, kept:true}
+      // when keepSession fires (the session survives). Offer the
+      // force-drop explicitly — a second confirm, then the same URL with
+      // ?force=1. Never a success toast for the keep itself.
+      if (result && result.kept === true) {
+        pushToast({
+          tone: "warning",
+          title:
+            result.message ||
+            $tr("Session kept (precious) — next request still rides it."),
+        });
+        const forceOK = await confirmAction({
+          title: $tr("Force-drop Session"),
+          message: $tr(
+            "Account #{idx} kept a precious session — it is still live upstream. Force-drop ends it upstream and burns one upstream slot; the next request re-admits fresh. Force-drop it?",
+            { idx: idx + 1 },
+          ),
+          confirmText: $tr("Force-drop"),
+          tone: "danger",
+        });
+        if (!forceOK) {
+          refreshTokens();
+          return;
+        }
+        result = await postAPI(url + "?force=1", {});
+      }
+      const actOK = result.ok !== false;
+      pushToast({
+        tone: actOK ? "success" : "error",
+        title:
+          result.message ||
+          (actOK
+            ? $tr("Session dropped — next request will re-admit fresh.")
+            : $tr("Action failed")),
+      });
+      refreshTokens();
+    } catch (e) {
+      pushToast({
+        tone: "error",
+        title: e.message || $tr("Network error executing action"),
+      });
+    } finally {
+      actionPending = false;
+    }
   }
 
   function handleSwap(from, to) {
