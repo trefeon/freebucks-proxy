@@ -1,6 +1,15 @@
 // Package stealth provides JA3 TLS fingerprint impersonation and browser
-// header sanitization. It makes upstream connections indistinguishable from
-// real browsers at the TLS layer by using utls ClientHello presets.
+// header sanitization. It makes upstream connections approximate real
+// browsers at the TLS layer by using utls ClientHello presets.
+//
+// Honesty note: these presets approximate browser FAMILIES, not exact
+// builds. utls v1.8.2's newest presets are Chrome 133, Firefox 120, Edge
+// 85 and Safari 16.0 — there is no Chrome-126, Firefox-128, Edge-126 or
+// Safari-18 hello to send, and no byte-exact Bun/BoringSSL emulation is
+// attempted: the CLI's exact TLS bytes (BoringSSL build, GREASE seeds,
+// extension order) are not derivable from its source. Each profile's doc
+// comment names the TRUE hello it sends; profile IDs stay on the familiar
+// browser-version names for TLS_FINGERPRINT config compat.
 package stealth
 
 import (
@@ -54,10 +63,15 @@ var (
 		AcceptEncoding:  "gzip, deflate",
 	}
 
-	// ProfileChrome126 mimics Chrome 126 on Windows (2024+).
+	// ProfileChrome126 is the modern-Chromium profile (header persona Chrome 126
+	// on Windows; TLS hello HelloChrome_133, the newest utls preset).
 	ProfileChrome126 = &Profile{
-		ID:              ProfileIDChrome126,
-		ClientHelloID:   utls.HelloChrome_120,
+		ID: ProfileIDChrome126,
+		// utls ships no Chrome-126 preset: HelloChrome_133 (the library's
+		// newest Chrome hello, v1.8.2) is the closest modern Chromium hello.
+		// The header persona stays 126 (UA + Sec-CH-UA); only the TLS hello
+		// is newer-era. See the package honesty note below.
+		ClientHelloID:   utls.HelloChrome_133,
 		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 		SecChUA:         `"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"`,
 		SecChUAPlatform: `"Windows"`,
@@ -75,7 +89,10 @@ var (
 		AcceptEncoding: "gzip, deflate",
 	}
 
-	// ProfileSafari18 mimics Safari 18 on macOS (2024+).
+	// ProfileSafari18 carries the Safari-18 header persona on macOS over the
+	// shared Safari-17-family custom spec: utls ships no Safari 18 preset
+	// (newest is Safari 16.0), and the custom 17-family spec is closer than
+	// the stock 16.0 one.
 	ProfileSafari18 = &Profile{
 		ID:             ProfileIDSafari18,
 		ClientHelloID:  utls.HelloCustom,
@@ -94,7 +111,10 @@ var (
 		AcceptEncoding: "gzip, deflate",
 	}
 
-	// ProfileFirefox128 mimics Firefox 128 ESR on Linux (2024+).
+	// ProfileFirefox128 carries the Firefox-128 header persona on Linux, but its
+	// TLS hello is honestly HelloFirefox_120: utls v1.8.2 ships no newer
+	// Firefox preset, and a 120 hello under a 128 UA is closer than any
+	// cross-family substitute. Label kept for config compat (TLS_FINGERPRINT).
 	ProfileFirefox128 = &Profile{
 		ID:             ProfileIDFirefox128,
 		ClientHelloID:  utls.HelloFirefox_120,
@@ -103,10 +123,14 @@ var (
 		AcceptEncoding: "gzip, deflate",
 	}
 
-	// ProfileEdge126 mimics Microsoft Edge 126 on Windows (2024+).
+	// ProfileEdge126 carries the Edg/126 header persona on Windows with the
+	// modern Chromium TLS hello (HelloChrome_133; utls ships only Edge_85).
 	ProfileEdge126 = &Profile{
-		ID:              ProfileIDEdge126,
-		ClientHelloID:   utls.HelloChrome_120,
+		ID: ProfileIDEdge126,
+		// Edge rides the Chromium hello; utls ships only Edge_85, so the
+		// modern Chromium preset (HelloChrome_133, as chrome126) is closer
+		// than the stale Edge_85. Header persona stays Edg/126.
+		ClientHelloID:   utls.HelloChrome_133,
 		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
 		SecChUA:         `"Not/A)Brand";v="8", "Chromium";v="126", "Microsoft Edge";v="126"`,
 		SecChUAPlatform: `"Windows"`,

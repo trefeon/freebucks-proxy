@@ -104,8 +104,11 @@ func TestChatCompletionsEnvelope(t *testing.T) {
 	if got := h.Get("Authorization"); got != "Bearer tok-a" {
 		t.Errorf("Authorization = %q", got)
 	}
-	if got := h.Get("Accept"); got != "application/json, text/event-stream" {
-		t.Errorf("Accept = %q", got)
+	// No proxy-only Accept header: the CLI's chat POST carries exactly
+	// Authorization + the ai-sdk UA (+ optional acting-user-id) via the
+	// ai-sdk fetch (model-provider.ts), never an explicit Accept.
+	if got := h.Get("Accept"); got != "" {
+		t.Errorf("Accept = %q on the chat POST, want absent (proxy-only header)", got)
 	}
 	if got := h.Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q", got)

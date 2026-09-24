@@ -309,10 +309,12 @@ func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRef
 		req.Header.Set("x-freebuff-instance-id", instanceID)
 	}
 	// The DELETE does not route through sessionCall (it parses a release
-	// receipt, not a SessionState), so the locality header is stamped here
-	// too: the vendor spreads freebucksTimeZoneHeaders() into the refund
-	// call exactly like the poll and the probe.
+	// receipt, not a SessionState), so the locality + first-tab headers are
+	// stamped here too: the vendor spreads freebucksTimeZoneHeaders() and the
+	// first-tab discount header into the refund call exactly like the poll
+	// and the probe.
 	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
+	req.Header.Set(FirstTabDiscountHeader, "0")
 
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
@@ -341,6 +343,19 @@ func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRef
 	}, nil
 }
 
+// stampActingUser sets x-freebuff-acting-user-id when the client holds the
+// token's OWN account id (ACTING_USER_ID), mirroring the CLI which sends
+// the /api/v1/me-derived id on chat (model-provider.ts) and on agent-runs
+// START/FINISH (database.ts startAgentRun/finishAgentRun: Bearer plus the
+// optional acting-user header). Omitted when unset. Only the token's own
+// id is ever sent: any other value impersonates a foreign user (see the
+// chat-path comment in ChatCompletions).
+func (c *Client) stampActingUser(req *http.Request) {
+	if c.userID != "" {
+		req.Header.Set("x-freebuff-acting-user-id", c.userID)
+	}
+}
+
 // StartRun POSTs /api/v1/agent-runs with action START and returns the run id.
 func (c *Client) StartRun(ctx context.Context, agentID string) (string, error) {
 	if c.mock != nil {
@@ -355,16 +370,13 @@ func (c *Client) StartRun(ctx context.Context, agentID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Dual-auth parity (current vendor wire): the agent-runtime client sends
-	// BOTH Authorization and x-codebuff-api-key (the same raw token) on its
-	// agent-runs/run POSTs (upstream/freebuff packages/agent-runtime/src/
-	// llm-api/codebuff-web-api.ts:70-71,301-302); the shipped CLI confirms
-	// it. Applied AFTER newRequest's scrub, so any relayed/downstream
-	// x-codebuff-api-key copy is overwritten by the authenticated token
-	// (Set, not Add — a foreign value is never forwarded upstream).
-	if !c.authOnly {
-		req.Header.Set("x-codebuff-api-key", c.token)
-	}
+	// Bearer-only like the CLI (sdk/src/impl/database.ts startAgentRun sends
+	// Authorization plus the optional acting-user header and no
+	// x-codebuff-api-key — that dual-auth pair lives only on the
+	// agent-runtime's web-search/docs/gravity/token-count POSTs
+	// (codebuff-web-api.ts callCodebuffV1/callTokenCountAPI), never on
+	// agent-runs). newRequest already set Authorization.
+	c.stampActingUser(req)
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
 		return "", classErr
@@ -453,16 +465,11 @@ func (c *Client) FinishRun(ctx context.Context, runID, status string, totalSteps
 	if err != nil {
 		return err
 	}
-	// Dual-auth parity (current vendor wire): agent-runs POSTs carry BOTH
-	// Authorization and x-codebuff-api-key (the same raw token), mirroring
-	// the agent-runtime's agent-runs/run POSTs (upstream/freebuff
-	// packages/agent-runtime/src/llm-api/codebuff-web-api.ts:70-71,301-302)
-	// and the shipped CLI. Set after newRequest's scrub overwrites any
-	// relayed/downstream x-codebuff-api-key copy with the authenticated
-	// token (foreign values are never forwarded).
-	if !c.authOnly {
-		req.Header.Set("x-codebuff-api-key", c.token)
-	}
+	// Bearer-only like the CLI (sdk/src/impl/database.ts finishAgentRun sends
+	// Authorization plus the optional acting-user header and no
+	// x-codebuff-api-key — see StartRun). newRequest already set
+	// Authorization.
+	c.stampActingUser(req)
 
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
@@ -487,6 +494,12 @@ func (c *Client) FinishRun(ctx context.Context, runID, status string, totalSteps
 // it at admission time — the call where it matters most.
 func (c *Client) sessionCall(req *http.Request) (*SessionState, error) {
 	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
+	// First-tab offer state rides every session call (callFreebuffSession
+	// stamps [FIRST_TAB_DISCOUNT_HEADER] on POST/GET/DELETE alike). The proxy
+	// holds no user-confirmed offer state, so it always sends the boring "0"
+	// exactly like a CLI call with firstTabDiscount unset; a real offer change
+	// surfaces as 409 first_tab_discount_changed through the classify matrix.
+	req.Header.Set(FirstTabDiscountHeader, "0")
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
 		return nil, classErr

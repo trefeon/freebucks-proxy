@@ -488,10 +488,17 @@ func TestSessionPollSchedule(t *testing.T) {
 	t.Run("failure backoff honors Retry-After floor", func(t *testing.T) {
 		for i := 0; i < 50; i++ {
 			d := sessionPollBackoffDelay(1, 60*time.Second)
-			// retryAfter × (1 ± 0.2) jitter: [48s, 72s], max'd with the 20s
-			// base backoff — never before the floor.
-			if d < 48*time.Second || d > 300*time.Second {
-				t.Errorf("backoff with Retry-After 60s = %s, want ≥ 48s (never before the floor)", d)
+			// retryAfter jittered UP only ([1.0, 1.2]x = [60s, 72s]), max'd
+			// with the 20s base backoff — never before the floor the server
+			// named (failedPollDelayMs floors at 1.0x, never 0.8x).
+			if d < 60*time.Second || d > 300*time.Second {
+				t.Errorf("backoff with Retry-After 60s = %s, want ≥ 60s (never before the floor)", d)
+			}
+			if d > 72*time.Second && d < 300*time.Second {
+				// Above the jittered floor only via the 300s cap path is
+				// impossible here (60s*1.2=72s << cap); anything in
+				// (72s, 300s) is a shape violation.
+				t.Errorf("backoff with Retry-After 60s = %s, want ≤ 72s (floor jitter caps at 1.2x)", d)
 			}
 		}
 	})

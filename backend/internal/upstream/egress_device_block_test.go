@@ -41,7 +41,8 @@ func TestEgressDeviceBlockMatrix(t *testing.T) {
 
 	t.Run("browser UA table agrees with the device os", func(t *testing.T) {
 		// Exactly the CLI's three platforms; every entry must be the pinned
-		// Chrome-124 UA carrying the platform marker its device os implies.
+		// Chrome-151 UA (AD_CHROME_VERSION) carrying the platform marker its
+		// device os implies.
 		markers := map[string]string{
 			"macos":   "Macintosh",
 			"windows": "Windows NT",
@@ -60,8 +61,8 @@ func TestEgressDeviceBlockMatrix(t *testing.T) {
 			if !strings.Contains(ua, marker) {
 				t.Errorf("adUserAgents[%q] (os %q) missing platform marker %q: %q", goos, os, marker, ua)
 			}
-			if !strings.Contains(ua, "Chrome/124.0.0.0 Safari/537.36") {
-				t.Errorf("adUserAgents[%q] is not the pinned Chrome-124 UA: %q", goos, ua)
+			if !strings.Contains(ua, "Chrome/151.0.0.0 Safari/537.36") {
+				t.Errorf("adUserAgents[%q] is not the pinned Chrome-151 UA: %q", goos, ua)
 			}
 		}
 		// The body UA is the host's table entry (linux fallback excluded:

@@ -113,7 +113,11 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 		// stays nil here; cancelBody exists so a future deadline-based
 		// caller still gets correct release-on-close semantics.
 		var cancel context.CancelFunc
-		req.Header.Set("Accept", "application/json, text/event-stream")
+		// No Accept header: the CLI's chat POST carries exactly Authorization +
+		// the ai-sdk UA (+ optional acting-user-id) via the ai-sdk fetch
+		// (model-provider.ts); the proxy's old
+		// "Accept: application/json, text/event-stream" was proxy-only and is
+		// removed until a capture proves the wire carries it.
 		// Chat is the ONLY path carrying the ai-sdk UA: the real
 		// CLI pins it on model calls alone; newRequest defaulted this
 		// request to the plain Bun fetch UA every other call sends.
@@ -476,7 +480,22 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 		metadata["freebuff_reasoning_effort"] = re
 	}
 	payload["codebuff_metadata"] = metadata
-	payload["provider"] = map[string]any{"data_collection": "deny"}
+	// Provider routing passes the client's OpenRouter keys through: the CLI
+	// builds providerConfig from the agent's provider options when set, else
+	// {order, allow_fallbacks} keyed off the model (llm.ts getProviderOptions).
+	// Only well-typed order ([]any) / allow_fallbacks (bool) are forwarded;
+	// data_collection stays deny (the CLI envelope default) — a client asking
+	// for allow is not honored silently.
+	provider := map[string]any{"data_collection": "deny"}
+	if rawProvider, ok := payload["provider"].(map[string]any); ok {
+		if order, ok := rawProvider["order"].([]any); ok {
+			provider["order"] = order
+		}
+		if fallbacks, ok := rawProvider["allow_fallbacks"].(bool); ok {
+			provider["allow_fallbacks"] = fallbacks
+		}
+	}
+	payload["provider"] = provider
 	payload["stream"] = true
 	out, err := json.Marshal(payload)
 	if err != nil {

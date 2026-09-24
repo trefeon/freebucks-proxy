@@ -387,8 +387,8 @@ func sessionPollSuccessDelay(snap session.SessionSnapshot) time.Duration {
 
 // sessionPollBackoffDelay returns the delay after a FAILED poll: 20s ×2 per
 // consecutive failure (cap 300s) with equal jitter over the lower half of
-// the window, and never before the server's Retry-After floor (multiplied
-// by 1 ± 0.2 jitter, capped 300s) — polling-backoff.ts semantics.
+// the window, and never before the server's Retry-After floor (jittered
+// UP only, [1.0, 1.2]x, capped 300s) — polling-backoff.ts semantics.
 func sessionPollBackoffDelay(failures int, retryAfter time.Duration) time.Duration {
 	if failures < 1 {
 		failures = 1
@@ -404,7 +404,11 @@ func sessionPollBackoffDelay(failures int, retryAfter time.Duration) time.Durati
 		if retryAfter < 5*time.Nanosecond {
 			retryAfter = 5 * time.Nanosecond
 		}
-		ra := retryAfter - retryAfter/5 + time.Duration(sessionRand()%uint64(2*retryAfter/5))
+		// The Retry-After floor is jittered UP only ([1.0, 1.2]x, the CLI's
+		// failedPollDelayMs shape): the next poll must never re-hit before
+		// the floor the server named. A symmetric [0.8, 1.2]x jitter here
+		// re-polled up to 20% early and read as a tight-poll loop.
+		ra := retryAfter + time.Duration(sessionRand()%uint64(retryAfter/5+1))
 		if ra > d {
 			d = ra
 		}

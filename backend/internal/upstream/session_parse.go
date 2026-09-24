@@ -29,15 +29,23 @@ type SessionState struct {
 	PollAt             time.Time
 	CountryCode        string
 	CountryBlockReason string
-	IpPrivacySignals   []string
-	ActiveUsersForIP   int
-	Limit              float64
-	RecentCount        float64
-	ResetAt            time.Time
-	ResumesAt          time.Time
-	RetryAfterMs       int64
-	AvailableHours     string
-	Message            string
+	// PrivacyDecision mirrors the upstream FreebuffPrivacyDecision
+	// (common/src/types/freebuff-session.ts @a9ef9942d: allowed_clean,
+	// spur_suspicious_limited, client_hints_limited, ...). Opaque
+	// passthrough like CountryBlockReason — never switched on, never
+	// clamped; "" when the server sent none. No window is derived from
+	// it: the parse never fabricates availability, and any Retry-After
+	// discipline follows the classify matrix verbatim.
+	PrivacyDecision  string
+	IpPrivacySignals []string
+	ActiveUsersForIP int
+	Limit            float64
+	RecentCount      float64
+	ResetAt          time.Time
+	ResumesAt        time.Time
+	RetryAfterMs     int64
+	AvailableHours   string
+	Message          string
 	// SubscriptionTierID is the raw upstream subscription.tierId from the
 	// session response (the upstream plan id behind hasPaidSubscription).
 	// Kept verbatim — never parsed into a plan name — and left "" when the
@@ -234,6 +242,7 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 		PollAt                 any                      `json:"pollAt"`
 		CountryCode            string                   `json:"countryCode"`
 		CountryBlockReason     string                   `json:"countryBlockReason"`
+		PrivacyDecision        string                   `json:"privacyDecision"`
 		AccessTier             string                   `json:"accessTier"`
 		IpPrivacySignals       []string                 `json:"ipPrivacySignals"`
 		ActiveUsersForIP       int                      `json:"activeUsersForIp"`
@@ -285,6 +294,7 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 			EstimatedWaitMs:    raw.EstimatedWaitMs,
 			CountryCode:        raw.CountryCode,
 			CountryBlockReason: raw.CountryBlockReason,
+			PrivacyDecision:    raw.PrivacyDecision,
 			IpPrivacySignals:   raw.IpPrivacySignals,
 			AccessTier:         raw.AccessTier,
 			ActiveUsersForIP:   raw.ActiveUsersForIP,

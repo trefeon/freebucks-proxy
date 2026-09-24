@@ -411,7 +411,7 @@ func TestPollCLILoginTransportErrorTransient(t *testing.T) {
 	code := &CLILoginCode{
 		FingerprintID:   "enhanced-x",
 		FingerprintHash: "h",
-		ExpiresAtRaw:    time.Now().Add(5 * time.Minute).UnixMilli(),
+		ExpiresAtRaw:    strconv.FormatInt(time.Now().Add(5*time.Minute).UnixMilli(), 10),
 	}
 	status, err := client.PollCLILogin(context.Background(), code)
 	if err != nil {

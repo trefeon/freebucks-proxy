@@ -65,17 +65,50 @@ func TestSanitizeHeaders(t *testing.T) {
 	h.Set("True-Client-IP", "9.10.11.12")
 	h.Set("X-Real-IP", "13.14.15.16")
 	h.Set("X-Cache", "HIT")
+	h.Set("Forwarded", "for=1.2.3.4")
+	h.Set("X-Forwarded-Port", "443")
+	h.Set("X-Forwarded-Scheme", "https")
+	h.Set("X-Original-URL", "/leak")
+	h.Set("X-Original-Host", "internal")
+	h.Set("CDN-Loop", "cloudflare")
+	h.Set("CF-Connecting-IPv6", "::1")
 	h.Set("Content-Type", "application/json")
+	h["x-original-custom"] = []string{"hand-built lowercase"}
 
 	SanitizeHeaders(h)
 
-	for _, hdr := range []string{"X-Forwarded-For", "Via", "CF-Connecting-IP", "True-Client-IP", "X-Real-IP", "X-Cache"} {
+	for _, hdr := range []string{"X-Forwarded-For", "Via", "CF-Connecting-IP", "True-Client-IP", "X-Real-IP", "X-Cache", "Forwarded", "X-Forwarded-Port", "X-Forwarded-Scheme", "X-Original-Url", "X-Original-Host", "CDN-Loop", "CF-Connecting-IPv6"} {
 		if v := h.Get(hdr); v != "" {
 			t.Errorf("header %q not removed: %s", hdr, v)
 		}
 	}
 	if v := h.Get("Content-Type"); v != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", v)
+	}
+	for k := range h {
+		if len(k) >= 11 && (k == "X-Original-Url" || k == "X-Original-Host" || k == "x-original-custom") {
+			t.Errorf("X-Original-family header %q survived sanitize", k)
+		}
+	}
+}
+
+// TestProfileHelloVersionsAreHonest pins each profile's TRUE utls hello:
+// chrome126/edge126 send HelloChrome_133 (no 126 preset ships), firefox128
+// sends HelloFirefox_120 (no newer Firefox preset ships), safari18 reuses
+// the 17-family custom spec. Labels must never claim a hello the wire
+// does not send.
+func TestProfileHelloVersionsAreHonest(t *testing.T) {
+	if ProfileChrome126.ClientHelloID != utls.HelloChrome_133 {
+		t.Errorf("chrome126 hello = %+v, want HelloChrome_133 (newest utls Chrome preset)", ProfileChrome126.ClientHelloID)
+	}
+	if ProfileEdge126.ClientHelloID != utls.HelloChrome_133 {
+		t.Errorf("edge126 hello = %+v, want HelloChrome_133 (Edge rides Chromium; utls ships only Edge_85)", ProfileEdge126.ClientHelloID)
+	}
+	if ProfileFirefox128.ClientHelloID != utls.HelloFirefox_120 {
+		t.Errorf("firefox128 hello = %+v, want HelloFirefox_120 (newest utls Firefox preset)", ProfileFirefox128.ClientHelloID)
+	}
+	if ProfileSafari18.CustomSpec == nil {
+		t.Error("safari18 has no custom spec, want the shared 17-family spec (no Safari 18 preset ships)")
 	}
 }
 

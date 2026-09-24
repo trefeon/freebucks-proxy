@@ -101,8 +101,8 @@ type Client struct {
 	// and the /api/auth/cli/* flow uses its own login-request helper.
 	authOnly bool
 
-	// retryBackoff overrides the randomized 200-600ms pre-retry sleep (test
-	// seam; nil uses the crypto/rand jitter).
+	// retryBackoff overrides the computed exponential pre-retry sleep (test
+	// seam; nil uses the crypto/rand 1s*2^attempt +0-30% jitter, cap 10s).
 	retryBackoff func() time.Duration
 }
 
@@ -304,9 +304,9 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 				return errors.New("too many redirects")
 			}
 			// Go strips Authorization/Cookie on cross-host redirects but not
-			// x-codebuff-api-key, which carries the same raw token (defensive —
-			// agent-runs START/FINISH now set it after newRequest, and this
-			// strip is what keeps it from leaking to a redirect target). Drop
+			// x-codebuff-api-key (defensive: no current caller sets it after
+			// the Bearer-only agent-runs fix, but a relayed downstream value
+			// must never leak to a redirect target). Drop
 			// both when the redirect target is a different host OR downgrades
 			// the scheme https->http (same host, plaintext) so the token never
 			// leaves the trusted origin; same-scheme same-host redirects (e.g.

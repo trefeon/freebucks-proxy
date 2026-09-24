@@ -69,25 +69,32 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body []byt
 	// ChatCompletions overrides with cliUserAgent. No browser headers on
 	// any API path (#108/#109 fix option (a)): the utls ClientHello
 	// impersonation stays, the browser header persona does not.
-	// Agent-runs POSTs now carry BOTH Authorization and x-codebuff-api-key
-	// (the same raw token), set by StartRun/FinishRun after newRequest
-	// (current vendor wire: packages/agent-runtime/src/llm-api/
-	// codebuff-web-api.ts:70-71,301-302; shipped CLI confirms dual auth).
-	// newRequest itself never sets x-codebuff-api-key: the chat surface
+	// Agent-runs START/FINISH carry Authorization plus the optional
+	// x-freebuff-acting-user-id, set by StartRun/FinishRun via
+	// stampActingUser after newRequest (CLI parity: sdk/src/impl/
+	// database.ts startAgentRun/finishAgentRun send Bearer plus the optional
+	// acting-user header and no x-codebuff-api-key — that dual-auth pair
+	// lives only on the agent-runtime's web-search/docs/gravity/token-count
+	// POSTs, codebuff-web-api.ts callCodebuffV1/callTokenCountAPI).
+	// newRequest itself never sets either extra header: the chat surface
 	// stays Bearer-only (the pinned ai-sdk openai-compatible client's
-	// Authorization is caller-supplied and never sets x-codebuff-api-key).
+	// Authorization is caller-supplied).
 	req.Header.Set("User-Agent", bunUserAgent)
+	// Proxy-identifying headers (X-Forwarded-*, Via, cloud headers, ...) are
+	// stripped UNCONDITIONALLY — a relayed downstream header must never reach
+	// upstream even on the plain Go transport with stealth off. The strip only
+	// ever removes proxy signals; CLI-faithful headers set above are untouched.
+	stealth.SanitizeHeaders(req.Header)
 	ctx = req.Context()
 	if profile := c.currentStealthProfile(); profile != nil {
 		// Resolve the concrete profile ONCE per request and stash it: the
 		// dialer reads the stash for the ClientHello, so the TLS fingerprint
 		// matches the profile. Pinned profiles resolve to themselves;
-		// auto/random get one concrete draw. Only SanitizeHeaders runs here
-		// (protective strip of proxy-identifying headers) — the profile's
-		// browser headers are deliberately NOT applied to upstream API calls.
+		// auto/random get one concrete draw. The profile's browser headers
+		// are deliberately NOT applied to upstream API calls (proxy-header
+		// stripping already ran unconditionally above).
 		connProf := stealth.GetProfileForConnection(profile)
 		ctx = withStealthProfile(ctx, connProf)
-		stealth.SanitizeHeaders(req.Header)
 	}
 	if ctx != req.Context() {
 		req = req.WithContext(ctx)
@@ -104,7 +111,8 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body []byt
 // When TRANSIENT_RETRIES > 0, transport-level failures (dial/TLS handshake/
 // reset/EOF) are retried up to that many additional attempts: the body is
 // replayed from GetBody on a fresh connection (req.Close), the pinned TLS
-// fingerprint is rotated, and a randomized 200-600ms backoff precedes each
+// fingerprint is rotated, and an exponential 1s*2^attempt +0-30% jitter
+// backoff (cap 10s, the CLI control-path shape) precedes each
 // retry. Classified upstream errors (429/403/401, session/run invalids,
 // waiting room), any HTTP status >= 400, context cancellation, and requests
 // whose body cannot be replayed are NEVER retried.
@@ -211,7 +219,7 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 					"method", req.Method, "path", req.URL.Path,
 					"token", c.tokenIndex+1, "attempt", attempt, "reason", err.Error(),
 					"ms", time.Since(start).Milliseconds(), "req_id", ReqID(ctx))
-				timer := time.NewTimer(c.retryDelay())
+				timer := time.NewTimer(c.retryDelay(attempt))
 				select {
 				case <-timer.C:
 				case <-ctx.Done():
@@ -292,10 +300,11 @@ func isTransient(err error) bool {
 }
 
 // retryProfileRotation is the pinned-profile rotation order for transient
-// retries: one entry per distinct ClientHelloID, so a retry presents a
-// genuinely different JA3 (rotating chrome120 -> chrome126 would change only
-// headers, not the TLS fingerprint). ProfileRandom/ProfileAuto are excluded:
-// they already resolve a fresh fingerprint per connection.
+// retries: one entry per browser FAMILY, so a retry presents a genuinely
+// different JA3 (chromium HelloChrome_120/133 -> safari custom -> firefox
+// HelloFirefox_120). Profiles sharing one hello (chrome126/edge126,
+// firefox120/firefox128) sit in the same entry. ProfileRandom/ProfileAuto
+// are excluded: they already resolve a fresh fingerprint per connection.
 var retryProfileRotation = []struct {
 	ids  []stealth.ProfileID
 	next *stealth.Profile
@@ -312,6 +321,15 @@ var retryProfileRotation = []struct {
 // applied on API paths (#109). random/auto already rotate per connection and
 // are left alone. No-op when retries are disabled or no fingerprint is
 // pinned.
+//
+// The rotation is deliberately cross-family (chromium -> safari -> firefox):
+// a same-stack retry would be more CLI-faithful (Bun retries on one stack),
+// but repeating the exact JA3 that just failed is the worse bet against a
+// WAF that flagged it, so the retry presents a genuinely different hello.
+// No byte-exact Bun/BoringSSL emulation is attempted: the CLI's exact TLS
+// bytes are not derivable from its source (BoringSSL build, GREASE seeds,
+// extension order), so utls presets approximate the family, honestly labeled
+// in stealth/profiles.go.
 func (c *Client) rotateStealthProfileForRetry(req *http.Request) {
 	c.profileMu.Lock()
 	defer c.profileMu.Unlock()
@@ -344,17 +362,33 @@ func nextStealthProfile(cur *stealth.Profile) *stealth.Profile {
 	return retryProfileRotation[0].next
 }
 
-// retryDelay returns the sleep before a transient retry: a randomized
-// 200-600ms backoff using crypto/rand (matching the request-jitter pattern).
-// Tests pin it via Client.retryBackoff.
-func (c *Client) retryDelay() time.Duration {
+// retryDelay returns the sleep before transient retry number attempt
+// (1-based: the first retry is attempt 1): exponential backoff
+// 1s*2^(attempt-1) plus 0-30% jitter, capped at 10s — the CLI's
+// calculateBackoffDelay shape (codebuff-api.ts: initialDelayMs 1000,
+// maxDelayMs 10000, jitter 0.3*exponential). Tests pin it via
+// Client.retryBackoff, which overrides the computed delay wholesale.
+func (c *Client) retryDelay(attempt int) time.Duration {
 	if c.retryBackoff != nil {
 		return c.retryBackoff()
 	}
+	idx := attempt - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > 10 {
+		idx = 10
+	}
+	base := time.Second << uint(idx)
 	var b [8]byte
 	_, _ = cryptoRand.Read(b[:])
 	u := binary.BigEndian.Uint64(b[:])
-	return 200*time.Millisecond + time.Duration(u%uint64(400*time.Millisecond))
+	jitter := time.Duration(u % uint64(int64(base)*3/10+1))
+	d := base + jitter
+	if d > 10*time.Second {
+		d = 10 * time.Second
+	}
+	return d
 }
 
 // wrapDecompress replaces resp.Body with a transparent decompressing reader

@@ -3,6 +3,7 @@ package upstream
 import (
 	"context"
 	"encoding/json"
+	"freebucks-proxy/backend/internal/config"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,10 @@ func (u *recordingUpstream) handle(w http.ResponseWriter, r *http.Request) {
 		writeBodyJSON(w, 200, `{"status":"active","instanceId":"inst-1","expiresAt":"2030-01-01T00:00:00Z"}`)
 	case r.URL.Path == "/api/v1/freebuff/session" && r.Method == http.MethodDelete:
 		writeBodyJSON(w, 200, `{"status":"ended"}`)
+	case r.URL.Path == "/api/v1/ads" && r.Method == http.MethodPost:
+		writeBodyJSON(w, 200, `{"ads":[{"impUrl":"https://gravity.example/imp/1"}],"provider":"gravity"}`)
+	case (r.URL.Path == "/api/v1/ads/impression" || r.URL.Path == "/api/v1/ads/click") && r.Method == http.MethodPost:
+		writeBodyJSON(w, 200, `{"ok":true}`)
 	case r.URL.Path == "/api/v1/agent-runs" && r.Method == http.MethodPost:
 		var payload struct {
 			Action string `json:"action"`
@@ -247,70 +252,90 @@ func TestSignalGuardClientIDShape(t *testing.T) {
 	}
 }
 
-// TestAgentRunsDualAuth pins that agent-runs START/FINISH carry BOTH
-// Authorization and x-codebuff-api-key with the same token value (packages/
-// agent-runtime/src/llm-api/codebuff-web-api.ts:70-71,301-302; the shipped
-// CLI confirms dual auth). The dual-auth header is set by StartRun/FinishRun
-// after newRequest; newRequest-only paths (chat/session) stay Bearer-only.
-func TestAgentRunsDualAuth(t *testing.T) {
-	srv := newRecordingUpstream()
-	defer srv.Close()
-	const token = "tok-secret-abc"
-	client, err := New(token, testConfig(srv.URL(), nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
+// TestAgentRunsBearerOnly pins that agent-runs START/FINISH carry Bearer
+// plus the optional acting-user header and NEVER x-codebuff-api-key (CLI
+// parity: sdk/src/impl/database.ts startAgentRun/finishAgentRun send
+// Authorization + optional FREEBUFF_ACTING_USER_HEADER only; the dual-auth
+// pair lives solely on the agent-runtime web-search/docs/gravity/token-count
+// POSTs). The acting-user header rides only when the client's own account
+// id is configured.
+func TestAgentRunsBearerOnly(t *testing.T) {
+	t.Run("no acting user configured", func(t *testing.T) {
+		srv := newRecordingUpstream()
+		defer srv.Close()
+		client, err := New("tok-secret-abc", testConfig(srv.URL(), nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.StartRun(context.Background(), "agent-1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := client.FinishRun(context.Background(), "run-0001", "completed", 1, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+		saw := false
+		for _, r := range srv.snapshot() {
+			if r.path != "/api/v1/agent-runs" || r.method != http.MethodPost {
+				continue
+			}
+			saw = true
+			if got := r.header.Get("Authorization"); got != "Bearer tok-secret-abc" {
+				t.Errorf("%s Authorization = %q, want Bearer tok-secret-abc", r.path, got)
+			}
+			if got := r.header.Get("x-codebuff-api-key"); got != "" {
+				t.Errorf("%s x-codebuff-api-key = %q, want absent (Bearer-only, like the CLI)", r.path, got)
+			}
+			if got := r.header.Get("x-freebuff-acting-user-id"); got != "" {
+				t.Errorf("%s x-freebuff-acting-user-id = %q, want absent when unconfigured", r.path, got)
+			}
+		}
+		if !saw {
+			t.Fatal("no agent-runs POST recorded")
+		}
+	})
 
-	if _, err := client.StartRun(ctx, "agent-1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := client.FinishRun(ctx, "run-0001", "completed", 1, nil, ""); err != nil {
-		t.Fatal(err)
-	}
-
-	reqs := srv.snapshot()
-	sawAgentRuns := false
-	for i := range reqs {
-		r := &reqs[i]
-		if r.path != "/api/v1/agent-runs" || r.method != http.MethodPost {
-			continue
+	t.Run("acting user configured", func(t *testing.T) {
+		srv := newRecordingUpstream()
+		defer srv.Close()
+		client, err := New("tok-a", testConfig(srv.URL(), func(c *config.Config) { c.ActingUserID = "user-123" }))
+		if err != nil {
+			t.Fatal(err)
 		}
-		sawAgentRuns = true
-		var payload struct {
-			Action string `json:"action"`
+		if _, err := client.StartRun(context.Background(), "agent-1"); err != nil {
+			t.Fatal(err)
 		}
-		_ = json.Unmarshal([]byte(r.body), &payload)
-		if payload.Action != "START" && payload.Action != "FINISH" {
-			continue
+		if err := client.FinishRun(context.Background(), "run-0001", "completed", 1, nil, ""); err != nil {
+			t.Fatal(err)
 		}
-		auth := r.header.Get("Authorization")
-		key := r.header.Get("x-codebuff-api-key")
-		if auth != "Bearer "+token {
-			t.Errorf("%s %s Authorization = %q, want %q", payload.Action, r.path, auth, "Bearer "+token)
+		saw := false
+		for _, r := range srv.snapshot() {
+			if r.path != "/api/v1/agent-runs" || r.method != http.MethodPost {
+				continue
+			}
+			saw = true
+			if got := r.header.Get("x-freebuff-acting-user-id"); got != "user-123" {
+				t.Errorf("%s x-freebuff-acting-user-id = %q, want user-123 (the token's own id)", r.path, got)
+			}
+			if got := r.header.Get("x-codebuff-api-key"); got != "" {
+				t.Errorf("%s x-codebuff-api-key = %q, want absent even with acting-user set", r.path, got)
+			}
 		}
-		if key != token {
-			t.Errorf("%s %s x-codebuff-api-key = %q, want %q (same token as Authorization)", payload.Action, r.path, key, token)
+		if !saw {
+			t.Fatal("no agent-runs POST recorded")
 		}
-		if key != strings.TrimPrefix(auth, "Bearer ") {
-			t.Errorf("%s %s x-codebuff-api-key %q != token %q derived from Authorization", payload.Action, r.path, key, auth)
-		}
-	}
-	if !sawAgentRuns {
-		t.Fatal("no agent-runs POST recorded")
-	}
+	})
 }
 
-// TestAgentRunsDualAuthScrubsRelayedKey verifies the dual-auth parity does
-// not open an injection hole: the agent-run POST carries the authenticated
-// client token in x-codebuff-api-key (never a relayed/downstream value), and
-// the cross-host redirect sanitizer still scrubs the header entirely, so a
-// FOREIGN x-codebuff-api-key value is never forwarded to a redirect target.
-func TestAgentRunsDualAuthScrubsRelayedKey(t *testing.T) {
+// TestAgentRunsNeverForwardsForeignKey verifies no agent-run POST can carry
+// a relayed/downstream credential: the client builds its own headers
+// (Bearer + optional acting-user) and the cross-host redirect sanitizer
+// still scrubs x-codebuff-api-key entirely, so a FOREIGN value is never
+// forwarded to a redirect target.
+func TestAgentRunsNeverForwardsForeignKey(t *testing.T) {
 	const token = "tok-proxy-abc"
 	const foreign = "tok-attacker-xyz"
 
-	t.Run("agent_run_post_sends_auth_token_not_foreign", func(t *testing.T) {
+	t.Run("agent_run_posts_carry_no_api_key_header", func(t *testing.T) {
 		srv := newRecordingUpstream()
 		defer srv.Close()
 		client, err := New(token, testConfig(srv.URL(), nil))
@@ -327,9 +352,12 @@ func TestAgentRunsDualAuthScrubsRelayedKey(t *testing.T) {
 			if r.path != "/api/v1/agent-runs" || r.method != http.MethodPost {
 				continue
 			}
-			if got := r.header.Get("x-codebuff-api-key"); got != token {
-				t.Errorf("%s %s x-codebuff-api-key = %q, want authenticated %q (foreign %q never forwarded)",
-					r.method, r.path, got, token, foreign)
+			if got := r.header.Get("x-codebuff-api-key"); got != "" {
+				t.Errorf("%s %s x-codebuff-api-key = %q, want absent (nothing sets it; foreign %q never forwarded)",
+					r.method, r.path, got, foreign)
+			}
+			if got := r.header.Get("Authorization"); got != "Bearer "+token {
+				t.Errorf("%s %s Authorization = %q, want Bearer %s", r.method, r.path, got, token)
 			}
 		}
 	})

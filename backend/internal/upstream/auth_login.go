@@ -84,13 +84,13 @@ type CLILoginCode struct {
 	FingerprintHash string
 	LoginURL        string
 	ExpiresAt       time.Time
-	// ExpiresAtRaw is the upstream expiresAt echoed verbatim on the status
-	// poll: the protocol is epoch MILLISECONDS (reference
-	// freebuff2api-chenjh/src/login.ts:41 "epoch ms", validated in ms at
-	// :262), and the status backend compares it against Date.now() in ms.
-	// Converting to seconds and re-encoding would make every code look
-	// already-expired.
-	ExpiresAtRaw int64
+	// ExpiresAtRaw is the upstream expiresAt echoed VERBATIM on the status
+	// poll: the CLI types it string (codebuff-api.ts LoginCodeResponse /
+	// LoginStatusRequest) and passes the code value straight into the status
+	// query (loginStatus: expiresAt: req.expiresAt). Re-encoding (ISO to millis
+	// or back) would hand the server a value it never issued. Millis are only
+	// a fallback when the code response carried no usable expiry at all.
+	ExpiresAtRaw string
 }
 
 // CLILoginUser is the GitHub user metadata returned once the login
@@ -146,10 +146,10 @@ func (c *Client) StartCLILoginWithFingerprint(ctx context.Context, fingerprintID
 		return nil, fmt.Errorf("upstream: start login failed: status %d: %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 	var decoded struct {
-		FingerprintID   string `json:"fingerprintId"`
-		FingerprintHash string `json:"fingerprintHash"`
-		LoginURL        string `json:"loginUrl"`
-		ExpiresAt       int64  `json:"expiresAt"`
+		FingerprintID   string          `json:"fingerprintId"`
+		FingerprintHash string          `json:"fingerprintHash"`
+		LoginURL        string          `json:"loginUrl"`
+		ExpiresAt       json.RawMessage `json:"expiresAt"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("upstream: decode login code: %w", err)
@@ -157,8 +157,13 @@ func (c *Client) StartCLILoginWithFingerprint(ctx context.Context, fingerprintID
 	if decoded.FingerprintHash == "" || decoded.LoginURL == "" {
 		return nil, fmt.Errorf("upstream: login code response missing fields")
 	}
-	if decoded.ExpiresAt <= 0 {
-		decoded.ExpiresAt = time.Now().Add(time.Hour).UnixMilli()
+	expiresAt, expiresRaw := parseLoginExpiresAt(decoded.ExpiresAt)
+	if expiresRaw == "" {
+		// No usable expiry on the wire: default to an hour out and echo
+		// that default as millis (the only direction that invents a
+		// value, taken only when the server sent none).
+		expiresAt = time.Now().Add(time.Hour)
+		expiresRaw = strconv.FormatInt(expiresAt.UnixMilli(), 10)
 	}
 	echoed := fingerprintID
 	if decoded.FingerprintID != "" {
@@ -168,9 +173,44 @@ func (c *Client) StartCLILoginWithFingerprint(ctx context.Context, fingerprintID
 		FingerprintID:   echoed,
 		FingerprintHash: decoded.FingerprintHash,
 		LoginURL:        decoded.LoginURL,
-		ExpiresAt:       loginExpiresAt(decoded.ExpiresAt),
-		ExpiresAtRaw:    decoded.ExpiresAt,
+		ExpiresAt:       expiresAt,
+		ExpiresAtRaw:    expiresRaw,
 	}, nil
+}
+
+// parseLoginExpiresAt decodes the upstream expiresAt, which the CLI types
+// string (codebuff-api.ts LoginCodeResponse.expiresAt: an ISO instant like
+// '2030-01-02T03:04:05Z'), and returns the parsed time plus the VERBATIM
+// wire string the status poll must echo. A numeric wire value (older
+// servers, and the existing numeric-echo test fixture) is tolerated via
+// loginExpiresAt with the raw digits echoed verbatim. ("", zero time) when
+// the member is absent, null, or unparseable — the caller falls back to
+// a defaulted millis value.
+func parseLoginExpiresAt(raw json.RawMessage) (time.Time, string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return time.Time{}, ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if s == "" {
+			return time.Time{}, ""
+		}
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return t, s
+		}
+		if ms, err := strconv.ParseInt(s, 10, 64); err == nil && ms > 0 {
+			return loginExpiresAt(ms), s
+		}
+		if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+			return t, s
+		}
+		return time.Time{}, ""
+	}
+	var n int64
+	if err := json.Unmarshal(raw, &n); err == nil && n > 0 {
+		return loginExpiresAt(n), strings.TrimSpace(string(raw))
+	}
+	return time.Time{}, ""
 }
 
 // loginExpiresAt converts the upstream expiresAt to a time.Time, tolerating
@@ -198,10 +238,10 @@ func (c *Client) PollCLILogin(ctx context.Context, code *CLILoginCode) (*CLILogi
 	q.Set("fingerprintId", code.FingerprintID)
 	q.Set("fingerprintHash", code.FingerprintHash)
 	expiresRaw := code.ExpiresAtRaw
-	if expiresRaw == 0 {
-		expiresRaw = code.ExpiresAt.UnixMilli()
+	if expiresRaw == "" {
+		expiresRaw = strconv.FormatInt(code.ExpiresAt.UnixMilli(), 10)
 	}
-	q.Set("expiresAt", strconv.FormatInt(expiresRaw, 10))
+	q.Set("expiresAt", expiresRaw)
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

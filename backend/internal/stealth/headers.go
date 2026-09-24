@@ -1,6 +1,9 @@
 package stealth
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // proxyHeaders lists headers that identify HTTP clients as proxies or
 // automation tools. Real browsers never send these.
@@ -8,6 +11,9 @@ var proxyHeaders = []string{
 	"X-Forwarded-For",
 	"X-Forwarded-Proto",
 	"X-Forwarded-Host",
+	"X-Forwarded-Port",
+	"X-Forwarded-Scheme",
+	"Forwarded",
 	"X-Real-IP",
 	"X-Proxy-User-IP",
 	"Via",
@@ -16,6 +22,8 @@ var proxyHeaders = []string{
 	"X-Proxy-Agent",
 	"X-Request-ID",
 	"CF-Connecting-IP",
+	"CF-Connecting-IPv6",
+	"CDN-Loop",
 	"CF-IPCountry",
 	"CF-Ray",
 	"CF-Visitor",
@@ -33,10 +41,22 @@ var proxyHeaders = []string{
 	"X-Served-By",
 }
 
-// SanitizeHeaders removes proxy-identifying headers from h.
+// SanitizeHeaders removes proxy-identifying headers from h: the exact
+// proxyHeaders list plus any X-Original-* header (X-Original-URL,
+// X-Original-Host, X-Rewrite-URL, ... — the family is open-ended, so a
+// prefix sweep covers members the list cannot enumerate).
 func SanitizeHeaders(h http.Header) {
 	for _, hdr := range proxyHeaders {
 		h.Del(hdr)
+	}
+	const origPrefix = "X-Original-"
+	for k := range h {
+		// Exact-map delete (not Del): a hand-built non-canonical key
+		// must not survive via canonicalization mismatch. EqualFold on
+		// the prefix is allocation-free.
+		if len(k) >= len(origPrefix) && strings.EqualFold(k[:len(origPrefix)], origPrefix) {
+			delete(h, k)
+		}
 	}
 }
 
