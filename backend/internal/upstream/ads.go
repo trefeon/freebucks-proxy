@@ -151,8 +151,8 @@ func (c *Client) requestAdsForSurface(ctx context.Context, provider, surface str
 		"messages": []any{},
 		"device": map[string]any{
 			"os":       deviceOS(),
-			"timezone": egressDeviceTimezone(),
-			"locale":   egressDeviceLocale(),
+			"timezone": consistencyAdsZoneOr(egressDeviceTimezone()),
+			"locale":   consistencyAdsLocaleOr(egressDeviceLocale()),
 		},
 		// Body userAgent: the shared browser-like UA (NOT a runtime UA) so
 		// every ad provider sees a usable targeting signal — the CLI sends
