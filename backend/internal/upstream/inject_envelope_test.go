@@ -965,3 +965,66 @@ func TestInjectEnvelopeSanitizesForeignPromptMarkers(t *testing.T) {
 		}
 	})
 }
+
+// TestStartCLILoginEchoesExpiresAtVerbatim pins the string-typed login
+// protocol (codebuff-api.ts LoginCodeResponse/LoginStatusRequest): the
+// /api/auth/cli/code expiresAt is echoed VERBATIM on the status poll,
+// never re-encoded. Millis are only a fallback when the wire carries
+// no usable expiry.
+func TestStartCLILoginEchoesExpiresAtVerbatim(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	const verbatim = "2030-01-02T03:04:05Z"
+	mock.AuthCLICodeBody = `{"fingerprintId":"enhanced-x","fingerprintHash":"h","loginUrl":"https://github.com/login/oauth/authorize?auth_code=abc","expiresAt":"` + verbatim + `"}`
+	client, err := NewForAuth(testConfig(mock.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := client.StartCLILogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code.ExpiresAtRaw != verbatim {
+		t.Errorf("ExpiresAtRaw = %q, want verbatim %q", code.ExpiresAtRaw, verbatim)
+	}
+	if want := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC); !code.ExpiresAt.Equal(want) {
+		t.Errorf("ExpiresAt = %v, want %v", code.ExpiresAt, want)
+	}
+	var echoed string
+	mock.AuthCLIHandler = func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/cli/status" {
+			echoed = r.URL.Query().Get("expiresAt")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		http.NotFound(w, r)
+	}
+	if _, err := client.PollCLILogin(context.Background(), code); err != nil {
+		t.Fatal(err)
+	}
+	if echoed != verbatim {
+		t.Errorf("status poll expiresAt = %q, want verbatim %q", echoed, verbatim)
+	}
+}
+
+// TestStartCLILoginNumericExpiresAtFallback pins the millis fallback: a
+// numeric wire expiresAt is parsed and echoed as its raw digits.
+func TestStartCLILoginNumericExpiresAtFallback(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	client, err := NewForAuth(testConfig(mock.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := client.StartCLILogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := strconv.ParseInt(code.ExpiresAtRaw, 10, 64)
+	if err != nil || ms <= 0 {
+		t.Fatalf("ExpiresAtRaw = %q, want numeric millis digits", code.ExpiresAtRaw)
+	}
+	if delta := time.Until(code.ExpiresAt); delta < 4*time.Minute || delta > 6*time.Minute {
+		t.Errorf("ExpiresAt in %v, want ~5m out (mock default)", delta)
+	}
+}

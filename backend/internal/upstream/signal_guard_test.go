@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // recordedReq captures one outbound request's method, path, body and headers
@@ -431,4 +432,237 @@ func findReq(t *testing.T, srv *recordingUpstream, path, method string) *recorde
 	}
 	t.Fatalf("no recorded %s %s request", method, path)
 	return nil
+}
+
+// TestSessionCallsStampFirstTabDiscount pins that EVERY session call carries
+// x-freebuff-first-tab-discount "0": admission POST, poll GET, refund DELETE
+// and probe GET (callFreebuffSession stamps it on all three methods; the
+// proxy holds no user-confirmed offer state, so it always sends the boring
+// "0" exactly like a CLI call with firstTabDiscount unset).
+func TestSessionCallsStampFirstTabDiscount(t *testing.T) {
+	srv := newRecordingUpstream()
+	defer srv.Close()
+	client, err := New("tok-a", testConfig(srv.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := client.CreateSession(ctx); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if _, err := client.GetSession(ctx, "inst-1"); err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if _, err := client.EndSession(ctx, "inst-1"); err != nil {
+		t.Fatalf("EndSession: %v", err)
+	}
+	if _, err := client.ProbeAccount(ctx); err != nil {
+		t.Fatalf("ProbeAccount: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, r := range srv.snapshot() {
+		key := r.method + " " + r.path
+		switch key {
+		case "POST /api/v1/freebuff/session/admission", "GET /api/v1/freebuff/session", "DELETE /api/v1/freebuff/session":
+			seen[key] = true
+			if got := r.header.Get("x-freebuff-first-tab-discount"); got != "0" {
+				t.Errorf("%s first-tab discount = %q, want \"0\"", key, got)
+			}
+		}
+	}
+	for key := range map[string]bool{"POST /api/v1/freebuff/session/admission": true, "GET /api/v1/freebuff/session": true, "DELETE /api/v1/freebuff/session": true} {
+		if !seen[key] {
+			t.Errorf("no recorded %s call", key)
+		}
+	}
+}
+
+// TestWaitingRoomChainFiresAdLegs pins the free-mode ad loop legs: the
+// auction's server-issued impUrl is acked on /api/v1/ads/impression and
+// /api/v1/ads/click with the Freebuff-CLI product UA, a uuid
+// X-Freebuff-Event-Id echoed in the body as clientEventId, and the
+// browser-like body UA + os. Best-effort is covered by
+// TestWaitingRoomChainAdFailureNeverFailsAdmission.
+func TestWaitingRoomChainFiresAdLegs(t *testing.T) {
+	srv := newRecordingUpstream()
+	defer srv.Close()
+	client, err := New("tok-a", testConfig(srv.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.FireWaitingRoomChain(context.Background())
+	fired := map[string]recordedReq{}
+	for _, r := range srv.snapshot() {
+		if r.method == http.MethodPost && (r.path == "/api/v1/ads/impression" || r.path == "/api/v1/ads/click") {
+			fired[r.path] = r
+		}
+	}
+	for _, path := range []string{"/api/v1/ads/impression", "/api/v1/ads/click"} {
+		r, ok := fired[path]
+		if !ok {
+			t.Fatalf("no recorded POST %s", path)
+			continue
+		}
+		if got := r.header.Get("User-Agent"); got != "Freebuff-CLI/1.0.0" {
+			t.Errorf("%s User-Agent = %q, want the CLI product UA", path, got)
+		}
+		if got := r.header.Get("Authorization"); got != "Bearer tok-a" {
+			t.Errorf("%s Authorization = %q, want Bearer tok-a", path, got)
+		}
+		var body map[string]any
+		if err := json.Unmarshal([]byte(r.body), &body); err != nil {
+			t.Fatalf("%s body not JSON: %v", path, err)
+		}
+		if body["impUrl"] != "https://gravity.example/imp/1" {
+			t.Errorf("%s impUrl = %v, want the auction-issued impUrl (never invented)", path, body["impUrl"])
+		}
+		eventID, _ := body["clientEventId"].(string)
+		if eventID == "" {
+			t.Errorf("%s missing clientEventId", path)
+		} else if got := r.header.Get("X-Freebuff-Event-Id"); got != eventID {
+			t.Errorf("%s X-Freebuff-Event-Id = %q, want echoed body clientEventId %q", path, got, eventID)
+		}
+	}
+	imp := fired["/api/v1/ads/impression"]
+	var impBody map[string]any
+	if err := json.Unmarshal([]byte(imp.body), &impBody); err != nil {
+		t.Fatal(err)
+	}
+	ua, _ := impBody["userAgent"].(string)
+	if !strings.Contains(ua, "Chrome/151.0.0.0") {
+		t.Errorf("impression userAgent = %q, want the Chrome-151 body UA", ua)
+	}
+	if os, _ := impBody["os"].(string); os == "" {
+		t.Error("impression missing os")
+	}
+	click := fired["/api/v1/ads/click"]
+	var clickBody map[string]any
+	if err := json.Unmarshal([]byte(click.body), &clickBody); err != nil {
+		t.Fatal(err)
+	}
+	if clickBody["surface"] != "waiting_room" {
+		t.Errorf("click surface = %v, want waiting_room (the auction surface)", clickBody["surface"])
+	}
+}
+
+// TestWaitingRoomChainAdFailureNeverFailsAdmission pins best-effort: a 500
+// on the impression leg must not block the click leg, and ad failures
+// never surface to the caller (admission must not depend on ads).
+func TestWaitingRoomChainAdFailureNeverFailsAdmission(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[r.URL.Path]++
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/api/v1/ads":
+			writeBodyJSON(w, 200, `{"ads":[{"impUrl":"https://gravity.example/imp/9"}]}`)
+		case "/api/v1/ads/impression":
+			writeBodyJSON(w, 500, `{"error":"boom"}`)
+		case "/api/v1/ads/click", "/api/v1/freebuff/streak":
+			writeBodyJSON(w, 200, `{"ok":true}`)
+		default:
+			writeBodyJSON(w, 404, `{"error":"not found"}`)
+		}
+	}))
+	defer srv.Close()
+	client, err := New("tok-a", testConfig(srv.URL, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.FireWaitingRoomChain(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if seen["/api/v1/ads/click"] == 0 {
+		t.Error("click leg never fired after the impression 500 (chain must continue best-effort)")
+	}
+	if seen["/api/v1/freebuff/streak"] == 0 {
+		t.Error("streak call never fired after ad failures (chain must finish)")
+	}
+}
+
+// TestSessionParseSurfacesPrivacyDecision pins gap-5 passthrough: the two
+// tip-a9ef9942d FreebuffPrivacyDecision members (spur_suspicious_limited,
+// client_hints_limited) parse onto SessionState.PrivacyDecision verbatim,
+// with no window fabricated and no branch taken.
+func TestSessionParseSurfacesPrivacyDecision(t *testing.T) {
+	for _, decision := range []string{"spur_suspicious_limited", "client_hints_limited", "allowed_clean"} {
+		req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/api/v1/freebuff/session", nil)
+		resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}}
+		client, err := New("tok-a", testConfig("http://127.0.0.1:1", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := `{"status":"limited","privacyDecision":"` + decision + `"}`
+		st, err := client.parseSessionResponse(req, resp, body)
+		if err != nil {
+			t.Fatalf("parse %q: %v", decision, err)
+		}
+		if st.PrivacyDecision != decision {
+			t.Errorf("PrivacyDecision = %q, want verbatim %q", st.PrivacyDecision, decision)
+		}
+		if st.UnavailableWindow != nil {
+			t.Errorf("PrivacyDecision %q fabricated an UnavailableWindow", decision)
+		}
+	}
+}
+
+// TestRetryDelayExpBackoffShape pins the CLI control-path backoff shape
+// (codebuff-api.ts calculateBackoffDelay): 1s*2^(attempt-1) plus 0-30%
+// jitter, capped at 10s. Bounds are deterministic; the jitter draw inside
+// is not pinned.
+func TestRetryDelayExpBackoffShape(t *testing.T) {
+	srv := newRecordingUpstream()
+	defer srv.Close()
+	client, err := New("tok-a", testConfig(srv.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		attempt  int
+		min, max time.Duration
+	}{
+		{1, time.Second, 1300 * time.Millisecond},
+		{2, 2 * time.Second, 2600 * time.Millisecond},
+		{3, 4 * time.Second, 5200 * time.Millisecond},
+		{4, 8 * time.Second, 10 * time.Second},
+		{5, 10 * time.Second, 10 * time.Second},
+		{9, 10 * time.Second, 10 * time.Second},
+	}
+	for _, tc := range cases {
+		for i := 0; i < 25; i++ {
+			if got := client.retryDelay(tc.attempt); got < tc.min || got > tc.max {
+				t.Errorf("retryDelay(%d) = %s, want [%s, %s]", tc.attempt, got, tc.min, tc.max)
+			}
+		}
+	}
+}
+
+// TestBodylessPostsOmitContentType pins the fetch-without-header rule
+// (database.ts sends no explicit Content-Type): the bodyless admission
+// POST carries no Content-Type, while calls with a body (chat, START)
+// keep application/json via newRequest's iff-body rule.
+func TestBodylessPostsOmitContentType(t *testing.T) {
+	srv := newRecordingUpstream()
+	defer srv.Close()
+	client, err := New("tok-a", testConfig(srv.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := client.CreateSession(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.StartRun(ctx, "agent-1"); err != nil {
+		t.Fatal(err)
+	}
+	admission := findReq(t, srv, "/api/v1/freebuff/session/admission", http.MethodPost)
+	if got := admission.header.Get("Content-Type"); got != "" {
+		t.Errorf("bodyless admission POST Content-Type = %q, want absent", got)
+	}
+	start := findReq(t, srv, "/api/v1/agent-runs", http.MethodPost)
+	if got := start.header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("START with body Content-Type = %q, want application/json", got)
+	}
 }
