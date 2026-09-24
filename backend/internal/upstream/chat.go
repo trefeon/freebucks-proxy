@@ -204,6 +204,10 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 		}
 		// Callers MUST close the returned body to release the timeout
 		// context; abandoning it leaks the timer goroutine until it fires.
+		// Served turn (2xx headers): stamp chat-surface ad activity. A due
+		// round runs detached in the background - chat latency and the
+		// body below are untouched.
+		c.noteChatServed(ctx)
 		return &cancelBody{ReadCloser: resp.Body, cancel: cancel}, nil
 	}
 }
