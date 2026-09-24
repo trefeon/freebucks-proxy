@@ -974,13 +974,14 @@ func TestStrictServedModelsPinned(t *testing.T) {
 
 // TestPausedModelPolicy pins the withdrawn-model policy (vendor 5951772,
 // freebuff-models.ts FREEBUFF_PAUSED_FREE_MODEL_IDS): minimax/minimax-m3,
-// deepseek/deepseek-v4-pro and stealth/ox-alpha are recognized upstream but
+// deepseek/deepseek-v4-pro, stealth/ox-alpha and (since vendor 7775f0a,
+// withdrawn 2026-09-24) openai/gpt-5.6-luna are recognized upstream but
 // refused at admission with model_unavailable naming the replacement. The
 // proxy mirrors that flow — the ids stay resolvable in the catalog (count
 // tokens, alias resolution) but are never served, and WithdrawnModelMessage
 // names the upstream default (GLM 5.3 Flash) as the replacement.
 func TestPausedModelPolicy(t *testing.T) {
-	for _, paused := range []string{"minimax/minimax-m3", "deepseek/deepseek-v4-pro", "stealth/ox-alpha"} {
+	for _, paused := range []string{"minimax/minimax-m3", "deepseek/deepseek-v4-pro", "stealth/ox-alpha", "openai/gpt-5.6-luna"} {
 		if !modelcat.IsPaused(paused) {
 			t.Errorf("modelcat.IsPaused(%s) = false, want true", paused)
 		}
@@ -995,7 +996,7 @@ func TestPausedModelPolicy(t *testing.T) {
 	// The catalog still recognizes paused ids so alias resolution/count_tokens work.
 	r := New(nil, nil)
 	r.LoadFallback()
-	for _, paused := range []string{"minimax/minimax-m3", "deepseek/deepseek-v4-pro", "stealth/ox-alpha"} {
+	for _, paused := range []string{"minimax/minimax-m3", "deepseek/deepseek-v4-pro", "stealth/ox-alpha", "openai/gpt-5.6-luna"} {
 		if _, err := r.AgentForModel(paused); err != nil {
 			t.Errorf("paused model %s lost from catalog: %v", paused, err)
 		}

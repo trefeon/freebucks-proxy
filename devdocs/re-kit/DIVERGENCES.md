@@ -1,6 +1,6 @@
-# DIVERGENCES — 9 proxy-vs-CLI divergences (static, pin 0.0.194)
+# DIVERGENCES — 9 proxy-vs-CLI divergences (static, pin 0.0.195)
 
-> Version: npm freebuff 0.0.194 @ 08b5a38f3 (re-pinned 2026-09-24). Proxy side = repo backend (current); CLI side = pin-0.0.194 vendor tree. No tokens/hosts.
+> Version: npm freebuff 0.0.195 @ 7775f0a2 (re-pinned 2026-09-24). Proxy side = repo backend (current); CLI side = pin-0.0.195 vendor tree. No tokens/hosts.
 
 | # | Title | CLI does | Proxy assumes/diverges | Evidence |
 |---|---|---|---|---|
@@ -24,3 +24,8 @@ Extra proxy-only deltas noted in ModelSelectFlow (not counted above): LimitedMod
 - Registry pins (6/6) SAME: catalog/notice/status sources unchanged at the pin, so D8 (session-types SAME) and notice copy (spend-ceilings/model-availability/peak-hours SAME) stand as written.
 - Wire drift (classified BEFORE baseline refresh): FUNCTIONAL in common/src/tools/constants.ts (new `report_project_profile` tool) and packages/agent-runtime/src/run-agent-step.ts (project-profile offer/report loop); other 11 wire files SAME.
 - Neither FUNCTIONAL row needs a Go-side port: wiregen extracts only param constants from tools/constants.ts (toolnames_gen header-only change), and the proxy runs no agent-step loop. D1-D7 files sit outside the pin set and were not re-verified by this re-pin.
+
+## 0.0.195 pin delta (2026-09-24, 08b5a38f3 -> 7775f0a2)
+- Registry DRIFT in common/src/constants/freebuff-models.ts: GPT-5.6 Luna withdrawn from free mode entirely on 2026-09-24 (added to FREEBUFF_PAUSED_FREE_MODEL_IDS) — stage two of the retirement that took it out of every picker on 2026-09-22. Row stays in SUPPORTED_FREEBUFF_MODELS so the id stays recognised; full-access picks are refused with non-session-ending `model_unavailable` naming GLM 5.3 Flash, limited picks coerce to the limited default. Other 5 registry pins SAME.
+- Wire drift (classified BEFORE baseline refresh): 13/13 SAME — no Go-side port. D1-D7 files sit outside the pin set and were not re-verified by this re-pin.
+- Proxy side carries the withdrawal with no hand edit: wiregen reads the paused list from the refreshed pin, so catalog_gen.go marks `openai/gpt-5.6-luna` PausedReplacement=GLM 5.3 Flash (served=false, no tiers); the dashboard models view flips it from retired-from-picker to withdrawn automatically (IsPaused-driven).

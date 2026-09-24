@@ -261,7 +261,7 @@ func TestConformanceCodexModelsStrictModelInfo(t *testing.T) {
 		legacyIDs[m.ID] = true
 	}
 	// 7 served ids: the pool reports no plan and no offer, so the tier rows
-	// are listed-but-unadmitted (and the five withdrawn ids are not listed
+	// are listed-but-unadmitted (and the six withdrawn ids are not listed
 	// at all).
 	if len(out.Models) != 7 {
 		t.Fatalf("codex rows = %d, want the 7 admitted ids (legacy lists %d)", len(out.Models), len(legacy.Data))
