@@ -149,17 +149,32 @@ else
     fi
     VENDOR_VERSION="${NPM_VERSION:-$PINNED_VERSION}"
   fi
-  python3 - "$SNAPSHOTS" "$VENDOR_SHA" "$VENDOR_VERSION" "$WIRE_DIR" <<'PY'
+  # Refresh the recorded SDK + runtime versions from the vendor clone at the
+  # target SHA. Missing files leave existing facts untouched (never blank).
+  LLM_PROVIDERS_VERSION=""
+  if git -C "$CLONE_DIR" cat-file -e "$VENDOR_SHA:packages/llm-providers/package.json" 2>/dev/null; then
+    LLM_PROVIDERS_VERSION="$(git -C "$CLONE_DIR" show "$VENDOR_SHA:packages/llm-providers/package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)"
+  fi
+  BUN_VERSION=""
+  if git -C "$CLONE_DIR" cat-file -e "$VENDOR_SHA:.bun-version" 2>/dev/null; then
+    BUN_VERSION="$(git -C "$CLONE_DIR" show "$VENDOR_SHA:.bun-version" | tr -d '\r\n ' || true)"
+  fi
+  python3 - "$SNAPSHOTS" "$VENDOR_SHA" "$VENDOR_VERSION" "$WIRE_DIR" "$LLM_PROVIDERS_VERSION" "$BUN_VERSION" <<'PY'
 import hashlib, json, pathlib, sys
 snap_path, sha, version, wiredir = sys.argv[1], sys.argv[2], sys.argv[3], pathlib.Path(sys.argv[4])
+lp_version, bun_version = sys.argv[5], sys.argv[6]
 d = json.loads(pathlib.Path(snap_path).read_text())
 d["upstream_sha"] = sha
 d["vendor_version"] = version
+if lp_version:
+    d["llm_providers_version"] = lp_version
+if bun_version:
+    d["bun_version"] = bun_version
 for f in d["files"]:
     raw = (wiredir / f["path"]).read_bytes()
     f["sha256"] = hashlib.sha256(raw).hexdigest()
 pathlib.Path(snap_path).write_text(json.dumps(d, indent=2) + "\n", newline="\n")
-print(f"stamped {snap_path} upstream_sha={sha[:12]} vendor_version={version}")
+print(f"stamped {snap_path} upstream_sha={sha[:12]} vendor_version={version} llm_providers_version={d.get('llm_providers_version')} bun_version={d.get('bun_version')}")
 PY
   python3 - "$VENDOR_SHA" <<'PY'
 import pathlib, sys
