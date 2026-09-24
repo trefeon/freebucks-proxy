@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/wirefacts"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -653,5 +654,39 @@ func TestBodylessPostsOmitContentType(t *testing.T) {
 	start := findReq(t, srv, "/api/v1/agent-runs", http.MethodPost)
 	if got := start.header.Get("Content-Type"); got != "application/json" {
 		t.Errorf("START with body Content-Type = %q, want application/json", got)
+	}
+}
+
+// TestUAsTrackWirefacts pins the UA construction to the recorded wirefacts:
+// the chat UA embeds LlmProvidersVersion and the non-chat UA embeds
+// BunVersion, so a re-pin that moves either fact moves the wire UA with it
+// instead of silently widening a literal gap (PORT-MAP section 10 items 1-2).
+func TestUAsTrackWirefacts(t *testing.T) {
+	if wirefacts.LlmProvidersVersion == "" {
+		t.Fatal("wirefacts.LlmProvidersVersion is empty; the re-pin must record packages/llm-providers/package.json")
+	}
+	if want := "ai-sdk/openai-compatible/" + wirefacts.LlmProvidersVersion + "/codebuff"; cliUserAgent != want {
+		t.Errorf("cliUserAgent = %q, want %q (built from wirefacts.LlmProvidersVersion)", cliUserAgent, want)
+	}
+	if wirefacts.BunVersion == "" {
+		t.Fatal("wirefacts.BunVersion is empty; the re-pin must record upstream .bun-version")
+	}
+	if want := "Bun/" + wirefacts.BunVersion; bunUserAgent != want {
+		t.Errorf("bunUserAgent = %q, want %q (built from wirefacts.BunVersion)", bunUserAgent, want)
+	}
+}
+
+// TestUAVersionFallbackNeverEmitsEmpty pins the empty-fact fallback: a
+// manifest predating the facts still yields the last-pinned UA literals via
+// firstOfN, never a UA with an empty version segment.
+func TestUAVersionFallbackNeverEmitsEmpty(t *testing.T) {
+	if got := firstOfN("", "1.0.0"); got != "1.0.0" {
+		t.Errorf("firstOfN empty chat version = %q, want the pinned fallback %q", got, "1.0.0")
+	}
+	if got := firstOfN("", "1.3.14"); got != "1.3.14" {
+		t.Errorf("firstOfN empty bun version = %q, want the pinned fallback %q", got, "1.3.14")
+	}
+	if got := firstOfN("9.9.9", "1.0.0"); got != "9.9.9" {
+		t.Errorf("firstOfN recorded version = %q, want it passed through, not the fallback", got)
 	}
 }

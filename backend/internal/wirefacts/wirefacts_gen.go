@@ -9,6 +9,15 @@ const UpstreamSHA = "08b5a38f3123eaddf6b7d29aba0613e15ba929e5"
 // VendorVersion is the npm freebuff wrapper version recorded alongside.
 const VendorVersion = "0.0.194"
 
+// LlmProvidersVersion is the @codebuff/llm-providers version the chat UA
+// is built from (recorded from upstream packages/llm-providers/package.json;
+// consumed at sdk/src/impl/model-provider.ts:432).
+const LlmProvidersVersion = "1.0.0"
+
+// BunVersion is the Bun runtime version the non-chat UA is built from
+// (recorded from upstream .bun-version; bare fetch sends Bun/<version>).
+const BunVersion = "1.3.14"
+
 // WireFiles lists the verbatim upstream wire snapshots.
 var WireFiles = []WireFile{
 	{Path: "common/src/constants/freebuff-standing.ts", SHA256: "555339c61867c8201bca066765f8b4497b874e62a142be9f2d30996d46b3fb32"},
