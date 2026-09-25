@@ -339,9 +339,17 @@ func New(cfg *config.Config, p *pool.Pool, reg *registry.Registry, logger *slog.
 	return s
 }
 
-// Close flushes and releases server-owned resources: the dashboard history
-// consumer and store. Safe to call on a server built without WithHistory.
+// FlushSettingsSpill drains the settings WAL spill: every overlay delta
+// enqueued before it returns applied. Tests asserting persisted rows call
+// this after a mutation (production never needs it — Close drains).
+func (s *Server) FlushSettingsSpill() { s.admin.flushSettingsSpill() }
+
+// Close flushes and releases server-owned resources: the settings spill
+// first (so the last overlay deltas land before the store closes), then
+// the dashboard history consumer and store. Safe to call on a server built
+// without WithHistory.
 func (s *Server) Close() error {
+	s.admin.closeSettingsSpill()
 	if s.dash != nil {
 		return s.dash.Close()
 	}

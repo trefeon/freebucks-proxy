@@ -2,165 +2,67 @@ package server
 
 import (
 	"errors"
-	"fmt"
-	"os"
-	"strings"
-
 	"freebucks-proxy/backend/internal/config"
+	"strings"
 )
 
 // tokenMarkerKey is the settings-table presence marker for the AUTH_TOKENS
-// pool ("true" while pooled): a cheap presence signal
-// for readers that must not parse the pool. Since the env-to-DB migration
-// the raw pool itself is ALSO mirrored in the config:AUTH_TOKENS overlay row
-// (the dashboard DB holds secrets at mode 0600) — tokenMarkerDelta converges
-// both, so a migrated row can never shadow the .env write with a stale list
-// and fail the reload verify.
+// pool ("true" while pooled): a cheap presence signal for readers that must
+// not parse the pool. The raw pool itself is ALSO mirrored in the
+// config:AUTH_TOKENS overlay row (the dashboard DB holds secrets at mode
+// 0600) — tokenMarkerDelta converges both, so the overlay always carries
+// the latest pool.
 const tokenMarkerKey = "auth/tokens_configured"
 
-// dualPhase names which layer of a dualWrite failed, so callers keep their
-// existing per-phase messages (persist vs reload vs divergence) while the
-// snapshot/write/rollback sequence lives in exactly one place.
-type dualPhase int
-
-const (
-	dualPersistPhase dualPhase = iota
-	dualSettingsPhase
-	dualReloadPhase
-)
-
-// dualError wraps a persist/settings/reload failure. Divergence rejections
-// from verify pass through unwrapped so the caller's conflict text survives.
-type dualError struct {
-	phase dualPhase
-	err   error
-}
-
-func (e *dualError) Error() string { return e.err.Error() }
-func (e *dualError) Unwrap() error { return e.err }
-
-// dualPhaseOf reports the failing layer of a dualWrite error (verify
-// rejections report ok=false — they are caller errors, not layer failures).
-func dualPhaseOf(err error) (dualPhase, bool) {
-	var de *dualError
-	if errors.As(err, &de) {
-		return de.phase, true
-	}
-	return 0, false
-}
-
-// dualWrite persists .env line edits AND settings-table rows as one
-// write-through unit, then reloads through loadConfig (file + overlay + env)
-// and runs verify against the reloaded config. Any failure restores BOTH
-// layers: the .env bytes and every snapshotted settings row.
+// overlayWrite persists settings-table rows AND derives the new live
+// snapshot from mem (unified-store sync applier): no .env write, no
+// loadConfig re-read, no reload fan-out. Files are boot seed only.
 //
 //   - set maps full settings row keys (config.OverlayRowKey(...) or the
 //     auth/ marker namespace) to their new values; del lists row keys to
-//     drop. Both are skipped when no settings store is wired (degraded
-//     live-only boot keeps pure-.env behavior).
-//   - verify may reject the reloaded config (divergence guard); the
-//     rejection rolls both layers back and returns unwrapped.
+//     drop. Both enqueue to the WAL spill behind (a nil store means
+//     live-only: mem-only swap, lost on restart).
+//   - verify may reject the derived config (divergence guard); the
+//     rejection returns unwrapped and nothing was enqueued or swapped.
 //
-// Callers must hold adminSaveMu.
-func (a *adminHandlers) dualWrite(env []config.EnvUpdate, set map[string]string, del []string, verify func(config.Config) error) (config.Config, error) {
-	oldEnv, oldEnvErr := os.ReadFile(config.EnvFileForWrite())
+// Derivation and verification precede any enqueue, so a failure has nothing
+// to roll back. Callers must hold adminSaveMu, then swap the returned
+// config via applyReloadedConfig (which also flips mem synchronously for
+// the next read); overlayWrite never swaps itself.
+func (a *adminHandlers) overlayWrite(set map[string]string, del []string, verify func(config.Config) error) (config.Config, error) {
+	oldCfg := a.cfgLoad()
 
-	// Snapshot the settings rows we are about to touch, so a later failure
-	// restores both layers instead of leaving settings ahead of .env.
-	var snap map[string]*string
-	if a.settings != nil {
-		snap = make(map[string]*string, len(set)+len(del))
-		for k := range set {
-			v, ok, err := a.settings.GetSetting(k)
-			if err != nil {
-				return config.Config{}, &dualError{dualSettingsPhase, fmt.Errorf("read setting %s: %w", k, err)}
-			}
-			if ok {
-				v := v
-				snap[k] = &v
-			} else {
-				snap[k] = nil
-			}
-		}
-		for _, k := range del {
-			if _, done := snap[k]; done {
-				continue
-			}
-			v, ok, err := a.settings.GetSetting(k)
-			if err != nil {
-				return config.Config{}, &dualError{dualSettingsPhase, fmt.Errorf("read setting %s: %w", k, err)}
-			}
-			if ok {
-				v := v
-				snap[k] = &v
-			} else {
-				snap[k] = nil
-			}
+	// Derive from mem (no disk): translate row keys to the overlay delta.
+	// Non-config rows (the auth/ marker namespace) never drive Config.
+	overlaySet := make(map[string]string, len(set))
+	for k, v := range set {
+		if rest, ok := strings.CutPrefix(k, config.OverlayRowPrefix); ok {
+			overlaySet[rest] = v
 		}
 	}
-
-	if _, err := updateEnvKeys(env); err != nil {
-		return config.Config{}, &dualError{dualPersistPhase, err}
-	}
-	if a.settings != nil {
-		for k, v := range set {
-			if err := a.settings.SetSetting(k, v); err != nil {
-				restoreEnvFile(oldEnv, oldEnvErr)
-				return config.Config{}, &dualError{dualSettingsPhase, fmt.Errorf("persist setting %s: %w", k, err)}
-			}
-		}
-		for _, k := range del {
-			if err := a.settings.DeleteSetting(k); err != nil {
-				restoreEnvFile(oldEnv, oldEnvErr)
-				a.restoreSettingRows(snap)
-				return config.Config{}, &dualError{dualSettingsPhase, fmt.Errorf("delete setting %s: %w", k, err)}
-			}
+	var overlayDel []string
+	for _, k := range del {
+		if rest, ok := strings.CutPrefix(k, config.OverlayRowPrefix); ok {
+			overlayDel = append(overlayDel, rest)
 		}
 	}
-	newCfg, err := a.loadConfig()
+	newCfg, err := config.ApplyOverlay(*oldCfg, overlaySet, overlayDel)
 	if err != nil {
-		restoreEnvFile(oldEnv, oldEnvErr)
-		a.restoreSettingRows(snap)
-		return config.Config{}, &dualError{dualReloadPhase, err}
+		return config.Config{}, err
 	}
 	if verify != nil {
 		if err := verify(newCfg); err != nil {
-			restoreEnvFile(oldEnv, oldEnvErr)
-			a.restoreSettingRows(snap)
 			return config.Config{}, err
 		}
 	}
+	a.enqueueSettingsSpill(set, del)
 	return newCfg, nil
 }
 
-// restoreSettingRows rolls settings rows back to their dualWrite snapshot
-// (nil store or nil snapshot = nothing was written, no-op). Restore is
-// best-effort: the .env is already restored first, so a row that fails to
-// roll back leaves the overlay shadowing the file — loud, and clearable via
-// DELETE /admin/api/settings/:key, instead of a silently diverged file.
-func (a *adminHandlers) restoreSettingRows(snap map[string]*string) {
-	if a.settings == nil || len(snap) == 0 {
-		return
-	}
-	for k, prior := range snap {
-		var err error
-		if prior == nil {
-			err = a.settings.DeleteSetting(k)
-		} else {
-			err = a.settings.SetSetting(k, *prior)
-		}
-		if err != nil {
-			a.logfunc().Warn("dual-write settings rollback failed", "key", k, "err", err)
-		}
-	}
-}
-
 // tokenMarkerDelta maps a post-mutation AUTH_TOKENS list to its settings
-// write-through: marker set while pooled,
-// and the config:AUTH_TOKENS overlay row converged to the same list.
-// Every token path (add/remove/swap) funnels
-// through here, so the overlay — which beats .env at load — always carries
-// the latest pool instead of shadowing the file just written.
+// persist: marker set while pooled, and the config:AUTH_TOKENS overlay row
+// converged to the same list. Every token path (add/remove/swap) funnels
+// through here, so the overlay always carries the latest pool.
 func tokenMarkerDelta(tokens []string) (set map[string]string, del []string) {
 	set = map[string]string{
 		config.OverlayRowKey("AUTH_TOKENS"): strings.Join(tokens, ","),
@@ -172,30 +74,13 @@ func tokenMarkerDelta(tokens []string) (set map[string]string, del []string) {
 	return set, []string{tokenMarkerKey}
 }
 
-// dualPersistMessage maps a dualWrite layer failure to the historic
-// persist/reload response text, so converted handlers keep byte-identical
-// diagnostics for the .env and reload phases.
-func dualPersistMessage(err error) string {
-	if phase, ok := dualPhaseOf(err); ok {
-		switch phase {
-		case dualReloadPhase:
-			return "Reload rejected: " + err.Error()
-		case dualSettingsPhase:
-			return "Failed to persist settings: " + err.Error()
-		default:
-			return "Failed to persist .env: " + err.Error()
-		}
-	}
-	return err.Error()
-}
-
 // errAdminTokenOverridden is the divergence rejection when a password change
-// cannot move the effective ADMIN_TOKEN (process env or -config JSON wins).
-// The handler renders the full conflict text; the sentinel only threads the
-// branch through dualWrite's verify.
+// cannot move the effective ADMIN_TOKEN (process env wins). The handler
+// renders the full conflict text; the sentinel only threads the branch
+// through overlayWrite's verify.
 var errAdminTokenOverridden = errors.New("admin token overridden")
 
 // errRequireLoginShadowed is the divergence rejection when a require-login
 // toggle cannot move the effective DASHBOARD_REQUIRE_LOGIN. The handler
-// renders the overlay-aware conflict; the sentinel only threads the branch.
+// renders the conflict; the sentinel only threads the branch.
 var errRequireLoginShadowed = errors.New("require login shadowed")

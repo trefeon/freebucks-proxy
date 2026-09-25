@@ -32,6 +32,12 @@ type LoadOptions struct {
 	// auto-discovery, mirroring the .env tier). Nil or empty behaves like
 	// Load.
 	Overlay map[string]string
+	// SkipFiles drops the JSON -config and .env file tiers (unified-store:
+	// files are boot seed only, never re-read on the mutation path).
+	// Defaults + Overlay + process env still apply with full validation,
+	// and EnvFile reports "" since no file was consulted. Boot and the
+	// explicit /admin/reload path leave this false.
+	SkipFiles bool
 }
 
 // Load resolves configuration from the optional JSON file at configPath
@@ -48,13 +54,24 @@ func Load(configPath string) (Config, error) {
 
 // LoadOpts is Load with additional load-time options (issue #283).
 func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
-	raw, err := loadRaw(configPath)
-	if err != nil {
-		return Config{}, err
+	var raw rawConfig
+	if opts.SkipFiles {
+		// Unified-store mutation path: files are boot seed only, never
+		// re-read. Defaults + Overlay + process env with full validation.
+		raw = defaultRawConfig()
+	} else {
+		var err error
+		raw, err = loadRaw(configPath)
+		if err != nil {
+			return Config{}, err
+		}
 	}
-	envFileUsed := ResolveEnvFile()
-	if err := applyDotenv(&raw, envFileUsed); err != nil {
-		return Config{}, err
+	envFileUsed := ""
+	if !opts.SkipFiles {
+		envFileUsed = ResolveEnvFile()
+		if err := applyDotenv(&raw, envFileUsed); err != nil {
+			return Config{}, err
+		}
 	}
 	// DB settings overlay (ADR-0019): beats the file, loses to explicit
 	// process env (applied below).

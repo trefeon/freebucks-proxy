@@ -4,26 +4,27 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"os"
-	"runtime"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/dashboard"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/server"
 	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/store"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 // dashboardURL returns the base URL of a test server with AdminToken set.
@@ -554,20 +555,21 @@ func doTokenAction(t *testing.T, url, cookie, path string) *http.Response {
 }
 
 // Runtime token management endpoints: add, remove, mode switch, persisted to
-// .env (isolated via t.Chdir).
+// the overlay (unified-store; isolated via t.Chdir).
 func TestDashboardTokenAddRemoveMode(t *testing.T) {
-	t.Chdir(t.TempDir())
-	ts := dashboardServer(t, "secret", nil)
+	ts, _, srv, st := newStoreBackedServer(t, nil, func(c *config.Config) { c.AdminToken = "secret" },
+		testutil.NewMock())
 	cookie := authedCookie(t, ts)
 
-	// Add a token: pool grows, .env updated.
+	// Add a token: pool grows, overlay row converges.
 	resp := postJSON(t, ts.URL, cookie, "/admin/tokens/add", `{"token":"cb_newtoken123"}`)
 	if body := bodyOf(t, resp); !strings.Contains(body, "Token added") {
 		t.Errorf("add response = %q, want success", body)
 	}
-	env, _ := os.ReadFile(".env")
-	if !strings.Contains(string(env), "cb_newtoken123") {
-		t.Error("added token not persisted to .env")
+	srv.FlushSettingsSpill()
+	row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS"))
+	if err != nil || !ok || !strings.Contains(row, "cb_newtoken123") {
+		t.Errorf("overlay AUTH_TOKENS = %q,%v,%v, want the added token", row, ok, err)
 	}
 }
 
@@ -707,46 +709,49 @@ func TestDashboardConfigPage(t *testing.T) {
 	}
 }
 
-// A CRLF .env stays CRLF after a token add: updateAuthTokensEnv must not
-// rewrite a Windows-edited file with mixed line endings.
+// A CRLF .env stays byte-identical after a token add (unified-store I4):
+// mutations never rewrite the seed file, so a Windows-edited file keeps
+// its line endings trivially — while the added token lands in the overlay.
 func TestDashboardTokenAddPreservesCRLF(t *testing.T) {
-	t.Chdir(t.TempDir())
+	ts, _, srv, st := newStoreBackedServer(t, nil, func(c *config.Config) { c.AdminToken = "secret" },
+		testutil.NewMock())
+	cookie := authedCookie(t, ts)
 	seed := "SAFE_MODE=true\r\nTRANSIENT_RETRIES=3\r\n"
 	if err := os.WriteFile(".env", []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ts := dashboardServer(t, "secret", nil)
-	cookie := authedCookie(t, ts)
 
 	resp := postJSON(t, ts.URL, cookie, "/admin/tokens/add", `{"token":"cb_crlf_token"}`)
-	if !strings.Contains(bodyOf(t, resp), "Token added") {
-		t.Errorf("add response = %q, want success", bodyOf(t, resp))
+	if body := bodyOf(t, resp); !strings.Contains(body, "Token added") {
+		t.Errorf("add response = %q, want success", body)
 	}
 
 	env, err := os.ReadFile(".env")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(env), "cb_crlf_token") {
-		t.Error("added token missing from .env")
+	if string(env) != seed {
+		t.Errorf("token add rewrote the seed file:\n%q\nwant byte-identical %q", env, seed)
 	}
-	if !strings.Contains(string(env), "SAFE_MODE=true\r\n") {
-		t.Error("seed line lost CRLF")
-	}
-	// No bare \n outside a \r\n pair: the file must be uniformly CRLF.
-	if strings.Contains(strings.ReplaceAll(string(env), "\r\n", ""), "\n") {
-		t.Errorf("mixed line endings after token add:\n%s", env)
+	srv.FlushSettingsSpill()
+	row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS"))
+	if err != nil || !ok || !strings.Contains(row, "cb_crlf_token") {
+		t.Errorf("overlay AUTH_TOKENS = %q,%v,%v, want the added token", row, ok, err)
 	}
 }
 
 // Concurrent token adds must not lose updates: adminSaveMu serializes the
-// cfg read + .env write + reload, so every added token lands in .env, the
-// live pool, and the reloaded config — a lost pool token with a correct .env
-// (or vice versa) must fail here.
+// cfg read + overlay persist + swap, so every added token lands in the
+// overlay, the live pool, and the swapped config — a lost pool token with
+// a correct overlay (or vice versa) must fail here.
 func TestDashboardConcurrentTokenAdds(t *testing.T) {
 	t.Chdir(t.TempDir())
 	mock := testutil.NewMock()
 	defer mock.Close()
+	st, err := store.Open(filepath.Join(t.TempDir(), "conc.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
 
 	cfg := &config.Config{
 		AuthTokens:         []string{"tok-0"},
@@ -771,9 +776,11 @@ func TestDashboardConcurrentTokenAdds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := server.New(cfg, p, reg, nil, nil, "")
+	srv := server.New(cfg, p, reg, nil, nil, "", server.WithHistory(st))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
+	defer func() { _ = srv.Close() }()
+	defer func() { _ = st.Close() }()
 	cookie := authedCookie(t, ts)
 
 	const n = 8
@@ -790,28 +797,29 @@ func TestDashboardConcurrentTokenAdds(t *testing.T) {
 	}
 	wg.Wait()
 
-	env, err := os.ReadFile(".env")
+	// All 1+8 tokens must be in the live pool (synchronously swapped)...
+	if got := p.TokenCount(); got != n+1 {
+		t.Errorf("pool TokenCount = %d, want %d", got, n+1)
+	}
+	// ...and, after the spill drains, the overlay must agree with both
+	// (the overlay is the source of truth for cfg after each add's swap).
+	srv.FlushSettingsSpill()
+	rows, err := st.ListSettings()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := range n {
 		want := fmt.Sprintf("cb_conc_%d", i)
-		if !strings.Contains(string(env), want) {
-			t.Errorf("token %q lost from .env after concurrent adds", want)
+		if !strings.Contains(rows[config.OverlayRowKey("AUTH_TOKENS")], want) {
+			t.Errorf("token %q lost from overlay after concurrent adds: %q", want, rows[config.OverlayRowKey("AUTH_TOKENS")])
 		}
 	}
-	// All 1+8 tokens must be in the live pool...
-	if got := p.TokenCount(); got != n+1 {
-		t.Errorf("pool TokenCount = %d, want %d", got, n+1)
-	}
-	// ...and a fresh config.Load must agree with both (.env is the source
-	// of truth for cfg after each add's reload).
-	reloaded, err := config.Load("")
+	rebooted, err := config.LoadOpts("", config.LoadOptions{Overlay: config.OverlayFromRows(rows)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(reloaded.AuthTokens); got != n+1 {
-		t.Errorf("reloaded AUTH_TOKENS = %d, want %d", got, n+1)
+	if got := len(rebooted.AuthTokens); got != n+1 {
+		t.Errorf("rebooted AUTH_TOKENS = %d, want %d", got, n+1)
 	}
 }
 
@@ -1035,12 +1043,13 @@ func TestDashboardTokenRemoveRejectsShorterDivergence(t *testing.T) {
 // pool, so after a config-editor save with two tokens the remove legitimately
 // succeeds and persists only the remainder.
 func TestDashboardTokenRemoveAfterEditorExtends(t *testing.T) {
-	t.Chdir(t.TempDir())
-	ts := dashboardServer(t, "secret", nil) // 1 pooled token
+	ts, _, srv, st := newStoreBackedServer(t, nil, func(c *config.Config) { c.AdminToken = "secret" },
+		testutil.NewMock()) // 1 pooled token
 	cookie := authedCookie(t, ts)
 
 	// Config editor adopts an extra token (SetConfig appends the entry).
-	resp := postConfig(t, ts.URL, cookie, "AUTH_TOKENS=tok-0,extra-token\nSAFE_MODE=true\n")
+	editorContent := "AUTH_TOKENS=tok-0,extra-token\nSAFE_MODE=true\n"
+	resp := postConfig(t, ts.URL, cookie, editorContent)
 	if body := bodyOf(t, resp); !strings.Contains(body, "Saved and reloaded") {
 		t.Fatalf("config save failed: %s", body)
 	}
@@ -1053,27 +1062,37 @@ func TestDashboardTokenRemoveAfterEditorExtends(t *testing.T) {
 	if !strings.Contains(body, "removed and persisted") {
 		t.Errorf("remove response = %q, want success message", body)
 	}
-	env, err := os.ReadFile(".env")
-	if err != nil {
-		t.Fatal(err)
+	// The remainder persists to the overlay; the editor's seed file is
+	// untouched by the remove (unified-store: no export leg).
+	srv.FlushSettingsSpill()
+	row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS"))
+	if err != nil || !ok || row != "tok-0" {
+		t.Errorf("overlay AUTH_TOKENS = %q,%v,%v, want tok-0 only", row, ok, err)
 	}
-	if !strings.Contains(string(env), "AUTH_TOKENS=tok-0\n") || strings.Contains(string(env), "extra-token") {
-		t.Errorf(".env after remove = %q, want AUTH_TOKENS=tok-0 only", env)
+	if env, err := os.ReadFile(".env"); err != nil {
+		t.Fatal(err)
+	} else if string(env) != editorContent {
+		t.Errorf(".env after remove = %q, want the editor bytes untouched", env)
 	}
 }
 
-// A failed persist after removal must roll the pool back (mirroring
-// handleTokenAdd): the token is re-added so pool/.env/cfg stay consistent.
+// A rejected overlay write after removal must roll the pool back
+// (mirroring handleTokenAdd): with AUTH_TOKENS pinned by the process
+// environment the verify guard rejects the derived config, nothing is
+// enqueued or swapped, and the token is re-added so pool/overlay/cfg stay
+// consistent.
 func TestDashboardTokenRemoveRollsBackOnPersistFailure(t *testing.T) {
 	t.Chdir(t.TempDir())
-	// Seed an invalid .env: the post-removal reload fails Validate, so
-	// syncTokensAfterMutation errors and the pool must re-add the token.
-	if err := os.WriteFile(".env", []byte("LISTEN_ADDR=127.0.0.1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Env-pinned pool: the post-removal derive cannot move the effective
+	// list, so overlayWrite's verify rejects.
+	t.Setenv("AUTH_TOKENS", "env-pinned-token")
 
 	mock := testutil.NewMock()
 	defer mock.Close()
+	st, err := store.Open(filepath.Join(t.TempDir(), "rollback.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
 
 	cfg := &config.Config{
 		AuthTokens:         []string{"tok-0"},
@@ -1098,18 +1117,25 @@ func TestDashboardTokenRemoveRollsBackOnPersistFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := server.New(cfg, p, reg, nil, nil, "")
+	srv := server.New(cfg, p, reg, nil, nil, "", server.WithHistory(st))
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
+	defer func() { _ = srv.Close() }()
+	defer func() { _ = st.Close() }()
 	cookie := authedCookie(t, ts)
 
 	resp := doTokenAction(t, ts.URL, cookie, "/admin/tokens/remove")
 	body := bodyOf(t, resp)
-	if !strings.Contains(body, "reload config") {
-		t.Errorf("remove response = %q, want reload failure surfaced", body)
+	if !strings.Contains(body, "overridden by environment") {
+		t.Errorf("remove response = %q, want the env-divergence rejection", body)
 	}
 	if got := p.TokenCount(); got != 1 {
-		t.Errorf("pool TokenCount after failed remove = %d, want 1 (rollback re-added the token)", got)
+		t.Errorf("pool TokenCount after rejected remove = %d, want 1 (rollback re-added the token)", got)
+	}
+	// Nothing was enqueued: the overlay holds no pool row.
+	srv.FlushSettingsSpill()
+	if v, ok, _ := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS")); ok {
+		t.Errorf("overlay AUTH_TOKENS = %q after rejected remove, want absent", v)
 	}
 }
 

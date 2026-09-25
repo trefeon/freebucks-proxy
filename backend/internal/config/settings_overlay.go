@@ -278,16 +278,13 @@ func applySettingsOverlay(raw *rawConfig, overlay map[string]string) {
 
 // SettingSources reports, per catalog key, which precedence tier provides
 // the effective value: "env" (explicit process environment), "db" (overlay),
-// "file" (.env or JSON -config), or "default". It mirrors LoadOpts
-// precedence without loading: env presence (AUTH_TOKENS counts even when
-// empty, matching the loader) > overlay membership > file membership.
-// overlay must use canonical keys (see OverlayFromRows). Membership is
-// value-aware on the file tier like the loader is: an empty .env value
-// leaves the default in force (except AUTH_TOKENS presence), and an empty
-// JSON value (null or ""/whitespace) likewise reports "default", never
-// "file". The legacy USER_ID alias attributes to ACTING_USER_ID on every
-// tier that resolves it (env, .env, JSON), matching overrideStringAlias and
-// the JSON LegacyActingUserID merge.
+// "file" (boot seed only: .env or JSON -config, consulted once at boot via
+// the marker-gated migrateEnvToDB import, never written by dashboard
+// mutations except the explicit break-glass POST /admin/config, and never
+// re-read on the mutation path — direct file edits require a restart), or
+// "default". It mirrors LoadOpts precedence without loading: env presence
+// (AUTH_TOKENS counts even when empty, matching the loader) > overlay
+// membership > file membership.
 func SettingSources(configPath string, overlay map[string]string) map[string]string {
 	out := make(map[string]string, len(keyCatalog))
 	dotenv := readDotenvFile()
@@ -406,4 +403,101 @@ func readJSONKeys(configPath string) map[string]json.RawMessage {
 		return nil
 	}
 	return keys
+}
+
+// ApplyOverlay derives the post-mutation effective config from the live mem
+// snapshot without touching disk (unified-store sync applier): the full
+// effective knob set of base (via EffectiveOverlayMap, which captures
+// file-seed values already in force) plus the incremental set/del delta,
+// rebuilt through LoadOpts with SkipFiles (defaults + overlay + process
+// env, full validation). No JSON -config read, no .env read, no CLI
+// discovery — the pool already decided. EnvFile and the discovery receipt
+// are carried from base since no file was consulted. Blocked env-only keys
+// stay inert via the OverlayFromRows/applySettingsOverlay gate, exactly
+// like boot; the file-seed values they carry in base are preserved below
+// (the skipped file tier cannot supply them, and the process env still
+// wins whenever it pins the key).
+func ApplyOverlay(base Config, set map[string]string, del []string) (Config, error) {
+	full := EffectiveOverlayMap(base)
+	// Knob deltas ride the full effective map (EffectiveOverlayMap
+	// captures every in-force value, pool included), so sibling paths that
+	// share a pool (e.g. the journey's live pool vs its config snapshot)
+	// cannot lose each other's tokens on an unrelated mutation.
+	merged := make(map[string]string, len(full))
+	for k, v := range full {
+		merged[k] = v
+	}
+	for k, v := range set {
+		nk := NormalizeSettingKey(k)
+		// Explicit deltas fail loud (400 upstream): a value no Load could
+		// take must never silently no-op. Empty values are pins, not
+		// values — the gate below keeps them unvalidated, like DB rows.
+		if strings.TrimSpace(v) != "" {
+			if err := ValidateSettingValue(nk, v); err != nil {
+				return Config{}, err
+			}
+		}
+		merged[nk] = v
+	}
+	for _, k := range del {
+		delete(merged, NormalizeSettingKey(k))
+	}
+	// Gate the derived map exactly like DB rows (OverlayFromRows): a value
+	// no Load could have produced (a hand-built snapshot carrying e.g. a
+	// zero MATURITY_TARGET_DAYS, or a render/validate skew) falls back to
+	// its default instead of poisoning the derivation — the same healing
+	// the old loadConfig-per-mutation path got from the full Load. Empty
+	// pins and the AUTH_TOKENS presence pin survive the gate, as do all
+	// canonical renders of a validated base (no-op in production).
+	rows := make(map[string]string, len(merged))
+	for k, v := range merged {
+		rows[OverlayRowKey(k)] = v
+	}
+	newCfg, err := LoadOpts("", LoadOptions{Overlay: OverlayFromRows(rows), SkipFiles: true})
+	if err != nil {
+		return Config{}, err
+	}
+	newCfg.EnvFile = base.EnvFile
+	newCfg.DiscoveredSource = base.DiscoveredSource
+	newCfg.DiscoveredEmail = base.DiscoveredEmail
+	preserveBlockedFileSeed(&newCfg, base)
+	return newCfg, nil
+}
+
+// preserveBlockedFileSeed carries the env-only (SettingsBlockedKeys) values
+// the skipped file tier cannot supply: when the process environment does not
+// pin the key, the effective value in force (base) survives the derivation
+// instead of resetting to the built-in default. AUTO_DISCOVER_TOKEN needs
+// no copy: the loader resolves it from the process environment alone, so
+// the SkipFiles rebuild is already exact.
+func preserveBlockedFileSeed(newCfg *Config, base Config) {
+	if !envPinsBlockedKey("SESSION_STATE_FILE") {
+		newCfg.SessionStateFile = base.SessionStateFile
+	}
+	if !envPinsBlockedKey("SESSION_PERSIST") {
+		newCfg.SessionPersist = base.SessionPersist
+	}
+	if !envPinsBlockedKey("LOG_FILE") {
+		newCfg.LogFile = base.LogFile
+	}
+	if !envPinsBlockedKey("HTTP_READ_TIMEOUT") {
+		newCfg.HTTPReadTimeout = base.HTTPReadTimeout
+	}
+}
+
+// envPinsBlockedKey reports whether the process environment decides an
+// env-only key's effective value: a non-blank value (for the bool
+// SESSION_PERSIST, one the loader parses — anything else is ignored at
+// Load exactly like a blank). Mirrors the loader's override*From
+// skip-blank rule.
+func envPinsBlockedKey(key string) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return false
+	}
+	if key == "SESSION_PERSIST" {
+		_, ok := parseBool(strings.TrimSpace(v))
+		return ok
+	}
+	return true
 }

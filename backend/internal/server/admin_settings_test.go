@@ -19,13 +19,17 @@ import (
 // returns both session cookies the mutation endpoints require.
 func settingsTestServer(t *testing.T) (*httptest.Server, string, string) {
 	t.Helper()
-	ts, cookie, csrf, _ := settingsStoreTestServer(t)
+	ts, cookie, csrf, _, _ := settingsStoreTestServer(t)
 	return ts, cookie, csrf
 }
 
 // settingsStoreTestServer is settingsTestServer plus the store handle, for
-// tests that assert what did (or did not) land in the settings table.
-func settingsStoreTestServer(t *testing.T) (*httptest.Server, string, string, *store.Store) {
+// tests that assert what did (or did not) land in the settings table. It
+// also returns flush (srv.FlushSettingsSpill): overlay rows land behind
+// the WAL spill, so row assertions must drain first — reading without a
+// flush races the background apply. Server.Close (registered cleanup)
+// drains the spill and releases the store.
+func settingsStoreTestServer(t *testing.T) (*httptest.Server, string, string, *store.Store, func()) {
 	t.Helper()
 	t.Chdir(t.TempDir())
 	st, err := store.Open(filepath.Join(t.TempDir(), "settings.db"))
@@ -37,6 +41,7 @@ func settingsStoreTestServer(t *testing.T) (*httptest.Server, string, string, *s
 		func(c *config.Config) { c.AdminToken = "secret" }, nil, nil, server.WithHistory(st))
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
+	t.Cleanup(func() { _ = srv.Close() })
 
 	resp := postLogin(t, ts.URL+"/admin/login", "secret")
 	defer func() { _ = resp.Body.Close() }()
@@ -52,7 +57,7 @@ func settingsStoreTestServer(t *testing.T) (*httptest.Server, string, string, *s
 	if admin == "" || csrf == "" {
 		t.Fatal("login did not set fb_admin + fb_csrf cookies")
 	}
-	return ts, admin + "; fb_csrf=" + csrf, csrf, st
+	return ts, admin + "; fb_csrf=" + csrf, csrf, st, srv.FlushSettingsSpill
 }
 
 // settingsDo performs one settings request and decodes the JSON envelope.
@@ -245,7 +250,7 @@ func TestSettingsPostRejects(t *testing.T) {
 // errors in "Setting rejected: ...", while the pre-DB gate names the knob's
 // own shape.
 func TestSettingsPostDurationRejectedBeforeTheOverlay(t *testing.T) {
-	ts, cookie, csrf, st := settingsStoreTestServer(t)
+	ts, cookie, csrf, st, flush := settingsStoreTestServer(t)
 
 	code, res := settingsDo(t, http.MethodPost, ts.URL+"/admin/api/settings", cookie, csrf,
 		map[string]any{"key": "QUEUE_WAIT", "value": "bogus"})
@@ -270,6 +275,7 @@ func TestSettingsPostDurationRejectedBeforeTheOverlay(t *testing.T) {
 	if code != http.StatusOK || res["code"] != "setting_saved" {
 		t.Fatalf("POST QUEUE_WAIT=0s = %d %v, want 200 setting_saved", code, res)
 	}
+	flush()
 	if v, ok, err := st.GetSetting("config:QUEUE_WAIT"); err != nil || !ok || v != "0s" {
 		t.Errorf("QUEUE_WAIT row = %q,%v,%v after POST, want 0s,true,nil", v, ok, err)
 	}
@@ -627,7 +633,7 @@ func TestSettingsPostEnvOnlyKeys(t *testing.T) {
 // effective value keeps the default — while DELETE :key clears them like
 // any other row.
 func TestSettingsDeleteEnvOnlyKeys(t *testing.T) {
-	ts, cookie, csrf, st := settingsStoreTestServer(t)
+	ts, cookie, csrf, st, flush := settingsStoreTestServer(t)
 	seeds := map[string]string{
 		"SESSION_STATE_FILE":  "custom-state.json",
 		"SESSION_PERSIST":     "false",
@@ -662,6 +668,7 @@ func TestSettingsDeleteEnvOnlyKeys(t *testing.T) {
 			t.Errorf("DELETE %s = %d %v, want 200 ok (leftover row clears)", key, code, res)
 			continue
 		}
+		flush()
 		if v, ok, err := st.GetSetting(config.OverlayRowKey(key)); err != nil || ok {
 			t.Errorf("%s row = %q,%v,%v after DELETE, want no row", key, v, ok, err)
 		}
@@ -794,7 +801,7 @@ func TestSettingsDurationEchoStable(t *testing.T) {
 // WEBHOOK_URL. Non-secret rows keep the echo-stable literal contract, and
 // DELETE/Reset still clears every secret row. Fake literals only.
 func TestSettingsGetMasksSecrets(t *testing.T) {
-	ts, cookie, csrf, st := settingsStoreTestServer(t)
+	ts, cookie, csrf, st, flush := settingsStoreTestServer(t)
 
 	// Seed overlay rows directly (migration-shaped raw literals), bypassing
 	// the POST gate that routes AUTH_TOKENS/ADMIN_TOKEN to dedicated
@@ -881,8 +888,11 @@ func TestSettingsGetMasksSecrets(t *testing.T) {
 	code, res = settingsDo(t, http.MethodDelete, ts.URL+"/admin/api/settings/ADMIN_TOKEN", cookie, csrf, nil)
 	if code != http.StatusOK || res["ok"] != true {
 		t.Errorf("DELETE ADMIN_TOKEN = %d %v, want 200 ok", code, res)
-	} else if v, ok, err := st.GetSetting(config.OverlayRowKey("ADMIN_TOKEN")); err != nil || ok || v != "" {
-		t.Errorf("ADMIN_TOKEN row after DELETE = %q %v %v, want it gone", v, ok, err)
+	} else {
+		flush()
+		if v, ok, err := st.GetSetting(config.OverlayRowKey("ADMIN_TOKEN")); err != nil || ok || v != "" {
+			t.Errorf("ADMIN_TOKEN row after DELETE = %q %v %v, want it gone", v, ok, err)
+		}
 	}
 }
 

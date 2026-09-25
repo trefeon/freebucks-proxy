@@ -76,11 +76,13 @@ func TestRequireLoginConvergesOverlay(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("require-login toggle status = %d, want 200 (stale overlay converges): %s", rec.Code, rec.Body.String())
 	}
-	if v, _, _ := st.GetSetting(config.OverlayRowKey("DASHBOARD_REQUIRE_LOGIN")); v != "false" {
-		t.Errorf("overlay DASHBOARD_REQUIRE_LOGIN = %q, want converged %q", v, "false")
-	}
+	// Mem swapped synchronously; the row lands behind through the spill.
 	if s.admin.cfgLoad().RequireLogin() {
 		t.Error("effective RequireLogin still true after toggle to false")
+	}
+	s.admin.flushSettingsSpill()
+	if v, _, _ := st.GetSetting(config.OverlayRowKey("DASHBOARD_REQUIRE_LOGIN")); v != "false" {
+		t.Errorf("overlay DASHBOARD_REQUIRE_LOGIN = %q, want converged %q", v, "false")
 	}
 }
 
@@ -104,10 +106,11 @@ func TestChangePasswordConvergesAdminTokenOverlay(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("change-password status = %d, want 200 (stale overlay converges): %s", rec.Code, rec.Body.String())
 	}
-	if v, _, _ := st.GetSetting(config.OverlayRowKey("ADMIN_TOKEN")); v != "rotatedPass789" {
-		t.Error("overlay ADMIN_TOKEN not converged to the new credential")
-	}
 	if got := s.admin.cfgLoad().AdminToken; got != "rotatedPass789" {
 		t.Error("effective ADMIN_TOKEN not rotated")
+	}
+	s.admin.flushSettingsSpill()
+	if v, _, _ := st.GetSetting(config.OverlayRowKey("ADMIN_TOKEN")); v != "rotatedPass789" {
+		t.Error("overlay ADMIN_TOKEN not converged to the new credential")
 	}
 }
