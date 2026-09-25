@@ -221,6 +221,77 @@ func TestInjectEnvelopeNAndCacheDebugCorrelation(t *testing.T) {
 	}
 }
 
+func TestInjectEnvelopeMetadataParityAndAnthropicProvider(t *testing.T) {
+	// 1. SessionInstanceID sets freebuff_multi_session and surface: cli
+	out, err := injectEnvelope([]byte(`{"model":"z-ai/glm-5.3-flash"}`), "free", ChatOptions{
+		RunID:             "run-1",
+		SessionInstanceID: "inst-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(out, &sent); err != nil {
+		t.Fatal(err)
+	}
+	md, ok := sent["codebuff_metadata"].(map[string]any)
+	if !ok {
+		t.Fatal("codebuff_metadata missing")
+	}
+	if md["freebuff_multi_session"] != "1" {
+		t.Errorf("freebuff_multi_session = %v, want '1'", md["freebuff_multi_session"])
+	}
+	if md["surface"] != "cli" {
+		t.Errorf("surface = %v, want 'cli'", md["surface"])
+	}
+	if md["freebuff_instance_id"] != "inst-1" {
+		t.Errorf("freebuff_instance_id = %v, want 'inst-1'", md["freebuff_instance_id"])
+	}
+
+	// 2. Reserved keys cannot be overridden by extra metadata
+	outReserved, err := injectEnvelope([]byte(`{"model":"m","codebuff_metadata":{"freebuff_multi_session":"fake","surface":"fake"}}`), "free", ChatOptions{
+		RunID:                 "run-1",
+		SessionInstanceID:     "inst-2",
+		ExtraCodebuffMetadata: map[string]string{"freebuff_multi_session": "extra_fake", "surface": "extra_fake"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(outReserved, &sent); err != nil {
+		t.Fatal(err)
+	}
+	mdReserved := sent["codebuff_metadata"].(map[string]any)
+	if mdReserved["freebuff_multi_session"] != "1" {
+		t.Errorf("reserved freebuff_multi_session overwritten: %v", mdReserved["freebuff_multi_session"])
+	}
+	if mdReserved["surface"] != "cli" {
+		t.Errorf("reserved surface overwritten: %v", mdReserved["surface"])
+	}
+
+	// 3. Anthropic models carry provider only: ['amazon-bedrock']
+	outAnthropic, err := injectEnvelope([]byte(`{"model":"anthropic/claude-3-5-sonnet"}`), "free", ChatOptions{
+		Model: "anthropic/claude-3-5-sonnet",
+		RunID: "run-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(outAnthropic, &sent); err != nil {
+		t.Fatal(err)
+	}
+	prov, ok := sent["provider"].(map[string]any)
+	if !ok {
+		t.Fatal("provider missing")
+	}
+	if prov["data_collection"] != "deny" {
+		t.Errorf("data_collection = %v, want 'deny'", prov["data_collection"])
+	}
+	onlyList, ok := prov["only"].([]any)
+	if !ok || len(onlyList) != 1 || onlyList[0] != "amazon-bedrock" {
+		t.Errorf("anthropic provider only = %v, want ['amazon-bedrock']", prov["only"])
+	}
+}
+
 // --- #94: 428 waiting_room_required classification ---------------------------
 
 func TestClassifyWaitingRoomRequired(t *testing.T) {

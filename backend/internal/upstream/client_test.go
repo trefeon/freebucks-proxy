@@ -6,6 +6,8 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,9 +18,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
 )
 
 // testConfig builds a config; baseURL "" keeps the default (only for tests
@@ -455,7 +454,7 @@ func TestDumpWriteFailureLogsWarn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.dump("chat", req, http.StatusOK, "response body")
+	client.dump("chat", req, []byte("request body"), http.StatusOK, "response body")
 
 	logs := sink.String()
 	if !strings.Contains(logs, "debug dump write failed") {
@@ -463,5 +462,45 @@ func TestDumpWriteFailureLogsWarn(t *testing.T) {
 	}
 	if !strings.Contains(logs, "path=") || !strings.Contains(logs, "err=") {
 		t.Errorf("dump WARN missing path/err attrs: %s", logs)
+	}
+}
+
+func TestDumpWritesRequestBodyAndResponse(t *testing.T) {
+	t.Chdir(t.TempDir())
+	client, err := New("tok", testConfig("", func(c *config.Config) { c.DebugDump = true }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://www.codebuff.com/api/v1/chat/completions", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sensitive-secret-token")
+	req.Header.Set("User-Agent", "test-ua")
+
+	reqBody := []byte(`{"model":"z-ai/glm-5.3-flash","prompt":"secret-pass"}`)
+	client.dump("chat", req, reqBody, http.StatusOK, "response content")
+
+	entries, err := os.ReadDir("dump")
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("dump dir entries = %v, err = %v; want 1 file", entries, err)
+	}
+	dumpPath := filepath.Join("dump", entries[0].Name())
+	content, err := os.ReadFile(dumpPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	str := string(content)
+	if !strings.Contains(str, "POST https://www.codebuff.com/api/v1/chat/completions") {
+		t.Errorf("dump missing method URL line: %s", str)
+	}
+	if strings.Contains(str, "sensitive-secret-token") {
+		t.Errorf("dump leaked Authorization header: %s", str)
+	}
+	if !strings.Contains(str, "[request body]\n"+string(reqBody)) {
+		t.Errorf("dump missing request body: %s", str)
+	}
+	if !strings.Contains(str, "[status 200]\nresponse content") {
+		t.Errorf("dump missing response status/body: %s", str)
 	}
 }

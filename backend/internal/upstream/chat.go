@@ -178,7 +178,7 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 			bodyText := drainBody(resp.Body)
 			_ = resp.Body.Close()
 			releaseCancel(cancel)
-			c.dump("chat", req, resp.StatusCode, bodyText)
+			c.dump("chat", req, enveloped, resp.StatusCode, bodyText)
 			deferred := isCapacityDeferred(cerr)
 			waitingRoom := isWaitingRoom(cerr)
 			if (deferred || waitingRoom) && transientQueueAttempts < c.transientRetriesLimit {
@@ -238,6 +238,7 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 		// round runs detached in the background - chat latency and the
 		// body below are untouched.
 		c.noteChatServed(ctx)
+		c.dump("chat", req, enveloped, resp.StatusCode, "[streaming 2xx]")
 		return &cancelBody{ReadCloser: resp.Body, cancel: cancel}, nil
 	}
 }
@@ -472,7 +473,7 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	if raw, ok := payload["codebuff_metadata"].(map[string]any); ok {
 		for k, v := range raw {
 			switch k {
-			case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "llm_step_number", "cost_mode", "freebuff_reasoning_effort":
+			case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "freebuff_multi_session", "surface", "llm_step_number", "cost_mode", "freebuff_reasoning_effort":
 				// reserved — overwritten below (server-trusted identifiers)
 			default:
 				extraMeta[k] = v
@@ -481,7 +482,7 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	}
 	for k, v := range opts.ExtraCodebuffMetadata {
 		switch k {
-		case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "llm_step_number", "cost_mode", "freebuff_reasoning_effort":
+		case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "freebuff_multi_session", "surface", "llm_step_number", "cost_mode", "freebuff_reasoning_effort":
 			// reserved — must not be smuggled via extra
 			continue
 		default:
@@ -499,6 +500,8 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	}
 	if opts.SessionInstanceID != "" {
 		metadata["freebuff_instance_id"] = opts.SessionInstanceID
+		metadata["freebuff_multi_session"] = "1"
+		metadata["surface"] = "cli"
 	}
 	// llm_step_number is the 1-based per-run agent step, String(n) on the
 	// wire (#113; upstream/freebuff run-agent-step.ts:1175-1177).
@@ -510,6 +513,9 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	}
 	if costMode != "" {
 		metadata["cost_mode"] = costMode
+		if costMode == "free" {
+			metadata["surface"] = "cli"
+		}
 	}
 	if opts.CacheDebugCorrelation != "" {
 		metadata["cache_debug_correlation"] = opts.CacheDebugCorrelation
@@ -541,6 +547,9 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 		if fallbacks, ok := rawProvider["allow_fallbacks"].(bool); ok {
 			provider["allow_fallbacks"] = fallbacks
 		}
+	}
+	if strings.HasPrefix(opts.Model, "anthropic/") {
+		provider["only"] = []any{"amazon-bedrock"}
 	}
 	payload["provider"] = provider
 	payload["stream"] = true

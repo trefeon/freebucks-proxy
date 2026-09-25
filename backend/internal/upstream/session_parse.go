@@ -223,7 +223,7 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 		}
 	}
 
-	c.dump("session", req, resp.StatusCode, body)
+	c.dump("session", req, nil, resp.StatusCode, body)
 
 	var raw struct {
 		Status                 string                   `json:"status"`

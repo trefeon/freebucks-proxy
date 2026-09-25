@@ -18,7 +18,7 @@ import (
 )
 
 // dump writes a debug record to dump/ when enabled.
-func (c *Client) dump(kind string, req *http.Request, status int, body string) {
+func (c *Client) dump(kind string, req *http.Request, reqBody []byte, status int, body string) {
 	if !c.debugDump {
 		return
 	}
@@ -34,6 +34,9 @@ func (c *Client) dump(kind string, req *http.Request, status int, body string) {
 		for _, v := range vs {
 			fmt.Fprintf(&buf, "%s: %s\n", k, v)
 		}
+	}
+	if len(reqBody) > 0 {
+		fmt.Fprintf(&buf, "\n[request body]\n%s\n", telemetry.RedactSecrets(string(reqBody)))
 	}
 	fmt.Fprintf(&buf, "\n[status %d]\n%s\n", status, truncate(body, 20000))
 	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
