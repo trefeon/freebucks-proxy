@@ -31,49 +31,11 @@ func readBounded(r io.Reader, n int) ([]byte, error) {
 	return buf[:got], nil
 }
 
-// updateEnvKeys reads the resolved .env file, applies the line edits and
-// writes it back atomically — the single read-modify-write contract shared
-// with the dashboard (issue #234).
-func updateEnvKeys(updates []config.EnvUpdate) ([]byte, error) {
-	_, content, exists, err := config.EnvFileInfo()
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		content = nil
-	}
-	out, err := config.ApplyEnvUpdates(content, updates)
-	if err != nil {
-		return nil, err
-	}
-	if err := config.WriteEnvFile(out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func updateAuthTokensEnv(tokens []string) ([]byte, error) {
-	// AUTH_TOKENS is comma-joined in .env: a token carrying an
-	// interior comma would split into two on the next reload, corrupting
-	// the file the pool was built from. Reject the whole update — the
-	// caller rolls its pool mutation back.
-	for i, tok := range tokens {
-		if strings.Contains(tok, ",") {
-			return nil, fmt.Errorf("AUTH_TOKENS entry %d contains a comma (AUTH_TOKENS is comma-separated in .env)", i+1)
-		}
-	}
-	return updateEnvKeys([]config.EnvUpdate{{Key: "AUTH_TOKENS", Value: strings.Join(tokens, ",")}})
-}
-
-func restoreEnvFile(old []byte, oldErr error) {
-	path := config.EnvFileForWrite()
-	switch {
-	case oldErr == nil:
-		_ = config.WriteFileAtomic(path, old)
-	case errors.Is(oldErr, os.ErrNotExist):
-		_ = os.Remove(path)
-	}
-}
+// updateEnvKeys, updateAuthTokensEnv, and restoreEnvFile (the dual-write
+// .env leg) are removed (unified-store): files are boot seed only. Overlay
+// mutations persist rows behind through the WAL spill (see overlayWrite);
+// the explicit break-glass POST /admin/config below is the one remaining
+// file writer, invoked deliberately.
 
 func dialTarget(host string) string {
 	if _, _, err := net.SplitHostPort(host); err == nil {

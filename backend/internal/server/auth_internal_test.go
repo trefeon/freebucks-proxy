@@ -9,10 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -396,82 +394,12 @@ func TestWriteErrorExistingMappingsUnchanged(t *testing.T) {
 	}
 }
 
-// TestRestoreEnvFileUnreadable pins the mode-switch rollback guard: when the
-// previous .env existed but was unreadable (oldErr not os.ErrNotExist), the
-// rollback must NOT delete the file — removing it would destroy an operator's
-// present-but-unreadable .env (regression). POSIX-only:
-// chmod 000 does not block reads on Windows.
-func TestRestoreEnvFileUnreadable(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod 000 does not make a file unreadable on Windows")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses permission bits")
-	}
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile(".env", []byte("SAFE_MODE=true\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(".env", 0o000); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chmod(".env", 0o644); err != nil {
-			t.Errorf("restoring .env perms: %v", err)
-		}
-	}()
-	_, readErr := os.ReadFile(".env")
-	if readErr == nil || errors.Is(readErr, os.ErrNotExist) {
-		t.Fatalf("setup: ReadFile = %v, want a non-NotExist error", readErr)
-		return
-	}
-	restoreEnvFile(nil, readErr)
-	if _, statErr := os.Stat(".env"); statErr != nil {
-		t.Errorf("restoreEnvFile removed a present-but-unreadable .env: %v", statErr)
-	}
-}
-
-// TestUpdateEnvKeys pins the multi-key .env writer behind the mode switches:
-// replaces existing keys, appends missing ones, and preserves CRLF line
-// endings (a Windows-edited .env must never be rewritten mixed-EOL).
-func TestUpdateEnvKeys(t *testing.T) {
-	t.Chdir(t.TempDir())
-	// Windows: Defender may hold a scan handle on a just-written .env,
-	// leaving a locked .bak/.tmp stray that breaks TempDir's RemoveAll.
-	// Registered after Chdir, so the drain runs first (LIFO) while the
-	// working directory still points at the temp dir.
-	testutil.DrainStrayTempFiles(t, ".")
-	if err := os.WriteFile(".env", []byte("SAFE_MODE=true\r\nAUTH_TOKENS=tok-a\r\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := updateEnvKeys([]config.EnvUpdate{
-		{Key: "AUTH_TOKENS", Value: ""},
-		{Key: "SAFE_MODE", Value: "false"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(".env")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "SAFE_MODE=false\r\nAUTH_TOKENS=\r\n"
-	if string(got) != want {
-		t.Errorf(".env after update = %q, want %q", got, want)
-	}
-	assertNoTmpFiles(t, ".", ".env")
-
-	// Flip SAFE_MODE back to true: in-place replace, no duplicate line.
-	if _, err := updateEnvKeys([]config.EnvUpdate{{Key: "SAFE_MODE", Value: "true"}}); err != nil {
-		t.Fatal(err)
-	}
-	got, err = os.ReadFile(".env")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(got), "SAFE_MODE=") != 1 || !strings.Contains(string(got), "SAFE_MODE=true") {
-		t.Errorf(".env after flip = %q, want single SAFE_MODE=true line", got)
-	}
-}
+// TestRestoreEnvFileUnreadable and TestUpdateEnvKeys (the .env writer +
+// rollback guards) are removed with the dual-write .env leg
+// (unified-store): files are boot seed only, never written. Overlay
+// durability is covered by the spill drain plus the unified invariant
+// tests (I1–I4); the break-glass POST /admin/config keeps its own
+// rejected-save-restores-bytes coverage in lifecycle_test.go.
 
 // ── Wave 1 issue tests (#81, #82, #76) ───────────────────────────────────
 

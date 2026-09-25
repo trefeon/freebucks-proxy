@@ -1,11 +1,8 @@
 package server
 
 import (
-	"os"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
 )
 
 func testIP(n int) string {
@@ -96,41 +93,29 @@ func TestAdminAuthLoginSlotBound(t *testing.T) {
 	}
 }
 
-// TestUpdateEnvKeysRejectsNewline pins the .env writer guard: updateEnvKeys writes raw
-// Key=Value lines, so a value carrying a CR/LF would inject a second .env
-// line or shred CRLF endings; it must be rejected before any write.
-func TestUpdateEnvKeysRejectsNewline(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile(".env", []byte("SAFE_MODE=true\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, bad := range []string{"a\nb", "a\rb", "a\r\nb"} {
-		if _, err := updateEnvKeys([]config.EnvUpdate{{Key: "AUTH_TOKENS", Value: bad}}); err == nil {
-			t.Errorf("updateEnvKeys(%q) = nil error, want rejection", bad)
-		}
-	}
-	got, err := os.ReadFile(".env")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "SAFE_MODE=true\n" {
-		t.Errorf(".env mutated by rejected update: %q", got)
-	}
-}
+// TestUpdateEnvKeysRejectsNewline and TestUpdateAuthTokensEnvRejectsComma
+// (the .env writer guards) are removed with the dual-write .env leg
+// (unified-store): files are boot seed only, never written. The comma
+// guard survives in syncTokensAfterMutation (the overlay AUTH_TOKENS row
+// is comma-joined) and is covered by TestSyncTokensRejectsCommaRow below.
 
-// TestUpdateAuthTokensEnvRejectsComma pins the comma-joined list guard: AUTH_TOKENS is a
-// comma-joined list, so an interior comma in one token would split it on
-// the next reload; the whole update must be rejected.
-func TestUpdateAuthTokensEnvRejectsComma(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if _, err := updateAuthTokensEnv([]string{"cb-ok", "cb,bad"}); err == nil {
-		t.Fatal("updateAuthTokensEnv with comma-bearing token = nil error, want rejection")
+// TestSyncTokensRejectsCommaRow pins the surviving comma guard: a token
+// carrying an interior comma would split on the next derive, so the whole
+// mutation is rejected before any pool change or spill enqueue.
+func TestSyncTokensRejectsCommaRow(t *testing.T) {
+	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\n", nil)
+	st := attachShadowStore(t, s)
+	if err := s.admin.syncTokensAfterMutation([]string{"tok-0", "cb,bad"}); err == nil {
+		t.Fatal("syncTokensAfterMutation with comma-bearing token = nil error, want rejection")
 	}
-	if _, err := updateAuthTokensEnv([]string{"cb-ok", "cb\nbad"}); err == nil {
-		t.Fatal("updateAuthTokensEnv with newline-bearing token = nil error, want rejection")
+	// Nothing spilled: the overlay row still holds the pre-mutation state
+	// (absent — no row was ever written for this store).
+	s.admin.flushSettingsSpill()
+	if v, ok, _ := st.GetSetting("config:AUTH_TOKENS"); ok {
+		t.Errorf("config:AUTH_TOKENS = %q after rejected mutation, want absent", v)
 	}
-	if _, err := updateAuthTokensEnv([]string{"cb-ok", "cb-two"}); err != nil {
-		t.Fatalf("updateAuthTokensEnv clean list = %v, want nil", err)
+	if got := s.admin.cfgLoad().AuthTokens; len(got) != 1 || got[0] != "tok-0" {
+		t.Errorf("mem AuthTokens = %v after rejected mutation, want unchanged pool", got)
 	}
 }
 

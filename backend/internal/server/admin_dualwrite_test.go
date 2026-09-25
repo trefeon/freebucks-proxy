@@ -13,9 +13,9 @@ import (
 	"freebucks-proxy/backend/internal/store"
 )
 
-// dualWritePost is the loopback-authenticated JSON POST helper for the
+// overlayWritePost is the loopback-authenticated JSON POST helper for the
 // dual-layer persist tests (mirrors the require-login flow test).
-func dualWritePost(t *testing.T, h http.Handler, cookie *http.Cookie, path, payload string) *httptest.ResponseRecorder {
+func overlayWritePost(t *testing.T, h http.Handler, cookie *http.Cookie, path, payload string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -29,7 +29,7 @@ func dualWritePost(t *testing.T, h http.Handler, cookie *http.Cookie, path, payl
 	return rec
 }
 
-func dualWriteStoreRows(t *testing.T, st *store.Store) map[string]string {
+func overlayWriteStoreRows(t *testing.T, st *store.Store) map[string]string {
 	t.Helper()
 	rows, err := st.ListSettings()
 	if err != nil {
@@ -38,33 +38,41 @@ func dualWriteStoreRows(t *testing.T, st *store.Store) map[string]string {
 	return rows
 }
 
-// TestDualWriteRequireLoginRoundTrip pins the write-through contract: a
-// require-login toggle lands in BOTH .env (boot seed/export) and the
-// settings overlay (runtime truth), and a simulated reboot
-// (ListSettings → OverlayFromRows → LoadOpts) reads the settings value back
-// even when the .env seed is later edited underneath.
-func TestDualWriteRequireLoginRoundTrip(t *testing.T) {
+// TestOverlayWriteRequireLoginRoundTrip pins the unified-store contract: a
+// require-login toggle swaps mem synchronously and lands ONLY in the
+// settings overlay (runtime truth) — the .env seed bytes stay identical —
+// and a simulated reboot (ListSettings → OverlayFromRows → LoadOpts) reads
+// the settings value back even when the .env seed is later edited
+// underneath.
+func TestOverlayWriteRequireLoginRoundTrip(t *testing.T) {
 	s := newReviewFixServer(t, "AUTH_TOKENS=tok-0\nADMIN_TOKEN=secretPass123\n", nil)
 	st := attachShadowStore(t, s)
 	h := s.Handler()
 	cookie := shadowLogin(t, h, "secretPass123")
+	envBefore, err := os.ReadFile(filepath.Join(".", ".env"))
+	if err != nil {
+		t.Fatalf("read .env: %v", err)
+	}
 
-	rec := dualWritePost(t, h, cookie, "/admin/api/require-login", `{"require_login":false}`)
+	rec := overlayWritePost(t, h, cookie, "/admin/api/require-login", `{"require_login":false}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("toggle status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
+	// I1: the swap is synchronously visible, before any spill drain.
 	if s.admin.cfgLoad().RequireLogin() {
 		t.Fatal("effective RequireLogin not false after toggle")
 	}
 
-	envBytes, err := os.ReadFile(filepath.Join(".", ".env"))
+	// I4: the mutation leaves the .env bytes identical (no export leg).
+	envAfter, err := os.ReadFile(filepath.Join(".", ".env"))
 	if err != nil {
 		t.Fatalf("read .env: %v", err)
 	}
-	if !strings.Contains(string(envBytes), "DASHBOARD_REQUIRE_LOGIN=false") {
-		t.Errorf(".env missing DASHBOARD_REQUIRE_LOGIN=false export: %q", envBytes)
+	if string(envAfter) != string(envBefore) {
+		t.Errorf(".env mutated by overlay write: %q -> %q", envBefore, envAfter)
 	}
-	rows := dualWriteStoreRows(t, st)
+	s.admin.flushSettingsSpill()
+	rows := overlayWriteStoreRows(t, st)
 	if rows[config.OverlayRowKey("DASHBOARD_REQUIRE_LOGIN")] != "false" {
 		t.Errorf("settings overlay row = %q, want %q (full dump %v)",
 			rows[config.OverlayRowKey("DASHBOARD_REQUIRE_LOGIN")], "false", rows)
@@ -72,7 +80,7 @@ func TestDualWriteRequireLoginRoundTrip(t *testing.T) {
 
 	// Simulated reboot: the overlay read back through the boot path
 	// (cli_serve: ListSettings → OverlayFromRows → LoadOpts).
-	ov := config.OverlayFromRows(dualWriteStoreRows(t, st))
+	ov := config.OverlayFromRows(overlayWriteStoreRows(t, st))
 	rebooted, err := config.LoadOpts("", config.LoadOptions{Overlay: ov})
 	if err != nil {
 		t.Fatalf("reboot LoadOpts: %v", err)
@@ -83,7 +91,7 @@ func TestDualWriteRequireLoginRoundTrip(t *testing.T) {
 
 	// The overlay beats a later .env seed edit: rewrite the file underneath
 	// and the effective config must not move.
-	edited := strings.Replace(string(envBytes), "DASHBOARD_REQUIRE_LOGIN=false", "DASHBOARD_REQUIRE_LOGIN=true", 1)
+	edited := string(envBefore) + "DASHBOARD_REQUIRE_LOGIN=true\n"
 	if err := os.WriteFile(".env", []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -96,10 +104,8 @@ func TestDualWriteRequireLoginRoundTrip(t *testing.T) {
 	}
 
 	// The require-login path writes only its own knob: no credential row or
-	// value may appear as its side effect. (Credential rows do exist after
-	// the env-to-DB migration and the token/password write-through paths —
-	// this pins the require-login toggle stays in its lane.)
-	for k, v := range dualWriteStoreRows(t, st) {
+	// value may appear as its side effect.
+	for k, v := range overlayWriteStoreRows(t, st) {
 		if k == config.OverlayRowKey("AUTH_TOKENS") || k == config.OverlayRowKey("ADMIN_TOKEN") {
 			t.Errorf("secret overlay row %q written by the require-login path", k)
 		}
@@ -109,11 +115,12 @@ func TestDualWriteRequireLoginRoundTrip(t *testing.T) {
 	}
 }
 
-// TestDualWriteRequireLoginRollbackBothLayers pins the dual rollback: when
-// the process environment shadows the toggle, the 409 must restore the .env
-// bytes AND the settings row — both when the row held a prior value and
+// TestOverlayWriteRequireLoginDivergenceRejects pins the divergence guard:
+// when the process environment shadows the toggle, the 409 enqueues and
+// swaps nothing — the .env bytes stay identical AND the settings row keeps
+// its prior value (or absence), both when the row held a prior value and
 // when the row did not exist before the write.
-func TestDualWriteRequireLoginRollbackBothLayers(t *testing.T) {
+func TestOverlayWriteRequireLoginDivergenceRejects(t *testing.T) {
 	newSeeded := func(t *testing.T, seedRow bool) (*Server, *store.Store) {
 		// Open-mode seed (DASHBOARD_REQUIRE_LOGIN=false clears AdminToken at
 		// load): no login cookie exists, so the toggle posts as an
@@ -133,15 +140,19 @@ func TestDualWriteRequireLoginRollbackBothLayers(t *testing.T) {
 		func() {
 			s, st := newSeeded(t, seedRow)
 			h := s.Handler()
-			// The environment outranks both layers: the toggle cannot take
-			// effect, so both writes must roll back. Scoped to this
+			envBefore, err := os.ReadFile(".env")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The environment outranks the overlay: the toggle cannot take
+			// effect, so nothing persists anywhere. Scoped to this
 			// iteration (not t.Setenv) so nothing leaks across seeds.
 			if err := os.Setenv("DASHBOARD_REQUIRE_LOGIN", "false"); err != nil {
 				t.Fatal(err)
 			}
 			defer func() { _ = os.Unsetenv("DASHBOARD_REQUIRE_LOGIN") }()
 
-			rec := dualWritePost(t, h, nil, "/admin/api/require-login", `{"require_login":true}`)
+			rec := overlayWritePost(t, h, nil, "/admin/api/require-login", `{"require_login":true}`)
 			if rec.Code != http.StatusConflict {
 				t.Fatalf("seedRow=%v toggle status = %d, want 409: %s", seedRow, rec.Code, rec.Body.String())
 			}
@@ -152,27 +163,26 @@ func TestDualWriteRequireLoginRollbackBothLayers(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 				t.Fatalf("unmarshal: %v", err)
 			}
-			if res.OK || !strings.Contains(res.Message, "rolled back") {
-				t.Errorf("seedRow=%v response = %+v, want ok=false with rollback text", seedRow, res)
+			if res.OK || !strings.Contains(res.Message, "rejected") {
+				t.Errorf("seedRow=%v response = %+v, want ok=false with rejection text", seedRow, res)
 			}
 
-			envBytes, err := os.ReadFile(".env")
-			if err != nil {
+			if envAfter, err := os.ReadFile(".env"); err != nil {
 				t.Fatal(err)
+			} else if string(envAfter) != string(envBefore) {
+				t.Errorf("seedRow=%v .env mutated by rejected toggle: %q", seedRow, envAfter)
 			}
-			if !strings.Contains(string(envBytes), "DASHBOARD_REQUIRE_LOGIN=false") {
-				t.Errorf("seedRow=%v .env not restored: %q", seedRow, envBytes)
-			}
+			s.admin.flushSettingsSpill()
 			v, ok, err := st.GetSetting(config.OverlayRowKey("DASHBOARD_REQUIRE_LOGIN"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			if seedRow {
 				if !ok || v != "false" {
-					t.Errorf("seedRow=true settings row = %q,%v, want %q,true (prior value restored)", v, ok, "false")
+					t.Errorf("seedRow=true settings row = %q,%v, want %q,true (prior value kept)", v, ok, "false")
 				}
 			} else if ok {
-				t.Errorf("seedRow=false settings row = %q, want absent (created row deleted)", v)
+				t.Errorf("seedRow=false settings row = %q, want absent (rejected write enqueued nothing)", v)
 			}
 		}()
 	}

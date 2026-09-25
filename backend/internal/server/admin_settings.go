@@ -7,22 +7,26 @@ import (
 	"freebucks-proxy/backend/internal/dashboard"
 	"math"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-// DB settings overlay endpoints (ADR-0019): per-key UI-persisted knobs that
-// beat the .env file without rewriting it.
+// DB settings overlay endpoints (unified-store): per-key UI-persisted knobs
+// in SQLite that ARE runtime truth. The .env file is boot seed only: never
+// written by these endpoints, never re-read on this path.
 //
 //	GET  /admin/api/settings       effective values + source tier per key
-//	POST /admin/api/settings       {key, value}: validate, persist, hot-apply
-//	DELETE /admin/api/settings/:key drop the overlay row (falls back)
+//	POST /admin/api/settings       {key, value}: validate, persist overlay, swap mem
+//	DELETE /admin/api/settings/:key drop the overlay row (falls back to seed/default)
 //
-// Every mutation reloads through loadConfig (file + overlay + env) and fans
-// out via applyReloadedConfig — the same machinery /admin/reload and the
-// .env editor use, never a fork. RestartOnly catalog keys report
-// restart_only so the UI can say "saved, needs a restart" honestly.
+// Every mutation writes the overlay row AND swaps the live mem snapshot
+// synchronously via applyReloadedConfig (sync applier, never a reloader):
+// no loadConfig per mutation, no reload fan-out, no changed_keys diffing.
+// The overlay delta persists behind through the WAL spill (no sync disk on
+// the request path). RestartOnly catalog keys report restart_only so the
+// UI can say "saved, needs a restart" honestly.
 
 // settingsEntry is one GET /admin/api/settings row (dashboard.SettingsEntry):
 // the effective display value plus the precedence tier that provides it.
@@ -75,11 +79,11 @@ func (a *adminHandlers) migrateStatusInfo(rows map[string]string) *dashboard.Mig
 	}
 }
 
-// loadConfig is the single overlay-aware reload every admin mutation and
-// /admin/reload funnels through: built-in defaults < JSON -config < .env <
-// DB overlay < process env (ADR-0019). It replaces bare config.Load on the
-// admin surface so a persisted UI knob can never be photo-shopped out by a
-// later reload.
+// loadConfig is the explicit-reload path only (POST /admin/reload, the
+// break-glass POST /admin/config, and pre-restart validation): built-in
+// defaults < JSON -config < .env < DB overlay < process env. Mutations
+// NEVER call it — they derive the new snapshot from mem via
+// config.ApplyOverlay (no disk) and swap via applyReloadedConfig.
 func (a *adminHandlers) loadConfig() (config.Config, error) {
 	return config.LoadOpts(a.configPath, config.LoadOptions{Overlay: a.settingsOverlay()})
 }
@@ -227,26 +231,20 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 	a.adminSaveMu.Lock()
 	defer a.adminSaveMu.Unlock()
 
-	overlay := a.settingsOverlay()
-	overlay[key] = strings.TrimSpace(val)
-	// Validate through the existing config validation: the candidate overlay
-	// loads exactly like boot would, so a bad duration/enum/lock map 400s
-	// here instead of persisting a row that can never apply.
-	newCfg, err := config.LoadOpts(a.configPath, config.LoadOptions{Overlay: overlay})
+	// Sync applier (unified-store): derive the candidate snapshot from mem
+	// (no disk: no .env/JSON re-read), so a bad duration/enum 400s here
+	// instead of persisting a row that can never apply. The overlay delta
+	// persists behind through the WAL spill; the mem swap below is the
+	// synchronous visibility point (I1).
+	newCfg, err := config.ApplyOverlay(*a.cfgLoad(), map[string]string{key: strings.TrimSpace(val)}, nil)
 	if err != nil {
 		a.logfunc().Warn("dashboard setting rejected", "key", key, "err", err)
 		a.dash.RenderResult(w, http.StatusBadRequest, false, "Setting rejected: "+err.Error(), "invalid_setting")
 		return
 	}
-	if err := a.settings.SetSetting(config.OverlayRowKey(key), strings.TrimSpace(val)); err != nil {
-		a.logfunc().Warn("dashboard setting persist failed", "key", key, "err", err)
-		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to persist setting: "+err.Error(), "persist_failed")
-		return
-	}
-	oldCfg := a.cfgLoad()
+	a.enqueueSettingsSpill(map[string]string{config.OverlayRowKey(key): strings.TrimSpace(val)}, nil)
 	a.applyReloadedConfig(&newCfg)
-	a.logfunc().Info("dashboard setting saved and applied",
-		"remote", remoteHost(r), "key", key, "changed_keys", changedConfigKeys(oldCfg, &newCfg))
+	a.logfunc().Info("dashboard setting saved and applied", "remote", remoteHost(r), "key", key)
 
 	def, _ := config.LookupSetting(key)
 	restartOnly := []string{}
@@ -259,9 +257,9 @@ func (a *adminHandlers) handleSettingsPost(w http.ResponseWriter, r *http.Reques
 	}
 	// Env-shadow honesty: the process environment beats the overlay, so a
 	// saved row for an env-pinned key changes nothing until the process env
-	// is unset. Re-read the winning tiers after the write and say so
-	// instead of implying the save took effect.
-	if config.SettingSources(a.configPath, overlay)[key] == "env" {
+	// is unset. Check mem (process env, no disk) and say so instead of
+	// implying the save took effect.
+	if isEnvPinned(key) {
 		message += " Overridden by process env: the effective value still comes from the environment."
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -299,27 +297,22 @@ func (a *adminHandlers) handleSettingsDelete(w http.ResponseWriter, r *http.Requ
 		a.dash.RenderResult(w, http.StatusNotFound, false, "No saved value for "+key+" (nothing to reset).", "no_override")
 		return
 	}
-	overlay := a.settingsOverlay()
-	delete(overlay, key)
-	newCfg, err := config.LoadOpts(a.configPath, config.LoadOptions{Overlay: overlay})
+	// Sync applier (unified-store): derive from mem (no disk). Deleting
+	// the row falls back to the boot seed/default; the process env still
+	// wins when pinned. The delete persists behind through the WAL spill.
+	newCfg, err := config.ApplyOverlay(*a.cfgLoad(), nil, []string{key})
 	if err != nil {
-		a.logfunc().Warn("dashboard setting reset reload failed", "key", key, "err", err)
+		a.logfunc().Warn("dashboard setting reset failed", "key", key, "err", err)
 		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to reload configuration: "+err.Error(), "reload_failed")
 		return
 	}
-	if err := a.settings.DeleteSetting(config.OverlayRowKey(key)); err != nil {
-		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to delete setting: "+err.Error(), "persist_failed")
-		return
-	}
-	oldCfg := a.cfgLoad()
+	a.enqueueSettingsSpill(nil, []string{config.OverlayRowKey(key)})
 	a.applyReloadedConfig(&newCfg)
-	source := config.SettingSources(a.configPath, overlay)[key]
-	if source == "" {
-		source = "default"
+	source := "default"
+	if isEnvPinned(key) {
+		source = "environment"
 	}
-	a.logfunc().Info("dashboard setting override reset",
-		"remote", remoteHost(r), "key", key, "source", source,
-		"changed_keys", changedConfigKeys(oldCfg, &newCfg))
+	a.logfunc().Info("dashboard setting override reset", "remote", remoteHost(r), "key", key, "source", source)
 	a.dash.RenderResult(w, http.StatusOK, true,
 		"Saved value for "+key+" removed — effective value now comes from "+source+".", "setting_reset")
 }
@@ -356,10 +349,10 @@ func overlayBoolDisplay(v string) string {
 	}
 }
 
-// settingsOverlayNote names the DB-overridden keys for the full-.env save
-// response: the file write succeeded, but those keys keep their DB value
-// until the overlay row is deleted. Empty when no overlay exists, so the
-// classic save message is byte-identical without a store.
+// settingsOverlayNote names the DB-overridden keys for the break-glass
+// full-file save response: the file write succeeded, but those keys keep
+// their DB value until the overlay row is deleted. Empty when no overlay
+// exists, so the classic save message is byte-identical without a store.
 func (a *adminHandlers) settingsOverlayNote() string {
 	overlay := a.settingsOverlay()
 	if len(overlay) == 0 {
@@ -374,17 +367,27 @@ func (a *adminHandlers) settingsOverlayNote() string {
 		" (DELETE /admin/api/settings/:key to reset)."
 }
 
-// overlayShadows reports whether key's effective value currently comes from
-// the DB overlay (ADR-0019): the overlay beats the .env file, so a .env write
-// for that key cannot take effect until the row is deleted. The .env-backed
-// writers whose knobs are also overlay-addressable (the mode switch for
-// require-login for DASHBOARD_REQUIRE_LOGIN) use it on their
-// shadow-error paths to name the true blocker: SettingSources resolves the
-// actual winning tier, so an env-pinned key still blames the environment and
-// only a db-pinned key names the overlay.
-func (a *adminHandlers) overlayShadows(key string) bool {
-	if a.settings == nil {
+// isEnvPinned reports whether the process environment decides key's
+// effective value (unified-store mem check, no disk): explicit env beats the
+// overlay. AUTH_TOKENS counts on presence alone (even empty), matching the
+// loader; ACTING_USER_ID also honors the legacy USER_ID alias. Every other
+// key needs a non-blank value. Mirrors SettingSources' env tier without the
+// file reads.
+func isEnvPinned(key string) bool {
+	switch key {
+	case "AUTH_TOKENS":
+		_, ok := os.LookupEnv(key)
+		return ok
+	case "ACTING_USER_ID":
+		if v, ok := os.LookupEnv(key); ok && strings.TrimSpace(v) != "" {
+			return true
+		}
+		if v, ok := os.LookupEnv("USER_ID"); ok && strings.TrimSpace(v) != "" {
+			return true
+		}
 		return false
+	default:
+		v, ok := os.LookupEnv(key)
+		return ok && strings.TrimSpace(v) != ""
 	}
-	return config.SettingSources(a.configPath, a.settingsOverlay())[key] == "db"
 }

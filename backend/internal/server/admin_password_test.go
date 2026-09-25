@@ -14,9 +14,11 @@ import (
 )
 
 func TestAdminDefaultPasswordAndChangeFlow(t *testing.T) {
-	t.Chdir(t.TempDir())
 	mock := testutil.NewMock()
 	defer mock.Close()
+
+	ts, _, srv, st := newStoreBackedServer(t, nil, nil, mock)
+	defer ts.Close()
 
 	if err := os.WriteFile(".env", []byte("AUTH_TOKENS=tok-0\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -29,9 +31,6 @@ func TestAdminDefaultPasswordAndChangeFlow(t *testing.T) {
 	if !cfg.IsDefaultAdminToken() || cfg.AdminToken != config.DefaultAdminToken {
 		t.Fatalf("expected default admin token %q, got %q", config.DefaultAdminToken, cfg.AdminToken)
 	}
-
-	ts, _ := newTestServerCfg(t, nil, nil, mock)
-	defer ts.Close()
 
 	// 1. Unauthenticated request to /admin/api/overview redirects to /admin/login (302)
 	httpClient := &http.Client{
@@ -191,13 +190,17 @@ func TestAdminDefaultPasswordAndChangeFlow(t *testing.T) {
 		}
 	}
 
-	// 7. Verify .env was updated
-	envBytes, err := os.ReadFile(".env")
-	if err != nil {
-		t.Fatal(err)
+	// 7. Verify the overlay row converged (unified-store: the password
+	// lands in the overlay + mem, never .env) and the seed file carries no
+	// credential.
+	srv.FlushSettingsSpill()
+	if v, ok, err := st.GetSetting(config.OverlayRowKey("ADMIN_TOKEN")); err != nil || !ok || v != newPass {
+		t.Errorf("overlay ADMIN_TOKEN = %q,%v,%v, want the new password", v, ok, err)
 	}
-	if !strings.Contains(string(envBytes), "ADMIN_TOKEN="+newPass) {
-		t.Errorf(".env does not contain updated ADMIN_TOKEN: %s", envBytes)
+	if envBytes, err := os.ReadFile(".env"); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(string(envBytes), newPass) {
+		t.Errorf(".env carries the new password (must stay seed-only): %s", envBytes)
 	}
 
 	// 8. Verify overview now reports is_default_admin_token = false

@@ -129,15 +129,16 @@ func TestDashboardTokenAddDuplicate(t *testing.T) {
 // TestDashboardTokenAddAfterConfigEdit pins the adoption contract after a
 // config-editor AUTH_TOKENS edit: the pool reconciles to the editor's list
 // (SetConfig slot reconciliation), so the divergence guard no longer fires
-// and a subsequent add succeeds — pool, .env, and cfg end up consistent.
+// and a subsequent add succeeds — pool, overlay, and cfg end up consistent
+// while the editor's seed file keeps its bytes (no export leg).
 func TestDashboardTokenAddAfterConfigEdit(t *testing.T) {
-	t.Chdir(t.TempDir())
-	ts, p := newTestServerCfg(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, testutil.NewMock())
+	ts, p, srv, st := newStoreBackedServer(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, testutil.NewMock())
 	cookie := authedCookie(t, ts)
 
 	// Config editor rewrites AUTH_TOKENS to a two-token list; the pool
 	// adopts it on reload.
-	resp := postConfig(t, ts.URL, cookie, "AUTH_TOKENS=tok-0,extra-token\nSAFE_MODE=true\n")
+	editorContent := "AUTH_TOKENS=tok-0,extra-token\nSAFE_MODE=true\n"
+	resp := postConfig(t, ts.URL, cookie, editorContent)
 	if body := bodyOf(t, resp); !strings.Contains(body, "Saved and reloaded") {
 		t.Fatalf("config save failed: %s", body)
 	}
@@ -153,26 +154,31 @@ func TestDashboardTokenAddAfterConfigEdit(t *testing.T) {
 	if got := p.TokenCount(); got != 3 {
 		t.Errorf("pool TokenCount = %d, want 3 (2 adopted + 1 added)", got)
 	}
-	env, err := os.ReadFile(".env")
-	if err != nil {
+	srv.FlushSettingsSpill()
+	row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS"))
+	if err != nil || !ok {
+		t.Fatalf("overlay AUTH_TOKENS row = %q,%v,%v, want persisted", row, ok, err)
+	}
+	for _, want := range []string{"tok-0", "extra-token", "cb_after_config_edit"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("overlay missing %q: %q", want, row)
+		}
+	}
+	if env, err := os.ReadFile(".env"); err != nil {
 		t.Fatal(err)
-	}
-	if !strings.Contains(string(env), "cb_after_config_edit") {
-		t.Errorf("added token missing from .env: %s", env)
-	}
-	if !strings.Contains(string(env), "extra-token") {
-		t.Errorf("config-edited token missing from .env: %s", env)
+	} else if string(env) != editorContent {
+		t.Errorf(".env after add = %q, want the editor bytes untouched", env)
 	}
 }
 
 // --- token remove ---
 
 // TestDashboardTokenRemoveSuccess pins the plain success path: the last
-// token leaves the pool, .env is rewritten without it, and a fresh config
-// reload agrees.
+// token leaves the pool, the overlay converges to the explicit empty pool
+// (presence pin, so discovery stays suppressed), and a simulated reboot
+// through the boot path agrees.
 func TestDashboardTokenRemoveSuccess(t *testing.T) {
-	t.Chdir(t.TempDir())
-	ts, p := newTestServerCfg(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, testutil.NewMock())
+	ts, p, srv, st := newStoreBackedServer(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, testutil.NewMock())
 	cookie := authedCookie(t, ts)
 
 	resp := doTokenAction(t, ts.URL, cookie, "/admin/tokens/remove")
@@ -183,22 +189,21 @@ func TestDashboardTokenRemoveSuccess(t *testing.T) {
 	if got := p.TokenCount(); got != 0 {
 		t.Errorf("pool TokenCount = %d, want 0", got)
 	}
-	env, err := os.ReadFile(".env")
+	srv.FlushSettingsSpill()
+	row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS"))
+	if err != nil || !ok || row != "" {
+		t.Errorf("overlay AUTH_TOKENS = %q,%v,%v, want the explicit empty-pool pin", row, ok, err)
+	}
+	rows, err := st.ListSettings()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(env), "tok-0") {
-		t.Errorf("removed token still in .env: %s", env)
-	}
-	if !strings.Contains(string(env), "AUTH_TOKENS=") {
-		t.Errorf(".env missing AUTH_TOKENS= after removal: %s", env)
-	}
-	reloaded, err := config.Load("")
+	rebooted, err := config.LoadOpts("", config.LoadOptions{Overlay: config.OverlayFromRows(rows)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.AuthTokens) != 0 {
-		t.Errorf("reloaded AUTH_TOKENS = %d, want 0", len(reloaded.AuthTokens))
+	if len(rebooted.AuthTokens) != 0 {
+		t.Errorf("rebooted AUTH_TOKENS = %d, want 0", len(rebooted.AuthTokens))
 	}
 }
 
