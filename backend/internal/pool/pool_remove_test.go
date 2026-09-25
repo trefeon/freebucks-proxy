@@ -2,7 +2,6 @@ package pool
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -52,10 +51,11 @@ func TestRemoveTokenAtSpecificIndex(t *testing.T) {
 	}
 }
 
-// TestRemoveTokenAtRefusesWhileBusy pins the idle guard: a middle removal
-// would shift indices under in-flight leases, so the pool refuses while any
-// run is active and succeeds once the lease is released.
-func TestRemoveTokenAtRefusesWhileBusy(t *testing.T) {
+// TestRemoveTokenAtSeamlessWhileBusy proves that middle-index removal succeeds
+// immediately even while a run is active: the removed entry is parked in
+// p.retired, the token count drops immediately, and releasing the lease
+// drains the retired token cleanly.
+func TestRemoveTokenAtSeamlessWhileBusy(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.ChatBody = testutil.SSEEvent(`data: {"choices":[{"delta":{"content":"hi"}}]}` + "\n\n")
@@ -66,19 +66,14 @@ func TestRemoveTokenAtRefusesWhileBusy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	err = p.RemoveTokenAt(0)
-	if err == nil || !strings.Contains(err.Error(), "in flight") {
-		t.Fatalf("RemoveTokenAt while busy = %v, want in-flight refusal", err)
-		return
+	if err := p.RemoveTokenAt(0); err != nil {
+		t.Fatalf("RemoveTokenAt while busy = %v, want seamless success", err)
+	}
+	if got := p.TokenCount(); got != before-1 {
+		t.Fatalf("TokenCount = %d, want %d immediately after removal", got, before-1)
 	}
 	p.LeaseRelease(lease)
 	time.Sleep(10 * time.Millisecond) // let the release settle
-	if err := p.RemoveTokenAt(0); err != nil {
-		t.Fatalf("RemoveTokenAt after release: %v", err)
-	}
-	if got := p.TokenCount(); got != before-1 {
-		t.Fatalf("TokenCount = %d, want %d", got, before-1)
-	}
 }
 
 // TestRemoveTokenAtOutOfRange pins the bounds error.
