@@ -285,9 +285,10 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 
-	// TRANSIENT_RETRIES: nil defaults to 1 (one additional attempt after a
-	// transient transport failure); an explicit 0 disables retries.
-	transientRetries := 1
+	// TRANSIENT_RETRIES: nil defaults to 3 (matching vendor SDK
+	// MAX_RETRIES_PER_MESSAGE; retries transient transport and waiting-room
+	// queue deferrals); an explicit 0 disables retries.
+	transientRetries := 3
 	if raw.TransientRetries != nil {
 		transientRetries = *raw.TransientRetries
 	}

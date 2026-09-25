@@ -41,8 +41,8 @@ func TestEnvExampleLoadsCleanly(t *testing.T) {
 	if cfg.TLSFingerprint != "" {
 		t.Errorf("TLSFingerprint = %q, want empty (CLI-faithful plain Go/Bun baseline)", cfg.TLSFingerprint)
 	}
-	if cfg.TransientRetries != 1 {
-		t.Errorf("TransientRetries = %d, want 1", cfg.TransientRetries)
+	if cfg.TransientRetries != 3 {
+		t.Errorf("TransientRetries = %d, want 3", cfg.TransientRetries)
 	}
 	if len(cfg.AuthTokens) != 0 {
 		t.Errorf("AuthTokens = %v, want empty (empty AUTH_TOKENS)", cfg.AuthTokens)

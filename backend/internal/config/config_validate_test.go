@@ -306,8 +306,8 @@ func TestTransientRetries(t *testing.T) {
 	// default: 1 (one additional attempt after a transient transport failure)
 	if cfg, err := Load(""); err != nil {
 		t.Fatalf("Load (default): %v", err)
-	} else if cfg.TransientRetries != 1 {
-		t.Errorf("TransientRetries = %d, want 1 (default)", cfg.TransientRetries)
+	} else if cfg.TransientRetries != 3 {
+		t.Errorf("TransientRetries = %d, want 3 (default)", cfg.TransientRetries)
 	}
 
 	// explicit 0 disables retries
