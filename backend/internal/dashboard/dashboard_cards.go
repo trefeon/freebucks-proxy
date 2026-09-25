@@ -304,12 +304,13 @@ type configKV struct {
 func (d *Dashboard) configData() configData {
 	cfg := d.cfg()
 	cd := configData{}
-	if _, raw, exists, err := config.EnvFileInfo(); err == nil && exists {
-		cd.HasEnvFile = true
-		cd.EnvContent = string(raw)
-	} else {
-		cd.EnvContent = config.DefaultEnvTemplate()
-	}
+	// Unified store (Lane D): env_content is a live export rendered from
+	// the mem snapshot, never a file read — the .env file is boot seed
+	// only, so its bytes go stale the moment an overlay row diverges.
+	// has_env_file stays an existence probe for the export banner (file
+	// content never enters the request path).
+	cd.HasEnvFile = config.ResolveEnvFile() != ""
+	cd.EnvContent = renderEnvExport(cfg)
 	// Effective values come from the config package's own catalog-driven
 	// rendering (issue #288): one key map, no per-key switch here.
 	for _, entry := range cfg.Data() {

@@ -9,7 +9,7 @@
    */
   let { activeTab = $bindable(), versionInfo } = $props();
   import { tr } from "./i18n.js";
-  import { isDevToolsEnabled } from "./utils/devtools.js";
+  import { isDevToolsEnabledFromConfig } from "./utils/devtools.js";
   import { NAV_ITEMS } from "./nav.js";
   import { onMount } from "svelte";
   import { fetchAPI, csrfHeader } from "./api/client.js";
@@ -57,8 +57,7 @@
   onMount(async () => {
     try {
       const cfgRes = await fetchAPI(adminApi.config);
-      const envContent = cfgRes?.env_content || "";
-      devToolsEnabled = isDevToolsEnabled(envContent);
+      devToolsEnabled = isDevToolsEnabledFromConfig(cfgRes);
     } catch {
       devToolsEnabled = false;
     }

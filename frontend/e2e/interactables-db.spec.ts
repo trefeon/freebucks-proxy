@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
 import type { PostedSetting } from "./mocks.js";
+import { captureConfigPosts, mockStatefulKeysConfig } from "./mock-usage.js";
 import { tokenRow, tokensPayload } from "./mock-data.js";
 
 // ---------------------------------------------------------------------------
@@ -11,8 +12,8 @@ import { tokenRow, tokensPayload } from "./mock-data.js";
 // Page x interactable map (each row names the suite that pins it):
 //
 // Overview (#overview)
-//   API-keys Generate ............ THIS FILE (modal + .env-save intercept)
-//   API-keys reveal/delete ....... THIS FILE (eye toggle + confirm + toast)
+//   API-keys Generate ............ THIS FILE (modal + overlay-save intercept + reload proves effective)
+//   API-keys reveal/delete ....... THIS FILE (eye toggle + confirm + overlay POST/DELETE + toast)
 //   risk/no-premium/upstream ..... ux.spec + realworld.spec
 // Pool (#tokens: Accounts/Warming/Controls)
 //   tab switching ................ THIS FILE (default/tab/tab/back)
@@ -48,12 +49,11 @@ import { tokenRow, tokensPayload } from "./mock-data.js";
 //
 // DB-first: nothing below depends on process env except boot (serve-static
 // dist + login cookie). Seeds go through OverlaySeed; persistence is proven
-// by POST payloads + reload-from-GET. Known gaps where the app still writes
-// .env instead of the overlay (NOT DB-first, listed for follow-up):
-//   - Client API Keys generate/delete (POST /admin/config form, API_KEYS)
-//   - Token add/remove (POST /admin/config form, AUTH_TOKENS)
-//   - DevTools gate value itself (reads DEVTOOLS_ENABLED from the config
-//     document; the mock serves it, prod reads .env)
+// by POST payloads + reload-from-GET. The former .env gaps are closed under
+// the unified store: Client API Keys generate/delete POST the merged list
+// to /admin/api/settings (DELETE the row when the last key goes), token
+// add/remove ride their dedicated /admin/tokens/* endpoints, and the
+// DevTools gate reads the effective[] snapshot first (export fallback).
 // ---------------------------------------------------------------------------
 const admin = (hash: string) => `http://127.0.0.1:4173/admin/#${hash}`;
 // Shared toast-region scope (8 call sites pin role=status/alert inside the
@@ -355,35 +355,16 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     await expect(table.getByText("Pinned model")).toHaveCount(0);
   });
 
-  test("generate key posts the .env save, shows the modal, Done toasts", async ({
+  test("generate key posts the overlay save, shows the modal, Done toasts", async ({
     page,
   }) => {
     const f = loadFixtures();
-    await mockDashboard(
-      page,
-      f,
-      {
-        configWithApiKeys: {
-          ...f.config,
-          env_content: "AUTH_TOKENS=tok0\nAPI_KEYS=sk-fb-seedkey0001\n",
-          has_env_file: true,
-        },
-      },
-      { loginPage: true },
-    );
-    const configSaves: string[] = [];
-    await page.route("**/admin/config", async (route) => {
-      if (route.request().method() === "POST") {
-        configSaves.push(route.request().postData() ?? "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true, message: "Config saved" }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const state = await mockStatefulKeysConfig(page, f, ["sk-fb-seedkey0001"]);
+    const envPosts: string[] = [];
+    await captureConfigPosts(page, envPosts);
 
     await page.goto(admin("overview"));
     // Scoped to the card heading: the bare text locator also matches the
@@ -393,7 +374,7 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     await expect(
       page.getByRole("heading", { name: "Client API Keys" }),
     ).toBeVisible();
-    // Seeded .env key renders masked, never in the clear.
+    // Seeded export key renders masked, never in the clear.
     await expect(page.getByText(/sk-fb-•/).first()).toBeVisible();
 
     await page.getByRole("button", { name: "Generate API Key" }).click();
@@ -403,56 +384,48 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     const shown = (await dialog.locator("code").innerText()).trim();
     expect(shown.startsWith("sk-fb-")).toBe(true);
     expect(shown.length).toBeGreaterThan(10);
-    // .env-gap proof: the write went to POST /admin/config (form-encoded
-    // `content=` field carrying the full document), not the overlay.
-    await expect.poll(() => configSaves.length).toBeGreaterThan(0);
-    expect(decodeURIComponent(configSaves[configSaves.length - 1])).toContain(
-      "API_KEYS=",
-    );
+    // Overlay proof: the write went to POST /admin/api/settings (JSON
+    // {key, value} carrying the merged list), never to POST /admin/config.
+    await expect.poll(() => posted.length).toBeGreaterThan(0);
+    const last = posted[posted.length - 1];
+    expect(last.key).toBe("API_KEYS");
+    expect(last.value).toContain("sk-fb-seedkey0001");
+    expect(last.value).toContain(shown);
 
     await dialog.getByRole("button", { name: "Done" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(
       toasts(page)
         .getByRole("status")
-        .filter({ hasText: "Generated & saved client API key" }),
+        .filter({ hasText: "saved and applied live" }),
     ).toBeVisible();
-  });
 
+    // Save→effective-immediately: reload serves the merged export, so both
+    // keys list with no file round-trip — and the .env endpoint stayed
+    // untouched (I4 UI-side).
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Client API Keys" }),
+    ).toBeVisible();
+    expect(state.keys).toContain(shown);
+    await expect(page.getByText(/sk-fb-•/)).toHaveCount(2);
+    expect(envPosts.length).toBe(0);
+  });
   test("key reveal unmasks; delete Cancel is free, Delete posts + toasts", async ({
     page,
     context,
   }) => {
     // API-key delete uses the native-confirm path under webdriver (confirm
-    // store): dismiss first (no POST), accept on retry (POST). Each attempt
-    // needs its own one-shot handler.
+    // store): dismiss first (no write), accept on retry (overlay write).
+    // Each attempt needs its own one-shot handler.
     const seedKey = "sk-fb-seedkey0001";
     const f = loadFixtures();
-    await mockDashboard(
-      page,
-      f,
-      {
-        configWithApiKeys: {
-          ...f.config,
-          env_content: `AUTH_TOKENS=tok0\nAPI_KEYS=${seedKey}\n`,
-          has_env_file: true,
-        },
-      },
-      { loginPage: true },
-    );
-    const configPosts: string[] = [];
-    await page.route("**/admin/config", async (route) => {
-      if (route.request().method() === "POST") {
-        configPosts.push(route.request().postData() ?? "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true, message: "Config saved" }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    const { deleted } = await mockSettingsOverlay(page, posted);
+    await mockStatefulKeysConfig(page, f, [seedKey]);
+    const envPosts: string[] = [];
+    await captureConfigPosts(page, envPosts);
 
     await page.goto(admin("overview"));
     await expect(
@@ -470,20 +443,26 @@ test.describe("interactables DB-first (mocked gateway + overlay)", () => {
     // Cancel on the confirm sends nothing.
     context.once("dialog", (d) => d.dismiss());
     await keyRow.getByRole("button", { name: "Delete API key" }).click();
-    await expect.poll(() => configPosts.length).toBe(0);
+    await expect(keyRow).toBeVisible();
+    expect(posted.length).toBe(0);
+    expect(deleted.length).toBe(0);
 
-    // Confirm posts the filtered .env and toasts the receipt.
+    // Confirm on the last key DELETEs the overlay row (an empty value
+    // 400s); the empty-state note returns and the .env endpoint stayed
+    // untouched.
     context.once("dialog", (d) => d.accept());
     await keyRow.getByRole("button", { name: "Delete API key" }).click();
-    await expect.poll(() => configPosts.length).toBeGreaterThan(0);
-    expect(
-      decodeURIComponent(configPosts[configPosts.length - 1]),
-    ).not.toContain(seedKey);
+    await expect.poll(() => deleted.length).toBeGreaterThan(0);
+    expect(deleted[deleted.length - 1]).toBe("API_KEYS");
+    await expect(
+      page.getByText("No client API keys configured."),
+    ).toBeVisible();
     await expect(
       toasts(page)
         .getByRole("status")
-        .filter({ hasText: "Deleted client API key" }),
+        .filter({ hasText: "Saved value removed" }),
     ).toBeVisible();
+    expect(envPosts.length).toBe(0);
   });
 
   test("restart Cancel sends nothing; Confirm posts restart and toasts", async ({

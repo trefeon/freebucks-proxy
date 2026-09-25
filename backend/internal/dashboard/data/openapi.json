@@ -3288,7 +3288,7 @@
                 }
               }
             },
-            "description": "Effective config (sensitive: raw .env read)"
+            "description": "Effective config + live .env export (sensitive)"
           }
         },
         "security": [
@@ -3296,7 +3296,7 @@
             "cookieAuth": []
           }
         ],
-        "summary": "Effective config (sensitive: raw .env read)",
+        "summary": "Effective config + live .env export (sensitive)",
         "tags": [
           "settings"
         ]

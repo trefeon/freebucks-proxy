@@ -29,7 +29,7 @@
     setField as setSettingsField,
   } from "../stores/settings.js";
   import { detectStrategy } from "../utils/poolStrategy.js";
-  import { isDevToolsEnabled } from "../utils/devtools.js";
+  import { isDevToolsEnabledFromConfig } from "../utils/devtools.js";
   import {
     tokensData as tokensStore,
     tokensError as tokensErrorStore,
@@ -57,8 +57,8 @@
   let newToken = $state("");
   let adding = $state(false);
   // Dev Tools surfaces (per-token session spawn toolbar) are hidden unless
-  // the operator enables DEVTOOLS_ENABLED=true in .env (same gate as the
-  // sidebar's Dev Tools tab and the server-side DevTools route).
+  // the operator enables DEVTOOLS_ENABLED (same gate as the sidebar's
+  // Dev Tools tab and the server-side DevTools route).
   let devToolsEnabled = $state(false);
   // Queue-posture chip: the same detection the Pool Strategy card badge
   // uses, read from the shared settings store. The store is empty until
@@ -269,7 +269,7 @@
           adminActions.tokenRemove,
           { token: idx },
           $tr(
-            "Remove account {idx} from the pool and .env? The account must be re-added to use it again.",
+            "Remove account {idx} from the pool? The account must be re-added to use it again.",
             { idx: idx + 1 },
           ),
           $tr("Remove Token"),
@@ -413,7 +413,7 @@
               clearInterval(oauthTimer);
               pushToast({
                 tone: "success",
-                title: $tr("Account #{idx} added to pool and saved to .env.", {
+                title: $tr("Account #{idx} added to the pool.", {
                   idx: pollData.token_index + 1,
                 }),
               });
@@ -521,11 +521,11 @@
       refreshTokens();
     }
     window.addEventListener("fp-config-saved", onConfigSaved);
-    // Only the DevTools gate still reads .env here.
+    // The DevTools gate reads the live config snapshot here.
     (async () => {
       try {
         const cfgRes = await fetchAPI(adminApi.config);
-        devToolsEnabled = isDevToolsEnabled(cfgRes?.env_content || "");
+        devToolsEnabled = isDevToolsEnabledFromConfig(cfgRes);
       } catch {
         devToolsEnabled = false;
       }
@@ -657,7 +657,7 @@
     <Card
       title={$tr("Add Token to Pool")}
       description={$tr(
-        "Paste a FreeBuff auth token (from credentials.json or CLI) to add it to the shared pool and save it to .env. Adding burns no quota.",
+        "Paste a FreeBuff auth token (from credentials.json or CLI) to add it to the shared pool. Adding burns no quota.",
       )}
     >
       {#snippet actions()}
