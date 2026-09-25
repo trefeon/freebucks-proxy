@@ -7,19 +7,20 @@ import {
   type PostedSetting,
 } from "./mocks.js";
 
-// The Settings page is a read-only view of the effective configuration: it
-// renders no whole-file .env writer (the break-glass textarea that rewrote
-// the file through POST /admin/config is gone — the Client API Keys editor
-// keeps that endpoint) and it never prints a Secret:true value. Keys the
-// catalog hides from the cards (environment-only / restart-only /
-// deprecated) stay addressable in the "Hidden keys" disclosure, so "hidden"
-// can never mean "stranded and invisible" again.
+// The Settings page is a read-only view of the effective configuration: no
+// dashboard save flow POSTs /admin/config any more (that endpoint stays as
+// the server-side break-glass editor, reachable from Review's try-it and
+// curl — the Client API Keys editor included, now overlay-first) and the
+// page never prints a Secret:true value. Keys the catalog hides from the
+// cards (environment-only / restart-only / deprecated) stay addressable in
+// the "Hidden keys" disclosure, so "hidden" can never mean "stranded and
+// invisible" again.
 
 const SETTINGS = "http://127.0.0.1:4173/admin/#settings";
 const TOKENS = "http://127.0.0.1:4173/admin/#tokens";
 
 // Planted secret values. The page's payload legitimately carries secret
-// material: GET /admin/api/config returns the raw .env document in
+// material: GET /admin/api/config returns the live .env export in
 // env_content, and GET /admin/api/settings echoes the saved literal of a
 // db-tier row. Both are asserted below as non-vacuous inputs, so the
 // absence checks prove the DOM stayed clean, not that the fixture was.

@@ -25,7 +25,7 @@
 <Modal
   bind:open
   title={$tr("Client API Key Generated")}
-  description={$tr("Saved to .env in API_KEYS")}
+  description={$tr("Saved to API_KEYS — applies immediately")}
   onClose={close}
   size="md"
 >

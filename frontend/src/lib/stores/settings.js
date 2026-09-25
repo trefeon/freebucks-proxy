@@ -15,13 +15,13 @@ function t(key, params) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared settings state: the .env document — displayed, never written here.
-// Writes go through the DB-overlay instant-save path (DbOverrideSave POSTs the
-// one key it owns); the whole-file .env write lives only in the Client API
-// Keys editor (POST /admin/config, used to add/remove API_KEYS). Every tunable
-// row writes its key straight to the overlay the moment it is touched — there
-// is no batched draft, so setField only updates the live display value and
-// never marks anything dirty.
+// Shared settings state: the .env export — displayed (defaults chips),
+// never written here. Writes go through the DB-overlay instant-save path
+// (DbOverrideSave POSTs the one key it owns; the Client API Keys editor
+// POSTs its merged API_KEYS list the same way). Every tunable row writes
+// its key straight to the overlay the moment it is touched — there is no
+// batched draft, so setField only updates the live display value and never
+// marks anything dirty.
 // ---------------------------------------------------------------------------
 export const meta = writable([]);
 export const configData = writable(null);

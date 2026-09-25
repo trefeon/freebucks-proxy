@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures, mockDashboard } from "./mocks.js";
+import { loadFixtures, mockDashboard, mockSettingsOverlay } from "./mocks.js";
+import type { PostedSetting } from "./mocks.js";
 import {
   adminUrl,
   captureConfigPosts,
@@ -9,6 +10,7 @@ import {
   killTokensApi,
   meteredToken,
   mockRefundReplay,
+  mockStatefulKeysConfig,
   mockTeamUsage,
   mockUsage,
   refundPendingToken,
@@ -75,18 +77,16 @@ test.describe("keys, usage and logs (mock backend)", () => {
     }
   });
 
-  test("keys: generate posts the .env save, shows the key once, Done toasts", async ({
+  test("keys: generate posts the overlay save, shows the key once, Done toasts", async ({
     page,
   }) => {
     const f = loadFixtures();
-    await mockDashboard(
-      page,
-      f,
-      { configWithApiKeys: configWithKeysEnv(f, [SEED_KEYS[0]]) },
-      { loginPage: true },
-    );
-    const saves: string[] = [];
-    await captureConfigPosts(page, saves);
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted);
+    const state = await mockStatefulKeysConfig(page, f, [SEED_KEYS[0]]);
+    const envPosts: string[] = [];
+    await captureConfigPosts(page, envPosts);
 
     await page.goto(adminUrl("overview"));
     await expect(
@@ -96,36 +96,48 @@ test.describe("keys, usage and logs (mock backend)", () => {
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toContainText("Client API Key Generated");
-    await expect(dialog).toContainText("Saved to .env in API_KEYS");
+    await expect(dialog).toContainText("Saved to API_KEYS");
     const shown = (await dialog.locator("code").innerText()).trim();
     expect(shown.startsWith("sk-fb-")).toBe(true);
     expect(shown.length).toBeGreaterThan(10);
-    // The write went to POST /admin/config (form `content=` carrying the
-    // full document), not the settings overlay.
-    await expect.poll(() => saves.length).toBeGreaterThan(0);
-    expect(decodeURIComponent(saves[saves.length - 1])).toContain("API_KEYS=");
+    // Overlay-first proof: the write went to POST /admin/api/settings with
+    // the merged list (seed + fresh key), never to the .env break-glass
+    // endpoint.
+    await expect.poll(() => posted.length).toBeGreaterThan(0);
+    const last = posted[posted.length - 1];
+    expect(last.key).toBe("API_KEYS");
+    expect(last.value).toContain(SEED_KEYS[0]);
+    expect(last.value).toContain(shown);
 
     await dialog.getByRole("button", { name: "Done" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(
       toasts(page)
         .getByRole("status")
-        .filter({ hasText: "Generated & saved client API key" }),
+        .filter({ hasText: "saved and applied live" }),
     ).toBeVisible();
+
+    // Save→effective-immediately: the served export carries the new key, so
+    // a reload lists it with no file round-trip — and the .env endpoint
+    // stayed untouched throughout (I4 UI-side).
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Client API Keys" }),
+    ).toBeVisible();
+    expect(state.keys).toContain(shown);
+    await expect(page.getByText(/sk-fb-•/)).toHaveCount(2);
+    expect(envPosts.length).toBe(0);
   });
 
   test("keys: failed save surfaces an error toast and no modal", async ({
     page,
   }) => {
     const f = loadFixtures();
-    await mockDashboard(
-      page,
-      f,
-      { configWithApiKeys: configWithKeysEnv(f, [SEED_KEYS[0]]) },
-      { loginPage: true },
-    );
-    const saves: string[] = [];
-    await captureConfigPosts(page, saves, 500);
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    await mockSettingsOverlay(page, posted, { postStatus: 500 });
+    const envPosts: string[] = [];
+    await captureConfigPosts(page, envPosts);
 
     await page.goto(adminUrl("overview"));
     await expect(
@@ -133,11 +145,14 @@ test.describe("keys, usage and logs (mock backend)", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Generate API Key" }).click();
 
-    await expect.poll(() => saves.length).toBeGreaterThan(0);
+    await expect.poll(() => posted.length).toBeGreaterThan(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(
-      toasts(page).getByRole("alert").filter({ hasText: "Config save failed" }),
+      toasts(page)
+        .getByRole("alert")
+        .filter({ hasText: "Setting rejected: boom" }),
     ).toBeVisible();
+    expect(envPosts.length).toBe(0);
   });
 
   test("keys: reveal unmasks; delete Cancel is free, Delete posts + toasts", async ({
@@ -145,14 +160,12 @@ test.describe("keys, usage and logs (mock backend)", () => {
     context,
   }) => {
     const f = loadFixtures();
-    await mockDashboard(
-      page,
-      f,
-      { configWithApiKeys: configWithKeysEnv(f, [SEED_KEYS[0]]) },
-      { loginPage: true },
-    );
-    const posts: string[] = [];
-    await captureConfigPosts(page, posts);
+    await mockDashboard(page, f, {}, { loginPage: true });
+    const posted: PostedSetting[] = [];
+    const { deleted } = await mockSettingsOverlay(page, posted);
+    await mockStatefulKeysConfig(page, f, SEED_KEYS);
+    const envPosts: string[] = [];
+    await captureConfigPosts(page, envPosts);
 
     await page.goto(adminUrl("overview"));
     await expect(
@@ -166,21 +179,47 @@ test.describe("keys, usage and logs (mock backend)", () => {
     await keyRow.getByRole("button", { name: "Hide API key" }).click();
     await expect(keyRow.getByText(SEED_KEYS[0])).toHaveCount(0);
 
+    // Cancel on the confirm sends nothing: both rows survive, no write.
     context.once("dialog", (d) => d.dismiss());
     await keyRow.getByRole("button", { name: "Delete API key" }).click();
-    await expect.poll(() => posts.length).toBe(0);
+    await expect(page.getByText(/sk-fb-•/)).toHaveCount(2);
+    expect(posted.length).toBe(0);
+    expect(deleted.length).toBe(0);
 
+    // Confirm drops the first key through the overlay (filtered list POST);
+    // the survivor stays masked and the receipt toasts the live apply.
     context.once("dialog", (d) => d.accept());
     await keyRow.getByRole("button", { name: "Delete API key" }).click();
-    await expect.poll(() => posts.length).toBeGreaterThan(0);
-    expect(decodeURIComponent(posts[posts.length - 1])).not.toContain(
-      SEED_KEYS[0],
-    );
+    await expect.poll(() => posted.length).toBeGreaterThan(0);
+    const last = posted[posted.length - 1];
+    expect(last.key).toBe("API_KEYS");
+    expect(last.value).not.toContain(SEED_KEYS[0]);
+    expect(last.value).toContain(SEED_KEYS[1]);
     await expect(
       toasts(page)
         .getByRole("status")
-        .filter({ hasText: "Deleted client API key" }),
+        .filter({ hasText: "saved and applied live" }),
     ).toBeVisible();
+
+    // Dropping the last key DELETEs the row (the overlay 400s an empty
+    // value); the empty-state note returns and no .env write fired.
+    const survivor = page
+      .locator("div.fp-inset", { hasText: "sk-fb-" })
+      .first();
+    await expect(survivor).toBeVisible();
+    context.once("dialog", (d) => d.accept());
+    await survivor.getByRole("button", { name: "Delete API key" }).click();
+    await expect.poll(() => deleted.length).toBeGreaterThan(0);
+    expect(deleted[deleted.length - 1]).toBe("API_KEYS");
+    await expect(
+      page.getByText("No client API keys configured."),
+    ).toBeVisible();
+    await expect(
+      toasts(page)
+        .getByRole("status")
+        .filter({ hasText: "Saved value removed" }),
+    ).toBeVisible();
+    expect(envPosts.length).toBe(0);
   });
 
   test("auth: 401 login stays on the login view with the server error", async ({

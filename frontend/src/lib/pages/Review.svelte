@@ -144,7 +144,7 @@
         {
           m: "GET",
           p: "/admin/api/config",
-          note: "Effective config + .env document (sensitive)",
+          note: "Effective config + live .env export (sensitive)",
         },
         {
           m: "GET",
@@ -172,7 +172,7 @@
         {
           m: "POST",
           p: "/admin/config",
-          note: "DESTRUCTIVE: rewrite .env + reload (confirm)",
+          note: "BREAK-GLASS: rewrite .env + reload (confirm, bypasses overlay)",
           form: "config",
         },
         { m: "GET", p: "/admin/api/pages/{id}", note: "Per-page stored state" },
@@ -595,7 +595,7 @@
                 <textarea
                   class="fp-input mt-2 w-full font-mono text-xs"
                   rows="4"
-                  placeholder="# .env content (POST /admin/config rewrites the file)"
+                  placeholder="# raw .env text (break-glass: POST /admin/config rewrites the file)"
                   value={formVals[k] ?? ""}
                   oninput={(e) => (formVals[k] = e.currentTarget.value)}
                 ></textarea>

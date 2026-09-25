@@ -329,7 +329,7 @@ func AdminAPIPaths() []AdminAPIPath {
 		{Method: "GET", Path: "/admin/api/models", OperationID: "getModels", Summary: "Full model catalog view model (tiers, withdrawal and live offer state)", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: modelsData{}},
 		{Method: "GET", Path: "/admin/api/traces", OperationID: "getTraces", Summary: "Recent chat traces", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: tracesData{}},
 		{Method: "GET", Path: "/admin/api/setup", OperationID: "getSetup", Summary: "Setup wizard view model", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: setupData{}},
-		{Method: "GET", Path: "/admin/api/config", OperationID: "getConfig", Summary: "Effective config (sensitive: raw .env read)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: configData{}},
+		{Method: "GET", Path: "/admin/api/config", OperationID: "getConfig", Summary: "Effective config + live .env export (sensitive)", Auth: "sensitive", Kind: AdminAPIKindJSON, Response: configData{}},
 		{Method: "GET", Path: "/admin/api/config/meta", OperationID: "getConfigMeta", Summary: "Configuration catalog (the settings form schema)", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: []config.KeyDef{}},
 		{Method: "GET", Path: "/admin/api/settings", OperationID: "getSettings", Summary: "DB settings overlay: effective values plus source tiers", Auth: "dashboard", Kind: AdminAPIKindJSON, Response: SettingsListResponse{}},
 		{Method: "POST", Path: "/admin/api/settings", OperationID: "saveSetting", Summary: "Validate, persist and hot-apply one overlay knob", Auth: "sensitive", Kind: AdminAPIKindJSON, Request: SettingsPostRequest{}, Response: SettingsPostResponse{}},

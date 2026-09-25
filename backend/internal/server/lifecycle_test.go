@@ -40,6 +40,27 @@ import (
 // rejects only the well-known placeholders, never "cb_" + a real suffix).
 const lifecycleToken = "cb_lifecycle_0123456789abcdef"
 
+// setExportLine replaces one KEY=value row in a live config export (GET
+// /admin/api/config env_content renders one row per key, catalog order —
+// never the file bytes). Appending would duplicate the key, and the loader
+// resolves duplicates first-wins, so edits must flip the row in place.
+func setExportLine(t *testing.T, export, line string) string {
+	t.Helper()
+	key := line[:strings.Index(line, "=")+1]
+	rows := strings.Split(export, "\n")
+	replaced := false
+	for i, row := range rows {
+		if strings.HasPrefix(row, key) {
+			rows[i] = line
+			replaced = true
+		}
+	}
+	if !replaced {
+		t.Fatalf("export has no %s row to edit in:\n%s", key, export)
+	}
+	return strings.Join(rows, "\n")
+}
+
 func TestLifecycleFullJourney(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -339,8 +360,11 @@ func TestLifecycleFullJourney(t *testing.T) {
 			t.Fatalf("config API env_content lost the token: %q", cfgData.EnvContent)
 		}
 
-		// Valid edit: LOG_LEVEL change applies and survives.
-		valid := strings.TrimRight(cfgData.EnvContent, "\n") + "\nLOG_LEVEL=debug\n"
+		// Valid edit: LOG_LEVEL change applies and survives. env_content is a
+		// live export (one row per key, catalog order), not the file document —
+		// flip the exported LOG_LEVEL row in place so the posted document
+		// carries exactly one LOG_LEVEL line.
+		valid := setExportLine(t, cfgData.EnvContent, "LOG_LEVEL=debug")
 		resp := postConfig(t, ts.URL, cookie, valid)
 		body := bodyOf(t, resp)
 		if !strings.Contains(body, "Saved and reloaded") {

@@ -785,8 +785,10 @@ func TestSetupPageKeyHintPooled(t *testing.T) {
 	}
 }
 
-// TestConfigPageEnvAbsentTemplate pins the editor seed JSON.
-func TestConfigPageEnvAbsentTemplate(t *testing.T) {
+// TestConfigPageExportWithoutEnvFile pins the export contract with no
+// .env on disk (unified store): env_content still renders the live
+// snapshot (not a template, not empty) and has_env_file reports false.
+func TestConfigPageExportWithoutEnvFile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	ts, _ := pageServer(t, 0, "config", nil, nil)
 	resp, err := http.Get(ts.URL + "/api/config")
@@ -802,16 +804,21 @@ func TestConfigPageEnvAbsentTemplate(t *testing.T) {
 		t.Error("has_env_file should be false when no .env exists")
 	}
 	envContent, _ := data["env_content"].(string)
-	if !strings.Contains(envContent, "# freebucks-proxy configuration") {
-		t.Error("env_content missing default template")
+	if !strings.Contains(envContent, "# Live configuration export") {
+		t.Errorf("env_content missing live-export header in:\n%s", envContent)
+	}
+	if !strings.Contains(envContent, "SAFE_MODE=") {
+		t.Errorf("env_content missing live keys in:\n%s", envContent)
 	}
 }
 
-// TestConfigPageCRLFVerbatim pins the editor fidelity JSON.
-func TestConfigPageCRLFVerbatim(t *testing.T) {
+// TestConfigPageExportIgnoresFileBytes pins the unified-store read side
+// (I4): env_content renders the mem snapshot even when the .env file says
+// otherwise — file bytes never enter the request path. The export is LF
+// (no CRLF passthrough: values come from parsed config, not file text).
+func TestConfigPageExportIgnoresFileBytes(t *testing.T) {
 	t.Chdir(t.TempDir())
-	crlf := "SAFE_MODE=true\r\nTRANSIENT_RETRIES=3\r\n"
-	if err := os.WriteFile(".env", []byte(crlf), 0o644); err != nil {
+	if err := os.WriteFile(".env", []byte("SAFE_MODE=true\r\nAUTH_TOKENS=tok-file\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ts, _ := pageServer(t, 0, "config", nil, nil)
@@ -824,9 +831,18 @@ func TestConfigPageCRLFVerbatim(t *testing.T) {
 	if err := json.Unmarshal(mustReadAll(t, resp), &data); err != nil {
 		t.Fatalf("response is not valid JSON: %v", err)
 	}
+	if data["has_env_file"] != true {
+		t.Error("has_env_file should be true when a .env exists")
+	}
 	envContent, _ := data["env_content"].(string)
-	if !strings.Contains(envContent, "SAFE_MODE=true\r\nTRANSIENT_RETRIES=3\r\n") {
-		t.Errorf("config page did not render CRLF content verbatim in:\n%s", envContent)
+	if strings.Contains(envContent, "tok-file") {
+		t.Errorf("env_content leaked file bytes (want mem snapshot) in:\n%s", envContent)
+	}
+	if strings.Contains(envContent, "\r\n") {
+		t.Errorf("env_content carries CRLF (want LF export) in:\n%s", envContent)
+	}
+	if !strings.Contains(envContent, "AUTH_TOKENS=\n") {
+		t.Errorf("env_content missing live AUTH_TOKENS line in:\n%s", envContent)
 	}
 }
 

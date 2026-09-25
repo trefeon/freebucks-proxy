@@ -916,17 +916,9 @@ test.describe("dashboard edge states (mock backend)", () => {
       },
       { loginPage: true },
     );
-    await page.route("**/admin/config", async (route) => {
-      if (route.request().method() === "POST") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true, message: "Config saved" }),
-        });
-      } else {
-        await route.continue();
-      }
-    });
+    // Generate saves through the overlay (unified store); the .env
+    // break-glass endpoint is not involved.
+    await mockSettingsOverlay(page, []);
     await page.goto(adminUrl("overview"));
     await expect(
       page.getByRole("heading", { name: "Client API Keys" }),

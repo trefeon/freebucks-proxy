@@ -15,7 +15,7 @@
     cheapestFreeOption,
   } from "../modelOptions.js";
   import { spawnIntent } from "../utils/freebucks.js";
-  import { isDevToolsEnabled } from "../utils/devtools.js";
+  import { isDevToolsEnabledFromConfig } from "../utils/devtools.js";
   import {
     tokensData as tokensStore,
     tokensError as tokensErrorStore,
@@ -113,8 +113,7 @@
     (async () => {
       try {
         const cfgRes = await fetchAPI(adminApi.config);
-        const envContent = cfgRes?.env_content || "";
-        devToolsEnabled = isDevToolsEnabled(envContent);
+        devToolsEnabled = isDevToolsEnabledFromConfig(cfgRes);
         if (devToolsEnabled) recordPageVisit("devtools");
       } catch {
         devToolsEnabled = false;

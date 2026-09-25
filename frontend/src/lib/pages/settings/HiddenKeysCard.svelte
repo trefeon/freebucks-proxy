@@ -128,7 +128,7 @@
         </h2>
         <p class="text-xs sm:text-sm text-text-muted mt-0.5">
           {$tr(
-            "Keys no card above owns: environment-only, restart-only, or deprecated. Set them in the host .env file or the compose environment — the process environment always wins over the file, so a change applies after a restart. A saved value can be reset here.",
+            "Keys no card above owns: environment-only, restart-only, or deprecated. Set them in the host .env file (boot seed) or the compose environment — the process environment always wins over the file, so a change applies after a restart. A saved value can be reset here.",
           )}
         </p>
       </div>

@@ -44,7 +44,14 @@ type adminHandlers struct {
 	// settings is the DB settings overlay store (ADR-0019): the same handle
 	// as Server.hist (one SQLite file). Nil keeps the settings endpoints on
 	// file/env/default with mutations 503.
-	settings    *store.Store
+	settings *store.Store
+	// pages is the page-state mem snapshot (unified store, Lane D): reads
+	// serve from mem, PUTs swap mem synchronously and spill to the DB
+	// behind. Lazily built by admin_pages.go pageMem; nil until first use.
+	// pagesMu also guards rebuilds when a.settings is swapped post-boot
+	// (tests attaching a store after construction).
+	pagesMu     sync.Mutex
+	pages       *pageStateMem
 	rateLimiter *ratelimit.Limiter
 
 	// handleChat forwards the playground's synthetic chat request to the
