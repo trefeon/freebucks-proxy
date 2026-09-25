@@ -48,8 +48,8 @@ type adminHandlers struct {
 	// swap mem synchronously and persist the overlay delta behind via
 	// enqueueSettingsSpill. Lazily started on first mutation (nil until
 	// then); spillMu guards start/flush/close. Nil store means mem-only.
-	spillMu     sync.Mutex
-	spillState  *settingsSpill
+	spillMu    sync.Mutex
+	spillState *settingsSpill
 	// pages is the page-state mem snapshot (unified store, Lane D): reads
 	// serve from mem, PUTs swap mem synchronously and spill to the DB
 	// behind. Lazily built by admin_pages.go pageMem; nil until first use.

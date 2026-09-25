@@ -24,7 +24,7 @@ const (
 	modelA = "anthropic/claude-fable-5.1"
 	modelB = "deepseek/deepseek-v4-flash"
 	agentA = "base2-free-fable"
-	agentB = "base2-free-deepseek-flash"
+	agentB = "base3-free-deepseek-flash"
 )
 
 // newTestPool wires one mock upstream per token through real clients and

@@ -109,11 +109,11 @@ type chatAdLegSink struct {
 
 func captureChatAdLegs() *chatAdLegSink {
 	s := &chatAdLegSink{}
-	RecordChatAdLeg = func(l ChatAdLeg) {
+	SetRecordChatAdLeg(func(l ChatAdLeg) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.legs = append(s.legs, l)
-	}
+	})
 	return s
 }
 
@@ -148,7 +148,7 @@ func TestChatAdRoundFiresAuctionAndImpression(t *testing.T) {
 	resetChatAdTrackerForTest()
 	defer resetChatAdTrackerForTest()
 	sink := captureChatAdLegs()
-	defer func() { RecordChatAdLeg = nil }()
+	defer func() { SetRecordChatAdLeg(nil) }()
 
 	srv := newChatAdFakeUpstream()
 	defer srv.Close()
@@ -241,7 +241,7 @@ func TestChatAdRoundDedupesImpUrl(t *testing.T) {
 	resetChatAdTrackerForTest()
 	defer resetChatAdTrackerForTest()
 	sink := captureChatAdLegs()
-	defer func() { RecordChatAdLeg = nil }()
+	defer func() { SetRecordChatAdLeg(nil) }()
 
 	srv := newChatAdFakeUpstream()
 	defer srv.Close()
@@ -280,7 +280,7 @@ func TestChatAdRoundFallsBackToZeroclick(t *testing.T) {
 	resetChatAdTrackerForTest()
 	defer resetChatAdTrackerForTest()
 	sink := captureChatAdLegs()
-	defer func() { RecordChatAdLeg = nil }()
+	defer func() { SetRecordChatAdLeg(nil) }()
 
 	srv := newChatAdFakeUpstream()
 	defer srv.Close()
@@ -347,7 +347,7 @@ func TestChatAdImpressionFailureIsBestEffort(t *testing.T) {
 	resetChatAdTrackerForTest()
 	defer resetChatAdTrackerForTest()
 	sink := captureChatAdLegs()
-	defer func() { RecordChatAdLeg = nil }()
+	defer func() { SetRecordChatAdLeg(nil) }()
 
 	srv := newChatAdFakeUpstream()
 	defer srv.Close()
@@ -422,7 +422,7 @@ func TestChatCompletionsSuccessFiresChatAdRound(t *testing.T) {
 	resetChatAdTrackerForTest()
 	defer resetChatAdTrackerForTest()
 	_ = captureChatAdLegs()
-	defer func() { RecordChatAdLeg = nil }()
+	defer func() { SetRecordChatAdLeg(nil) }()
 
 	srv := newChatAdFakeUpstream()
 	defer srv.Close()
@@ -478,7 +478,7 @@ func TestChatCompletionsFailureFiresNothing(t *testing.T) {
 	resetChatAdTrackerForTest()
 	defer resetChatAdTrackerForTest()
 	_ = captureChatAdLegs()
-	defer func() { RecordChatAdLeg = nil }()
+	defer func() { SetRecordChatAdLeg(nil) }()
 
 	srv := newChatAdFakeUpstream()
 	defer srv.Close()

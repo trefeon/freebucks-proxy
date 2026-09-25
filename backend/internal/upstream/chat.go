@@ -198,6 +198,16 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 				// does not re-POST immediately (amplification); ctx
 				// cancellation aborts the sleep like every other upstream wait.
 				ra := 10 * time.Second
+				if isWaitingRoomQueued(cerr) {
+					// waiting_room_queued is a transient admission race
+					// (upstream cli/src/hooks/helpers/send-message.ts:610-619:
+					// "sessions are admitted immediately now, so this is only reachable
+					// in a transient race with a concurrent session request").
+					// When upstream sends no explicit Retry-After, use an exponential
+					// backoff (500ms, 1s, 2s) so the race clears without timing out
+					// the downstream client IDE.
+					ra = time.Duration(500*(1<<(transientQueueAttempts-1))) * time.Millisecond
+				}
 				if d := queueRetryAfter(cerr); d > 0 {
 					ra = d
 				}

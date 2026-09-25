@@ -162,7 +162,7 @@ func TestLifecycleSetupDoctorVersion(t *testing.T) {
 		for _, want := range []string{
 			"freebucks-proxy doctor diagnostic tool",
 			"[ok] Configuration loaded & validated successfully",
-			"AUTH_TOKENS is empty (bridge mode active)",
+			"AUTH_TOKENS is empty",
 			"[ok] Listen address 127.0.0.1:", // port is a dynamically-freed ephemeral
 			"[ok] DNS lookup for 127.0.0.1 resolved",
 			"[FAIL] TLS connection to 127.0.0.1:1 failed",

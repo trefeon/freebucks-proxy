@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: dependency-review-${{ github.workflow }}-${{ github.ref }}
@@ -44,7 +45,7 @@ jobs:
           fi
 
           message="$(jq -r '.message // ""' response.json)"
-          if echo "${message}" | grep -qi "dependency graph"; then
+          if echo "${message}" | grep -qEi "dependency graph|forbidden"; then
             echo "::notice::Skipping dependency review: ${message}"
             echo "supported=false" >> "${GITHUB_OUTPUT}"
             exit 0

@@ -120,7 +120,7 @@ test.describe("dashboard polling + merge (mock backend)", () => {
     ).toBeVisible();
 
     await page.clock.fastForward(3100);
-    await expect(page.getByText("added to pool")).toBeVisible();
+    await expect(page.getByText("added to the pool")).toBeVisible();
   });
 
   test("poll keeps panels rendering after the SSE stream disconnects", async ({

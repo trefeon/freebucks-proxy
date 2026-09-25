@@ -113,9 +113,9 @@ func TestPageStateMemNoSyncDisk(t *testing.T) {
 		t.Fatalf("mem after swaps = %q, want latest", got)
 	}
 
-	oldEvery := pageSpillFlushEvery
-	pageSpillFlushEvery = 5 * time.Millisecond
-	defer func() { pageSpillFlushEvery = oldEvery }()
+	oldEvery := pageSpillFlushEvery.Load()
+	pageSpillFlushEvery.Store(int64(5 * time.Millisecond))
+	defer func() { pageSpillFlushEvery.Store(oldEvery) }()
 	go m.run(func() *slog.Logger { return slog.Default() })
 	deadline := time.Now().Add(5 * time.Second)
 	for calls.Load() == 0 && time.Now().Before(deadline) {
@@ -170,9 +170,9 @@ func TestPageStatePutGetHTTP(t *testing.T) {
 // TestPageStatePutNoSyncDBWrite (I2, handler): with the consumer parked,
 // PUT+GET round-trip while the table stays empty.
 func TestPageStatePutNoSyncDBWrite(t *testing.T) {
-	oldEvery := pageSpillFlushEvery
-	pageSpillFlushEvery = time.Hour
-	defer func() { pageSpillFlushEvery = oldEvery }()
+	oldEvery := pageSpillFlushEvery.Load()
+	pageSpillFlushEvery.Store(int64(time.Hour))
+	defer func() { pageSpillFlushEvery.Store(oldEvery) }()
 
 	st, err := store.Open(filepath.Join(t.TempDir(), "pages.db"))
 	if err != nil {

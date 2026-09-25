@@ -8,7 +8,9 @@ on:
     - cron: "0 3 * * 1" # weekly: Monday 03:00 UTC
 
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
   security-events: write
 
 concurrency:

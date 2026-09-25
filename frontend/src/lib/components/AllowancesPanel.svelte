@@ -1,5 +1,6 @@
 <script>
   import { onMount } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { Flame } from "@lucide/svelte";
   import { recordPageVisit } from "../stores/pageState.js";
   import Button from "./Button.svelte";
@@ -188,7 +189,7 @@
   // Fleet-wide off-peak lines for the header: ordered-dedupe of the
   // per-account offPeakLines detail strings across every token.
   function fleetOffPeakLines() {
-    const seen = new Set();
+    const seen = new SvelteSet();
     const out = [];
     for (const token of data?.tokens ?? []) {
       for (const line of offPeakLines(token)) {

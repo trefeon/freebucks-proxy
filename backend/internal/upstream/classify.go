@@ -732,6 +732,16 @@ func isWaitingRoom(err error) bool {
 	return errors.As(err, &wr)
 }
 
+// isWaitingRoomQueued reports whether err is specifically the 429/503
+// waiting_room_queued transient admission race (vs a general capacity waiting room).
+func isWaitingRoomQueued(err error) bool {
+	var wr *WaitingRoomError
+	if errors.As(err, &wr) {
+		return strings.Contains(strings.ToLower(wr.Detail), string(WireCodeWaitingRoomQueued))
+	}
+	return false
+}
+
 // queueRetryAfter extracts the honor-this-window delay from a transient
 // queue error: the parsed Retry-After when upstream sent one, else 0 (the
 // caller applies the 10s AI-SDK default).

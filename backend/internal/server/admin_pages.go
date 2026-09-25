@@ -61,14 +61,17 @@ var validPageIDs = map[string]bool{
 }
 
 // Page-state spill tuning (recorded pattern: spillCh 1024, batch 100/1s,
-// drop counter — dashboard_history.go:19-67). pageSpillFlushEvery is a var
-// so plane tests can pin the sync/async boundary deterministically.
+// drop counter — dashboard_history.go:19-67). pageSpillFlushEvery is atomic
+// so plane tests can pin the sync/async boundary deterministically without
+// racing the background spill goroutine.
 const (
 	pageSpillBufSize   = 1024
 	pageSpillFlushSize = 100
 )
 
-var pageSpillFlushEvery = time.Second
+var pageSpillFlushEvery atomic.Int64
+
+func init() { pageSpillFlushEvery.Store(int64(time.Second)) }
 
 // pageSpillEntry is one staged snapshot write: the page id plus its raw
 // JSON document (validated as an object by the PUT handler).
@@ -192,7 +195,7 @@ func (m *pageStateMem) run(logfunc func() *slog.Logger) {
 			if len(batch) >= pageSpillFlushSize {
 				flush()
 			} else if timer == nil {
-				timer = time.NewTimer(pageSpillFlushEvery)
+				timer = time.NewTimer(time.Duration(pageSpillFlushEvery.Load()))
 				tick = timer.C
 			}
 		case <-tick:

@@ -86,7 +86,7 @@ var (
 // reverse import would cycle. Called from New; unwired legs are dropped by
 // the emitter until then. Safe to call repeatedly (idempotent overwrite).
 func WireChatAdLegs() {
-	upstream.RecordChatAdLeg = func(l upstream.ChatAdLeg) {
+	upstream.SetRecordChatAdLeg(func(l upstream.ChatAdLeg) {
 		var credits float64
 		if l.Credits != nil {
 			credits = *l.Credits
@@ -101,7 +101,7 @@ func WireChatAdLegs() {
 			Credits:  credits,
 			Error:    l.Error,
 		})
-	}
+	})
 }
 
 // RecordAdLeg appends one fired leg to the retained window, evicting the

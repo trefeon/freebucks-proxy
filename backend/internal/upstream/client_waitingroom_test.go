@@ -142,11 +142,15 @@ func TestChatCompletionsRetriesWaitingRoomSameSession(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		start := time.Now()
 		rc, err := client.ChatCompletions(context.Background(), ChatOptions{Model: "m", RunID: "r"}, body)
 		if err != nil {
 			t.Fatalf("ChatCompletions after queued retry: %v", err)
 		}
 		_ = rc.Close()
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Errorf("queued retry took %v, want < 5s (exponential backoff starting at 500ms)", elapsed)
+		}
 		if calls != 2 {
 			t.Errorf("upstream chat calls = %d, want 2 (original + same-session retry)", calls)
 		}

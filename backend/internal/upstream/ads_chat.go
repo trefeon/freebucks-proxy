@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -72,23 +73,29 @@ type ChatAdLeg struct {
 	Error    string
 }
 
-// RecordChatAdLeg emits one chat ad leg to the ads ledger. It is nil until
-// the ledger owner (pool, backend/internal/pool/ads_ledger.go) wires it to
-// pool.RecordAdLeg at startup; unwired legs are dropped. The hook exists
-// because pool already imports upstream, so upstream cannot import pool
-// back (import cycle): the ledger owns the store, this package only emits.
-var RecordChatAdLeg func(ChatAdLeg)
+// recordChatAdLegFn is the atomic pointer holding the registered chat ad leg callback.
+var recordChatAdLegFn atomic.Pointer[func(ChatAdLeg)]
+
+// SetRecordChatAdLeg safely configures or clears the chat ad leg sink.
+func SetRecordChatAdLeg(fn func(ChatAdLeg)) {
+	if fn == nil {
+		recordChatAdLegFn.Store(nil)
+		return
+	}
+	recordChatAdLegFn.Store(&fn)
+}
 
 // emitChatAdLeg drops the leg when no ledger is wired yet.
 func emitChatAdLeg(leg ChatAdLeg) {
-	if RecordChatAdLeg == nil {
+	fnPtr := recordChatAdLegFn.Load()
+	if fnPtr == nil || *fnPtr == nil {
 		return
 	}
 	leg.Surface = chatAdSurface
 	if leg.TS.IsZero() {
 		leg.TS = time.Now()
 	}
-	RecordChatAdLeg(leg)
+	(*fnPtr)(leg)
 }
 
 // chatAdTracker is the activity gate + burst cap + impression dedupe set.

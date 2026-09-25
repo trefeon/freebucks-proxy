@@ -23,8 +23,9 @@ var (
 	reSetConst  = regexp.MustCompile(`(?s)(?:export\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)[^=]*?=\s*new\s+Set(?:<[^>]*>)?\(\[([\s\S]*?)\]\)`)
 	reSetMember = regexp.MustCompile(`'([^']+)'|([A-Za-z_][A-Za-z0-9_.]*)`)
 
-	reRootBlock = regexp.MustCompile(`(?s)export const FREEBUFF_ROOT_AGENT_ID_BY_MODEL[^=]*?=\s*\{([\s\S]*?)\n\}`)
-	reRootEntry = regexp.MustCompile(`\[([A-Za-z_][A-Za-z0-9_]*)\]\s*:\s*'([^']+)'`)
+	reRootBlock     = regexp.MustCompile(`(?s)export const FREEBUFF_ROOT_AGENT_ID_BY_MODEL[^=]*?=\s*\{([\s\S]*?)\n\}`)
+	reCliBase3Block = regexp.MustCompile(`(?s)export const FREEBUFF_CLI_BASE3_AGENT_ID_BY_MODEL[^=]*?=\s*\{([\s\S]*?)\n\}`)
+	reRootEntry     = regexp.MustCompile(`\[([A-Za-z_][A-Za-z0-9_]*)\]\s*:\s*'([^']+)'`)
 
 	reAgentBlock = regexp.MustCompile(`(?s)export const FREE_MODE_AGENT_MODELS[^=]*?=\s*\{([\s\S]*?)\n\}`)
 	reAgentEntry = regexp.MustCompile(`'([^']+)'\s*:\s*(?:new\s+Set(?:<[^>]*>)?\(\[([\s\S]*?)\]\)|([A-Za-z_][A-Za-z0-9_]*))`)
@@ -138,18 +139,26 @@ func (r *constantResolver) resolve(name string, depth int) string {
 	return r.resolve(target, depth+1)
 }
 
-// parseRootAgentMap extracts FREEBUFF_ROOT_AGENT_ID_BY_MODEL. Keys are model
-// constants (`[MODEL_ID]: 'agent'`); each must resolve or the entry is
-// dropped. This map WINS over the agent-models map.
+// parseRootAgentMap extracts the CLI root agents (getFreebuffCliRootAgentIdForModel
+// in free-agents.ts:672): FREEBUFF_CLI_BASE3_AGENT_ID_BY_MODEL taking precedence
+// over the legacy FREEBUFF_ROOT_AGENT_ID_BY_MODEL. Keys are model constants;
+// each must resolve or the entry is dropped. This map WINS over the agent-models map.
 func parseRootAgentMap(text string, resolver *constantResolver) map[string]string {
 	modelToAgent := make(map[string]string)
-	block := reRootBlock.FindStringSubmatch(text)
-	if len(block) < 2 {
-		return modelToAgent
+	// Base2 legacy root agents:
+	if block := reRootBlock.FindStringSubmatch(text); len(block) >= 2 {
+		for _, m := range reRootEntry.FindAllStringSubmatch(block[1], -1) {
+			if model := resolver.resolve(m[1], 0); model != "" {
+				modelToAgent[model] = m[2]
+			}
+		}
 	}
-	for _, m := range reRootEntry.FindAllStringSubmatch(block[1], -1) {
-		if model := resolver.resolve(m[1], 0); model != "" {
-			modelToAgent[model] = m[2]
+	// Base3 CLI root agents (upstream getFreebuffCliRootAgentIdForModel):
+	if block := reCliBase3Block.FindStringSubmatch(text); len(block) >= 2 {
+		for _, m := range reRootEntry.FindAllStringSubmatch(block[1], -1) {
+			if model := resolver.resolve(m[1], 0); model != "" {
+				modelToAgent[model] = m[2]
+			}
 		}
 	}
 	return modelToAgent
