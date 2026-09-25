@@ -356,11 +356,12 @@ func (m *Manager) commit(cs *cachedState) {
 }
 
 // persistSaveLocked persists snap outside the manager lock (review
-// 2026-08-31 P3): Store.Save's temp write + rename is disk I/O. Caller
-// must hold m.mu; it is released around the write and re-acquired before
-// returning, so callers keep their lock discipline. persistMu — taken
-// while m.mu is still held — keeps concurrent commits' writes ordered as
-// committed even though the I/O itself runs unlocked.
+// 2026-08-31 P3): Store.Save swaps memory and enqueues the spill key.
+// Caller must hold m.mu; it is released around the call and re-acquired
+// before returning, so callers keep their lock discipline. persistMu —
+// taken while m.mu is still held — keeps concurrent commits' mutations
+// ordered as committed even though the backend write lands behind via the
+// spill loop (unified store: no disk I/O on this path at all).
 func (m *Manager) persistSaveLocked(snap *cachedState) {
 	m.persistMu.Lock()
 	m.mu.Unlock()

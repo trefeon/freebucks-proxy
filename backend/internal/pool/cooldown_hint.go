@@ -61,8 +61,10 @@ func (p *Pool) cooldownHintFresh(tokenHash string, now time.Time) bool {
 	return true
 }
 
-// storeCooldownHint records blob for tokenHash in memory and best-effort to
-// the store (nil store = memory only). Unknown kinds are refused.
+// storeCooldownHint records blob for tokenHash in memory; the spill loop
+// persists it behind via the dirty-flag flush (nil store = memory only).
+// Unknown kinds are refused. No store I/O happens here: the request hot
+// path never blocks on disk.
 func (p *Pool) storeCooldownHint(tokenHash string, blob poolCooldownBlob) {
 	if tokenHash == "" {
 		return
@@ -77,15 +79,11 @@ func (p *Pool) storeCooldownHint(tokenHash string, blob poolCooldownBlob) {
 	p.cooldownHints[tokenHash] = blob
 	p.cooldownHintMu.Unlock()
 	p.markPersistDirty()
-	if st := p.poolPersistBackend(); st != nil {
-		if err := st.SavePoolState(poolCooldownKey(tokenHash), mustMarshalPool(blob)); err != nil {
-			p.logger.Debug("pool: cooldown hint write failed (memory hint kept)", "error", err)
-		}
-	}
 }
 
-// clearCooldownHint drops tokenHash's hint from memory and best-effort from
-// the store. Memory pops first so the common case (no hint) does zero I/O.
+// clearCooldownHint drops tokenHash's hint from memory; the spill flush
+// converges the row behind (orphan prune). Memory pops first so the common
+// case (no hint) arms nothing. No store I/O happens here.
 func (p *Pool) clearCooldownHint(tokenHash string) {
 	if tokenHash == "" {
 		return
@@ -98,9 +96,6 @@ func (p *Pool) clearCooldownHint(tokenHash string) {
 		return
 	}
 	p.markPersistDirty()
-	if st := p.poolPersistBackend(); st != nil {
-		_ = st.DeletePoolState(poolCooldownKey(tokenHash))
-	}
 }
 
 // clearCooldownHintFor drops the hint for a pooled entry (nil-safe).

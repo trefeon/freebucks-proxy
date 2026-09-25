@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -121,6 +122,26 @@ type Store struct {
 	// imported marks the one-time legacy-file fold (reset to retry while
 	// the file stays unreadable with a non-NotExist error).
 	imported bool
+	// dirty tracks mutation generations per key so Flush persists removals
+	// and channel-dropped keys even when the spill loop never ran. Guarded
+	// by mu; cleared per generation after a successful backend write.
+	dirty map[string]uint64
+
+	// Unified-store spill (mem-authoritative, DB-persisted): mutations
+	// swap memory synchronously and enqueue the key; one background
+	// goroutine batches keys to the backend off the request path. Started
+	// by StartSpill (nil backend = no-op); stopped by Close. A nil
+	// spillCh means the loop never started — mutations stay mem-only and
+	// an explicit Flush still persists.
+	spillCh   chan string
+	spillDone chan struct{}
+	spillWg   sync.WaitGroup
+	spillOnce sync.Once
+	spillStop sync.Once
+	// spillDropped counts keys dropped on a full buffer. A drop only
+	// delays durability: memory stays authoritative and the next mutation
+	// re-enqueues the key.
+	spillDropped atomic.Int64
 }
 
 // NewStore builds a memory-only store with a legacy import source at path.
@@ -135,6 +156,311 @@ func NewStore(path string) *Store {
 // fails (a missing/unreadable file is treated as empty).
 func NewStoreWithBackend(path string, backend SessionBackend) *Store {
 	return &Store{path: path, backend: backend}
+}
+
+// Unified-store spill (the recorded pattern: spillCh 1024, batch 100/1s,
+// drop counter). Mutations swap the in-memory maps first (instant,
+// in-request) and enqueue the key; the spill goroutine batches keys to the
+// backend behind. Reads always serve memory; restore (fetchLocked) and the
+// legacy import keep their shapes — synchronous reads on a memory miss and
+// at boot only. Slot counters, cooldowns, single-flight and ip_capped live
+// outside this store and never cross the persistence boundary.
+const (
+	sessionSpillBufSize    = 1024
+	sessionSpillFlushSize  = 100
+	sessionSpillFlushEvery = time.Second
+	// sessionSpillMaxPending bounds keys held for retry inside the loop
+	// while the backend fails; beyond it the oldest retry is dropped with
+	// the drop counter (memory stays authoritative).
+	sessionSpillMaxPending = 4096
+)
+
+// StartSpill launches the background persist consumer. Idempotent; a nil
+// backend is a no-op (memory-only). The CLI calls it once after building
+// the store; tests opt in explicitly so suites without it stay fully
+// deterministic (no background backend writes).
+func (s *Store) StartSpill() {
+	if s.backend == nil {
+		return
+	}
+	s.spillOnce.Do(func() {
+		s.spillCh = make(chan string, sessionSpillBufSize)
+		s.spillDone = make(chan struct{})
+		s.spillWg.Add(1)
+		go s.spillLoop()
+	})
+}
+
+// SpillDropped reports keys dropped on a full spill buffer (durability
+// delayed, never correctness: memory stays authoritative).
+func (s *Store) SpillDropped() int64 { return s.spillDropped.Load() }
+
+// SpillRunning reports whether the background consumer is active.
+func (s *Store) SpillRunning() bool { return s.spillCh != nil }
+
+// enqueueSpill stages key for background persist. Non-blocking: a full
+// buffer drops with the counter. No-op when the loop never started (Flush
+// still persists explicitly).
+func (s *Store) enqueueSpill(key string) {
+	if key == "" || s.spillCh == nil {
+		return
+	}
+	select {
+	case s.spillCh <- key:
+	default:
+		s.spillDropped.Add(1)
+	}
+}
+
+// spillKeyLocked records key's mutation for background persist: the dirty
+// generation (so Flush converges even when the loop never ran) plus a
+// non-blocking loop wakeup. Caller holds s.mu.
+func (s *Store) spillKeyLocked(key string) {
+	if key == "" {
+		return
+	}
+	if s.dirty == nil {
+		s.dirty = make(map[string]uint64)
+	}
+	s.dirty[key]++
+	s.enqueueSpill(key)
+}
+
+// spillLoop batches enqueued keys to the backend: up to spillFlushSize per
+// pass, on every enqueue burst or once per spillFlushEvery. Failed keys
+// wait in pending for the next pass (bounded); Close stops the loop and
+// flushes explicitly.
+func (s *Store) spillLoop() {
+	defer s.spillWg.Done()
+	tick := time.NewTicker(sessionSpillFlushEvery)
+	defer tick.Stop()
+	var pending []string
+	pass := func(keys []string) {
+		pending = s.spillPass(append(pending, keys...))
+	}
+	for {
+		select {
+		case <-s.spillDone:
+			return
+		case k := <-s.spillCh:
+			batch := []string{k}
+			for len(batch) < sessionSpillFlushSize {
+				select {
+				case k := <-s.spillCh:
+					batch = append(batch, k)
+				default:
+					pass(batch)
+					batch = nil
+				}
+				if batch == nil {
+					break
+				}
+			}
+			if batch != nil {
+				pass(batch)
+			}
+		case <-tick.C:
+			var batch []string
+			for len(batch) < sessionSpillFlushSize {
+				select {
+				case k := <-s.spillCh:
+					batch = append(batch, k)
+				default:
+					goto drained
+				}
+			}
+		drained:
+			if len(batch) > 0 || len(pending) > 0 {
+				pass(batch)
+			}
+		}
+	}
+}
+
+// spillPass writes one bounded batch: dedupe, stage each key's current
+// memory view under s.mu, write outside the lock. Failures return to the
+// pending retry set (bounded, oldest dropped with the counter); successes
+// and unmarshalable snapshots do not retry. Successfully written keys clear
+// their dirty generation only when no newer mutation landed meanwhile, so a
+// concurrent update is never acknowledged by an older pass.
+func (s *Store) spillPass(keys []string) []string {
+	seen := make(map[string]struct{}, len(keys))
+	uniq := keys[:0]
+	for _, k := range keys {
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		uniq = append(uniq, k)
+	}
+	out := make([]stagedWrite, 0, len(uniq))
+	s.mu.Lock()
+	for _, k := range uniq {
+		sess, runs, ok := s.stageLocked(k)
+		out = append(out, stagedWrite{key: k, sess: sess, run: runs, ok: ok, gen: s.dirty[k]})
+	}
+	s.mu.Unlock()
+	var retry []string
+	var wrote []stagedWrite
+	for _, st := range out {
+		if !st.ok {
+			continue
+		}
+		if err := s.commitStaged(st.key, st.sess, st.run); err != nil {
+			retry = append(retry, st.key)
+		} else {
+			wrote = append(wrote, st)
+		}
+	}
+	s.mu.Lock()
+	for _, st := range wrote {
+		if s.dirty[st.key] == st.gen {
+			delete(s.dirty, st.key)
+		} else {
+			retry = append(retry, st.key)
+		}
+	}
+	s.mu.Unlock()
+	if len(retry) > sessionSpillMaxPending {
+		s.spillDropped.Add(int64(len(retry) - sessionSpillMaxPending))
+		retry = retry[len(retry)-sessionSpillMaxPending:]
+	}
+	return retry
+}
+
+type stagedWrite struct {
+	key       string
+	sess, run string
+	ok        bool
+	gen       uint64
+}
+
+// stageLocked snapshots key's current memory view for the backend: both
+// blobs when present, a row delete when both are gone. Caller holds s.mu.
+func (s *Store) stageLocked(key string) (sessJSON, runsJSON string, ok bool) {
+	if ps, present := s.data[key]; present {
+		raw, err := json.Marshal(ps)
+		if err != nil {
+			slog.Warn("session store: marshal failed, backend write skipped", "err", err)
+			return "", "", false
+		}
+		sessJSON = string(raw)
+	}
+	if agents, present := s.runs[key]; present && len(agents) > 0 {
+		raw, err := json.Marshal(agents)
+		if err != nil {
+			slog.Warn("session store: runs marshal failed, backend write skipped", "err", err)
+			return "", "", false
+		}
+		runsJSON = string(raw)
+	}
+	return sessJSON, runsJSON, true
+}
+
+// commitStaged writes one staged snapshot to the backend outside any lock.
+// Backend errors only warn — the in-memory update is kept so the store
+// stays consistent for this process; the spill loop retries on its next
+// pass, explicit Flush surfaces the error.
+func (s *Store) commitStaged(key, sessJSON, runsJSON string) error {
+	var err error
+	if sessJSON == "" && runsJSON == "" {
+		err = s.backend.DeleteSession(key)
+	} else {
+		err = s.backend.SaveSession(key, sessJSON, runsJSON)
+	}
+	if err != nil {
+		slog.Warn("session store: backend write failed (in-memory update kept)", "err", err)
+	}
+	return err
+}
+
+// Flush persists every mutated key synchronously: the drained spill queue
+// plus all dirty generations plus all live map keys (covering keys dropped
+// on a full buffer and removals the loop never saw). Locks are never held
+// across backend I/O. It returns the first backend error (all keys are
+// still attempted); a nil backend is a no-op. Tests, Close and the shutdown
+// path use it; the request path never calls it.
+func (s *Store) Flush() error {
+	if s.backend == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var keys []string
+	add := func(k string) {
+		if k == "" {
+			return
+		}
+		if _, ok := seen[k]; !ok {
+			seen[k] = struct{}{}
+			keys = append(keys, k)
+		}
+	}
+	if s.spillCh != nil {
+		for {
+			select {
+			case k := <-s.spillCh:
+				add(k)
+			default:
+				goto drained
+			}
+		}
+	}
+drained:
+	s.mu.Lock()
+	for k := range s.dirty {
+		add(k)
+	}
+	for k := range s.data {
+		add(k)
+	}
+	for k := range s.runs {
+		add(k)
+	}
+	staged := make([]stagedWrite, 0, len(keys))
+	for _, k := range keys {
+		sess, runs, ok := s.stageLocked(k)
+		staged = append(staged, stagedWrite{key: k, sess: sess, run: runs, ok: ok, gen: s.dirty[k]})
+	}
+	s.mu.Unlock()
+	var first error
+	var wrote []stagedWrite
+	for _, st := range staged {
+		if !st.ok {
+			continue
+		}
+		if err := s.commitStaged(st.key, st.sess, st.run); err != nil {
+			if first == nil {
+				first = err
+			}
+		} else {
+			wrote = append(wrote, st)
+		}
+	}
+	s.mu.Lock()
+	for _, st := range wrote {
+		if s.dirty[st.key] == st.gen {
+			delete(s.dirty, st.key)
+		}
+		// else: a concurrent mutation re-armed the key after staging;
+		// the dirty map still holds the newer generation for the next
+		// pass (Flush replays current state, so nothing is lost).
+	}
+	s.mu.Unlock()
+	return first
+}
+
+// Close stops the background spill consumer (if started) and flushes what
+// is buffered. The store stays usable mem-only afterwards; an explicit
+// Flush still persists. Safe to call without StartSpill and more than once.
+func (s *Store) Close() error {
+	if s.spillDone != nil {
+		s.spillStop.Do(func() { close(s.spillDone) })
+		s.spillWg.Wait()
+	}
+	return s.Flush()
 }
 
 // ensureImportedLocked folds the legacy JSON file into memory (and the
@@ -360,43 +686,6 @@ func (s *Store) fetchLocked(key string) bool {
 	return false
 }
 
-// persistLocked writes key's current memory view to the backend: both
-// blobs when present, a row delete when both are gone. A nil backend is a
-// no-op (memory-only). Backend errors only warn — the in-memory update is
-// kept so the store stays consistent for this process. Caller holds s.mu.
-func (s *Store) persistLocked(key string) {
-	if s.backend == nil {
-		return
-	}
-	sessJSON := ""
-	if ps, ok := s.data[key]; ok {
-		raw, err := json.Marshal(ps)
-		if err != nil {
-			slog.Warn("session store: marshal failed, backend write skipped", "err", err)
-			return
-		}
-		sessJSON = string(raw)
-	}
-	runsJSON := ""
-	if agents, ok := s.runs[key]; ok && len(agents) > 0 {
-		raw, err := json.Marshal(agents)
-		if err != nil {
-			slog.Warn("session store: runs marshal failed, backend write skipped", "err", err)
-			return
-		}
-		runsJSON = string(raw)
-	}
-	var err error
-	if sessJSON == "" && runsJSON == "" {
-		err = s.backend.DeleteSession(key)
-	} else {
-		err = s.backend.SaveSession(key, sessJSON, runsJSON)
-	}
-	if err != nil {
-		slog.Warn("session store: backend write failed (in-memory update kept)", "err", err)
-	}
-}
-
 // Load returns the persisted cached state for key, or nil when absent or
 // already expired beyond the grace window. Load never performs upstream
 // calls; it only filters obviously-dead entries.
@@ -418,7 +707,7 @@ func (s *Store) Load(key string) *cachedState {
 	// impossible and keeping them only delays the inevitable re-create.
 	if !ps.GracePeriodEndsAt.IsZero() && time.Now().After(ps.GracePeriodEndsAt) {
 		delete(s.data, key)
-		s.persistLocked(key)
+		s.spillKeyLocked(key)
 		return nil
 	}
 	cs := &cachedState{
@@ -460,8 +749,11 @@ func (s *Store) Load(key string) *cachedState {
 	return cs
 }
 
-// Save persists cs under key. A nil cs removes the key. Disabled sessions
-// (no instance id, no expiry) are not persisted: there is nothing to resume.
+// Save swaps cs into memory under key and spills the key to the backend
+// behind (StartSpill loop, explicit Flush, or Close): the next Load sees it
+// synchronously with zero disk I/O on the calling path. A nil cs removes
+// the key. Disabled sessions (no instance id, no expiry) are not persisted:
+// there is nothing to resume.
 func (s *Store) Save(key string, cs *cachedState) {
 	if key == "" {
 		return
@@ -475,7 +767,7 @@ func (s *Store) Save(key string, cs *cachedState) {
 
 	if cs == nil || (cs.instanceID == "" && cs.status != "queued") {
 		delete(s.data, key)
-		s.persistLocked(key)
+		s.spillKeyLocked(key)
 		return
 	}
 	s.data[key] = persistedState{
@@ -536,7 +828,7 @@ func (s *Store) Save(key string, cs *cachedState) {
 		ps.Standing = &st
 		s.data[key] = ps
 	}
-	s.persistLocked(key)
+	s.spillKeyLocked(key)
 }
 
 // cloneFreebucksInfo deep-copies the map/slice fields (including the ones
@@ -623,7 +915,7 @@ func (s *Store) Remove(key, expectedInstanceID string) {
 		return
 	}
 	delete(s.data, key)
-	s.persistLocked(key)
+	s.spillKeyLocked(key)
 }
 
 // SaveRun persists one active run for token key under agentID (issue #40).
@@ -646,7 +938,7 @@ func (s *Store) SaveRun(key, agentID string, pr PersistedRun) {
 		s.runs[key] = agents
 	}
 	agents[agentID] = pr
-	s.persistLocked(key)
+	s.spillKeyLocked(key)
 }
 
 // LoadRun returns the persisted run for token key + agentID, or nil when
@@ -695,5 +987,5 @@ func (s *Store) RemoveRun(key, agentID string) {
 	if len(agents) == 0 {
 		delete(s.runs, key)
 	}
-	s.persistLocked(key)
+	s.spillKeyLocked(key)
 }
