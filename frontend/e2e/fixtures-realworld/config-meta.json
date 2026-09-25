@@ -67,7 +67,14 @@
     "key": "HTTP_READ_TIMEOUT",
     "group": "general",
     "kind": "select",
-    "enum": ["60s", "90s", "120s", "180s", "300s", "0"],
+    "enum": [
+      "60s",
+      "90s",
+      "120s",
+      "180s",
+      "300s",
+      "0"
+    ],
     "default": "60s",
     "restart_only": true,
     "secret": false,
@@ -111,7 +118,10 @@
     "key": "LOG_FORMAT",
     "group": "general",
     "kind": "select",
-    "enum": ["text", "json"],
+    "enum": [
+      "text",
+      "json"
+    ],
     "default": "text",
     "restart_only": true,
     "secret": false,
@@ -122,7 +132,13 @@
     "key": "LOG_LEVEL",
     "group": "general",
     "kind": "select",
-    "enum": ["debug", "info", "warn", "error", "trace"],
+    "enum": [
+      "debug",
+      "info",
+      "warn",
+      "error",
+      "trace"
+    ],
     "default": "debug",
     "restart_only": true,
     "secret": false,
@@ -447,7 +463,9 @@
     "key": "COST_MODE",
     "group": "upstream",
     "kind": "select",
-    "enum": ["free"],
+    "enum": [
+      "free"
+    ],
     "default": "free",
     "restart_only": true,
     "secret": false,
@@ -575,7 +593,7 @@
     "key": "TRANSIENT_RETRIES",
     "group": "upstream",
     "kind": "int",
-    "default": "1",
+    "default": "3",
     "restart_only": true,
     "secret": false,
     "essential": false,

@@ -593,7 +593,7 @@
     "key": "TRANSIENT_RETRIES",
     "group": "upstream",
     "kind": "int",
-    "default": "1",
+    "default": "3",
     "restart_only": true,
     "secret": false,
     "essential": false,

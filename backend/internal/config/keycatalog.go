@@ -350,7 +350,7 @@ var keyCatalog = []KeyDef{
 	},
 	{
 		Key: "TRANSIENT_RETRIES", Group: GroupUpstream, Kind: "int", RestartOnly: true, Hidden: true,
-		Default:     "1",
+		Default:     "3",
 		Description: `Max additional attempts after a transient failure: transport failures retry on a fresh connection, transient upstream queues (free_mode_capacity_deferred, the waiting room) retry in place against the same session; other upstream errors never retry (0 disables).`,
 	},
 	{
