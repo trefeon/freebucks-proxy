@@ -116,12 +116,13 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 	s.recordRequestOutcome(lease, model, status, errClass, phases, st)
 }
 
-// recordRequestOutcome persists one /v1 inference outcome to the history
-// store for the Logs console view. It runs on the chat path but performs a
-// single indexed upsert and never fails the request: a nil store skips the
+// recordRequestOutcome stages one /v1 inference outcome for the Logs console
+// view. It runs on the chat path: the row rides the dashboard spill (no disk
+// on the request path) and never fails the request. A nil store skips the
 // write (live-only), a missing req_id skips it (the PRIMARY KEY cannot
-// distinguish pre-attempt refusals — the ring log still carries them), and
-// insert errors only warn.
+// distinguish pre-attempt refusals — the ring log still carries them). When
+// the dashboard is disabled but a history store exists, it falls back to a
+// synchronous insert (warn-only on error).
 func (s *Server) recordRequestOutcome(lease *pool.Lease, model string, status, errClass string, phases map[string]int64, st *chatTraceState) {
 	if s.hist == nil || st == nil || st.reqID == "" {
 		return
@@ -136,7 +137,7 @@ func (s *Server) recordRequestOutcome(lease *pool.Lease, model string, status, e
 	}
 	// clientKeyHash is the pooled API-key identity (hex(sha256)[:16]);
 	// "" when no key matched. The raw key never reaches the store.
-	if err := s.hist.RecordRequest(store.RequestRecord{
+	rec := store.RequestRecord{
 		ReqID:         st.reqID,
 		TS:            store.Millis(time.Now()),
 		Endpoint:      "/v1/chat/completions",
@@ -146,7 +147,12 @@ func (s *Server) recordRequestOutcome(lease *pool.Lease, model string, status, e
 		TTFBms:        ttfb,
 		Err:           errClass,
 		ClientKeyHash: st.clientKeyHash,
-	}); err != nil {
+	}
+	if s.dash != nil {
+		s.dash.EnqueueRequest(rec)
+		return
+	}
+	if err := s.hist.RecordRequest(rec); err != nil {
 		s.logger.Warn("request record failed", "err", err, "req_id", st.reqID)
 	}
 }
