@@ -218,29 +218,21 @@ func (p *Pool) InvalidateLeaseRun(lease *Lease, agentID string) {
 // ended (they used to leak upstream, contrast RemoveAllTokens); a lease
 // that slips through the busy-check/swap race is released through the
 // retired map and drained once it releases.
+// RemoveLastToken removes the highest-index fixed token (dashboard action).
+// Seamless under load: in-flight leases resolve through their entry pointer
+// (leaseTarget), so removal never disrupts in-flight traffic. When in-flight
+// requests exist on the removed token, it stays parked in p.retired and drains
+// automatically once its last lease releases via LeaseRelease.
 func (p *Pool) RemoveLastToken() error {
 	toks := p.roster.Load()
 	if len(*toks) == 0 {
 		return errors.New("pool: no tokens to remove")
 	}
-	last := (*toks)[len(*toks)-1]
-	if last.runs.InflightCount() > 0 {
-		return errors.New("pool: token has in-flight requests; wait for them to finish")
-	}
-	// Pop the trailing entry through the roster (one mutation; the removed
-	// slot's 1-based mismatch key is dropped inside). The busy check above
-	// and the swap are TOCTOU: an Acquire that loaded the pre-removal
-	// snapshot can lease the removed token in between. Park the entry so
-	// that lease is still released (LeaseRelease bounds-checks the new
-	// snapshot and would otherwise no-op, leaking the run's inflight), then
-	// drain now when no lease slipped — finishing the removed token's run and
-	// ending its admitted session. A slipped lease keeps the entry parked;
-	// LeaseRelease drains it once the last lease releases.
 	removed, ok := p.roster.removeLast()
 	if !ok {
 		return errors.New("pool: no tokens to remove")
 	}
-	last = removed
+	last := removed
 	slip := last.runs.InflightCount() > 0
 	p.retiredMu.Lock()
 	if p.retired == nil {
@@ -255,36 +247,30 @@ func (p *Pool) RemoveLastToken() error {
 }
 
 // RemoveTokenAt removes the fixed token at idx (dashboard action on a
-// specific row). A middle removal shifts every higher index, so unlike
-// RemoveLastToken it refuses while ANY token has in-flight requests: a
-// lease that slipped the check would otherwise re-index against a
-// different entry on the chat path (documented hazard in RemoveLastToken).
-// The removed entry is parked + drained exactly like RemoveLastToken; the
-// usage/spend/mismatch tracks are rebuilt index-aligned.
+// specific row). Seamless under load: in-flight leases resolve through their
+// entry pointer (leaseTarget), so removal never disrupts in-flight traffic.
+// If the removed token holds in-flight requests, it stays parked in p.retired
+// and drains automatically once its last lease releases via LeaseRelease;
+// otherwise it drains immediately.
 func (p *Pool) RemoveTokenAt(idx int) error {
 	toks := p.roster.Load()
 	if idx < 0 || idx >= len(*toks) {
 		return errors.New("pool: token index out of range")
 	}
-	for _, t := range *toks {
-		if t.runs.InflightCount() > 0 {
-			return errors.New("pool: active requests in flight; retry once they finish")
-		}
-	}
-	// Remove the entry through the roster (single-mutated mutation; the
-	// usage/spend travel with the entry and the mismatch map is reindexed
-	// inside).
 	target, ok := p.roster.removeAt(idx)
 	if !ok {
 		return errors.New("pool: token index out of range")
 	}
+	slip := target.runs.InflightCount() > 0
 	p.retiredMu.Lock()
 	if p.retired == nil {
 		p.retired = make(map[*tokenEntry]time.Time)
 	}
 	p.retired[target] = time.Now()
 	p.retiredMu.Unlock()
-	p.drainRemovedToken(target)
+	if !slip {
+		p.drainRemovedToken(target)
+	}
 	return nil
 }
 
