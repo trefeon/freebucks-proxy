@@ -71,6 +71,11 @@ func TestStoreRoundtrip(t *testing.T) {
 		gracePeriodEndsAt: expiry.Add(graceWindow),
 		countryCode:       "US",
 	})
+	// Unified-store spill: Save swaps memory synchronously; Flush lands
+	// the row for the restart below.
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 
 	// A second Store instance over the same backend (restart) must see the write.
 	store2 := NewStoreWithBackend(path, fb)
@@ -87,6 +92,9 @@ func TestStoreRoundtrip(t *testing.T) {
 	}
 
 	store.Remove("key", "")
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 	if got := NewStoreWithBackend(path, fb).Load("key"); got != nil {
 		t.Errorf("Load after Remove = %+v, want nil", got)
 	}
@@ -156,15 +164,19 @@ func TestResumePersistedOnRestart(t *testing.T) {
 
 	// First process: create a session and shut down. Shutdown DELETEs the
 	// upstream slot but keeps the backend entry, so a restart can
-	// still probe it via pollPersisted. Both processes share one backend
-	// (sessions_persist); the legacy file path is import-only.
 	fb := newFakeSessionBackend()
-	mgr1 := newTestManagerWithStore(t, mock, NewStoreWithBackend(path, fb))
+	store1 := NewStoreWithBackend(path, fb)
+	mgr1 := newTestManagerWithStore(t, mock, store1)
 	if _, err := mgr1.EnsureSession(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if err := mgr1.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	// Unified-store spill: the admission + shutdown Saves swap memory
+	// synchronously; Flush lands the row the restart probes.
+	if err := store1.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
 	}
 	if mock.SessionCreates != 1 {
 		t.Fatalf("SessionCreates after first process = %d, want 1", mock.SessionCreates)
@@ -256,6 +268,9 @@ func TestStoreRemoveCAS(t *testing.T) {
 	store := NewStoreWithBackend(path, fb)
 	expiry := time.Now().Add(time.Hour).UTC()
 	store.Save("key", &cachedState{status: "active", instanceID: "inst-1", expiresAt: expiry})
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 
 	// Wrong instance id: the entry must survive untouched.
 	store.Remove("key", "inst-other")
@@ -271,6 +286,9 @@ func TestStoreRemoveCAS(t *testing.T) {
 
 	// Matching instance id: the entry is removed.
 	store.Remove("key", "inst-1")
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 	if got := store.Load("key"); got != nil {
 		t.Fatalf("Remove with matching instance = %+v, want nil", got)
 	}
@@ -340,6 +358,11 @@ func TestStoreConcurrentSaveLoadRemove(t *testing.T) {
 		}(w)
 	}
 	wg.Wait()
+	// Unified-store spill: Saves/Removes swap memory synchronously; Flush
+	// lands every key for the restart view below.
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 
 	// A fresh store over the same backend must see exactly the keys that were
 	// saved but not removed: the odd keys of every worker.
@@ -411,6 +434,9 @@ func TestStoreUnreadableLegacyFileStaysUsable(t *testing.T) {
 	if got := store.Load("b"); got == nil || got.instanceID != "inst-b" {
 		t.Fatalf("Load('b') = %+v, want inst-b (memory + backend usable despite unreadable file)", got)
 		return
+	}
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
 	}
 	// A fresh store over the same backend resumes 'b' without the file.
 	if got := NewStoreWithBackend(path, fb).Load("b"); got == nil || got.instanceID != "inst-b" {

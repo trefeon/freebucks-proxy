@@ -23,6 +23,9 @@ func TestStoreRunAdoptIntactAcrossRestart(t *testing.T) {
 		RunID: "run-1", AgentID: "agent-x", TraceSessionID: "trace-1",
 		ClientID: "client-1", StartedAt: time.Now().Add(-time.Minute), Requests: 3,
 	})
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 
 	// Restart: a fresh store over the same backend adopts both blobs intact.
 	s2 := NewStoreWithBackend(path, fb)

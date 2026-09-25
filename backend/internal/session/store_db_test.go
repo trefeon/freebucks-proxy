@@ -3,13 +3,12 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"freebucks-proxy/backend/internal/upstream"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // fakeSessionBackend is an in-memory SessionBackend: it stands in for
@@ -103,7 +102,11 @@ func TestDBBackedWriteReopenLoadIdentical(t *testing.T) {
 	s1.Save("key", slot)
 	runAt := time.Now().Add(-time.Minute).Truncate(time.Second)
 	s1.SaveRun("key", "agent-x", PersistedRun{RunID: "run-1", AgentID: "agent-x", TraceSessionID: "t", StartedAt: runAt, Requests: 2})
-
+	// Unified-store spill: mutations swap memory synchronously and persist
+	// behind — Flush lands them for the restart below.
+	if err := s1.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 	fb.mu.Lock()
 	saves := fb.saves
 	fb.mu.Unlock()
@@ -150,10 +153,12 @@ func TestLegacyFileImportsOnceThenArchives(t *testing.T) {
 	path := filepath.Join(dir, "state.json")
 	expiry := time.Now().Add(time.Hour).Truncate(time.Second)
 	grace := expiry.Add(graceWindow)
-
 	fb := newFakeSessionBackend()
 	seed := NewStoreWithBackend("", fb)
 	seed.Save("db-wins", &cachedState{status: "active", instanceID: "inst-db", model: "m", expiresAt: expiry, gracePeriodEndsAt: grace})
+	if err := seed.Flush(); err != nil {
+		t.Fatalf("seed Flush: %v", err)
+	}
 
 	runAt := time.Now().Add(-time.Minute).Truncate(time.Second)
 	file := storeFile{
@@ -212,6 +217,9 @@ func TestLegacyFileImportsOnceThenArchives(t *testing.T) {
 
 	// The save path never recreates the JSON file.
 	s2.Save("file-new", &cachedState{status: "active", instanceID: "inst-new2", model: "m", expiresAt: expiry, gracePeriodEndsAt: grace})
+	if err := s2.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("Save recreated the session file at %s, want import-only: %v", path, err)
 	}

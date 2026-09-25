@@ -241,6 +241,10 @@ func Serve(configPath string, verbose bool, version string) int {
 			store = session.NewStore(stateFile)
 			logger.Warn("dashboard store unavailable; session persistence is memory-only for this run", "file", stateFile)
 		}
+		// Unified-store spill: session mutations swap memory synchronously
+		// and persist behind via the background consumer (memory-only store
+		// = no-op). Closed at shutdown after the pool drains.
+		store.StartSpill()
 
 		// Same cwd-vs-exe trap as .env: on Windows launchers (Task
 		// Scheduler, shortcuts, services) the working directory is often not
@@ -575,6 +579,15 @@ func Serve(configPath string, verbose bool, version string) int {
 	poolCtx, poolCancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer poolCancel()
 	p.Shutdown(poolCtx)
+	// Stop the session spill consumer with a final flush (nil store or
+	// never-started = no-op). Runs after the pool drain so the shutdown
+	// Saves land; runs before the history store close since the session
+	// backend writes through that same handle.
+	if store != nil {
+		if err := store.Close(); err != nil {
+			logger.Warn("session spill close failed", "err", err)
+		}
+	}
 	// Flush the history spill consumer and release the SQLite handle.
 	if err := srv.Close(); err != nil {
 		logger.Warn("history store close failed", "err", err)

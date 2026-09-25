@@ -72,6 +72,12 @@ func (m *memPoolPersist) ListPoolState(prefix string) (map[string][]byte, error)
 	return out, nil
 }
 
+func (m *memPoolPersist) saveCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.saves
+}
+
 func (m *memPoolPersist) keys() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

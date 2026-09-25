@@ -30,6 +30,11 @@ func TestStoreRunPersistenceRoundTrip(t *testing.T) {
 	if got := s.LoadRun("tokhash", "other-agent"); got != nil {
 		t.Fatalf("LoadRun(other agent) = %+v, want nil", got)
 	}
+	// Unified-store spill: SaveRun swaps memory synchronously; Flush lands
+	// the row for the restart below.
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 
 	// A fresh store over the same backend (restart) sees the run.
 	s2 := NewStoreWithBackend(path, fb)
@@ -39,6 +44,9 @@ func TestStoreRunPersistenceRoundTrip(t *testing.T) {
 	}
 
 	s2.RemoveRun("tokhash", "agent-x")
+	if err := s2.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 	if got := s2.LoadRun("tokhash", "agent-x"); got != nil {
 		t.Fatalf("LoadRun after RemoveRun = %+v, want nil", got)
 	}
@@ -66,6 +74,9 @@ func TestStoreRunAndSessionCoexist(t *testing.T) {
 	s := NewStoreWithBackend(path, fb)
 	s.Save("tokhash", &cachedState{status: "active", instanceID: "inst-1", model: "m", expiresAt: time.Now().Add(time.Hour), gracePeriodEndsAt: time.Now().Add(2 * time.Hour)})
 	s.SaveRun("tokhash", "agent-x", PersistedRun{RunID: "run-1", AgentID: "agent-x", TraceSessionID: "t", StartedAt: time.Now()})
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 
 	s2 := NewStoreWithBackend(path, fb)
 	if cs := s2.Load("tokhash"); cs == nil || cs.instanceID != "inst-1" {

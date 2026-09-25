@@ -103,9 +103,120 @@ func (p *Pool) SetPoolPersist(s PoolPersist) {
 	p.persist = s
 }
 
-// markPersistDirty arms the background flush. Lock-free so the request hot
-// path never blocks on persistence.
-func (p *Pool) markPersistDirty() { p.persistDirty.Store(true) }
+// markPersistDirty arms the background flush and wakes the spill loop. The
+// store plus a coalesced channel send never block: the request hot path
+// never waits on persistence.
+func (p *Pool) markPersistDirty() {
+	p.persistDirty.Store(true)
+	p.signalPoolSpill()
+}
+
+// Unified-store spill (the recorded pattern: spillCh 1024, batch-per-pass
+// at 1s cadence, drop counter). Mutations swap memory first and arm the
+// dirty flag with a coalesced loop wakeup; one background pass per wakeup
+// (or per tick) runs FlushPoolPersist off the request path. The maintain
+// tick and Shutdown keep their flush calls as additional drivers. Revalida-
+// tion is untouched: restore still drops out-of-window usage, clips the
+// installLedger window, rolls stale spend buckets and expiry-checks hints;
+// slot counters, cooldowns, single-flight and ip_capped are never staged.
+const (
+	poolSpillBufSize    = 1024
+	poolSpillFlushEvery = time.Second
+)
+
+// StartPoolSpill launches the background persist consumer. Idempotent; a
+// nil backend is a no-op. Start calls it after restore; tests opt in
+// explicitly so suites without it stay fully deterministic.
+func (p *Pool) StartPoolSpill() {
+	p.poolSpillOnc.Do(func() {
+		p.persistMu.Lock()
+		backend := p.persist
+		p.persistMu.Unlock()
+		if backend == nil {
+			return
+		}
+		p.poolSpillMu.Lock()
+		p.poolSpillCh = make(chan struct{}, poolSpillBufSize)
+		p.poolSpillDone = make(chan struct{})
+		p.poolSpillMu.Unlock()
+		p.poolSpillWg.Add(1)
+		go p.poolSpillLoop()
+	})
+}
+
+// StopPoolSpill stops the background consumer (if started) with a final
+// flush. Safe without StartPoolSpill and more than once; Shutdown calls it.
+func (p *Pool) StopPoolSpill() {
+	p.poolSpillStp.Do(func() {
+		p.poolSpillMu.Lock()
+		done := p.poolSpillDone
+		p.poolSpillMu.Unlock()
+		if done == nil {
+			return
+		}
+		close(done)
+		p.poolSpillWg.Wait()
+		_ = p.FlushPoolPersist()
+	})
+}
+
+// PoolSpillDropped counts coalesced wakeups dropped on a full spill buffer
+// (redundant wakeups only: the dirty flag already carries the work).
+func (p *Pool) PoolSpillDropped() int64 { return p.poolSpillDropped.Load() }
+
+// PoolSpillRunning reports whether the background consumer is active.
+func (p *Pool) PoolSpillRunning() bool {
+	p.poolSpillMu.Lock()
+	defer p.poolSpillMu.Unlock()
+	return p.poolSpillCh != nil
+}
+
+// poolSpillLoop runs one FlushPoolPersist per coalesced wakeup or per tick.
+// FlushPoolPersist is dirty-gated, so idle passes cost one atomic swap.
+func (p *Pool) poolSpillLoop() {
+	defer p.poolSpillWg.Done()
+	p.poolSpillMu.Lock()
+	ch := p.poolSpillCh
+	done := p.poolSpillDone
+	p.poolSpillMu.Unlock()
+	tick := time.NewTicker(poolSpillFlushEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			_ = p.FlushPoolPersist()
+			return
+		case <-ch:
+			for {
+				select {
+				case <-ch:
+				default:
+					goto coalesced
+				}
+			}
+		coalesced:
+			_ = p.FlushPoolPersist()
+		case <-tick.C:
+			_ = p.FlushPoolPersist()
+		}
+	}
+}
+
+// signalPoolSpill posts a coalesced loop wakeup. Non-blocking: a full
+// buffer drops with the counter (the dirty flag already carries the work).
+func (p *Pool) signalPoolSpill() {
+	p.poolSpillMu.Lock()
+	ch := p.poolSpillCh
+	p.poolSpillMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+		p.poolSpillDropped.Add(1)
+	}
+}
 
 // poolKV is one key/blob pair staged for save.
 type poolKV struct {

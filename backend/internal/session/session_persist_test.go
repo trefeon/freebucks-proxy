@@ -3,6 +3,9 @@ package session
 import (
 	"context"
 	"errors"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -11,10 +14,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // newPersistTestManager builds a manager wired to a store, like
@@ -654,6 +653,9 @@ func TestPersistQuotaByModelRoundTrip(t *testing.T) {
 	}
 
 	store.Save(key, slot)
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 
 	// Fresh store over the same backend (restart)
 	store2 := NewStoreWithBackend(store.path, fb)
@@ -701,6 +703,9 @@ func TestPersistAccountBlocksRoundTrip(t *testing.T) {
 	slot.standing = &upstream.SessionStanding{Level: "trusted", NextSteps: []upstream.StandingNextStep{{ID: "a", Label: "b"}}}
 
 	store.Save(key, slot)
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 	store2 := NewStoreWithBackend(store.path, fb)
 	loaded := store2.Load(key)
 	if loaded == nil {
