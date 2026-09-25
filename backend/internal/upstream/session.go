@@ -78,12 +78,12 @@ func (c *Client) CreateSession(ctx context.Context) (*SessionState, error) {
 }
 
 // CreateSessionForModel POSTs the dedicated admission route with the
-// requested model header. The POST carries NO body and therefore no
-// Content-Type (#120): the CLI's session POST is a bare fetch with
-// Authorization + the optional x-freebuff-model header plus the wallet
-// spend-limit header (upstream/freebuff freebuff-session-api.ts
-// callFreebuffSession; codebuff-api.ts sets the same request shape), plus the
-// locality header sessionCall stamps on every session call.
+// requested model header and client-generated instance ID (cli:<uuid>).
+// The POST carries NO body and therefore no Content-Type (#120): the CLI
+// and Desktop session POST is a bare fetch with Authorization,
+// x-freebuff-model, x-freebuff-instance-id (bundle.js function ar() prefixed
+// with "cli:"), x-freebuff-multi-session ("1"), plus the wallet spend-limit
+// and first-tab discount headers, along with the locality timezone header.
 func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.CreateSession(c.token, model)
@@ -96,7 +96,14 @@ func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*Sess
 		req.Header.Set("x-freebuff-model", model)
 	}
 	req.Header.Set(WalletSpendLimitHeader, DefaultWalletSpendLimit)
-	return c.sessionCall(req)
+	instID := generateCliInstanceID()
+	req.Header.Set("x-freebuff-instance-id", instID)
+	req.Header.Set("x-freebuff-multi-session", "1")
+	st, err := c.sessionCall(req)
+	if err == nil && st != nil && st.InstanceID == "" && st.Status == "active" {
+		st.InstanceID = instID
+	}
+	return st, err
 }
 
 // GetSession polls /api/v1/freebuff/session for the given instance. A poll
@@ -296,8 +303,7 @@ func (c *Client) GetStreak(ctx context.Context) (*StreakInfo, error) {
 // already gone, nothing to record). The DELETE carries
 // x-freebuff-instance-id when the caller holds one (vendor parity:
 // cli/src/utils/freebuff-session-api.ts callFreebuffSession sends the
-// instance header on GET/DELETE when known; the session POST carries
-// x-freebuff-model and never the instance id). An empty instanceID omits
+// instance header on admission POST, poll GET, and DELETE alike). An empty instanceID omits
 // the header (the caller genuinely holds no slot).
 func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRefundReceipt, error) {
 	if c.mock != nil {

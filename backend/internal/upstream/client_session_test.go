@@ -3,14 +3,13 @@ package upstream
 import (
 	"context"
 	"errors"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
 )
 
 func TestSessionControlCalls(t *testing.T) {
@@ -418,8 +417,10 @@ func TestControlCallTimeout(t *testing.T) {
 func TestCreateSessionForModelHeaders(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
+	var capturedHeaders http.Header
 	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
+			capturedHeaders = r.Header.Clone()
 			model := r.Header.Get("x-freebuff-model")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -440,6 +441,19 @@ func TestCreateSessionForModelHeaders(t *testing.T) {
 	}
 	if st.Status != "active" || st.Model != "thudm/glm-5.2" || st.InstanceID != "inst-1" {
 		t.Errorf("got %+v, want active with model thudm/glm-5.2", st)
+	}
+	instID := capturedHeaders.Get("x-freebuff-instance-id")
+	if !strings.HasPrefix(instID, "cli:") {
+		t.Errorf("x-freebuff-instance-id = %q, want cli: prefix", instID)
+	}
+	if got := capturedHeaders.Get("x-freebuff-multi-session"); got != "1" {
+		t.Errorf("x-freebuff-multi-session = %q, want '1'", got)
+	}
+	if got := capturedHeaders.Get("x-freebuff-first-tab-discount"); got != "0" {
+		t.Errorf("x-freebuff-first-tab-discount = %q, want '0'", got)
+	}
+	if got := capturedHeaders.Get("x-freebuff-wallet-spend-limit"); got != "0" {
+		t.Errorf("x-freebuff-wallet-spend-limit = %q, want '0'", got)
 	}
 }
 

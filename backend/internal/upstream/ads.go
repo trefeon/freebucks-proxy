@@ -2,9 +2,9 @@ package upstream
 
 import (
 	"context"
-	cryptoRand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"freebucks-proxy/backend/internal/wirefacts"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,8 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"freebucks-proxy/backend/internal/wirefacts"
 )
 
 // freebuffCliUA is the ads-API request User-Agent, mirroring the installed
@@ -268,13 +266,7 @@ func (c *Client) postAdEvent(ctx context.Context, path string, payload map[strin
 // crypto.randomUUID per impression (use-gravity-ad.ts: one id per
 // logical event; the header is what the server reads).
 func newAdEventID() string {
-	var b [16]byte
-	if _, err := cryptoRand.Read(b[:]); err != nil {
-		return fmt.Sprintf("%x", time.Now().UnixNano())
-	}
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	return newUUIDv4()
 }
 
 // deviceOS maps runtime.GOOS to the ads device block's wire contract
