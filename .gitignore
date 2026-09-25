@@ -128,6 +128,7 @@ docs/*
 !docs/upstream/
 !docs/api/
 !docs/maintenance/
+!docs/reverse-guide/
 
 # ── proxy session persistence (SHA-256 token keys + instance state) ──
 .freebuff-session-state.json
