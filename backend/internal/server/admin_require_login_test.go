@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"freebucks-proxy/backend/internal/config"
 )
 
 func TestAdminRequireLoginToggleFlow(t *testing.T) {
@@ -177,11 +175,10 @@ func TestAdminChangePasswordWhenNoPasswordConfigured(t *testing.T) {
 		t.Fatalf("change password when open status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 
-	// Verify new configuration enforces password and login requirement
-	cfg, err := config.Load("")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Verify the live snapshot enforces the password and login requirement
+	// (unified-store: the password lands in the overlay + mem, never .env,
+	// so the assertion reads mem, not the file).
+	cfg := s.admin.cfgLoad()
 	if cfg.AdminToken != "BrandNewPassword2026!" {
 		t.Errorf("AdminToken = %q, want BrandNewPassword2026!", cfg.AdminToken)
 	}

@@ -649,11 +649,11 @@ func (a *adminHandlers) handleAdminChangePassword(w http.ResponseWriter, r *http
 	}
 
 	// parseDotenv trims unquoted values at the first '#' and strips a
-	// leading quote pair, while updateEnvKeys writes ADMIN_TOKEN raw. A
-	// password outside this charset would write fine but reload mangled,
-	// tripping the divergence guard below with a misleading "overridden by
-	// the environment" error on every future attempt. Reject it before any
-	// filesystem mutation instead.
+	// leading quote pair, while config.ApplyEnvUpdates writes ADMIN_TOKEN
+	// raw. A password outside this charset would write fine but reload
+	// mangled, tripping the divergence guard below with a misleading
+	// "overridden by the environment" error on every future attempt.
+	// Reject it before any overlay mutation instead.
 	if strings.ContainsAny(req.NewPassword, "#\r\n,") || req.NewPassword[0] == '"' || req.NewPassword[0] == '\'' {
 		a.dash.RenderResult(w, http.StatusBadRequest, false,
 			"New password must not contain '#', ',', a newline, or start with a quote character: it could not be stored losslessly in .env.",
@@ -664,32 +664,28 @@ func (a *adminHandlers) handleAdminChangePassword(w http.ResponseWriter, r *http
 	a.adminSaveMu.Lock()
 	defer a.adminSaveMu.Unlock()
 
-	// Dual-layer persist: ADMIN_TOKEN goes write-through to the settings
-	// overlay (the DB holds secrets at mode 0600 since the env-to-DB
-	// migration) AND to .env as boot seed/export, while
-	// DASHBOARD_REQUIRE_LOGIN=true converges its overlay row — .env is the
-	// export, the overlay is runtime truth. Both layers roll back on
-	// failure. Converging ADMIN_TOKEN (not just the file) matters after
-	// migration: a stale overlay row would otherwise beat the just-written
-	// file and trip the divergence guard below.
-	newCfg, err := a.dualWrite(
-		[]config.EnvUpdate{
-			{Key: "ADMIN_TOKEN", Value: req.NewPassword},
-			{Key: "DASHBOARD_REQUIRE_LOGIN", Value: "true"},
-		},
+	// Overlay persist (unified-store): ADMIN_TOKEN goes to the settings
+	// overlay (the DB holds secrets at mode 0600) and
+	// DASHBOARD_REQUIRE_LOGIN=true converges its overlay row. Files are
+	// boot seed only: never written. Nothing was enqueued when the derive
+	// or guard below fails, so there is nothing to roll back. Converging
+	// ADMIN_TOKEN matters: a stale overlay row would otherwise beat the new
+	// value and trip the divergence guard below.
+	newCfg, err := a.overlayWrite(
 		map[string]string{
 			config.OverlayRowKey("ADMIN_TOKEN"):             req.NewPassword,
 			config.OverlayRowKey("DASHBOARD_REQUIRE_LOGIN"): "true",
 		},
 		nil,
 		func(newCfg config.Config) error {
-			// Divergence guard (mirrors syncTokensAfterMutation): a real process
-			// environment variable or -config JSON outranks ./.env, so the .env
-			// write above may not move the effective credential. Answering ok:true
-			// then would leave the old token (possibly the factory default) live
-			// while telling the operator rotation succeeded.
+			// Divergence guard (mirrors syncTokensAfterMutation): a real
+			// process environment variable wins, so the overlay write
+			// above may not move the effective credential. Answering
+			// ok:true then would leave the old token (possibly the
+			// factory default) live while telling the operator rotation
+			// succeeded.
 			if newCfg.AdminToken != req.NewPassword {
-				a.logfunc().Warn("admin change password shadowed by environment; restored .env")
+				a.logfunc().Warn("admin change password shadowed by environment; overlay write rejected")
 				return errAdminTokenOverridden
 			}
 			return nil
@@ -698,20 +694,12 @@ func (a *adminHandlers) handleAdminChangePassword(w http.ResponseWriter, r *http
 	if err != nil {
 		if errors.Is(err, errAdminTokenOverridden) {
 			a.dash.RenderResult(w, http.StatusConflict, false,
-				"ADMIN_TOKEN is overridden by the process environment or -config JSON — the .env write was rolled back and the running credential is unchanged; change ADMIN_TOKEN where it is actually set",
+				"ADMIN_TOKEN is overridden by the process environment — the overlay write was rejected and the running credential is unchanged; change ADMIN_TOKEN where it is actually set",
 				"admin_token_overridden")
 			return
 		}
-		if phase, ok := dualPhaseOf(err); ok && phase == dualReloadPhase {
-			a.logfunc().Warn("admin change password reload failed; restored .env", "err", err)
-			a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to reload configuration: "+err.Error(), "reload_failed")
-			return
-		}
-		if phase, ok := dualPhaseOf(err); ok && phase == dualSettingsPhase {
-			a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to persist settings: "+err.Error(), "persist_failed")
-			return
-		}
-		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to update .env: "+err.Error(), "env_write_failed")
+		a.logfunc().Warn("admin change password failed", "err", err)
+		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to persist settings: "+err.Error(), "persist_failed")
 		return
 	}
 
@@ -782,11 +770,11 @@ func (a *adminHandlers) handleAdminRequireLogin(w http.ResponseWriter, r *http.R
 	a.adminSaveMu.Lock()
 	defer a.adminSaveMu.Unlock()
 
-	// Dual-layer persist: DASHBOARD_REQUIRE_LOGIN goes write-through to the
-	// settings overlay with .env as boot seed/export. Both layers roll back
-	// on failure (reload error or divergence).
-	newCfg, err := a.dualWrite(
-		[]config.EnvUpdate{{Key: "DASHBOARD_REQUIRE_LOGIN", Value: valStr}},
+	// Overlay persist (unified-store): DASHBOARD_REQUIRE_LOGIN goes to the
+	// settings overlay. Files are boot seed only: never written, never
+	// re-read here. Nothing was enqueued when the derive or guard below
+	// fails, so there is nothing to roll back.
+	newCfg, err := a.overlayWrite(
 		map[string]string{config.OverlayRowKey("DASHBOARD_REQUIRE_LOGIN"): valStr},
 		nil,
 		func(newCfg config.Config) error {
@@ -798,31 +786,14 @@ func (a *adminHandlers) handleAdminRequireLogin(w http.ResponseWriter, r *http.R
 	)
 	if err != nil {
 		if errors.Is(err, errRequireLoginShadowed) {
-			a.logfunc().Warn("admin require login shadowed; restored .env")
-			// Name the true blocker like the mode switch does: a DB overlay row
-			// beats the file just written (ADR-0019), so the environment/JSON
-			// message would send the operator to the wrong place.
-			if a.overlayShadows("DASHBOARD_REQUIRE_LOGIN") {
-				a.dash.RenderResult(w, http.StatusConflict, false,
-					"DASHBOARD_REQUIRE_LOGIN is still set by the DB settings overlay, which overrides .env (DELETE /admin/api/settings/DASHBOARD_REQUIRE_LOGIN to reset) — the .env write was rolled back and the running configuration is unchanged",
-					"require_login_overridden")
-				return
-			}
+			a.logfunc().Warn("admin require login shadowed; overlay write rejected")
 			a.dash.RenderResult(w, http.StatusConflict, false,
-				"DASHBOARD_REQUIRE_LOGIN is overridden by the process environment or -config JSON — the .env write was rolled back and the running credential is unchanged",
+				"DASHBOARD_REQUIRE_LOGIN is overridden by the process environment — the overlay write was rejected and the running configuration is unchanged",
 				"require_login_overridden")
 			return
 		}
-		if phase, ok := dualPhaseOf(err); ok && phase == dualReloadPhase {
-			a.logfunc().Warn("admin require login reload failed; restored .env", "err", err)
-			a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to reload configuration: "+err.Error(), "reload_failed")
-			return
-		}
-		if phase, ok := dualPhaseOf(err); ok && phase == dualSettingsPhase {
-			a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to persist settings: "+err.Error(), "persist_failed")
-			return
-		}
-		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to update .env: "+err.Error(), "env_write_failed")
+		a.logfunc().Warn("admin require login failed", "err", err)
+		a.dash.RenderResult(w, http.StatusInternalServerError, false, "Failed to persist settings: "+err.Error(), "persist_failed")
 		return
 	}
 

@@ -17,7 +17,10 @@ import { adminUrl, tokenRow, tokensPayload } from "./mock-data.js";
 // payload shapes this slice needs so the spec stays DAMP without growing
 // a second mock system.
 
-// --- Client API Keys (.env document shapes) ---
+// --- Client API Keys (live-export shapes) ---
+//
+// The unified store renders env_content from the mem snapshot, so these
+// docs model the live export, not the .env file bytes.
 
 export const SEED_KEYS = ["sk-fb-seedkey0001", "sk-fb-seedkey0002"];
 
@@ -39,8 +42,9 @@ export function configWithKeysEnv(
   };
 }
 
-// Later route wins over mockDashboard's default POST /admin/config
-// fulfillment, so bodies are observable without touching the shared layer.
+// I4 UI-side tripwire: no dashboard save flow POSTs /admin/config any more
+// (the break-glass try-it on Review excepted). Register after mockDashboard
+// (later route wins) and assert the bodies stayed empty at test end.
 export async function captureConfigPosts(
   page: Page,
   bodies: string[],
@@ -62,6 +66,54 @@ export async function captureConfigPosts(
       await route.continue();
     }
   });
+}
+// Stateful /admin/api/config serving a live API_KEYS export: overlay
+// API_KEYS writes observed on the wire fold into the served document, so a
+// test proves save→effective-immediately (generate → reload → key listed).
+// Register after mockDashboard (later route wins for GET config; the
+// overlay routes from mockSettingsOverlay are untouched).
+export async function mockStatefulKeysConfig(
+  page: Page,
+  f: Fixtures,
+  seed: string[],
+): Promise<{ keys: string[] }> {
+  const state = { keys: [...seed] };
+  await page.route(/\/admin\/api\/config(\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...f.config,
+        env_content: keysEnv(state.keys),
+        has_env_file: true,
+      }),
+    });
+  });
+  page.on("request", (req) => {
+    try {
+      if (
+        req.method() === "POST" &&
+        req.url().includes("/admin/api/settings")
+      ) {
+        const parsed = JSON.parse(req.postData() ?? "{}");
+        if (parsed.key === "API_KEYS") {
+          state.keys = String(parsed.value ?? "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        }
+      } else if (
+        req.method() === "DELETE" &&
+        req.url().includes("/admin/api/settings/")
+      ) {
+        const key = new URL(req.url()).pathname.split("/").pop() ?? "";
+        if (key === "API_KEYS") state.keys = [];
+      }
+    } catch {
+      // Non-JSON settings write: not an API_KEYS save, ignore.
+    }
+  });
+  return state;
 }
 
 // --- Auth tiers (login gate) ---

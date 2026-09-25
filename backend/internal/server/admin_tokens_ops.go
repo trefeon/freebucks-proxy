@@ -63,40 +63,30 @@ func shortFlowID(fp string) string {
 }
 
 func (a *adminHandlers) syncTokensAfterMutation(tokens []string) error {
-	// Dual-layer persist (DB-unified storage): AUTH_TOKENS goes write-through
-	// to BOTH .env (boot seed/export) and the config:AUTH_TOKENS overlay row
-	// (runtime truth — the DB holds secrets at mode 0600 since the env-to-DB
-	// migration), plus the auth/tokens_configured presence marker, via
-	// tokenMarkerDelta. A reload-verification failure restores BOTH layers
-	// (persist → verify → rollback). Otherwise
-	// the failed add leaves AUTH_TOKENS=<new> in .env while the live pool
-	// holds the old list — the very divergence the caller is trying to
-	// avoid.
+	// Overlay persist (unified-store): AUTH_TOKENS goes to the
+	// config:AUTH_TOKENS overlay row (runtime truth — the DB holds secrets
+	// at mode 0600), plus the auth/tokens_configured presence marker, via
+	// tokenMarkerDelta. Files are boot seed only: never written. A
+	// verification failure enqueues nothing and swaps nothing
+	// (persist → verify → swap). Otherwise the failed add leaves the
+	// overlay ahead while the live pool holds the old list — the very
+	// divergence the caller is trying to avoid.
 	for i, tok := range tokens {
 		if strings.Contains(tok, ",") {
-			return fmt.Errorf("persist AUTH_TOKENS: AUTH_TOKENS entry %d contains a comma (AUTH_TOKENS is comma-separated in .env)", i+1)
+			return fmt.Errorf("persist AUTH_TOKENS: AUTH_TOKENS entry %d contains a comma (AUTH_TOKENS is comma-separated)", i+1)
 		}
 	}
 	set, del := tokenMarkerDelta(tokens)
-	newCfg, err := a.dualWrite(
-		[]config.EnvUpdate{{Key: "AUTH_TOKENS", Value: strings.Join(tokens, ",")}},
+	newCfg, err := a.overlayWrite(
 		set, del,
 		func(newCfg config.Config) error {
 			if !reflect.DeepEqual(newCfg.AuthTokens, tokens) {
-				return fmt.Errorf("AUTH_TOKENS overridden by environment or -config JSON (%d effective vs %d requested) — persisted to .env but NOT activated; clear it there or restart without env_file, then retry", len(newCfg.AuthTokens), len(tokens))
+				return fmt.Errorf("AUTH_TOKENS overridden by environment (%d effective vs %d requested) — overlay write rejected and NOT activated; clear it there, then retry", len(newCfg.AuthTokens), len(tokens))
 			}
 			return nil
 		},
 	)
 	if err != nil {
-		if phase, ok := dualPhaseOf(err); ok {
-			switch phase {
-			case dualPersistPhase:
-				return fmt.Errorf("persist AUTH_TOKENS: %w", err)
-			default:
-				return fmt.Errorf("reload config: %w", err)
-			}
-		}
 		return err
 	}
 	a.applyReloadedConfig(&newCfg)
@@ -126,29 +116,28 @@ func (a *adminHandlers) handleTokenAdd(w http.ResponseWriter, r *http.Request) {
 		a.dash.RenderConfigResult(w, r, false, "Invalid token (must not start with 'Bearer ').")
 		return
 	}
-	// AUTH_TOKENS is comma-joined in .env, so a pasted token with an
-	// interior comma or newline would corrupt the file on the next reload.
+	// AUTH_TOKENS is comma-joined in the overlay row, so a pasted token with
+	// an interior comma or newline would split on the next derive.
 	// Reject before the (validity) probe and any pool mutation.
 	if strings.ContainsAny(req.Token, ",\r\n") {
-		a.dash.RenderConfigResult(w, r, false, "Invalid token: must not contain commas or newlines (AUTH_TOKENS is comma-separated in .env).")
+		a.dash.RenderConfigResult(w, r, false, "Invalid token: must not contain commas or newlines (AUTH_TOKENS is comma-separated).")
 		return
 	}
 
 	// adminSaveMu serializes the pool mutation + persist + reload with the
-	// other .env writers (API-key save, token remove, mode switch) so a
-	// concurrent save cannot interleave and lose a token from .env.
+	// other writers (token remove/swap, password, require-login) so a
+	// concurrent save cannot interleave and lose a token from the overlay.
 	a.adminSaveMu.Lock()
 	defer a.adminSaveMu.Unlock()
 
 	cfg := a.cfgLoad()
-	// Divergence guard (mirrors handleTokenRemove): an AUTH_TOKENS .env
-	// edit or /admin/reload can diverge cfg.AuthTokens from the
-	// live pool. Adding to a stale list would persist cfg.AuthTokens+new to
-	// .env while the pool holds its own list, leaving pool/.env/cfg
-	// permanently divergent — and the next remove is rejected by the same
+	// Divergence guard (mirrors handleTokenRemove): a /admin/reload can
+	// diverge cfg.AuthTokens from the live pool. Adding to a stale list
+	// would persist cfg.AuthTokens+new to the overlay while the pool holds
+	// its own list, leaving pool/overlay/cfg permanently divergent — and the next remove is rejected by the same
 	// guard, stranding the operator until restart.
 	if len(cfg.AuthTokens) != a.pool.TokenCount() {
-		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the .env file or restart.")
+		a.dash.RenderConfigResult(w, r, false, "Saved AUTH_TOKENS differs from the live pool — restart to reconcile.")
 		return
 	}
 	// Tier gate: reject dead accounts before they enter the pool. The probe
@@ -167,8 +156,8 @@ func (a *adminHandlers) handleTokenAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	// Build the persist list from cfg (the fixed AUTH_TOKENS set) plus the
 	// new token, skipping any token already present: a duplicate add must
-	// not write `tok,cb,cb` to .env — splitList would collapse it on reload
-	// and the strict reload check would reject the add and roll back.
+	// not write `tok,cb,cb` to the overlay — splitList would collapse it on
+	// derive and the strict verify check would reject the add.
 	tokens := append([]string{}, cfg.AuthTokens...)
 	seen := false
 	for _, t := range tokens {
@@ -187,7 +176,7 @@ func (a *adminHandlers) handleTokenAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.logfunc().Info("dashboard token added", "remote", remoteHost(r), "index", idx)
-	a.dash.RenderConfigResult(w, r, true, "Token added at index "+strconv.Itoa(idx)+" and persisted to .env.")
+	a.dash.RenderConfigResult(w, r, true, "Token added at index "+strconv.Itoa(idx)+" and persisted.")
 }
 
 func (a *adminHandlers) handleTokenRemove(w http.ResponseWriter, r *http.Request) {
@@ -196,17 +185,16 @@ func (a *adminHandlers) handleTokenRemove(w http.ResponseWriter, r *http.Request
 	// bytes.
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 	// adminSaveMu serializes the pool mutation + persist + reload with the
-	// other .env writers, exactly like handleTokenAdd.
+	// other writers, exactly like handleTokenAdd.
 	a.adminSaveMu.Lock()
 	defer a.adminSaveMu.Unlock()
 
 	cfg := a.cfgLoad()
-	// An AUTH_TOKENS .env edit or /admin/reload can diverge
-	// cfg.AuthTokens from the live pool; removing "the last token" from a
-	// stale list would persist the wrong .env and leave pool/.env/cfg
-	// permanently inconsistent.
+	// A /admin/reload can diverge cfg.AuthTokens from the live pool;
+	// removing "the last token" from a stale list would persist the wrong
+	// overlay and leave pool/overlay/cfg permanently inconsistent.
 	if len(cfg.AuthTokens) != a.pool.TokenCount() {
-		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the .env file or restart.")
+		a.dash.RenderConfigResult(w, r, false, "Saved AUTH_TOKENS differs from the live pool — restart to reconcile.")
 		return
 	}
 	// The SPA sends the token INDEX it wants removed (values stay masked
@@ -241,7 +229,7 @@ func (a *adminHandlers) handleTokenRemove(w http.ResponseWriter, r *http.Request
 	}
 	if err := a.syncTokensAfterMutation(tokens); err != nil {
 		// Roll the pool back so a failed persist does not leave the token
-		// removed from the pool but still listed in .env/cfg (mirrors
+		// removed from the pool but still listed in the overlay/cfg (mirrors
 		// handleTokenAdd's rollback).
 		if removed != "" {
 			if _, addErr := a.pool.AddToken(removed); addErr != nil {
@@ -253,9 +241,9 @@ func (a *adminHandlers) handleTokenRemove(w http.ResponseWriter, r *http.Request
 		return
 	}
 	a.logfunc().Info("dashboard token removed", "remote", remoteHost(r))
-	msg := "Last token removed and persisted to .env."
+	msg := "Last token removed and persisted."
 	if idx >= 0 {
-		msg = "Token removed and persisted to .env."
+		msg = "Token removed and persisted."
 	}
 	a.dash.RenderConfigResult(w, r, true, msg)
 }
@@ -267,7 +255,7 @@ func (a *adminHandlers) handleTokenSwap(w http.ResponseWriter, r *http.Request) 
 
 	cfg := a.cfgLoad()
 	if len(cfg.AuthTokens) != a.pool.TokenCount() {
-		a.dash.RenderConfigResult(w, r, false, "AUTH_TOKENS in .env differs from the live pool — reconcile in the .env file or restart.")
+		a.dash.RenderConfigResult(w, r, false, "Saved AUTH_TOKENS differs from the live pool — restart to reconcile.")
 		return
 	}
 
@@ -335,7 +323,7 @@ func (a *adminHandlers) handleTokenSwap(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		a.logfunc().Info("dashboard token moved", "remote", remoteHost(r), "from", fromIdx, "to", toIdx)
-		a.dash.RenderConfigResult(w, r, true, fmt.Sprintf("Token #%d moved to position #%d and updated in .env.", fromIdx+1, toIdx+1))
+		a.dash.RenderConfigResult(w, r, true, fmt.Sprintf("Token #%d moved to position #%d and persisted.", fromIdx+1, toIdx+1))
 		return
 	}
 
@@ -354,7 +342,7 @@ func (a *adminHandlers) handleTokenSwap(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	a.logfunc().Info("dashboard tokens swapped", "remote", remoteHost(r), "from", fromIdx, "to", toIdx)
-	a.dash.RenderConfigResult(w, r, true, fmt.Sprintf("Token #%d and Token #%d swapped and prioritized in .env.", fromIdx, toIdx))
+	a.dash.RenderConfigResult(w, r, true, fmt.Sprintf("Token #%d and Token #%d swapped and persisted.", fromIdx, toIdx))
 }
 
 func moveStringSlice(s []string, from, to int) []string {

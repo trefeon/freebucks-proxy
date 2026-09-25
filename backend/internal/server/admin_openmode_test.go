@@ -122,31 +122,55 @@ func TestAdminSmokeOversizedFormBodyCapped(t *testing.T) {
 	}
 }
 
-// TestAdminChangePasswordReloadPropagatesRateLimit pins the reload seam:
-// the change-password reload must push the reloaded config into the live
-// rate limiter too. A RATE_LIMIT_PER_IP edit made directly in .env (out of
-// band) is picked up by the next reload — historically the limiter kept
-// the boot value because the change-password path skipped SetRate.
-func TestAdminChangePasswordReloadPropagatesRateLimit(t *testing.T) {
+// TestAdminChangePasswordApplierPropagatesRateLimit pins the sync-applier
+// seam (unified-store): every mutation swaps mem through applyReloadedConfig,
+// which must push the derived config into the live rate limiter too —
+// historically the change-password reload skipped SetRate. The knob arrives
+// via the settings overlay (no file read on the mutation path); an
+// out-of-band .env edit stays invisible to mutations (boot seed only, I4).
+func TestAdminChangePasswordApplierPropagatesRateLimit(t *testing.T) {
 	s := newReviewFixServer(t,
 		"AUTH_TOKENS=tok-0\nADMIN_TOKEN=secret123\nRATE_LIMIT_PER_IP=1\n", nil)
+	st := attachShadowStore(t, s)
 	if got, burst := s.rateLimiter.Rate(); got != 1 || burst != 2 {
 		t.Fatalf("boot limiter rate = (%v, %d), want (1, 2)", got, burst)
 	}
 
-	// Out-of-band .env edit the running process has not applied yet.
+	// Drive the knob through the overlay (the mutation path): derive from
+	// mem + swap, exactly like handleSettingsPost does.
+	newCfg, err := config.ApplyOverlay(*s.admin.cfgLoad(), map[string]string{"RATE_LIMIT_PER_IP": "9"}, nil)
+	if err != nil {
+		t.Fatalf("ApplyOverlay: %v", err)
+	}
+	s.admin.enqueueSettingsSpill(map[string]string{config.OverlayRowKey("RATE_LIMIT_PER_IP"): "9"}, nil)
+	s.admin.applyReloadedConfig(&newCfg)
+
+	// The swap must reach the live limiter (burst defaults to 2x rate).
+	if got, burst := s.rateLimiter.Rate(); got != 9 || burst != 18 {
+		t.Fatalf("limiter rate after applier swap = (%v, %d), want (9, 18)", got, burst)
+	}
+	if cfg := s.cfg.Load(); cfg.RateLimitPerIP != 9 {
+		t.Fatalf("cfg.RateLimitPerIP after swap = %v, want 9", cfg.RateLimitPerIP)
+	}
+	s.admin.flushSettingsSpill()
+	if v, ok, err := st.GetSetting(config.OverlayRowKey("RATE_LIMIT_PER_IP")); err != nil || !ok || v != "9" {
+		t.Fatalf("overlay RATE_LIMIT_PER_IP = %q,%v,%v, want 9,true,nil", v, ok, err)
+	}
+
+	// I4 at the applier level: an out-of-band .env edit (unapplied seed)
+	// stays invisible to the next mutation — change-password derives from
+	// mem, so the limiter keeps the overlay value, not the file's.
 	env, err := os.ReadFile(".env")
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated := strings.Replace(string(env), "RATE_LIMIT_PER_IP=1", "RATE_LIMIT_PER_IP=9", 1)
+	updated := strings.Replace(string(env), "RATE_LIMIT_PER_IP=1", "RATE_LIMIT_PER_IP=7", 1)
 	if updated == string(env) {
 		t.Fatal("failed to rewrite RATE_LIMIT_PER_IP in .env fixture")
 	}
 	if err := os.WriteFile(".env", []byte(updated), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	form := strings.NewReader("current_password=secret123&new_password=newpass456")
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/change-password", form)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -155,16 +179,11 @@ func TestAdminChangePasswordReloadPropagatesRateLimit(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("change-password status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"ok":true`) {
-		t.Fatalf("change-password response = %s, want ok:true", rec.Body.String())
-	}
-
-	// The reload must reach the live limiter (burst defaults to 2x rate).
-	if got, burst := s.rateLimiter.Rate(); got != 9 || burst != 18 {
-		t.Fatalf("limiter rate after change-password reload = (%v, %d), want (9, 18)", got, burst)
+	if got, _ := s.rateLimiter.Rate(); got != 9 {
+		t.Fatalf("limiter rate after change-password = %v, want 9 (file edit must not leak in)", got)
 	}
 	if cfg := s.cfg.Load(); cfg.RateLimitPerIP != 9 {
-		t.Fatalf("cfg.RateLimitPerIP after reload = %v, want 9", cfg.RateLimitPerIP)
+		t.Fatalf("cfg.RateLimitPerIP after change-password = %v, want 9", cfg.RateLimitPerIP)
 	}
 }
 

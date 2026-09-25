@@ -23,18 +23,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/notify"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/runs"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
+	"io"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // usageWindow is the rolling window of per-token successful chat history:
@@ -357,16 +356,29 @@ type Pool struct {
 	storeStateFile      string
 
 	// Runtime persistence (pool_persist.go, DB-unified-storage):
-	// write-through cache of the allowlisted counters (usage and Pacific-day
-	// request ledgers, session spend buckets, admissions counts,
-	// terminal-cooldown hints) through the PoolPersist
-	// interface. nil disables (in-memory only).
-	// persistDirty is set lock-free on every mutation; the maintain tick
-	// plus a best-effort Shutdown pass flush it in the background, so the
-	// request hot path never blocks on the store.
+	// mem-authoritative cache of the allowlisted counters (usage and
+	// Pacific-day request ledgers, session spend buckets, admissions
+	// counts, terminal-cooldown hints) through the PoolPersist interface.
+	// nil disables (in-memory only).
+	// persistDirty is set on every mutation; the spill loop (1s cadence,
+	// started by Start), the maintain tick, plus a best-effort Shutdown
+	// pass flush it in the background, so the request hot path never
+	// blocks on the store.
 	persistMu    sync.Mutex
 	persist      PoolPersist
 	persistDirty atomic.Bool
+	// Unified-store spill signal: markPersistDirty arms persistDirty and
+	// posts a coalesced wakeup (dropped with poolSpillDropped when full —
+	// the dirty flag already carries the work, so a drop only skips a
+	// redundant wakeup). Guarded by poolSpillMu; nil channel means the
+	// loop never started (explicit Flush still persists).
+	poolSpillMu      sync.Mutex
+	poolSpillCh      chan struct{}
+	poolSpillDone    chan struct{}
+	poolSpillWg      sync.WaitGroup
+	poolSpillOnc     sync.Once
+	poolSpillStp     sync.Once
+	poolSpillDropped atomic.Int64
 
 	// Terminal-cooldown hints (cooldown_hint.go): in-memory mirror of the
 	// pool/cooldown/* rows. Guarded by cooldownHintMu; the request hot path

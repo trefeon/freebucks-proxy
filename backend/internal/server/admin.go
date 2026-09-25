@@ -286,11 +286,14 @@ func (a *adminHandlers) pruneLoginFlows() {
 	a.loginMu.Unlock()
 }
 
-// applyReloadedConfig propagates a freshly loaded config to every live
-// consumer: the atomic config snapshot, the registry, the pool, and the
-// per-IP rate limiter. Every config-save/reload path must apply new
-// settings through this one method so no consumer is skipped — the
-// change-password reload historically dropped the rate limiter.
+// applyReloadedConfig swaps the live snapshot to every consumer: the
+// atomic config snapshot, the registry, the pool, and the per-IP rate
+// limiter. It is the sync applier (unified-store), never a reloader:
+// mutations derive the candidate from mem via config.ApplyOverlay (no
+// disk) and land it here in the same handler, so the next read already
+// sees it. Every mutation and the explicit reload path must apply through
+// this one method so no consumer is skipped — the change-password reload
+// historically dropped the rate limiter.
 func (a *adminHandlers) applyReloadedConfig(cfg *config.Config) {
 	a.cfgStore(cfg)
 	a.reg.SetConfig(cfg)

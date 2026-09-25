@@ -824,8 +824,8 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 
 	if snap != nil {
 		m.store.Save(m.key, snap)
-		// A failed backend write already warns inside Save (persistLocked)
-		// and the in-memory update is kept; there is no durability
+		// Save swaps memory synchronously and spills behind (unified
+		// store); the in-memory update is kept and there is no durability
 		// re-read — Load serves the sessions_persist row on restart.
 		m.persistMu.Unlock()
 	}

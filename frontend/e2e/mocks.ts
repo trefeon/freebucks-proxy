@@ -321,7 +321,8 @@ export async function mockDashboard(
     });
   });
 
-  // Also mock POST /admin/config save (Tokens add-token flow uses POST /admin/config with form)
+  // Break-glass backstop: POST /admin/config stays a live server endpoint
+  // (Review try-it + curl); no dashboard save flow uses it any more.
   await page.route(/\/admin\/config$/, async (route) => {
     if (route.request().method() === "POST") {
       await route.fulfill({

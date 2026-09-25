@@ -6,17 +6,24 @@
   import CopyButton from "./CopyButton.svelte";
   import { push as pushToast } from "../stores/toast.js";
   import GeneratedKeyModal from "./GeneratedKeyModal.svelte";
-  import { fetchAPI, postForm } from "../api/client.js";
-  import { adminApi, adminActions } from "../api/paths.js";
+  import { deleteAPI, fetchAPI, postAPI } from "../api/client.js";
+  import { adminApi } from "../api/paths.js";
   import { generateRandomApiKey } from "../utils/format.js";
-  import { getEnvValue, setEnvValue } from "../utils/env.js";
+  import { getEnvValue } from "../utils/env.js";
   import { tr } from "../i18n.js";
   import { confirmAction } from "../stores/confirm.js";
   /**
-   * ApiKeysEditor - the Client API Keys card (sk-fb- credentials stored in
-   * API_KEYS in .env). Split out of Overview.svelte (issue #287) so the
+   * ApiKeysEditor - the Client API Keys card (sk-fb- credentials in the
+   * API_KEYS overlay row). Split out of Overview.svelte (issue #287) so the
    * overview page owns KPIs/risk cards while this component owns the API-key
    * generate/delete/reveal flow and the generated-key modal.
+   *
+   * Unified store: writes go through the DB-overlay instant-save path (POST
+   * /admin/api/settings, applied live like every other knob) — the .env
+   * file is never written. The key list seeds from the live config export
+   * (GET /admin/api/config env_content, rendered from the running snapshot,
+   * read-only here); every mutation re-reads it first so the read-modify-
+   * write merges against live truth instead of a stale mount-time list.
    */
   let apiKeys = $state([]);
   let generatingKey = $state(false);
@@ -56,41 +63,25 @@
     try {
       const newKey = generateRandomApiKey();
       const cfgRes = await fetchAPI(adminApi.config);
-      const envContent = cfgRes?.env_content || "";
-      const existing = getEnvValue(envContent, "API_KEYS") || "";
+      const existing = getEnvValue(cfgRes?.env_content || "", "API_KEYS") || "";
       const updated = existing ? `${existing},${newKey}` : newKey;
-      const newContent = setEnvValue(envContent, "API_KEYS", updated);
-      const save = await postForm(adminActions.configSave, {
-        content: newContent,
+      const result = await postAPI(adminApi.settingsSave, {
+        key: "API_KEYS",
+        value: updated,
       });
-      const result = await save.json();
-      const isSaved = save.ok;
-      const isOverridden =
-        result?.message &&
-        String(result.message).includes(
-          "overridden by the process environment",
-        );
-      if (isSaved) {
-        openGeneratedKeyModal(newKey);
-        pushToast({
-          tone: "success",
-          title: isOverridden
-            ? $tr(
-                "Generated & saved client API key (environment notice: server process environment takes precedence until restart)",
-              )
-            : $tr("Generated & saved client API key"),
-        });
-        fetchConfig();
-      } else {
-        pushToast({
-          tone: "error",
-          title: result?.message || $tr("Failed to save client API key"),
-        });
-      }
+      apiKeys = updated
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      openGeneratedKeyModal(newKey);
+      pushToast({
+        tone: "success",
+        title: result?.message || $tr("Generated & saved client API key"),
+      });
     } catch (e) {
       pushToast({
         tone: "error",
-        title: e.message || $tr("Network error generating client key"),
+        title: e.message || $tr("Failed to save client API key"),
       });
     } finally {
       generatingKey = false;
@@ -111,8 +102,7 @@
     deletingKey = target;
     try {
       const cfgRes = await fetchAPI(adminApi.config);
-      const envContent = cfgRes?.env_content || "";
-      const val = getEnvValue(envContent, "API_KEYS") || "";
+      const val = getEnvValue(cfgRes?.env_content || "", "API_KEYS") || "";
       const keys = val
         ? val
             .split(",")
@@ -120,39 +110,26 @@
             .filter(Boolean)
         : [];
       const filtered = keys.filter((k) => k !== target);
-      const updated = filtered.join(",");
-      const newContent = setEnvValue(envContent, "API_KEYS", updated);
-      const save = await postForm(adminActions.configSave, {
-        content: newContent,
+      // An empty value 400s on the overlay (the gateway requires DELETE to
+      // reset a key), so dropping the last key deletes the row: the
+      // effective value falls back to the boot seed, and the server receipt
+      // says so honestly.
+      const result =
+        filtered.length === 0
+          ? await deleteAPI(adminApi.settingsDelete("API_KEYS"))
+          : await postAPI(adminApi.settingsSave, {
+              key: "API_KEYS",
+              value: filtered.join(","),
+            });
+      apiKeys = filtered;
+      pushToast({
+        tone: "success",
+        title: result?.message || $tr("Deleted client API key"),
       });
-      const result = await save.json();
-      const isSaved = save.ok;
-      const isOverridden =
-        result?.message &&
-        String(result.message).includes(
-          "overridden by the process environment",
-        );
-      if (isSaved) {
-        pushToast({
-          tone: "success",
-          title: isOverridden
-            ? $tr(
-                "Deleted client API key (environment notice: server process environment takes precedence until restart)",
-              )
-            : $tr("Deleted client API key"),
-        });
-        apiKeys = filtered;
-        fetchConfig();
-      } else {
-        pushToast({
-          tone: "error",
-          title: result?.message || $tr("Failed to delete client API key"),
-        });
-      }
     } catch (e) {
       pushToast({
         tone: "error",
-        title: e.message || $tr("Network error deleting client key"),
+        title: e.message || $tr("Failed to delete client API key"),
       });
     } finally {
       deletingKey = "";
@@ -160,7 +137,8 @@
   }
 
   // Config-derived display field (apiKeys) changes only on save, so it is
-  // fetched once on mount instead of on every 15s overview poll.
+  // fetched once on mount instead of on every 15s overview poll. The export
+  // is read-only here: saves write the overlay and update apiKeys locally.
   async function fetchConfig() {
     try {
       const cfgRes = await fetchAPI(adminApi.config);
@@ -186,7 +164,7 @@
 <Card
   title={$tr("Client API Keys")}
   description={$tr(
-    "sk-fb-… credentials for clients (omp, Cursor, Claude Code, curl) to authenticate against this gateway. Stored in API_KEYS in .env.",
+    "sk-fb-… credentials for clients (omp, Cursor, Claude Code, curl) to authenticate against this gateway. Stored in API_KEYS; changes apply immediately.",
   )}
 >
   {#snippet actions()}

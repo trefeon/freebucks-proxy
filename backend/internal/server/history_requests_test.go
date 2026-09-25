@@ -1,17 +1,17 @@
 package server
 
 import (
-	"log/slog"
-	"path/filepath"
-	"testing"
-
 	"freebucks-proxy/backend/internal/logring"
 	"freebucks-proxy/backend/internal/phasetiming"
 	"freebucks-proxy/backend/internal/store"
+	"log/slog"
+	"path/filepath"
+	"testing"
 )
 
-// traceChat persists the request outcome alongside the ring log: the Logs
-// console view's request_records row must exist without any new endpoint.
+// traceChat stages the request outcome alongside the ring log: the Logs
+// console view's request_records row arrives via the dashboard spill (no disk
+// on the chat path) without any new endpoint.
 func TestTraceChatRecordsRequestOutcome(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "trace.db"))
 	if err != nil {
@@ -22,6 +22,8 @@ func TestTraceChatRecordsRequestOutcome(t *testing.T) {
 	srv.traceChat(nil, "m/a", 42, "ok", "", map[string]int64{phasetiming.UpstreamTTFBMS: 7}, &chatTraceState{reqID: "r-trace-1"})
 	// Pre-attempt refusals carry no req_id: ring log only, no DB row.
 	srv.traceChat(nil, "m/a", 1, "error", "refused", nil, nil)
+	// The outcome rides the spill: drain the background batch, never sleep.
+	waitHistoryDrained(t, srv)
 	rows, err := st.QueryRequests(0, 0)
 	if err != nil {
 		t.Fatalf("QueryRequests: %v", err)

@@ -128,7 +128,9 @@ func (p *Pool) Start(ctx context.Context) {
 		// live per-token quota cache, so a restart resumes warm.
 		// Missing rows are a fresh boot (current behavior); a nil store
 		// is a no-op; restore never fails the boot (warn-only).
-		p.RestorePoolPersist()
+		// Unified-store spill: background 1s persist behind the mem-
+		// authoritative maps (nil backend = no-op; idempotent).
+		p.StartPoolSpill()
 		runCtx, cancel := context.WithCancel(ctx)
 		p.cancel = cancel
 		p.wg.Add(1)

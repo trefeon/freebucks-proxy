@@ -40,6 +40,17 @@ func TestCooldownHintTerminalWritesRow(t *testing.T) {
 
 	p.CooldownTokenBan(0, &upstream.BanError{Body: "banned"})
 	key0 := poolCooldownKey(poolTokenHash("tok-0"))
+	// Unified-store spill: the hint is memory-fresh synchronously with zero
+	// backend I/O on the classifying path; the row lands behind the flush.
+	if !p.cooldownHintFresh(poolTokenHash("tok-0"), time.Now()) {
+		t.Fatal("ban hint not memory-fresh right after CooldownTokenBan (I1)")
+	}
+	if n := mem.saveCount(); n != 0 {
+		t.Fatalf("backend saves right after CooldownTokenBan = %d, want 0 (I2: no disk on request path)", n)
+	}
+	if err := p.FlushPoolPersist(); err != nil {
+		t.Fatalf("FlushPoolPersist: %v", err)
+	}
 	raw, ok, err := mem.LoadPoolState(key0)
 	if err != nil || !ok {
 		t.Fatalf("ban hint row present = %v,%v, want true,nil", ok, err)
@@ -60,6 +71,12 @@ func TestCooldownHintTerminalWritesRow(t *testing.T) {
 
 	p.CooldownTokenCountryBlocked(1, &upstream.CountryBlockedError{CountryCode: "XX"})
 	key1 := poolCooldownKey(poolTokenHash("tok-1"))
+	if !p.cooldownHintFresh(poolTokenHash("tok-1"), time.Now()) {
+		t.Fatal("country hint not memory-fresh right after CooldownTokenCountryBlocked (I1)")
+	}
+	if err := p.FlushPoolPersist(); err != nil {
+		t.Fatalf("FlushPoolPersist: %v", err)
+	}
 	raw, ok, err = mem.LoadPoolState(key1)
 	if err != nil || !ok {
 		t.Fatalf("country hint row present = %v,%v, want true,nil", ok, err)
@@ -196,6 +213,11 @@ func TestCooldownHintNeverAuthoritative(t *testing.T) {
 	if p.cooldownHintFresh(hash, time.Now()) {
 		t.Fatal("hint still fresh after live admission, want cleared")
 	}
+	// Unified-store spill: the clear applies to memory synchronously; the
+	// row delete converges behind the flush.
+	if err := p.FlushPoolPersist(); err != nil {
+		t.Fatalf("FlushPoolPersist: %v", err)
+	}
 	if _, ok, _ := mem.LoadPoolState(poolCooldownKey(hash)); ok {
 		t.Fatal("hint row survives live admission, want cleared")
 	}
@@ -248,6 +270,11 @@ func TestCooldownHintClearedByUnlock(t *testing.T) {
 	}
 	if p.cooldownHintFresh(hash, time.Now()) {
 		t.Fatal("hint still fresh after UnlockToken, want cleared")
+	}
+	// Unified-store spill: the clear applies to memory synchronously; the
+	// row delete converges behind the flush.
+	if err := p.FlushPoolPersist(); err != nil {
+		t.Fatalf("FlushPoolPersist: %v", err)
 	}
 	if _, ok, _ := mem.LoadPoolState(poolCooldownKey(hash)); ok {
 		t.Fatal("hint row survives UnlockToken, want deleted")

@@ -73,8 +73,8 @@
     onMatchCount?.(visible);
   });
 
-  // Whole-file flow: every edit batches through onField into the shared
-  // Save/Discard flow (file document → configSave).
+  // Instant-save flow: edits POST the row's key to the settings overlay
+  // and apply live (no Save button, no file write).
 </script>
 
 {#if !q || visible > 0}

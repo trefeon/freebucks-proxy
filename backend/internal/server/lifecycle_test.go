@@ -6,7 +6,7 @@
 // Anthropic stream + count_tokens → config edit (valid, then rejected with
 // rollback) → monitor (overview + models quota) → remove token (by index,
 // then out-of-range) → reload → metrics counters. Shared state across steps
-// is the point: the pool ↔ .env ↔ config invariants can only be pinned on a
+// is the point: the pool ↔ overlay ↔ config invariants can only be pinned on a
 // live journey, in the exact order an operator experiences them.
 //
 // FINDING RECORDED (no prod change made): the dashboard add-token path
@@ -40,20 +40,28 @@ import (
 // rejects only the well-known placeholders, never "cb_" + a real suffix).
 const lifecycleToken = "cb_lifecycle_0123456789abcdef"
 
-func TestLifecycleFullJourney(t *testing.T) {
-	t.Chdir(t.TempDir())
-
-	// The operator's .env is the source of truth: every dashboard save /
-	// /admin/reload re-resolves config through config.Load, which also
-	// re-applies ADMIN_TOKEN from .env (the in-memory boot config is only
-	// the initial state). Seed the realistic first-boot .env so the
-	// reloads keep the same admin credential instead of reverting to the
-	// factory default.
-	seedEnv := []byte("AUTH_TOKENS=tok-0\nADMIN_TOKEN=secret\n")
-	if err := os.WriteFile(".env", seedEnv, 0o600); err != nil {
-		t.Fatal(err)
+// setExportLine replaces one KEY=value row in a live config export (GET
+// /admin/api/config env_content renders one row per key, catalog order —
+// never the file bytes). Appending would duplicate the key, and the loader
+// resolves duplicates first-wins, so edits must flip the row in place.
+func setExportLine(t *testing.T, export, line string) string {
+	t.Helper()
+	key := line[:strings.Index(line, "=")+1]
+	rows := strings.Split(export, "\n")
+	replaced := false
+	for i, row := range rows {
+		if strings.HasPrefix(row, key) {
+			rows[i] = line
+			replaced = true
+		}
 	}
+	if !replaced {
+		t.Fatalf("export has no %s row to edit in:\n%s", key, export)
+	}
+	return strings.Join(rows, "\n")
+}
 
+func TestLifecycleFullJourney(t *testing.T) {
 	mock := testutil.NewMock()
 	t.Cleanup(mock.Close)
 	mock.ChatBody = testutil.SSEEvent(chunk("chatcmpl-lc", 1,
@@ -64,14 +72,24 @@ func TestLifecycleFullJourney(t *testing.T) {
 			`"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]`))
 
 	// Pooled with no client API keys: open-pooled, every request served
-	// from the token pool.
+	// from the token pool. Store-backed gateway (unified-store): token
+	// mutations persist overlay rows behind the WAL spill while the .env
+	// seed is never rewritten by a mutation.
 	// The mut below also points the POOL config at the mock, so a
 	// runtime-added token's client is built against the mock (see the
 	// finding above).
-	ts, p := newTestServerCfg(t, nil, func(c *config.Config) {
+	ts, p, srv, st := newStoreBackedServer(t, nil, func(c *config.Config) {
 		c.UpstreamBaseURL = mock.URL()
 		c.AdminToken = "secret"
 	}, mock)
+
+	// Realistic first-boot .env seed: the file carries the admin
+	// credential so reloads keep it instead of reverting to the factory
+	// default. Token rows live in the overlay, never here.
+	seedEnv := []byte("AUTH_TOKENS=tok-0\nADMIN_TOKEN=secret\n")
+	if err := os.WriteFile(".env", seedEnv, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	t.Run("boot", func(t *testing.T) {
 		resp, data := doJSON(t, http.MethodGet, ts.URL+"/healthz", nil, nil)
@@ -151,12 +169,20 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if got := mock.SessionProbesSnapshot(); got != probesBefore+1 {
 			t.Errorf("probe count = %d, want %d (add must validate via the mock)", got, probesBefore+1)
 		}
-		env, err := os.ReadFile(".env")
-		if err != nil {
-			t.Fatalf(".env not written: %v", err)
+		// Unified-store: the pool grew synchronously and the overlay row
+		// converged behind the spill; the seed file is untouched.
+		srv.FlushSettingsSpill()
+		row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS"))
+		if err != nil || !ok {
+			t.Fatalf("overlay AUTH_TOKENS row = %q,%v,%v, want persisted", row, ok, err)
 		}
-		if !strings.Contains(string(env), "AUTH_TOKENS=tok-0,"+lifecycleToken) {
-			t.Errorf(".env AUTH_TOKENS wrong: %s", env)
+		if row != "tok-0,"+lifecycleToken {
+			t.Errorf("overlay AUTH_TOKENS wrong: %s", row)
+		}
+		if env, err := os.ReadFile(".env"); err != nil {
+			t.Fatal(err)
+		} else if string(env) != string(seedEnv) {
+			t.Errorf(".env mutated by token add: %q, want seed-only %q", env, seedEnv)
 		}
 	})
 
@@ -333,14 +359,17 @@ func TestLifecycleFullJourney(t *testing.T) {
 			t.Fatalf("config API not JSON: %v", err)
 		}
 		if !cfgData.HasEnvFile {
-			t.Fatal("config API: no .env file after the token add")
+			t.Fatal("config API: no .env seed file")
 		}
-		if !strings.Contains(cfgData.EnvContent, "AUTH_TOKENS=tok-0,"+lifecycleToken) {
-			t.Fatalf("config API env_content lost the token: %q", cfgData.EnvContent)
+		if !strings.Contains(cfgData.EnvContent, "AUTH_TOKENS=tok-0") {
+			t.Fatalf("config API env_content lost the seed pool: %q", cfgData.EnvContent)
 		}
 
-		// Valid edit: LOG_LEVEL change applies and survives.
-		valid := strings.TrimRight(cfgData.EnvContent, "\n") + "\nLOG_LEVEL=debug\n"
+		// Valid edit: LOG_LEVEL change applies and survives. env_content is a
+		// live export (one row per key, catalog order), not the file document —
+		// flip the exported LOG_LEVEL row in place so the posted document
+		// carries exactly one LOG_LEVEL line.
+		valid := setExportLine(t, cfgData.EnvContent, "LOG_LEVEL=debug")
 		resp := postConfig(t, ts.URL, cookie, valid)
 		body := bodyOf(t, resp)
 		if !strings.Contains(body, "Saved and reloaded") {
@@ -351,11 +380,15 @@ func TestLifecycleFullJourney(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !strings.Contains(string(env), "LOG_LEVEL=debug") ||
-			!strings.Contains(string(env), "AUTH_TOKENS=tok-0,"+lifecycleToken) {
+			!strings.Contains(string(env), "AUTH_TOKENS=tok-0") {
 			t.Errorf(".env after valid save wrong: %s", env)
 		}
 		if got := p.TokenCount(); got != 2 {
-			t.Errorf("pool TokenCount after config save = %d, want 2 (tokens preserved)", got)
+			t.Errorf("pool TokenCount after config save = %d, want 2 (overlay preserves the added token)", got)
+		}
+		srv.FlushSettingsSpill()
+		if row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS")); err != nil || !ok || row != "tok-0,"+lifecycleToken {
+			t.Errorf("overlay AUTH_TOKENS after config save = %q,%v,%v, want the full pool", row, ok, err)
 		}
 
 		// Rejected edit: invalid LOG_LEVEL — the save is refused and the
@@ -422,9 +455,9 @@ func TestLifecycleFullJourney(t *testing.T) {
 	})
 
 	t.Run("remove-token", func(t *testing.T) {
-		// Index removal: tok-0 leaves the pool and the .env; the added
+		// Index removal: tok-0 leaves the pool and the overlay; the added
 		// token survives (values stay masked client-side in the SPA, so
-		// the operation is by index).
+		// the operation is by index). The seed file keeps its bytes.
 		resp := postTokenAction(t, ts.URL, cookie, "/admin/tokens/remove", "0")
 		body := bodyOf(t, resp)
 		if !strings.Contains(body, "Token removed") {
@@ -433,18 +466,23 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if got := p.TokenCount(); got != 1 {
 			t.Fatalf("pool TokenCount = %d, want 1", got)
 		}
+		srv.FlushSettingsSpill()
+		row, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS"))
+		if err != nil || !ok {
+			t.Fatalf("overlay AUTH_TOKENS row = %q,%v,%v, want persisted", row, ok, err)
+		}
+		if strings.Contains(row, "tok-0") {
+			t.Errorf("overlay still contains the removed token: %s", row)
+		}
+		if row != lifecycleToken {
+			t.Errorf("overlay missing the remaining token: %s", row)
+		}
+
+		// Out-of-range removal: plain rejection, pool, overlay, and .env untouched.
 		env, err := os.ReadFile(".env")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(env), "tok-0") {
-			t.Errorf(".env still contains the removed token: %s", env)
-		}
-		if !strings.Contains(string(env), "AUTH_TOKENS="+lifecycleToken) {
-			t.Errorf(".env missing the remaining token: %s", env)
-		}
-
-		// Out-of-range removal: plain rejection, pool and .env untouched.
 		resp = postTokenAction(t, ts.URL, cookie, "/admin/tokens/remove", "5")
 		body = bodyOf(t, resp)
 		if !strings.Contains(body, "Invalid token index") {
@@ -452,6 +490,10 @@ func TestLifecycleFullJourney(t *testing.T) {
 		}
 		if got := p.TokenCount(); got != 1 {
 			t.Fatalf("pool TokenCount after bad remove = %d, want 1", got)
+		}
+		srv.FlushSettingsSpill()
+		if row2, ok, err := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS")); err != nil || !ok || row2 != row {
+			t.Errorf("overlay changed after rejected remove: %q, want %q", row2, row)
 		}
 		env2, err := os.ReadFile(".env")
 		if err != nil {

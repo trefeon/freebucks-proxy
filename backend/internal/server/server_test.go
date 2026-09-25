@@ -5,18 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/server"
+	"freebucks-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/server"
-	"freebucks-proxy/backend/internal/testutil"
 )
 
 // modelA must map to an agent with EXCLUSIVE ownership in the registry
@@ -42,6 +43,27 @@ func newTestServerCfg(t *testing.T, apiKeys []string, mut func(*config.Config), 
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, p
+}
+
+// newStoreBackedServer is newTestServerCfg plus a temp settings store
+// (unified-store): token/password/settings mutations persist overlay rows
+// behind the WAL spill instead of touching .env. It returns the server
+// (for FlushSettingsSpill before row assertions) and the store handle
+// (for direct row reads). Server.Close drains the spill and releases the
+// store; both cleanups are registered.
+func newStoreBackedServer(t *testing.T, apiKeys []string, mut func(*config.Config), mocks ...*testutil.MockUpstream) (*httptest.Server, *pool.Pool, *server.Server, *store.Store) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	st, err := store.Open(filepath.Join(t.TempDir(), "settings.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	mut = chainMut(func(c *config.Config) { c.AdminToken = config.DefaultAdminToken }, mut)
+	srv, p := server.NewTestServerStack(t, apiKeys, mocks, mut, nil, nil, server.WithHistory(st))
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { _ = srv.Close() })
+	return ts, p, srv, st
 }
 
 func chatBody(model string) []byte {

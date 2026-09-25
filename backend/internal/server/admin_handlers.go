@@ -8,11 +8,6 @@ package server
 
 import (
 	"encoding/json"
-	"log/slog"
-	"net/http"
-	"sync"
-	"time"
-
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/dashboard"
 	"freebucks-proxy/backend/internal/pool"
@@ -20,6 +15,10 @@ import (
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/store"
 	"freebucks-proxy/backend/internal/upstream"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
 )
 
 type adminHandlers struct {
@@ -44,9 +43,21 @@ type adminHandlers struct {
 	// settings is the DB settings overlay store (ADR-0019): the same handle
 	// as Server.hist (one SQLite file). Nil keeps the settings endpoints on
 	// file/env/default with mutations 503.
-	settings    *store.Store
+	settings *store.Store
+	// spill is the settings WAL drain (unified-store, Lane A): mutations
+	// swap mem synchronously and persist the overlay delta behind via
+	// enqueueSettingsSpill. Lazily started on first mutation (nil until
+	// then); spillMu guards start/flush/close. Nil store means mem-only.
+	spillMu     sync.Mutex
+	spillState  *settingsSpill
+	// pages is the page-state mem snapshot (unified store, Lane D): reads
+	// serve from mem, PUTs swap mem synchronously and spill to the DB
+	// behind. Lazily built by admin_pages.go pageMem; nil until first use.
+	// pagesMu also guards rebuilds when a.settings is swapped post-boot
+	// (tests attaching a store after construction).
+	pagesMu     sync.Mutex
+	pages       *pageStateMem
 	rateLimiter *ratelimit.Limiter
-
 	// handleChat forwards the playground's synthetic chat request to the
 	// normal chat pipeline (admin.go:176).
 	handleChat func(w http.ResponseWriter, r *http.Request)

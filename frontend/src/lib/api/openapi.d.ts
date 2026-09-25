@@ -113,7 +113,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Effective config (sensitive: raw .env read) */
+    /** Effective config + live .env export (sensitive) */
     get: operations["getConfig"];
     put?: never;
     post?: never;
@@ -1986,7 +1986,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Effective config (sensitive: raw .env read) */
+      /** @description Effective config + live .env export (sensitive) */
       200: {
         headers: {
           [name: string]: unknown;

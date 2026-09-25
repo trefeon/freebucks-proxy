@@ -318,10 +318,16 @@ func New(cfg *config.Config, p *pool.Pool, reg *registry.Registry, logger *slog.
 			dashOpts = append(dashOpts, dashboard.WithHistory(s.hist))
 		}
 		s.dash = dashboard.New(func() *config.Config { return s.cfg.Load() }, p, reg, logger, logs, dashOpts...)
+		// Unified store: pool maturity events ride the dashboard spill (no
+		// disk on pool goroutines or admin handlers). Without a history
+		// store the dashboard runs live-only and the CLI-installed sink
+		// stays in place.
+		if s.hist != nil && p != nil {
+			p.SetHistorySink(s.dash)
+		}
 	}
 	s.adminAuth = newAdminAuth()
 	s.admin = &adminHandlers{
-		dash:           s.dash,
 		logfunc:        func() *slog.Logger { return s.logger },
 		pool:           p,
 		reg:            reg,
@@ -339,9 +345,17 @@ func New(cfg *config.Config, p *pool.Pool, reg *registry.Registry, logger *slog.
 	return s
 }
 
-// Close flushes and releases server-owned resources: the dashboard history
-// consumer and store. Safe to call on a server built without WithHistory.
+// FlushSettingsSpill drains the settings WAL spill: every overlay delta
+// enqueued before it returns applied. Tests asserting persisted rows call
+// this after a mutation (production never needs it — Close drains).
+func (s *Server) FlushSettingsSpill() { s.admin.flushSettingsSpill() }
+
+// Close flushes and releases server-owned resources: the settings spill
+// first (so the last overlay deltas land before the store closes), then
+// the dashboard history consumer and store. Safe to call on a server built
+// without WithHistory.
 func (s *Server) Close() error {
+	s.admin.closeSettingsSpill()
 	if s.dash != nil {
 		return s.dash.Close()
 	}
