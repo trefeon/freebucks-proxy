@@ -33,12 +33,21 @@ type Dashboard struct {
 	// hist is the history store (nil = live-only). Set once via
 	// WithHistory; the spill consumer below drains into it.
 	hist         *store.Store
-	spillCh      chan logring.Entry
+	spillCh      chan spillItem
 	spillDone    chan struct{}
 	spillWg      sync.WaitGroup
 	spillDropped atomic.Int64
-	// quotaSeen remembers the last persisted quota state per token+model so
-	// the full-view sampler only inserts on genuine change (history holds
+	// spillDroppedByKind counts buffer-full drops per history table; the
+	// total above stays the consumer-health signal.
+	spillDroppedByKind [spillKindCount]atomic.Int64
+	// spillSeq numbers staged items; the pending overlay below merges them
+	// into readers so a mutation is visible to the next read synchronously
+	// while persistence rides the background batch.
+	spillSeq atomic.Uint64
+	pendMu   sync.Mutex
+	pend     []spillItem
+	// quotaSeen remembers the last staged quota state per token+model so
+	// the full-view sampler only stages on genuine change (history holds
 	// change points, not per-poll duplicates).
 	quotaSeenMu sync.Mutex
 	quotaSeen   map[quotaKey]quotaPoint

@@ -1,15 +1,14 @@
 package dashboard
 
 import (
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/store"
 	"io"
 	"log/slog"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/store"
 )
 
 func testHistoryDashboard(t *testing.T, logs *logring.Handler, st *store.Store) *Dashboard {
@@ -117,6 +116,13 @@ func TestSampleQuotaDedupes(t *testing.T) {
 	d.sampleQuota(0, "m", 75, 30, reset, "")
 	d.sampleQuota(0, "m", 75, 30, reset, "")
 	d.sampleQuota(0, "m", 75, 31, reset, "")
+	// The mem-swap is synchronous (two distinct change points staged, the
+	// duplicate deduped), but the DB write rides the spill: only the two
+	// staged rows are visible before the flush. Poll the drain, never sleep.
+	deadline := time.Now().Add(10 * time.Second)
+	for d.spillPending() > 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	rows, err := st.QuotaHistory(0, "m", 0, 0)
 	if err != nil {
 		t.Fatalf("QuotaHistory: %v", err)

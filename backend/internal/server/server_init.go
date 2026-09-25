@@ -318,10 +318,16 @@ func New(cfg *config.Config, p *pool.Pool, reg *registry.Registry, logger *slog.
 			dashOpts = append(dashOpts, dashboard.WithHistory(s.hist))
 		}
 		s.dash = dashboard.New(func() *config.Config { return s.cfg.Load() }, p, reg, logger, logs, dashOpts...)
+		// Unified store: pool maturity events ride the dashboard spill (no
+		// disk on pool goroutines or admin handlers). Without a history
+		// store the dashboard runs live-only and the CLI-installed sink
+		// stays in place.
+		if s.hist != nil && p != nil {
+			p.SetHistorySink(s.dash)
+		}
 	}
 	s.adminAuth = newAdminAuth()
 	s.admin = &adminHandlers{
-		dash:           s.dash,
 		logfunc:        func() *slog.Logger { return s.logger },
 		pool:           p,
 		reg:            reg,

@@ -8,8 +8,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// historyWriteCounting gates the history write-call counter. The unified
+// store proves I2 (no disk on the request path) by counting store write
+// calls, never by timing: while enabled, every history-table write entry
+// point records one call. Disabled by default (zero behavior change).
+var (
+	historyWriteCounting atomic.Bool
+	historyWriteCount    atomic.Uint64
+)
+
+// SetHistoryWriteCounting enables the write-call counter (resetting it) or
+// disables it. Test-only.
+func SetHistoryWriteCounting(on bool) {
+	if on {
+		historyWriteCount.Store(0)
+	}
+	historyWriteCounting.Store(on)
+}
+
+// HistoryWriteCount reports the history write calls since enabling.
+// Test-only.
+func HistoryWriteCount() uint64 {
+	return historyWriteCount.Load()
+}
+
+func noteHistoryWrite() {
+	if historyWriteCounting.Load() {
+		historyWriteCount.Add(1)
+	}
+}
 
 // AppendLogs batch-inserts log records in one transaction (the logring spill
 // path). Empty input is a no-op.
@@ -17,6 +48,7 @@ func (s *Store) AppendLogs(entries []LogEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
+	noteHistoryWrite()
 	return s.withWrite(func() error {
 		tx, err := s.db.Begin()
 		if err != nil {
@@ -43,6 +75,7 @@ func (s *Store) AppendLogs(entries []LogEntry) error {
 
 // RecordQuota stores one per-model quota sample.
 func (s *Store) RecordQuota(q QuotaSnapshot) error {
+	noteHistoryWrite()
 	return s.withWrite(func() error {
 		_, err := s.db.Exec(
 			`INSERT INTO quota_snapshots(ts, token_idx, model, quota_limit, recent_count, reset_at, entitlements)
@@ -58,6 +91,7 @@ func (s *Store) RecordQuota(q QuotaSnapshot) error {
 
 // RecordMaturity stores one streak/standing event.
 func (s *Store) RecordMaturity(e MaturityEvent) error {
+	noteHistoryWrite()
 	return s.withWrite(func() error {
 		_, err := s.db.Exec(
 			`INSERT INTO maturity_events(ts, token_idx, kind, detail) VALUES(?, ?, ?, ?)`,
@@ -80,6 +114,7 @@ func (s *Store) RecordRequest(rec RequestRecord) error {
 	if rec.ReqID == "" {
 		return nil
 	}
+	noteHistoryWrite()
 	return s.withWrite(func() error {
 		if _, err := s.db.Exec(
 			`INSERT OR REPLACE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error, client_key_hash)
@@ -87,6 +122,110 @@ func (s *Store) RecordRequest(rec RequestRecord) error {
 			rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err, rec.ClientKeyHash,
 		); err != nil {
 			return fmt.Errorf("store: request insert: %w", err)
+		}
+		return nil
+	})
+}
+
+// AppendRequests batch-inserts request outcomes in one transaction (the
+// unified spill path). Rows with an empty req_id are skipped, matching
+// RecordRequest; an all-empty batch is a no-op. INSERT OR REPLACE keeps
+// each row idempotent per req_id.
+func (s *Store) AppendRequests(recs []RequestRecord) error {
+	nonEmpty := 0
+	for _, rec := range recs {
+		if rec.ReqID != "" {
+			nonEmpty++
+		}
+	}
+	if nonEmpty == 0 {
+		return nil
+	}
+	noteHistoryWrite()
+	return s.withWrite(func() error {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("store: requests begin: %w", err)
+		}
+		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO request_records(req_id, ts, endpoint, model, token_idx, status, ttfb_ms, error, client_key_hash) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("store: requests prepare: %w", err)
+		}
+		defer func() { _ = stmt.Close() }()
+		for _, rec := range recs {
+			if rec.ReqID == "" {
+				continue
+			}
+			if _, err := stmt.Exec(rec.ReqID, rec.TS, rec.Endpoint, rec.Model, rec.TokenIdx, rec.Status, rec.TTFBms, rec.Err, rec.ClientKeyHash); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("store: requests insert: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("store: requests commit: %w", err)
+		}
+		return nil
+	})
+}
+
+// AppendQuotas batch-inserts quota samples in one transaction (the unified
+// spill path). Empty input is a no-op.
+func (s *Store) AppendQuotas(qs []QuotaSnapshot) error {
+	if len(qs) == 0 {
+		return nil
+	}
+	noteHistoryWrite()
+	return s.withWrite(func() error {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("store: quotas begin: %w", err)
+		}
+		stmt, err := tx.Prepare(`INSERT INTO quota_snapshots(ts, token_idx, model, quota_limit, recent_count, reset_at, entitlements) VALUES(?, ?, ?, ?, ?, ?, ?)`)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("store: quotas prepare: %w", err)
+		}
+		defer func() { _ = stmt.Close() }()
+		for _, q := range qs {
+			if _, err := stmt.Exec(q.TS, q.TokenIdx, q.Model, q.Limit, q.Recent, q.ResetAt, q.Entitlements); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("store: quotas insert: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("store: quotas commit: %w", err)
+		}
+		return nil
+	})
+}
+
+// AppendMaturities batch-inserts maturity events in one transaction (the
+// unified spill path). Empty input is a no-op.
+func (s *Store) AppendMaturities(es []MaturityEvent) error {
+	if len(es) == 0 {
+		return nil
+	}
+	noteHistoryWrite()
+	return s.withWrite(func() error {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("store: maturities begin: %w", err)
+		}
+		stmt, err := tx.Prepare(`INSERT INTO maturity_events(ts, token_idx, kind, detail) VALUES(?, ?, ?, ?)`)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("store: maturities prepare: %w", err)
+		}
+		defer func() { _ = stmt.Close() }()
+		for _, e := range es {
+			if _, err := stmt.Exec(e.TS, e.TokenIdx, e.Kind, e.Detail); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("store: maturities insert: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("store: maturities commit: %w", err)
 		}
 		return nil
 	})
