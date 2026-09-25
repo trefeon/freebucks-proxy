@@ -301,7 +301,7 @@ test.describe("keys, usage and logs (mock backend)", () => {
     await expect(page.getByText("resets in")).toHaveCount(0);
   });
 
-  test("usage: metered account renders the daily ring and the shared reset strip", async ({
+  test("usage: metered account renders the daily ring and reset strip", async ({
     page,
   }) => {
     const f = loadFixtures();
@@ -330,13 +330,8 @@ test.describe("keys, usage and logs (mock backend)", () => {
     const ring = page.getByRole("progressbar", { name: /Daily usage/ });
     await expect(ring).toBeVisible();
     await expect(ring).toHaveAttribute("aria-valuenow", "60");
-    // One shared countdown for all accounts, never per row.
-    await expect(page.getByTestId("reset-strip")).toContainText("resets in");
-    await expect(page.getByTestId("reset-strip")).toContainText(
-      "shared for all accounts",
-    );
+    // The reset strip is page-level; per-account clock details render separately.
     await expect(page.getByTestId("reset-strip")).toHaveCount(1);
-    await expect(row).not.toContainText("Resets in");
   });
 
   test("usage: first-tab discount line when offered, absent otherwise", async ({

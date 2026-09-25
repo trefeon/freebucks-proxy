@@ -180,27 +180,68 @@ export function freebucksWindowRel(at, nowMs) {
 }
 
 /**
+ * True only for a parseable timestamp that explicitly identifies its UTC
+ * offset; local date-times are display strings, not instants.
+ * @param {unknown} value
+ */
+export function isAbsoluteResetTimestamp(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+/**
  * The reset line one Freebucks window renders, from its wire stamps. Only the
  * absolute instant can carry a countdown or an expiry claim; the vendor's own
- * display string ("15:04 Jan 2") is a foreign wall clock with no year, so it
- * renders as-is with the zone it was formatted in and never claims a reset
- * already happened. Returns plain data — the component owns the wording.
+ * display string ("15:04 Jan 2") has no absolute instant, so it renders as-is
+ * with its source-zone label when available and never claims a reset happened.
  * @param {{ resetAt?: string|null, resetZone?: string|null, resetAbsolute?: boolean }} win
  * @param {number} nowMs
- * @returns {{ shape: "none"|"pending"|"countdown"|"clock", rel: string, clock: string }}
+ * @param {string} [viewerZone] optional IANA zone for deterministic viewer-clock formatting
+ * @returns {{ shape: "none"|"pending"|"countdown"|"clock", rel: string, clock: string, browserClock: string, resetZone: string }}
  */
-export function freebucksResetLine(win, nowMs) {
+export function freebucksResetLine(win, nowMs, viewerZone) {
   const at = win?.resetAt ?? "";
-  if (!at) return { shape: "none", rel: "", clock: "" };
-  const zone = win?.resetZone ?? null;
-  const clock = zone
-    ? `${at} (${zoneLabel(at, { timeZone: zone })})`
-    : formatLocalDateTime(at) || "—";
-  if (!win?.resetAbsolute) return { shape: "clock", rel: "", clock };
+  if (!at)
+    return {
+      shape: "none",
+      rel: "",
+      clock: "",
+      browserClock: "",
+      resetZone: "",
+    };
+  const sourceZone = win?.resetZone ?? "";
+  let resetZone = "";
+  if (sourceZone) {
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: sourceZone });
+      resetZone = sourceZone;
+    } catch {
+      // An unusable upstream zone is not an account-zone claim.
+    }
+  }
+  const absolute = Boolean(win?.resetAbsolute) && isAbsoluteResetTimestamp(at);
+  const clock = absolute
+    ? formatLocalDateTime(
+        at,
+        resetZone
+          ? { timeZone: resetZone }
+          : viewerZone
+            ? { timeZone: viewerZone }
+            : {},
+      )
+    : `${at}${resetZone ? ` (${zoneLabel(at, { timeZone: resetZone })})` : ""}`;
+  const browserClock = absolute
+    ? formatLocalDateTime(at, viewerZone ? { timeZone: viewerZone } : {})
+    : "";
+  const line = { rel: "", clock: clock || "—", browserClock, resetZone };
+  if (!absolute) return { shape: "clock", ...line };
   const ms = Date.parse(at);
-  if (Number.isFinite(ms) && ms <= nowMs)
-    return { shape: "pending", rel: "", clock };
-  return { shape: "countdown", rel: freebucksWindowRel(at, nowMs), clock };
+  if (ms <= nowMs) return { shape: "pending", ...line };
+  return { shape: "countdown", ...line, rel: freebucksWindowRel(at, nowMs) };
 }
 
 /** A wire figure, kept as a number only when the server actually sent one:
@@ -270,16 +311,19 @@ export function freebucksDisplayModel(token, nowMs = Date.now()) {
   const decomposition = coheres
     ? `${formatFreebucks(dailyLeft)} daily + ${formatFreebucks(wallet)} wallet`
     : null;
-  // Server-truth first: reset_at_utc is the authoritative refill instant;
-  // reset_at is its legacy twin. The countdown below anchors to whichever
-  // ships, so old servers keep working.
-  const resetAt = daily?.reset_at_utc ?? daily?.reset_at ?? "";
+  // reset_at_utc is authoritative only when it is an explicit absolute instant.
+  // Invalid or local reset values may fall back to the vendor display string.
+  const resetAtUtc = daily?.reset_at_utc ?? daily?.resetAtUtc ?? "";
+  const hasAbsoluteReset = isAbsoluteResetTimestamp(resetAtUtc);
+  const resetAt = hasAbsoluteReset
+    ? resetAtUtc
+    : daily?.reset_at || daily?.resetAt || "";
   const resetLine = resetAt
     ? freebucksResetLine(
         {
           resetAt,
           resetZone: daily?.reset_time_zone ?? daily?.resetTimeZone ?? null,
-          resetAbsolute: Number.isFinite(Date.parse(resetAt)),
+          resetAbsolute: hasAbsoluteReset,
         },
         nowMs,
       )

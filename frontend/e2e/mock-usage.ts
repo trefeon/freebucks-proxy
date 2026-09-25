@@ -160,7 +160,12 @@ export function meteredToken(
   return tokenRow(idx, {
     freebucks: {
       balance: 50,
-      daily: { remaining: 30, limit: 75, reset_at: "2030-01-01T00:00:00Z" },
+      daily: {
+        remaining: 30,
+        limit: 75,
+        reset_at: "2030-01-01T00:00:00Z",
+        reset_at_utc: "2030-01-01T00:00:00Z",
+      },
       wallet: { balance: 20 },
       monthly: { remaining: 20 },
       prices: {},

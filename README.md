@@ -21,6 +21,7 @@ lifecycle.
   midnight; Pacific midnight only on servers that omit the zone). The proxy's
   own counters (per-day requests, spend buckets, IP re-admit caps) keep
   bucketing on the Pacific day (`pool/spend.go:bucketStart`).
+- The Allowances page shows each account reset in the upstream zone when supplied, plus browser-local time for absolute reset timestamps. Browser locale and timezone are display metadata; upstream country is resolved from proxy egress.
 
 ## Quickstart
 

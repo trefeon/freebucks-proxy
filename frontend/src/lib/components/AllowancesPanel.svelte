@@ -24,10 +24,11 @@
     formatAllowanceUsd,
     freebucksResetCountdown,
     freebucksDisplayModel,
+    isAbsoluteResetTimestamp,
     offPeakCopy,
   } from "../utils/freebucks.js";
+  import { localeRegionCode, viewerTimeZone } from "../utils/format.js";
   import { streakBadgeFor } from "../utils/tokenStatus.js";
-  import { formatLocalDateTime, viewerTimeZone } from "../utils/format.js";
 
   let data = $state(null);
   let loading = $state(true);
@@ -116,32 +117,31 @@
     }
   }
 
-  // Global reset strip: the first account carrying a daily reset time sets
-  // the shared Pacific-midnight countdown for every account on the page.
-  // Server-truth first: reset_at_utc is the authoritative refill instant,
-  // reset_at its legacy twin — the countdown below anchors to whichever
-  // ships, so old servers keep working.
+  // The first available absolute reset anchors the compact countdown strip;
   const resetSource = $derived(
-    (data?.tokens ?? []).find(
-      (t) => t.freebucks?.daily?.reset_at_utc ?? t.freebucks?.daily?.reset_at,
+    (data?.tokens ?? []).find((t) =>
+      isAbsoluteResetTimestamp(
+        t.freebucks?.daily?.reset_at_utc ?? t.freebucks?.daily?.resetAtUtc,
+      ),
     ),
+  );
+  const resetSourceNumber = $derived(
+    resetSource
+      ? (resetSource.index ?? (data?.tokens ?? []).indexOf(resetSource)) + 1
+      : 0,
   );
   const resetAt = $derived(
     resetSource?.freebucks?.daily?.reset_at_utc ??
-      resetSource?.freebucks?.daily?.reset_at ??
+      resetSource?.freebucks?.daily?.resetAtUtc ??
       "",
   );
-  // Skew probe: the browser zone every wall clock on this page renders in.
-  // Stamped into the page so a wrong-looking clock traces to the viewer, not
-  // the server instant.
   const viewerZone = viewerTimeZone();
+  const viewerLocaleRegion = localeRegionCode(
+    typeof navigator === "undefined" ? "" : navigator.language,
+  );
   const resetCountdown = $derived(
     resetAt ? freebucksResetCountdown(resetAt, now) : "",
   );
-  // The strip's wall clock in the operator's own zone: reset_at is an
-  // absolute UTC stamp (Pacific midnight by default) and must never be
-  // printed raw — "resets in 4h 12m" alone hides which day it lands on.
-  const resetLocal = $derived(resetAt ? formatLocalDateTime(resetAt) : "");
 
   function monthlyWin(token) {
     const m = token.freebucks?.monthly;
@@ -287,10 +287,10 @@
         class="text-xs text-[var(--fp-muted)] font-mono"
         data-testid="reset-strip"
       >
-        {$tr(
-          "Daily pools reset at {time} · resets in {countdown} · shared for all accounts",
-          { time: resetLocal, countdown: resetCountdown },
-        )}
+        {$tr("Account #{account} resets in {countdown}", {
+          account: resetSourceNumber,
+          countdown: resetCountdown,
+        })}
       </p>
     {/if}
   {/if}
@@ -298,10 +298,18 @@
     class="text-[11px] text-[var(--fp-dim)] font-mono"
     data-testid="tz-probe"
     title={$tr(
-      "Server instants render in this browser zone; a wrong-looking clock is viewer skew, not server drift",
+      "Browser locale and timezone only control this display; upstream country is separate",
     )}
   >
-    {$tr("Times shown in {zone}", { zone: viewerZone })}
+    {$tr("Browser locale region: {region} · browser timezone: {zone}", {
+      region: viewerLocaleRegion || $tr("not reported"),
+      zone: viewerZone || $tr("not reported"),
+    })}
+  </p>
+  <p class="text-[11px] text-[var(--fp-dim)] font-mono">
+    {$tr(
+      "Browser locale and timezone only control this local display; upstream-reported country is separate.",
+    )}
   </p>
   {#each fleetOffPeakLines() as line, i (i)}
     <p
@@ -360,6 +368,42 @@
             {streak.label}
           </span>
         </div>
+        <p
+          class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums break-words"
+          data-testid="account-country-line"
+        >
+          {$tr("Last upstream-reported country: {country}", {
+            country: token.country_code || $tr("not reported"),
+          })}
+        </p>
+        {#if fb?.resetLine}
+          <p
+            class="fp-num text-[11px] text-[var(--fp-dim)] tabular-nums break-words"
+            data-testid="account-reset-line"
+          >
+            {#if fb.resetLine.resetZone}
+              {$tr("{clock} ({zone})", {
+                clock: fb.resetLine.clock || $tr("unavailable"),
+                zone: fb.resetLine.resetZone,
+              })}
+              {#if fb.resetLine.browserClock}
+                ·
+                {$tr("browser time ({zone}): {clock}", {
+                  zone: viewerZone || $tr("not reported"),
+                  clock: fb.resetLine.browserClock,
+                })}
+              {/if}
+            {:else if fb.resetLine.browserClock}
+              {$tr("Browser-local reset time: {clock}", {
+                clock: fb.resetLine.browserClock,
+              })}
+            {:else}
+              {$tr("Reset time (source timezone not reported): {clock}", {
+                clock: fb.resetLine.clock || $tr("unavailable"),
+              })}
+            {/if}
+          </p>
+        {/if}
         {#if fb}
           {#if fb.spendable != null}
             <!-- Spendable right now (vendor: daily.remaining + wallet.balance).
@@ -380,8 +424,7 @@
             </p>
           {/if}
           {#if fb.dailyLimit != null || fb.dailyLeft != null}
-            <!-- The daily pool, stated once: meter and used/left line (the
-                 shared strip above carries the all-accounts countdown). -->
+            <!-- The daily pool and reset clock are shown per account below. -->
             <div class="flex flex-col gap-1">
               <div
                 class="h-[5px] w-full rounded-full bg-[var(--fp-inset)] overflow-hidden"

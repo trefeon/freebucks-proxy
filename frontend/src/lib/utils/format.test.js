@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatLocalDateTime, zoneLabel } from "./format.js";
+import { formatLocalDateTime, localeRegionCode, zoneLabel } from "./format.js";
 
 // 19:00Z: still Sep 20 in UTC/PDT, already Sep 21 in UTC+7 — the viewer's
 // zone is the one that decides which reset day they read.
@@ -82,5 +82,27 @@ describe("zoneLabel (viewer locale, vendor display strings)", () => {
       }),
       "PST",
     );
+  });
+});
+
+describe("localeRegionCode", () => {
+  it("returns the uppercase region from a locale", () => {
+    assert.equal(localeRegionCode("id-ID"), "ID");
+  });
+
+  it("preserves a three-digit UN M49 region", () => {
+    assert.equal(localeRegionCode("es-419"), "419");
+  });
+
+  it("returns empty for non-string input", () => {
+    assert.equal(localeRegionCode(null), "");
+  });
+
+  it("returns empty when the locale has no region", () => {
+    assert.equal(localeRegionCode("en"), "");
+  });
+
+  it("returns empty for malformed input", () => {
+    assert.equal(localeRegionCode("en_US"), "");
   });
 });

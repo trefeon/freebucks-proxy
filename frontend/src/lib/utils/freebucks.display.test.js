@@ -5,6 +5,7 @@ import {
   firstTabListPriceFor,
   freebucksDisplayModel,
   freebucksResetLine,
+  isAbsoluteResetTimestamp,
   offPeakCopy,
   streakBonusNote,
 } from "./freebucks.js";
@@ -165,6 +166,21 @@ describe("formatFreebucks grouping", () => {
   });
 });
 
+describe("isAbsoluteResetTimestamp", () => {
+  it("accepts valid Z and numeric-offset instants", () => {
+    assert.equal(isAbsoluteResetTimestamp("2026-09-22T07:00:00Z"), true);
+    assert.equal(isAbsoluteResetTimestamp("2026-09-22T07:00:00+05:30"), true);
+    assert.equal(isAbsoluteResetTimestamp("2026-09-22T07:00:00-0530"), true);
+  });
+
+  it("rejects local date-times and malformed stamps", () => {
+    assert.equal(isAbsoluteResetTimestamp("2026-09-22T07:00:00"), false);
+    assert.equal(isAbsoluteResetTimestamp("not a timestamp"), false);
+    assert.equal(isAbsoluteResetTimestamp(""), false);
+    assert.equal(isAbsoluteResetTimestamp(null), false);
+  });
+});
+
 describe("freebucksResetLine (absolute instant vs vendor display string)", () => {
   const NOW = Date.parse("2026-09-20T07:00:00Z");
   const win = (extra) => ({
@@ -174,46 +190,108 @@ describe("freebucksResetLine (absolute instant vs vendor display string)", () =>
     ...extra,
   });
 
-  it("display-only: labels the vendor clock, never claims a reset happened", () => {
-    // "15:04 Jan 2" is a past LOCAL instant to V8's lenient parser; without an
-    // absolute stamp it must still render as the refill zone's wall clock.
+  it("display-only: preserves the vendor clock and source-zone label", () => {
     const line = freebucksResetLine(
       win({ resetAt: "15:04 Jan 2", resetZone: "UTC" }),
       NOW,
     );
     assert.equal(line.shape, "clock");
     assert.equal(line.clock, "15:04 Jan 2 (UTC)");
+    assert.equal(line.browserClock, "");
+    assert.equal(line.resetZone, "UTC");
   });
 
-  it("display-only: names the zone it was formatted in, whatever it is", () => {
+  it("display-only: names the source zone without converting the wall clock", () => {
     const line = freebucksResetLine(
       win({ resetAt: "15:04 Jan 2", resetZone: "Asia/Jakarta" }),
       NOW,
     );
     assert.equal(line.shape, "clock");
     assert.match(line.clock, /^15:04 Jan 2 \(.+\)$/);
+    assert.equal(line.browserClock, "");
   });
 
-  it("display-only without a zone still shows the stamp, never a countdown", () => {
+  it("display-only without a zone shows the stamp without a fabricated conversion", () => {
     const line = freebucksResetLine(win({ resetAt: "15:04 Jan 2" }), NOW);
     assert.equal(line.shape, "clock");
+    assert.equal(line.clock, "15:04 Jan 2");
+    assert.equal(line.browserClock, "");
+    assert.equal(line.resetZone, "");
+    assert.equal(line.rel, "");
+  });
+
+  it("absolute instant shows account and viewer clocks for the same instant", () => {
+    const line = freebucksResetLine(
+      win({
+        resetAt: "2026-09-22T07:00:00Z",
+        resetZone: "Asia/Tokyo",
+        resetAbsolute: true,
+      }),
+      NOW,
+      "America/Los_Angeles",
+    );
+    assert.equal(line.shape, "countdown");
+    assert.equal(line.resetZone, "Asia/Tokyo");
+    assert.equal(line.clock, "Sep 22, 04:00 PM (GMT+9)");
+    assert.equal(line.browserClock, "Sep 22, 12:00 AM (GMT-7)");
+    assert.notEqual(line.clock, line.browserClock);
+  });
+
+  it("absolute instants with absent or invalid zone use an unlabeled local primary clock", () => {
+    for (const resetZone of [null, "not/a-zone"]) {
+      const line = freebucksResetLine(
+        win({
+          resetAt: "2026-09-22T07:00:00Z",
+          resetZone,
+          resetAbsolute: true,
+        }),
+        NOW,
+        "America/Los_Angeles",
+      );
+      assert.equal(line.shape, "countdown");
+      assert.equal(line.clock, line.browserClock);
+      assert.equal(line.resetZone, "");
+    }
+  });
+
+  it("resetAbsolute cannot make a local date-time an absolute instant", () => {
+    const line = freebucksResetLine(
+      win({
+        resetAt: "2026-09-22T07:00:00",
+        resetZone: "Asia/Jakarta",
+        resetAbsolute: true,
+      }),
+      NOW,
+      "UTC",
+    );
+    assert.equal(line.shape, "clock");
+    assert.ok(line.clock.startsWith("2026-09-22T07:00:00 ("));
+    assert.equal(line.browserClock, "");
     assert.equal(line.rel, "");
   });
 
   it("only an absolute instant that passed reads as pending", () => {
-    assert.equal(
-      freebucksResetLine(
-        win({ resetAt: "2026-09-20T06:00:00Z", resetAbsolute: true }),
-        NOW,
-      ).shape,
-      "pending",
+    const line = freebucksResetLine(
+      win({ resetAt: "2026-09-20T06:00:00Z", resetAbsolute: true }),
+      NOW,
+      "UTC",
     );
+    assert.equal(line.shape, "pending");
+    assert.equal(line.rel, "");
+    assert.equal(line.resetZone, "");
+    assert.ok(line.clock);
+    assert.ok(line.browserClock);
   });
 
-  it("absolute ahead: counts down and re-anchors the clock", () => {
+  it("absolute ahead counts down against its instant", () => {
     const twoDays = freebucksResetLine(
-      win({ resetAt: "2026-09-22T07:00:00Z", resetAbsolute: true }),
+      win({
+        resetAt: "2026-09-22T07:00:00Z",
+        resetZone: "UTC",
+        resetAbsolute: true,
+      }),
       NOW,
+      "UTC",
     );
     assert.equal(twoDays.shape, "countdown");
     assert.equal(twoDays.rel, "2d");
@@ -231,6 +309,8 @@ describe("freebucksResetLine (absolute instant vs vendor display string)", () =>
       shape: "none",
       rel: "",
       clock: "",
+      browserClock: "",
+      resetZone: "",
     });
   });
 });
@@ -274,7 +354,7 @@ describe("freebucksDisplayModel (allowances card, one figure per fact)", () => {
     spent: 10,
     remaining: 15,
     percent_used: 40,
-    reset_at: "2026-09-24T00:00:00Z",
+    reset_at_utc: "2026-09-24T00:00:00Z",
     reset_time_zone: "UTC",
   };
   // Live pair: akmalrzn15 40 = 15 daily + 25 wallet; hermescresioa
@@ -334,6 +414,52 @@ describe("freebucksDisplayModel (allowances card, one figure per fact)", () => {
     assert.equal(freebucksDisplayModel(null, NOW), null);
   });
 
+  it("an invalid authoritative reset_at_utc falls back to the legacy display stamp", () => {
+    const m = freebucksDisplayModel(
+      {
+        freebucks: {
+          daily: {
+            reset_at_utc: "2026-09-24T00:00:00",
+            reset_at: "15:04 Jan 2",
+            reset_time_zone: "Asia/Jakarta",
+          },
+        },
+      },
+      NOW,
+    );
+    assert.equal(m.resetLine.shape, "clock");
+    assert.ok(m.resetLine.clock.startsWith("15:04 Jan 2 ("));
+    assert.equal(m.resetLine.resetZone, "Asia/Jakarta");
+    assert.equal(m.resetLine.browserClock, "");
+    assert.equal(m.resetLine.rel, "");
+  });
+
+  it("legacy reset_at remains display-only even when its text parses as an instant", () => {
+    const m = freebucksDisplayModel(
+      {
+        freebucks: {
+          daily: {
+            reset_at: "2026-09-24T00:00:00Z",
+            reset_time_zone: "Asia/Jakarta",
+          },
+        },
+      },
+      NOW,
+    );
+    assert.equal(m.resetLine.shape, "clock");
+    assert.ok(m.resetLine.clock.startsWith("2026-09-24T00:00:00Z ("));
+    assert.equal(m.resetLine.resetZone, "Asia/Jakarta");
+    assert.equal(m.resetLine.browserClock, "");
+    assert.equal(m.resetLine.rel, "");
+  });
+
+  it("an invalid authoritative reset with no legacy stamp has no reset line", () => {
+    const m = freebucksDisplayModel({
+      freebucks: { daily: { reset_at_utc: "2026-09-24T00:00:00" } },
+    });
+    assert.equal(m.resetLine, null);
+  });
+
   it("gap-fills only the missing spent figure, from the served pair", () => {
     const m = freebucksDisplayModel(
       {
@@ -364,7 +490,24 @@ describe("freebucksDisplayModel (allowances card, one figure per fact)", () => {
     const { resetLine } = freebucksDisplayModel(AKMAL, NOW);
     assert.equal(resetLine.shape, "countdown");
     assert.equal(resetLine.rel, "12h 0m");
-    assert.equal(resetLine.clock, "2026-09-24T00:00:00Z (UTC)");
+    assert.match(resetLine.clock, /^Sep 24, 12:00 AM \(.+\)$/);
+  });
+
+  it("legacy parseable display stamp stays a clock, not a countdown", () => {
+    const { resetLine } = freebucksDisplayModel(
+      {
+        freebucks: {
+          daily: {
+            reset_at: "15:04 Jan 2",
+            reset_time_zone: "Asia/Jakarta",
+          },
+        },
+      },
+      NOW,
+    );
+    assert.match(resetLine.clock, /^15:04 Jan 2 \(.+\)$/);
+    assert.equal(resetLine.browserClock, "");
+    assert.equal(resetLine.rel, "");
   });
 
   it("daily reset line: no stamp renders no line", () => {

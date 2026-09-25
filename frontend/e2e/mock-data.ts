@@ -199,6 +199,7 @@ export function quotaTrackerToken(
         spent: 2.5,
         remaining: 7.5,
         reset_at: "2030-01-01T07:00:00Z",
+        reset_at_utc: "2030-01-01T07:00:00Z",
         percent_used: 25.0,
       },
       wallet: { balance: 5.0, monthly_bonus: 0.0 },

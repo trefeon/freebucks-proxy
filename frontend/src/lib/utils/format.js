@@ -19,6 +19,23 @@ export function formatLocalDate(utcIso) {
   }
 }
 
+/**
+ * Return a valid alpha-2 or three-digit UN M49 region subtag of a BCP-47 locale, if present.
+ * This describes the locale only; it does not identify a physical location.
+ * @param {string} locale
+ * @returns {string}
+ */
+export function localeRegionCode(locale) {
+  if (typeof locale !== "string" || !locale) return "";
+  try {
+    const region = new Intl.Locale(locale).region ?? "";
+    if (/^[A-Za-z]{2}$/.test(region)) return region.toUpperCase();
+    return /^\d{3}$/.test(region) ? region : "";
+  } catch {
+    return "";
+  }
+}
+
 // The dashboard's keys are English-only (i18n.js), so the clock is pinned for
 // shape and the unit test can assert exact clock strings. The zone NAME is
 // not: it is resolved with the viewer's own locale, so an operator in Jakarta

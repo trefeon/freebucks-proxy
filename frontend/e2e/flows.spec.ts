@@ -47,8 +47,10 @@ test.describe("user flows", () => {
     const f = loadFixtures(RW);
     const list = f.tokens.tokens ?? f.tokens;
     for (const t of Array.isArray(list) ? list : []) {
-      if (t.freebucks?.daily)
+      if (t.freebucks?.daily) {
         t.freebucks.daily.reset_at = "2030-01-01T07:00:00Z";
+        t.freebucks.daily.reset_at_utc = "2030-01-01T07:00:00Z";
+      }
     }
     await mockDashboard(page, f);
     await page.goto(admin("tokens"));
