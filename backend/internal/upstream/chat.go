@@ -500,8 +500,10 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	}
 	if opts.SessionInstanceID != "" {
 		metadata["freebuff_instance_id"] = opts.SessionInstanceID
-		metadata["freebuff_multi_session"] = "1"
-		metadata["surface"] = "cli"
+		if _, attemptMode := sessionAttemptSuffix(opts.SessionInstanceID); attemptMode {
+			metadata["freebuff_multi_session"] = "1"
+			metadata["surface"] = "cli"
+		}
 	}
 	// llm_step_number is the 1-based per-run agent step, String(n) on the
 	// wire (#113; upstream/freebuff run-agent-step.ts:1175-1177).

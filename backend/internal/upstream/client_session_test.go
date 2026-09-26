@@ -7,6 +7,7 @@ import (
 	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -417,24 +418,20 @@ func TestControlCallTimeout(t *testing.T) {
 func TestCreateSessionForModelHeaders(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
+	var gotMethod, gotPath string
 	var capturedHeaders http.Header
 	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			capturedHeaders = r.Header.Clone()
-			model := r.Header.Get("x-freebuff-model")
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-1","model":"`+model+`","expiresAt":"2030-01-01T00:00:00Z"}`)
-			return
-		}
-		http.NotFound(w, r)
+		gotMethod, gotPath = r.Method, r.URL.Path
+		capturedHeaders = r.Header.Clone()
+		model := r.Header.Get("x-freebuff-model")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-1","model":"`+model+`","expiresAt":"2030-01-01T00:00:00Z"}`)
 	}
-
 	client, err := New("tok-a", testConfig(mock.URL(), nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	st, err := client.CreateSessionForModel(context.Background(), "thudm/glm-5.2")
 	if err != nil {
 		t.Fatal(err)
@@ -442,12 +439,21 @@ func TestCreateSessionForModelHeaders(t *testing.T) {
 	if st.Status != "active" || st.Model != "thudm/glm-5.2" || st.InstanceID != "inst-1" {
 		t.Errorf("got %+v, want active with model thudm/glm-5.2", st)
 	}
-	instID := capturedHeaders.Get("x-freebuff-instance-id")
-	if !strings.HasPrefix(instID, "cli:") {
-		t.Errorf("x-freebuff-instance-id = %q, want cli: prefix", instID)
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/freebuff/session/admission" {
+		t.Errorf("request = %s %q, want POST /api/v1/freebuff/session/admission", gotMethod, gotPath)
 	}
-	if got := capturedHeaders.Get("x-freebuff-multi-session"); got != "1" {
-		t.Errorf("x-freebuff-multi-session = %q, want '1'", got)
+	instID := capturedHeaders.Get("x-freebuff-instance-id")
+	uuid := strings.TrimPrefix(instID, "cli:")
+	if !strings.HasPrefix(instID, "cli:") || !regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(uuid) {
+		t.Errorf("x-freebuff-instance-id = %q, want cli:<RFC4122-v4 UUID>", instID)
+	}
+	for _, name := range []string{"x-freebuff-multi-session", "x-freebuff-purchase-continuity"} {
+		if got := capturedHeaders.Get(name); got != "1" {
+			t.Errorf("%s = %q, want '1'", name, got)
+		}
+	}
+	if got := capturedHeaders.Get("x-freebuff-desktop-attempt-id"); got != uuid || uuid == "" {
+		t.Errorf("x-freebuff-desktop-attempt-id = %q, want instance ID suffix %q", got, uuid)
 	}
 	if got := capturedHeaders.Get("x-freebuff-first-tab-discount"); got != "0" {
 		t.Errorf("x-freebuff-first-tab-discount = %q, want '0'", got)
@@ -457,39 +463,95 @@ func TestCreateSessionForModelHeaders(t *testing.T) {
 	}
 }
 
-func TestGetSessionWithOptsHeaders(t *testing.T) {
+func TestLimitedOfferAdmissionUsesLegacySessionHeaders(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	var gotCompact, gotHeartbeat, gotInstance string
+	var gotMethod, gotPath string
+	var capturedHeaders http.Header
 	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
-		gotCompact = r.Header.Get("x-freebuff-compact-session")
-		gotHeartbeat = r.Header.Get("x-freebuff-heartbeat")
-		gotInstance = r.Header.Get("x-freebuff-instance-id")
+		gotMethod, gotPath = r.Method, r.URL.Path
+		capturedHeaders = r.Header.Clone()
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-1","expiresAt":"2030-01-01T00:00:00Z"}`)
 	}
-
 	client, err := New("tok-a", testConfig(mock.URL(), nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	st, err := client.GetSessionWithOpts(context.Background(), "inst-1", true)
-	if err != nil {
+	if _, err := client.CreateSessionForModel(context.Background(), "anthropic/claude-fable-5.1"); err != nil {
 		t.Fatal(err)
 	}
-	if st.Status != "active" {
-		t.Errorf("status = %q, want active", st.Status)
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/freebuff/session/admission" {
+		t.Errorf("request = %s %q, want POST /api/v1/freebuff/session/admission", gotMethod, gotPath)
 	}
-	if gotCompact != "1" || gotInstance != "inst-1" {
-		t.Errorf("headers: compact=%q, instance=%q (want 1 / inst-1)", gotCompact, gotInstance)
+	for _, name := range []string{
+		"x-freebuff-instance-id",
+		"x-freebuff-multi-session",
+		"x-freebuff-purchase-continuity",
+		"x-freebuff-desktop-attempt-id",
+	} {
+		if got := capturedHeaders.Get(name); got != "" {
+			t.Errorf("%s = %q, want absent for limited offer model", name, got)
+		}
 	}
-	// Gap #2: the CLI never beats — x-freebuff-heartbeat is Desktop-only
-	// (upstream/freebuff freebuff-models.ts:1212-1215), so a compact poll
-	// must NOT carry it.
-	if gotHeartbeat != "" {
-		t.Errorf("x-freebuff-heartbeat = %q, want absent on compact polls", gotHeartbeat)
+}
+
+func TestGetSessionWithOptsHeaders(t *testing.T) {
+	for _, compact := range []bool{false, true} {
+		name := "non-compact"
+		if compact {
+			name = "compact"
+		}
+		t.Run(name, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			var gotMethod, gotPath string
+			var capturedHeaders http.Header
+			mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+				gotMethod, gotPath = r.Method, r.URL.Path
+				capturedHeaders = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-1","expiresAt":"2030-01-01T00:00:00Z"}`)
+			}
+			client, err := New("tok-a", testConfig(mock.URL(), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := client.GetSessionWithOpts(context.Background(), "cli:123e4567-e89b-42d3-a456-426614174000", compact)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Status != "active" {
+				t.Errorf("status = %q, want active", st.Status)
+			}
+			if gotMethod != http.MethodGet || gotPath != "/api/v1/freebuff/session" {
+				t.Errorf("request = %s %q, want GET /api/v1/freebuff/session", gotMethod, gotPath)
+			}
+			if got := capturedHeaders.Get("x-freebuff-instance-id"); got != "cli:123e4567-e89b-42d3-a456-426614174000" {
+				t.Errorf("x-freebuff-instance-id = %q, want supplied cli: instance", got)
+			}
+			for _, name := range []string{"x-freebuff-multi-session", "x-freebuff-purchase-continuity", "x-freebuff-heartbeat"} {
+				if got := capturedHeaders.Get(name); got != "1" {
+					t.Errorf("%s = %q, want '1'", name, got)
+				}
+			}
+			if compact {
+				if got := capturedHeaders.Get("x-freebuff-compact-session"); got != "1" {
+					t.Errorf("x-freebuff-compact-session = %q, want '1'", got)
+				}
+				if got := capturedHeaders.Get("x-freebuff-include-unused-rate-limits"); got != "" {
+					t.Errorf("x-freebuff-include-unused-rate-limits = %q, want absent on compact GET", got)
+				}
+			} else {
+				if got := capturedHeaders.Get("x-freebuff-compact-session"); got != "" {
+					t.Errorf("x-freebuff-compact-session = %q, want absent", got)
+				}
+				if got := capturedHeaders.Get("x-freebuff-include-unused-rate-limits"); got != "1" {
+					t.Errorf("x-freebuff-include-unused-rate-limits = %q, want '1'", got)
+				}
+			}
+		})
 	}
 }
 
@@ -657,68 +719,83 @@ func TestEndSession404Tolerated(t *testing.T) {
 	})
 }
 
-// TestEndSessionInstanceHeader pins the DELETE instance-id contract: the
-// client sends x-freebuff-instance-id when it holds one and omits the
-// header when the id is empty (the caller holds no slot).
+// TestEndSessionInstanceHeader pins the CLI multi-session attempt DELETE and
+// preserves the legacy single-session DELETE contract.
 func TestEndSessionInstanceHeader(t *testing.T) {
-	t.Run("carries header when id known", func(t *testing.T) {
-		mock := testutil.NewMock()
-		defer mock.Close()
-		var got string
-		var sawDelete bool
-		mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodDelete {
-				sawDelete = true
-				got = r.Header.Get("x-freebuff-instance-id")
+	tests := []struct {
+		name       string
+		instanceID string
+		wantPath   string
+		multi      bool
+	}{
+		{
+			name:       "cli attempt uses attempt route",
+			instanceID: "cli:123e4567-e89b-42d3-a456-426614174000",
+			wantPath:   "/api/v1/freebuff/session/attempt",
+			multi:      true,
+		},
+		{
+			name:       "legacy instance uses base route",
+			instanceID: "inst-held-1",
+			wantPath:   "/api/v1/freebuff/session",
+		},
+		{
+			name:       "empty cli prefix stays legacy",
+			instanceID: "cli:",
+			wantPath:   "/api/v1/freebuff/session",
+		},
+		{
+			name:     "empty instance uses base route",
+			wantPath: "/api/v1/freebuff/session",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			var gotMethod, gotPath string
+			var capturedHeaders http.Header
+			mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+				gotMethod, gotPath = r.Method, r.URL.Path
+				capturedHeaders = r.Header.Clone()
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"status":"ended"}`)
 			}
-			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, `{"status":"ended"}`)
-		}
-		client, err := New("tok", testConfig(mock.URL(), nil))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := client.EndSession(context.Background(), "inst-held-1"); err != nil {
-			t.Fatal(err)
-		}
-		if !sawDelete {
-			t.Fatal("no DELETE reached the mock")
-		}
-		if got != "inst-held-1" {
-			t.Errorf("DELETE x-freebuff-instance-id = %q, want inst-held-1", got)
-		}
-	})
-	t.Run("omits header when id empty", func(t *testing.T) {
-		mock := testutil.NewMock()
-		defer mock.Close()
-		got := "unset"
-		var sawDelete bool
-		mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodDelete {
-				sawDelete = true
-				got = r.Header.Get("x-freebuff-instance-id")
+			client, err := New("tok", testConfig(mock.URL(), nil))
+			if err != nil {
+				t.Fatal(err)
 			}
-			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, `{"status":"ended"}`)
-		}
-		client, err := New("tok", testConfig(mock.URL(), nil))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := client.EndSession(context.Background(), ""); err != nil {
-			t.Fatal(err)
-		}
-		if !sawDelete {
-			t.Fatal("no DELETE reached the mock")
-		}
-		if got != "" {
-			t.Errorf("DELETE x-freebuff-instance-id = %q, want absent", got)
-		}
-	})
+			if _, err := client.EndSession(context.Background(), tc.instanceID); err != nil {
+				t.Fatal(err)
+			}
+			if gotMethod != http.MethodDelete || gotPath != tc.wantPath {
+				t.Errorf("request = %s %q, want DELETE %q", gotMethod, gotPath, tc.wantPath)
+			}
+			if got := capturedHeaders.Get("x-freebuff-instance-id"); got != tc.instanceID {
+				t.Errorf("x-freebuff-instance-id = %q, want %q", got, tc.instanceID)
+			}
+			if tc.multi {
+				if got := capturedHeaders.Get("x-freebuff-desktop-attempt-id"); got != "123e4567-e89b-42d3-a456-426614174000" {
+					t.Errorf("x-freebuff-desktop-attempt-id = %q, want instance ID suffix", got)
+				}
+				for _, name := range []string{"x-freebuff-multi-session", "x-freebuff-purchase-continuity"} {
+					if got := capturedHeaders.Get(name); got != "1" {
+						t.Errorf("%s = %q, want '1'", name, got)
+					}
+				}
+			} else {
+				for _, name := range []string{"x-freebuff-multi-session", "x-freebuff-purchase-continuity", "x-freebuff-desktop-attempt-id"} {
+					if got := capturedHeaders.Get(name); got != "" {
+						t.Errorf("%s = %q, want absent for legacy DELETE", name, got)
+					}
+				}
+			}
+		})
+	}
 }
 
-// TestCompactPollAbsentTolerant is E2E flow 8: a compact poll without quota/
-// offer fields parses cleanly with nil maps, and carries no heartbeat header.
+// TestCompactPollAbsentTolerant verifies compact multi-session polls still
+// parse responses without quota/offer fields and carry heartbeat.
 func TestCompactPollAbsentTolerant(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -735,7 +812,7 @@ func TestCompactPollAbsentTolerant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := client.GetSessionWithOpts(context.Background(), "inst-1", true)
+	st, err := client.GetSessionWithOpts(context.Background(), "cli:123e4567-e89b-42d3-a456-426614174000", true)
 	if err != nil {
 		t.Fatalf("compact poll: %v", err)
 	}
@@ -748,8 +825,8 @@ func TestCompactPollAbsentTolerant(t *testing.T) {
 	if got := <-gotCompact; got != "1" {
 		t.Errorf("compact header = %q, want 1", got)
 	}
-	if got := <-gotHeartbeat; got != "" {
-		t.Errorf("heartbeat header = %q, want absent (CLI never beats)", got)
+	if got := <-gotHeartbeat; got != "1" {
+		t.Errorf("heartbeat header = %q, want '1'", got)
 	}
 }
 

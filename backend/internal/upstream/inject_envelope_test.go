@@ -221,11 +221,63 @@ func TestInjectEnvelopeNAndCacheDebugCorrelation(t *testing.T) {
 	}
 }
 
+func TestInjectEnvelopeSessionIdentityMetadata(t *testing.T) {
+	tests := []struct {
+		name             string
+		sessionID        string
+		wantMultiSession bool
+	}{
+		{
+			name:             "attempt ID",
+			sessionID:        "cli:123e4567-e89b-42d3-a456-426614174000",
+			wantMultiSession: true,
+		},
+		{
+			name:      "legacy instance ID",
+			sessionID: "legacy-trial-id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := injectEnvelope([]byte(`{"model":"z-ai/glm-5.3-flash"}`), "free", ChatOptions{
+				RunID:             "run-1",
+				SessionInstanceID: tt.sessionID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var sent map[string]any
+			if err := json.Unmarshal(out, &sent); err != nil {
+				t.Fatal(err)
+			}
+			md, ok := sent["codebuff_metadata"].(map[string]any)
+			if !ok {
+				t.Fatal("codebuff_metadata missing")
+			}
+			if md["freebuff_instance_id"] != tt.sessionID {
+				t.Errorf("freebuff_instance_id = %v, want %q", md["freebuff_instance_id"], tt.sessionID)
+			}
+			if value, present := md["freebuff_multi_session"]; tt.wantMultiSession {
+				if !present || value != "1" {
+					t.Errorf("freebuff_multi_session = %v (present %t), want '1'", value, present)
+				}
+			} else if present {
+				t.Errorf("freebuff_multi_session = %v, want key absent", value)
+			}
+			if md["surface"] != "cli" {
+				t.Errorf("surface = %v, want 'cli'", md["surface"])
+			}
+		})
+	}
+}
+
 func TestInjectEnvelopeMetadataParityAndAnthropicProvider(t *testing.T) {
-	// 1. SessionInstanceID sets freebuff_multi_session and surface: cli
+	// 1. Attempt SessionInstanceID sets freebuff_multi_session and surface: cli
 	out, err := injectEnvelope([]byte(`{"model":"z-ai/glm-5.3-flash"}`), "free", ChatOptions{
 		RunID:             "run-1",
-		SessionInstanceID: "inst-1",
+		SessionInstanceID: "cli:123e4567-e89b-42d3-a456-426614174000",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -244,14 +296,14 @@ func TestInjectEnvelopeMetadataParityAndAnthropicProvider(t *testing.T) {
 	if md["surface"] != "cli" {
 		t.Errorf("surface = %v, want 'cli'", md["surface"])
 	}
-	if md["freebuff_instance_id"] != "inst-1" {
-		t.Errorf("freebuff_instance_id = %v, want 'inst-1'", md["freebuff_instance_id"])
+	if md["freebuff_instance_id"] != "cli:123e4567-e89b-42d3-a456-426614174000" {
+		t.Errorf("freebuff_instance_id = %v, want attempt ID", md["freebuff_instance_id"])
 	}
 
 	// 2. Reserved keys cannot be overridden by extra metadata
 	outReserved, err := injectEnvelope([]byte(`{"model":"m","codebuff_metadata":{"freebuff_multi_session":"fake","surface":"fake"}}`), "free", ChatOptions{
 		RunID:                 "run-1",
-		SessionInstanceID:     "inst-2",
+		SessionInstanceID:     "cli:123e4567-e89b-42d3-a456-426614174001",
 		ExtraCodebuffMetadata: map[string]string{"freebuff_multi_session": "extra_fake", "surface": "extra_fake"},
 	})
 	if err != nil {

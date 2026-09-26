@@ -77,6 +77,7 @@ var allowed = map[string][]string{
 	},
 	"internal/upstream": {
 		"internal/config",
+		"internal/modelcat",
 		"internal/stealth",
 		"internal/telemetry",
 		// Deliberate extension (2026-09-24): the ads request UA must claim the

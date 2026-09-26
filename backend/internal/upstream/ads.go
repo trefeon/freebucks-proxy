@@ -263,10 +263,15 @@ func (c *Client) postAdEvent(ctx context.Context, path string, payload map[strin
 }
 
 // newAdEventID mints one UUIDv4 event id per ads event, mirroring the CLI's
-// crypto.randomUUID per impression (use-gravity-ad.ts: one id per
-// logical event; the header is what the server reads).
+// crypto.randomUUID per impression (use-gravity-ad.ts: one id per logical
+// event; the header is what the server reads). Preserve the historical
+// timestamp fallback for this best-effort ads identifier.
 func newAdEventID() string {
-	return newUUIDv4()
+	id, err := newUUIDv4()
+	if err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return id
 }
 
 // deviceOS maps runtime.GOOS to the ads device block's wire contract

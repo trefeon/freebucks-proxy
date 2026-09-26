@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebucks-proxy/backend/internal/modelcat"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +16,10 @@ import (
 // admission/reuse routes and their headers. Dedicated routes fail closed on
 // servers predating these guarantees — never fall back to the legacy path.
 const (
+	sessionInstanceIDHeader         = "x-freebuff-instance-id"
+	sessionMultiSessionHeader       = "x-freebuff-multi-session"
+	sessionPurchaseContinuityHeader = "x-freebuff-purchase-continuity"
+	sessionDesktopAttemptIDHeader   = "x-freebuff-desktop-attempt-id"
 	// SessionAdmissionPath is the dedicated session-create route.
 	SessionAdmissionPath = "/api/v1/freebuff/session/admission"
 	// SessionReusePath reuses an exact live single-session instance without
@@ -55,6 +60,19 @@ const (
 	SessionUnsupportedMessage = "This server cannot safely start or resume your session yet. Reload or update Freebuff and try again shortly. No purchase was made."
 )
 
+// sessionAttemptSuffix identifies CLI-minted attempt IDs. The suffix is the
+// UUID sent as x-freebuff-desktop-attempt-id.
+func sessionAttemptSuffix(instanceID string) (string, bool) {
+	if !strings.HasPrefix(instanceID, cliInstanceIDPrefix) {
+		return "", false
+	}
+	attemptID := instanceID[len(cliInstanceIDPrefix):]
+	if attemptID == "" {
+		return "", false
+	}
+	return attemptID, true
+}
+
 // isSessionAdmissionRequest reports whether req targets the dedicated
 // admission route (suffix match: the client base URL may carry a prefix).
 func isSessionAdmissionRequest(req *http.Request) bool {
@@ -78,15 +96,24 @@ func (c *Client) CreateSession(ctx context.Context) (*SessionState, error) {
 }
 
 // CreateSessionForModel POSTs the dedicated admission route with the
-// requested model header and client-generated instance ID (cli:<uuid>).
-// The POST carries NO body and therefore no Content-Type (#120): the CLI
-// and Desktop session POST is a bare fetch with Authorization,
-// x-freebuff-model, x-freebuff-instance-id (bundle.js function ar() prefixed
-// with "cli:"), x-freebuff-multi-session ("1"), plus the wallet spend-limit
-// and first-tab discount headers, along with the locality timezone header.
+// requested model and wallet limit. Ordinary models use a client-minted
+// cli:<uuid> multi-session attempt ID; TierOffer models retain the upstream
+// legacy single-session identity. The POST carries NO body and therefore no
+// Content-Type.
 func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.CreateSession(c.token, model)
+	}
+	attemptMode := !modelcat.HasTier(model, modelcat.TierOffer)
+	instanceID := ""
+	attemptID := ""
+	if attemptMode {
+		var err error
+		instanceID, err = generateCliInstanceID()
+		if err != nil {
+			return nil, fmt.Errorf("generate Freebuff session attempt ID: %w", err)
+		}
+		attemptID = instanceID[len(cliInstanceIDPrefix):]
 	}
 	req, err := c.newRequest(ctx, http.MethodPost, SessionAdmissionPath, nil)
 	if err != nil {
@@ -96,12 +123,15 @@ func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*Sess
 		req.Header.Set("x-freebuff-model", model)
 	}
 	req.Header.Set(WalletSpendLimitHeader, DefaultWalletSpendLimit)
-	instID := generateCliInstanceID()
-	req.Header.Set("x-freebuff-instance-id", instID)
-	req.Header.Set("x-freebuff-multi-session", "1")
+	if attemptMode {
+		req.Header.Set(sessionInstanceIDHeader, instanceID)
+		req.Header.Set(sessionMultiSessionHeader, "1")
+		req.Header.Set(sessionPurchaseContinuityHeader, "1")
+		req.Header.Set(sessionDesktopAttemptIDHeader, attemptID)
+	}
 	st, err := c.sessionCall(req)
-	if err == nil && st != nil && st.InstanceID == "" && st.Status == "active" {
-		st.InstanceID = instID
+	if err == nil && attemptMode && st != nil && st.InstanceID == "" && st.Status == "active" {
+		st.InstanceID = instanceID
 	}
 	return st, err
 }
@@ -115,11 +145,11 @@ func (c *Client) GetSession(ctx context.Context, instanceID string) (*SessionSta
 }
 
 // GetSessionWithOpts polls /api/v1/freebuff/session with an optional compact
-// response header. There is deliberately NO heartbeat option: the CLI never
-// sends x-freebuff-heartbeat (Desktop-only, upstream/freebuff
-// freebuff-models.ts:1212-1215); liveness comes from the recurring compact
-// GET itself. The locality header rides every session call (sessionCall),
-// the poll included.
+// response header. CLI attempt IDs add multi-session, purchase-continuity,
+// and heartbeat headers; noncompact attempt polls also request unused rate
+// limits. Compact polls retain the compact header but omit that request.
+// Legacy IDs keep the base route and do not send attempt-only headers. The
+// locality header rides every session call (sessionCall), the poll included.
 func (c *Client) GetSessionWithOpts(ctx context.Context, instanceID string, compact bool) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.GetSession(c.token, "")
@@ -129,10 +159,18 @@ func (c *Client) GetSessionWithOpts(ctx context.Context, instanceID string, comp
 		return nil, err
 	}
 	if instanceID != "" {
-		req.Header.Set("x-freebuff-instance-id", instanceID)
+		req.Header.Set(sessionInstanceIDHeader, instanceID)
 	}
 	if compact {
 		req.Header.Set("x-freebuff-compact-session", "1")
+	}
+	if _, attemptMode := sessionAttemptSuffix(instanceID); attemptMode {
+		req.Header.Set(sessionMultiSessionHeader, "1")
+		req.Header.Set(sessionPurchaseContinuityHeader, "1")
+		req.Header.Set("x-freebuff-heartbeat", "1")
+		if !compact {
+			req.Header.Set("x-freebuff-include-unused-rate-limits", "1")
+		}
 	}
 	return c.sessionCall(req)
 }
@@ -297,30 +335,33 @@ func (c *Client) GetStreak(ctx context.Context) (*StreakInfo, error) {
 	}, nil
 }
 
-// EndSession DELETEs /api/v1/freebuff/session and parses the release
-// receipt (vendor af898dc: {status:'ended', freebucksRefund?,
-// freebucksRefundPending?}). A 404 is tolerated (nil receipt — the row is
-// already gone, nothing to record). The DELETE carries
-// x-freebuff-instance-id when the caller holds one (vendor parity:
-// cli/src/utils/freebuff-session-api.ts callFreebuffSession sends the
-// instance header on admission POST, poll GET, and DELETE alike). An empty instanceID omits
-// the header (the caller genuinely holds no slot).
+// EndSession DELETEs a session and parses the release receipt. A 404 is
+// tolerated (nil receipt — the row is already gone, nothing to record).
+// CLI attempt IDs use the attempt DELETE route and carry the multi-session,
+// purchase-continuity, and desktop-attempt headers. Legacy IDs retain the
+// base route and carry only the instance ID. The locality + first-tab headers
+// are stamped here too, as for polls and probes.
 func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRefundReceipt, error) {
 	if c.mock != nil {
 		return c.mock.EndSession(c.token, instanceID)
 	}
-	req, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/freebuff/session", nil)
+	attemptID, attemptMode := sessionAttemptSuffix(instanceID)
+	path := "/api/v1/freebuff/session"
+	if attemptMode {
+		path = "/api/v1/freebuff/session/attempt"
+	}
+	req, err := c.newRequest(ctx, http.MethodDelete, path, nil)
 	if err != nil {
 		return nil, err
 	}
 	if instanceID != "" {
-		req.Header.Set("x-freebuff-instance-id", instanceID)
+		req.Header.Set(sessionInstanceIDHeader, instanceID)
 	}
-	// The DELETE does not route through sessionCall (it parses a release
-	// receipt, not a SessionState), so the locality + first-tab headers are
-	// stamped here too: the vendor spreads freebucksTimeZoneHeaders() and the
-	// first-tab discount header into the refund call exactly like the poll
-	// and the probe.
+	if attemptMode {
+		req.Header.Set(sessionMultiSessionHeader, "1")
+		req.Header.Set(sessionPurchaseContinuityHeader, "1")
+		req.Header.Set(sessionDesktopAttemptIDHeader, attemptID)
+	}
 	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
 	req.Header.Set(FirstTabDiscountHeader, "0")
 

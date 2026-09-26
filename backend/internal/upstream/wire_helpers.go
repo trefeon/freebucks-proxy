@@ -104,18 +104,27 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max])
 }
 
+// cliInstanceIDPrefix marks an attempt-mode session identity.
+const cliInstanceIDPrefix = "cli:"
+
 // newUUIDv4 mints one random RFC 4122 v4 UUID string.
-func newUUIDv4() string {
+func newUUIDv4() (string, error) {
 	var b [16]byte
-	_, _ = cryptoRand.Read(b[:])
+	if _, err := cryptoRand.Read(b[:]); err != nil {
+		return "", err
+	}
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
-// generateCliInstanceID mints an instance id with the "cli:" prefix,
-// mirroring the CLI's function ar() { return `${tJH}${Wm$()}` } (tJH="cli:").
-func generateCliInstanceID() string {
-	return "cli:" + newUUIDv4()
+// generateCliInstanceID mints a `cli:<uuid>` identity, matching the CLI's
+// `newFreebuffCliInstanceId` in `cli/src/utils/freebuff-session-identity.ts`.
+func generateCliInstanceID() (string, error) {
+	uuid, err := newUUIDv4()
+	if err != nil {
+		return "", err
+	}
+	return cliInstanceIDPrefix + uuid, nil
 }

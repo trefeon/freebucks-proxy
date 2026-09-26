@@ -213,15 +213,20 @@ Same dir also holds `freebuff-instance-owner.json` (`cli/src/utils/freebuff-inst
 
 ## 6. Session lifecycle & recovery
 
-The CLI holds at most one free seat per account: POST acquires, GET refreshes, DELETE releases — all against the **codebuff** app host even in the upstream build (`NEXT_PUBLIC_CODEBUFF_APP_URL || 'https://codebuff.com'`, trailing slash stripped) (`cli/src/utils/freebuff-session-api.ts:98-107`).
+The CLI uses two session wire modes against the **codebuff** app host even in the upstream build (`NEXT_PUBLIC_CODEBUFF_APP_URL || 'https://codebuff.com'`, trailing slash stripped). Ordinary models use a client-minted attempt identity, `cli:<UUIDv4>`; the limited-offer (`TierOffer`) path stays on the legacy single-session wire and keeps the server-returned legacy ID. Both POST to the admission route (`cli/src/hooks/use-freebuff-session.ts:613-653`; ID format: `cli/src/utils/freebuff-session-identity.ts:6-15`).
 
-| Method | Path | Extra headers | Body |
-|---|---|---|---|
-| POST | `/api/v1/freebuff/session/admission` | `x-freebuff-model` (only when a model is selected), `x-freebuff-wallet-spend-limit: String(limit ?? 0)` | none |
-| GET | `/api/v1/freebuff/session` | `x-freebuff-instance-id` (when held), `x-freebuff-compact-session: 1` (when compact) | none |
-| DELETE | `/api/v1/freebuff/session` | `x-freebuff-instance-id` (**required**) | none |
+| Mode | Method | Path | Extra headers | Body |
+|---|---|---|---|---|
+| Ordinary-model attempt admission | POST | `/api/v1/freebuff/session/admission` | `x-freebuff-model` (when selected), `x-freebuff-wallet-spend-limit: String(limit ?? 0)`, `x-freebuff-instance-id: cli:<UUIDv4>`, `x-freebuff-multi-session: 1`, `x-freebuff-purchase-continuity: 1`, `x-freebuff-desktop-attempt-id: <UUID suffix>` | none |
+| Limited-offer legacy admission | POST | `/api/v1/freebuff/session/admission` | `x-freebuff-model` (when selected), `x-freebuff-wallet-spend-limit: String(limit ?? 0)`; no client instance or attempt headers | none |
+| Attempt poll | GET | `/api/v1/freebuff/session` | `x-freebuff-instance-id`; `x-freebuff-multi-session: 1`, `x-freebuff-purchase-continuity: 1`, `x-freebuff-heartbeat: 1`; `x-freebuff-include-unused-rate-limits: 1` only when noncompact; `x-freebuff-compact-session: 1` when compact | none |
+| Legacy poll or initial probe | GET | `/api/v1/freebuff/session` | `x-freebuff-instance-id` when held; `x-freebuff-compact-session: 1` when compact; no attempt-only headers | none |
+| Attempt release | DELETE | `/api/v1/freebuff/session/attempt` | `x-freebuff-instance-id`, `x-freebuff-multi-session: 1`, `x-freebuff-purchase-continuity: 1`, `x-freebuff-desktop-attempt-id: <UUID suffix>` | none |
+| Legacy release | DELETE | `/api/v1/freebuff/session` | `x-freebuff-instance-id` when held; no attempt-only headers | none |
 
-Every call also sends `Authorization: Bearer <token>`, `x-fb-timezone` (recomputed per request, omitted when `Intl` throws) and `x-freebuff-first-tab-discount: '1'|'0'` — always present, `'0'` when the server never offered the discount (`cli/src/utils/freebuff-session-api.ts:163-179`; names `common/src/constants/freebuff-models.ts:2609-2614`; `common/src/util/freebucks-timezone.ts:17-25`; `common/src/util/freebuff-first-tab-discount.ts:4`). Per-request timeout 20 s via `AbortSignal.any([caller, AbortSignal.timeout(20_000)])` (`cli/src/utils/freebuff-session-api.ts:90-96`).
+If an ordinary-model admission returns `status: 'active'` without `instanceId`, the client retains its minted `cli:<UUIDv4>` ID. The limited-offer legacy path does not mint a replacement ID. Attempt-mode header and route details follow `cli/src/utils/freebuff-session-api.ts:160-213`; the attempt suffix is the UUID after `cli:`.
+
+Every call also sends `Authorization: Bearer <token>`, `x-fb-timezone` (recomputed per request, omitted when `Intl` throws) and `x-freebuff-first-tab-discount: '1'|'0'` — always present, `'0'` when the server never offered the discount (`cli/src/utils/freebuff-session-api.ts:160-213`; names `common/src/constants/freebuff-models.ts:2609-2614`; `common/src/util/freebucks-timezone.ts:17-25`; `common/src/util/freebuff-first-tab-discount.ts:4`). Per-request timeout 20 s via `AbortSignal.any([caller, AbortSignal.timeout(20_000)])` (`cli/src/utils/freebuff-session-api.ts:90-96`).
 
 ### Response decoding
 
