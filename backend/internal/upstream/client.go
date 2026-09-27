@@ -124,12 +124,15 @@ func (c *Client) TokenKey() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// cliUserAgent mirrors the official CLI chat user agent: the
-// @codebuff/llm-providers VERSION interpolated at
-// sdk/src/impl/model-provider.ts:361-370 (NOT the CLI_VERSION knob), recorded
-// as wirefacts.LlmProvidersVersion from
-// upstream/freebuff/packages/llm-providers/src/openai-compatible/version.ts:1-5
-// at re-pin time (value unchanged).
+// cliUserAgent mirrors the official CLI chat user agent byte-for-byte.
+// Live-captured 2026-09-27 (docs/LIVE-CAPTURE.md) from the installed
+// 0.1.0 CLI: the ai-sdk openai-compatible segment AND the provider-utils
+// tail are both on the wire, and the version segment is the literal
+// `0.0.0-test` placeholder — NOT wirefacts.LlmProvidersVersion (1.0.0),
+// which the source interpolates at model-provider.ts but this build does
+// not emit. Pinned as a literal: both segments drift per release, so
+// re-verify against a fresh capture at every re-pin (the old
+// wirefacts-driven construction silently widened this gap).
 // The upstream free-tier gate (403 free_mode_cli_required) keys on
 // the CLI request envelope (x-freebuff-* headers, codebuff_metadata and
 // forced streaming — see the package comment), but the server still
@@ -137,10 +140,8 @@ func (c *Client) TokenKey() string {
 // ONLY caller:
 // empirically + snapshot-verified, the real CLI emits this UA on chat only;
 // every other upstream call goes through plain Bun fetch (#108/#109
-// rationale superseded by newest-source evidence). The literal is the
-// empty-fact fallback: a manifest predating the fact still yields the
-// last-pinned UA, never an empty version segment.
-var cliUserAgent = "ai-sdk/openai-compatible/" + firstOfN(wirefacts.LlmProvidersVersion, "1.0.0") + "/codebuff"
+// rationale superseded by newest-source evidence).
+var cliUserAgent = "ai-sdk/openai-compatible/0.0.0-test/codebuff ai-sdk/provider-utils/3.0.25 runtime/browser"
 
 // bunUserAgent is the default Bun fetch User-Agent the real CLI's non-chat
 // calls carry: session POST/GET/probe/DELETE, agent-runs START/FINISH,
@@ -324,12 +325,17 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 			// x-codebuff-api-key (defensive: no current caller sets it after
 			// the Bearer-only agent-runs fix, but a relayed downstream value
 			// must never leak to a redirect target). Drop
-			// both when the redirect target is a different host OR downgrades
-			// the scheme https->http (same host, plaintext) so the token never
-			// leaves the trusted origin; same-scheme same-host redirects (e.g.
-			// CDN or bare-host -> www) keep their credentials.
-			if !strings.EqualFold(via[0].URL.Host, req.URL.Host) ||
-				(strings.EqualFold(via[0].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http")) {
+			// both when the redirect leaves the upstream trust zone (a
+			// different registrable domain) OR downgrades the scheme
+			// https->http (same host, plaintext) so the token never leaves
+			// the trusted origin. Same-zone redirects — including bare-host
+			// <-> www, which the CLI follows on EVERY call (GETs 301,
+			// POSTs 307; live-captured 2026-09-27, docs/LIVE-CAPTURE.md) —
+			// keep their credentials: the follow-up re-POST is
+			// authenticated upstream, and stripping it 401s.
+			from, to := via[0].URL, req.URL
+			downgrade := strings.EqualFold(from.Scheme, "https") && strings.EqualFold(to.Scheme, "http")
+			if downgrade || registrableDomain(from.Host) != registrableDomain(to.Host) {
 				req.Header.Del("Authorization")
 				req.Header.Del("x-codebuff-api-key")
 			}
@@ -337,6 +343,27 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 		},
 	}
 	return c, nil
+}
+
+// registrableDomain returns the last two DNS labels of host
+// ("www.codebuff.com" -> "codebuff.com") for redirect trust-zone
+// comparison. IP literals and single-label names return as-is (lowercased),
+// so only an exact match keeps credentials — 127.0.0.1 and localhost are
+// different zones. Ports are ignored (URL.Host may carry one).
+func registrableDomain(host string) string {
+	h := host
+	if bare, _, err := net.SplitHostPort(host); err == nil {
+		h = bare
+	}
+	h = strings.ToLower(strings.TrimSuffix(h, "."))
+	if net.ParseIP(h) != nil {
+		return h
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) < 2 {
+		return h
+	}
+	return parts[len(parts)-2] + "." + parts[len(parts)-1]
 }
 
 // reqIDKey carries the request correlation id (opts.RequestID) through the

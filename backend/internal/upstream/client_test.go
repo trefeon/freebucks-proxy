@@ -51,10 +51,12 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
-// TestCrossHostRedirectStripsToken verifies a cross-host redirect does not
-// carry x-codebuff-api-key (or Authorization): Go strips the latter itself
-// but not the former, so the raw token used to leak to any redirect target.
-// Same-host redirects keep their credentials (CDN / bare-host -> www).
+// TestCrossHostRedirectStripsToken verifies a redirect out of the upstream
+// trust zone does not carry x-codebuff-api-key (or Authorization): Go strips
+// the latter itself but not the former, so the raw token used to leak to any
+// redirect target. Same-zone redirects — same host, or bare-host <-> www and
+// other same-registrable-domain hops the CLI follows on every call (GETs 301,
+// POSTs 307; live-captured 2026-09-27) — keep their credentials.
 func TestCrossHostRedirectStripsToken(t *testing.T) {
 	const token = "tok-secret-redirect"
 
@@ -94,6 +96,12 @@ func TestCrossHostRedirectStripsToken(t *testing.T) {
 		check(t, "https://www.codebuff.com", "http://www.codebuff.com:8080", true)
 		check(t, "https://www.codebuff.com", "https://www.codebuff.com", false)
 		check(t, "http://www.codebuff.com", "https://www.codebuff.com", false)
+		check(t, "https://codebuff.com", "https://www.codebuff.com", false)
+		check(t, "https://www.codebuff.com", "https://codebuff.com", false)
+		check(t, "https://codebuff.com", "https://api.codebuff.com", false)
+		check(t, "https://codebuff.com", "https://evil.com", true)
+		check(t, "https://www.codebuff.com", "https://www.evil.com", true)
+		check(t, "https://127.0.0.1:1", "https://localhost:2", true)
 	})
 
 	keySeen := make(chan string, 1)
@@ -106,7 +114,13 @@ func TestCrossHostRedirectStripsToken(t *testing.T) {
 	defer target.Close()
 
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.URL+"/final", http.StatusTemporaryRedirect)
+		// Rewrite 127.0.0.1 -> localhost: different hostname, different
+		// trust zone (registrableDomain treats IP and single-label names
+		// as exact-match-only), so credentials must be stripped — same
+		// assertion as before, now against the zone rule instead of a
+		// port difference.
+		crossURL := strings.Replace(target.URL+"/final", "127.0.0.1", "localhost", 1)
+		http.Redirect(w, r, crossURL, http.StatusTemporaryRedirect)
 	}))
 	defer origin.Close()
 

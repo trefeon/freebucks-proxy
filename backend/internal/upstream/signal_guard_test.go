@@ -3,8 +3,6 @@ package upstream
 import (
 	"context"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/wirefacts"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/wirefacts"
 )
 
 // recordedReq captures one outbound request's method, path, body and headers
@@ -398,8 +399,8 @@ func TestAgentRunsNeverForwardsForeignKey(t *testing.T) {
 }
 
 // TestSignalGuardChatUserAgent pins the chat POST User-Agent to the exact
-// ai-sdk/openai-compatible/1.0.0/codebuff string the official CLI pins on
-// model calls (chat is the ONLY path carrying it).
+// live-captured string the official CLI sends on model calls
+// (docs/LIVE-CAPTURE.md; chat is the ONLY path carrying it).
 func TestSignalGuardChatUserAgent(t *testing.T) {
 	srv := newRecordingUpstream()
 	defer srv.Close()
@@ -657,16 +658,21 @@ func TestBodylessPostsOmitContentType(t *testing.T) {
 	}
 }
 
-// TestUAsTrackWirefacts pins the UA construction to the recorded wirefacts:
-// the chat UA embeds LlmProvidersVersion and the non-chat UA embeds
-// BunVersion, so a re-pin that moves either fact moves the wire UA with it
-// instead of silently widening a literal gap (PORT-MAP section 10 items 1-2).
+// TestUAsMatchLiveCapture pins both UAs to verbatim live captures: the chat
+// UA is the exact string the installed 0.1.0 CLI sends on
+// /api/v1/chat/completions (captured 2026-09-27, docs/LIVE-CAPTURE.md —
+// note the `0.0.0-test` placeholder and the provider-utils tail, NEITHER of
+// which the wirefacts-driven construction produced), and the non-chat UA
+// embeds BunVersion. Re-verify the chat literal against a fresh capture at
+// every re-pin; the wirefacts LlmProvidersVersion assertion below documents
+// the source value WITHOUT building the UA from it.
 func TestUAsTrackWirefacts(t *testing.T) {
 	if wirefacts.LlmProvidersVersion == "" {
 		t.Fatal("wirefacts.LlmProvidersVersion is empty; the re-pin must record packages/llm-providers/package.json")
 	}
-	if want := "ai-sdk/openai-compatible/" + wirefacts.LlmProvidersVersion + "/codebuff"; cliUserAgent != want {
-		t.Errorf("cliUserAgent = %q, want %q (built from wirefacts.LlmProvidersVersion)", cliUserAgent, want)
+	const wantChatUA = "ai-sdk/openai-compatible/0.0.0-test/codebuff ai-sdk/provider-utils/3.0.25 runtime/browser"
+	if cliUserAgent != wantChatUA {
+		t.Errorf("cliUserAgent = %q, want live-captured %q (docs/LIVE-CAPTURE.md)", cliUserAgent, wantChatUA)
 	}
 	if wirefacts.BunVersion == "" {
 		t.Fatal("wirefacts.BunVersion is empty; the re-pin must record upstream .bun-version")
