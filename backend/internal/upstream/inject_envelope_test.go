@@ -427,8 +427,10 @@ func TestStartCLILogin(t *testing.T) {
 	if code.FingerprintHash == "" || code.LoginURL == "" || code.ExpiresAt.IsZero() {
 		t.Errorf("code = %+v, want hash+loginURL+expiresAt", code)
 	}
-	if want := "https://freebuff.com/onboard?auth_code=abc"; code.LoginURL != want {
-		t.Errorf("code.LoginURL = %q, want %q", code.LoginURL, want)
+	// CLI parity (vendor tip 57943aa71, cli/src/utils/plain-login.ts:54):
+	// the server-issued loginUrl surfaces verbatim — no onboard rewrite.
+	if want := "https://github.com/login/oauth/authorize?auth_code=abc"; code.LoginURL != want {
+		t.Errorf("code.LoginURL = %q, want verbatim %q", code.LoginURL, want)
 	}
 }
 
@@ -1152,5 +1154,41 @@ func TestStartCLILoginNumericExpiresAtFallback(t *testing.T) {
 	}
 	if delta := time.Until(code.ExpiresAt); delta < 4*time.Minute || delta > 6*time.Minute {
 		t.Errorf("ExpiresAt in %v, want ~5m out (mock default)", delta)
+	}
+}
+
+// TestStartCLILoginSurfacesLoginUrlVerbatim pins R8: every server-issued
+// loginUrl shape surfaces byte-identical (vendor tip 57943aa71,
+// cli/src/utils/plain-login.ts:54 — safeOpen never mutates). The old onboard
+// rewrite hardcoded freebuff.com and spoofed a URL the server did not issue;
+// callers needing the onboard host derive it from the issued URL.
+func TestStartCLILoginSurfacesLoginUrlVerbatim(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		url  string
+	}{
+		{"github authorize", "https://github.com/login/oauth/authorize?auth_code=abc&extra=1"},
+		{"onboard issued directly", "https://freebuff.com/onboard?auth_code=xyz"},
+		{"no auth code", "https://example.com/login?foo=bar"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			mock.AuthCLICodeBody = `{"fingerprintId":"enhanced-x","fingerprintHash":"h","loginUrl":"` + tc.url + `","expiresAt":` + strconv.FormatInt(time.Now().Add(5*time.Minute).UnixMilli(), 10) + `}`
+			client, err := NewForAuth(testConfig(mock.URL(), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, err := client.StartCLILogin(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if code.LoginURL != tc.url {
+				t.Errorf("LoginURL = %q, want verbatim %q", code.LoginURL, tc.url)
+			}
+			if strings.Contains(code.LoginURL, "freebuff.com/onboard") && tc.url != "https://freebuff.com/onboard?auth_code=xyz" {
+				t.Errorf("LoginURL = %q synthesizes an onboard host the server did not issue", code.LoginURL)
+			}
+		})
 	}
 }

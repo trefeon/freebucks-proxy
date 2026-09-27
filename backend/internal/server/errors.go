@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/upstream"
 	"math"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // quotaSummary renders the live per-model session quota from a probe's
@@ -257,14 +258,14 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 		if targetModel == "" {
 			targetModel = model
 		}
-		message = fmt.Sprintf("%s: model '%s' is unavailable on this egress IP/tier. If your account or IP is on limited tier (non-Tier-1 region), switch your coding harness to 'mimo/mimo-v2.5' (the available model for limited tier), or route traffic via a residential connection in a Tier-1 country (US/UK/EU/SG).", lie.Error(), targetModel)
+		message = fmt.Sprintf("%s: model '%s' is unavailable on this egress IP/tier. If your account or IP is on limited tier (non-Tier-1 region), switch your coding harness to 'mimo/mimo-v2.5' (the available model for limited tier), or route traffic via a residential connection in a Tier-1 country (US/UK/EU).", lie.Error(), targetModel)
 		retryAfter = lie.RetryAfter
 		if retryAfter < 0 {
 			retryAfter = 0
 		}
 	case errors.Is(err, upstream.ErrModelIPLimited):
 		status, code = http.StatusConflict, "model_ip_limited"
-		message = fmt.Sprintf("%s: model '%s' is unavailable on this egress IP/tier. If your account or IP is on limited tier (non-Tier-1 region), switch your coding harness to 'mimo/mimo-v2.5' (the available model for limited tier), or route traffic via a residential connection in a Tier-1 country (US/UK/EU/SG).", err.Error(), model)
+		message = fmt.Sprintf("%s: model '%s' is unavailable on this egress IP/tier. If your account or IP is on limited tier (non-Tier-1 region), switch your coding harness to 'mimo/mimo-v2.5' (the available model for limited tier), or route traffic via a residential connection in a Tier-1 country (US/UK/EU).", err.Error(), model)
 		retryAfter = 0
 	case errors.As(err, &wr):
 		status, code = http.StatusServiceUnavailable, "waiting_room_queued"

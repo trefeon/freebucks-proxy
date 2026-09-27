@@ -676,7 +676,8 @@ func TestCheckTokenHealthDummySkipsNetwork(t *testing.T) {
 }
 
 // TestProbeMeRequestShape pins the CLI-faithful /api/v1/me request: Bearer
-// auth on GET with fields=id,email,discord_id (URLSearchParams encoding).
+// auth on GET with fields=id,email (URLSearchParams encoding) — the CLI's
+// exact field set, verified live 2026-09-27 via MITM capture.
 func TestProbeMeRequestShape(t *testing.T) {
 	type gotReq struct {
 		auth  string
@@ -689,7 +690,7 @@ func TestProbeMeRequestShape(t *testing.T) {
 			return
 		}
 		got <- gotReq{auth: r.Header.Get("Authorization"), query: r.URL.RawQuery}
-		_, _ = io.WriteString(w, `{"id":"u-1","email":"u@example.com","discord_id":null}`)
+		_, _ = io.WriteString(w, `{"id":"u-1","email":"u@example.com"}`)
 	}))
 	t.Cleanup(srv.Close)
 	if _, err := CheckTokenHealth(context.Background(), healthClient(t, "tok-shape", 0, srv.URL)); err != nil {
@@ -699,8 +700,8 @@ func TestProbeMeRequestShape(t *testing.T) {
 	if req.auth != "Bearer tok-shape" {
 		t.Errorf("Authorization = %q, want Bearer tok-shape", req.auth)
 	}
-	if req.query != "fields=id%2Cemail%2Cdiscord_id" {
-		t.Errorf("query = %q, want fields=id%%2Cemail%%2Cdiscord_id (CLI URLSearchParams encoding)", req.query)
+	if req.query != "fields=id%2Cemail" {
+		t.Errorf("query = %q, want fields=id%%2Cemail (CLI URLSearchParams encoding, live-captured)", req.query)
 	}
 }
 

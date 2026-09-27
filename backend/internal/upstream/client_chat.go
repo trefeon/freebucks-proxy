@@ -16,8 +16,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/stealth"
-	"freebucks-proxy/backend/internal/telemetry"
 	"io"
 	"log/slog"
 	"math/big"
@@ -25,6 +23,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/stealth"
+	"freebucks-proxy/backend/internal/telemetry"
 )
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body []byte) (*http.Request, error) {
@@ -38,13 +39,19 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body []byt
 	}
 	// A bodyless POST/PUT/PATCH is trivially replayable on a transient
 	// retry: give it a NoBody GetBody so do()'s TRANSIENT_RETRIES replay
-	// works (a nil GetBody silently disables retries, which after #120
-	// would break the bodyless session POST's transport-level retry). GETs
-	// and DELETEs stay nil-GetBody (never retried — idempotent reads fail
-	// fast and the poll loop's own backoff owns them).
+	// works — EXCEPT the session admission POST (vendor tip 57943aa71,
+	// cli/src/utils/freebuff-session-api.ts:57-74: a POST network failure
+	// leaves disposition unknown, so the CLI never retries it; a retried
+	// POST after a server-committed rotation is what the vendor refuses to
+	// risk — idempotency holds via the attempt header, but the rotation
+	// itself must not be re-driven). Admission keeps nil GetBody so the
+	// transport fails fast with exactly one upstream hit. GETs and DELETEs
+	// stay nil-GetBody (never retried — idempotent reads fail fast and the
+	// poll loop's own backoff owns them). (#120's deliberate-retry shim
+	// above is what this carves the admission exception out of.)
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch:
-		if body == nil {
+		if body == nil && !isSessionAdmissionRequest(req) {
 			req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
 		}
 	}
@@ -114,10 +121,15 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body []byt
 // fingerprint is rotated, and an exponential 1s*2^attempt +0-30% jitter
 // backoff (cap 10s, the CLI control-path shape) precedes each
 // retry. Classified upstream errors (429/403/401, session/run invalids,
-// waiting room), any HTTP status >= 400, context cancellation, and requests
-// whose body cannot be replayed are NEVER retried.
+// waiting room), any HTTP status >= 400, context cancellation, requests
+// whose body cannot be replayed, and session ADMISSION POSTs are NEVER
+// retried (vendor tip 57943aa71, cli/src/utils/freebuff-session-api.ts:57-74:
+// POST disposition is unknown after a network failure, so the CLI never
+// re-POSTs; newRequest already leaves admission GetBody nil, and this
+// belt-and-braces guard holds even for a manually-built admission POST).
 func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, context.CancelFunc, error) {
-	ctx := req.Context()
+	callerCtx := req.Context()
+	ctx := callerCtx
 	start := time.Now()
 	var cancel context.CancelFunc
 	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
@@ -199,9 +211,12 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 
 		// Transient transport failure with attempts remaining: rotate the
 		// pinned fingerprint, replay the body on a fresh connection, and
-		// retry after a jittered backoff.
+		// retry after a jittered backoff. Session admission POSTs never take
+		// this branch (vendor tip 57943aa71,
+		// cli/src/utils/freebuff-session-api.ts:57-74): POST disposition is
+		// unknown after a transport failure, so the error surfaces as
 		if c.transientRetriesLimit > 0 && attempt <= c.transientRetriesLimit &&
-			ctx.Err() == nil && replayBody != nil && isTransient(err) {
+			ctx.Err() == nil && replayBody != nil && isTransient(err) && !isSessionAdmissionRequest(req) {
 			c.rotateStealthProfileForRetry(req)
 			body, bodyErr := replayBody()
 			if bodyErr != nil {
@@ -240,13 +255,24 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 		slog.Debug("upstream error", "method", req.Method, "path", req.URL.Path,
 			"ms", time.Since(start).Milliseconds(), "class", errClassName(err),
 			"err", err, "req_id", ReqID(ctx))
+		// Snapshot BEFORE cancel(): cancel() poisons the derived timeout
+		// context to context.Canceled, which used to misreport every
+		// non-retried transport failure (admission POSTs, polls, exhausted
+		// retries) as a caller cancel. Caller state decides cancel/deadline;
+		// only our own fired timeout maps to DeadlineExceeded.
+		callerCanceled := errors.Is(callerCtx.Err(), context.Canceled)
+		callerExpired := errors.Is(callerCtx.Err(), context.DeadlineExceeded)
+		ownTimeoutFired := timeout > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded)
 		if cancel != nil {
 			cancel()
 		}
-		if errors.Is(ctx.Err(), context.Canceled) {
+		if callerCanceled {
 			return nil, nil, context.Canceled
 		}
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if callerExpired {
+			return nil, nil, fmt.Errorf("%w: %s %s", context.DeadlineExceeded, req.Method, req.URL.Path)
+		}
+		if ownTimeoutFired {
 			return nil, nil, fmt.Errorf("%w: %s %s", context.DeadlineExceeded, req.Method, req.URL.Path)
 		}
 		return nil, nil, fmt.Errorf("upstream: %s %s: %w", req.Method, req.URL.Path, err)

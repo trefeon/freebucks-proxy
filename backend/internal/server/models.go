@@ -3,11 +3,12 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	"freebucks-proxy/backend/internal/modelcat"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/upstream"
-	"net/http"
 )
 
 // ModelUnavailableMessage formats the rejection error message for
@@ -389,8 +390,9 @@ func currentAccessTier(snaps []pool.TokenSnapshot) string {
 }
 
 // isModelAllowedForTier reports whether id can be served under tier.
-// On limited tier, only limited-tier models (mimo-v2.5) or GLM 5.2 with active referral quota
-// can be admitted.
+// On limited tier, only the limited catalog (modelcat limited-tier set:
+// GLM 5.3 Flash, DeepSeek V4 Flash, MiMo 2.5, Solar Mini 4 / Pro 4 where
+// entitled) can be admitted; everything else is refused or coerced.
 func isModelAllowedForTier(id, tier string, snaps []pool.TokenSnapshot) bool {
 	if tier != "limited" {
 		return true

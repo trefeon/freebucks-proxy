@@ -3,10 +3,11 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"freebucks-proxy/backend/internal/telemetry"
 	"net/http"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/telemetry"
 )
 
 // handleHealthz reports uptime, model count, the per-token snapshot, the
@@ -119,13 +120,6 @@ func escapeLabelValue(v string) string {
 	}
 	return sb.String()
 }
-
-// legacyMetricNamespace is the pre-rename Prometheus namespace, re-emitted
-// only by the deprecated alias section at the end of handleMetrics. It is
-// derived from the live namespace rather than duplicated, so the two cannot
-// drift apart.
-// TODO(remove after one release)
-var legacyMetricNamespace = strings.Replace("freebucks_proxy_", "freebucks", "freebuff", 1)
 
 // handleMetrics exports Prometheus metrics (#24).
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -312,14 +306,6 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 		sb.WriteString("\n")
 	}
-
-	// Deprecated: every family above is re-emitted below under the pre-rename
-	// product prefix, so existing scrapers and dashboards keep resolving
-	// during the transition. Same bodies — one emit path, no second copy to
-	// keep in sync.
-	// TODO(remove after one release): delete this alias section.
-	sb.WriteString("# Deprecated: aliases of the current namespace under the pre-rename product prefix; TODO(remove after one release)\n")
-	sb.WriteString(strings.ReplaceAll(sb.String(), "freebucks_proxy_", legacyMetricNamespace))
 
 	_, _ = w.Write([]byte(sb.String()))
 }

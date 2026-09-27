@@ -169,16 +169,16 @@ func (c *Client) StartCLILoginWithFingerprint(ctx context.Context, fingerprintID
 	if decoded.FingerprintID != "" {
 		echoed = decoded.FingerprintID
 	}
-	loginURL := decoded.LoginURL
-	if u, err := url.Parse(decoded.LoginURL); err == nil {
-		if authCode := strings.TrimSpace(u.Query().Get("auth_code")); authCode != "" {
-			loginURL = "https://freebuff.com/onboard?auth_code=" + url.QueryEscape(authCode)
-		}
-	}
+	// CLI parity (vendor tip 57943aa71): surface the server-issued loginUrl
+	// verbatim like the CLI (cli/src/utils/plain-login.ts:54 — safeOpen opens
+	// exactly what /api/auth/cli/code issued, never mutates it). No onboard
+	// rewrite: synthesizing an onboard host hardcodes freebuff.com and spoofs
+	// a URL the server did not issue. Callers needing the onboard host derive
+	// it from the issued URL, never from a literal.
 	return &CLILoginCode{
 		FingerprintID:   echoed,
 		FingerprintHash: decoded.FingerprintHash,
-		LoginURL:        loginURL,
+		LoginURL:        decoded.LoginURL,
 		ExpiresAt:       expiresAt,
 		ExpiresAtRaw:    expiresRaw,
 	}, nil

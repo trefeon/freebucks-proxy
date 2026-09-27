@@ -4,6 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/logring"
 	"freebucks-proxy/backend/internal/pool"
@@ -12,28 +22,26 @@ import (
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
-	"io"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"sync"
-	"testing"
-	"time"
 )
 
-// flakyFirstRT fails the very first request with a transient transport error
-// and delegates everything else to base (mirrors pool_test's helper; drives a
-// real retry deterministically across platforms).
+// flakyFirstRT fails requests with a transient transport error while armed
+// and delegates everything else to base (mirrors pool_test's helper; drives
+// a real retry deterministically across platforms). Armed by default; tests
+// that need a clean warmup (e.g. session admission, which the CLI never
+// re-POSTs after a transport failure) disarm until the retryable call.
 type flakyFirstRT struct {
 	mu     sync.Mutex
 	failed bool
+	armed  atomic.Bool
 	base   http.RoundTripper
 }
 
+func (f *flakyFirstRT) arm()    { f.armed.Store(true) }
+func (f *flakyFirstRT) disarm() { f.armed.Store(false) }
+
 func (f *flakyFirstRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	f.mu.Lock()
-	shouldFail := !f.failed
+	shouldFail := f.armed.Load() && !f.failed
 	if shouldFail {
 		f.failed = true
 	}
@@ -977,9 +985,14 @@ func TestMetricsTransientRetryCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The first upstream call (agent-runs START during lease acquisition)
-	// fails once at the transport level; TRANSIENT_RETRIES replays it.
-	client.SetTransport(&flakyFirstRT{base: http.DefaultTransport})
+	// Admission is warmed up disarmed: the CLI never re-POSTs admission
+	// after a transport failure (disposition unknown), so flakiness must
+	// strike a retryable call — arm only after the session is cached, and
+	// the armed failure then lands on agent-runs START during the second
+	// lease acquisition; TRANSIENT_RETRIES replays it.
+	flaky := &flakyFirstRT{base: http.DefaultTransport}
+	flaky.disarm()
+	client.SetTransport(flaky)
 
 	sess := session.NewManager(client)
 	reg := registry.New(cfg, nil)
@@ -993,6 +1006,12 @@ func TestMetricsTransientRetryCounters(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("warmup chat status = %d, want 200: %s", resp.StatusCode, data)
+	}
+	flaky.arm()
+
+	resp, data = doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("chat status = %d, want 200: %s", resp.StatusCode, data)
 	}
@@ -1259,10 +1278,8 @@ func TestPausedModelWithdrawnMessage(t *testing.T) {
 // handleMetrics (server/health.go) plus the package counter it reads
 // (telemetry.ModelUnavailableSkips). freebucks_proxy_log_events_total is
 // emitted only when the dashboard log ring is wired, so it is pinned in the
-// ring variant below and must be ABSENT without one. Every family is also
-// re-emitted under the deprecated pre-rename prefix (see
-// TestMetricsLegacyNamespaceAlias), so withAliases widens the contract to
-// cover that alias section instead of failing it as unknown.
+// ring variant below and must be ABSENT without one. The contract covers the
+// live namespace only.
 func TestMetricsFamiliesContract(t *testing.T) {
 	// metricsFamilies maps family name -> TYPE value (the full contract
 	// minus the ring-conditional log_events_total).
@@ -1286,18 +1303,6 @@ func TestMetricsFamiliesContract(t *testing.T) {
 		"freebucks_proxy_rate_limit_events_total":       "counter",
 		"freebucks_proxy_model_locked_total":            "counter",
 		"freebucks_proxy_pin_skips_total":               "counter",
-	}
-
-	// withAliases widens want with the deprecated pre-rename alias of every
-	// family (same TYPE value), which handleMetrics re-emits for existing
-	// scrapers until that section is removed.
-	withAliases := func(want map[string]string) map[string]string {
-		out := make(map[string]string, 2*len(want))
-		for name, tval := range want {
-			out[name] = tval
-			out[strings.Replace(name, "freebucks", "freebuff", 1)] = tval
-		}
-		return out
 	}
 
 	// assertFamilies checks every expected family has a HELP and a TYPE
@@ -1371,7 +1376,7 @@ func TestMetricsFamiliesContract(t *testing.T) {
 			t.Fatalf("metrics status = %d, want 200", resp.StatusCode)
 		}
 		body := string(data)
-		assertFamilies(t, body, withAliases(metricsFamilies))
+		assertFamilies(t, body, metricsFamilies)
 		// The populated server's request counter must carry a real row.
 		if !strings.Contains(body, `freebucks_proxy_token_requests_total{token="1"} 1`) {
 			t.Errorf("populated server missing token_requests_total{token=\"1\"} 1 row:\n%s", body)
@@ -1404,52 +1409,11 @@ func TestMetricsFamiliesContract(t *testing.T) {
 		for name, tval := range metricsFamilies {
 			want[name] = tval
 		}
-		assertFamilies(t, body, withAliases(want))
+		assertFamilies(t, body, want)
 		if !strings.Contains(body, `freebucks_proxy_log_events_total{level="info",msg="chat request"}`) {
 			t.Errorf("log_events_total missing the chat request row:\n%s", body)
 		}
 	})
-}
-
-// TestMetricsLegacyNamespaceAlias pins the compat contract of the FreeBucks
-// rename: /metrics still re-emits the families under the deprecated
-// pre-rename prefix, marked as deprecated, so scrapers and dashboards pinned
-// to the old names keep resolving until that section is removed. A family's
-// alias is its name with the product segment swapped back — the same
-// derivation handleMetrics uses — so the old namespace is never re-pinned
-// here a second time.
-func TestMetricsLegacyNamespaceAlias(t *testing.T) {
-	// legacy is the pre-rename alias of a live family name.
-	legacy := func(family string) string {
-		return strings.Replace(family, "freebucks", "freebuff", 1)
-	}
-
-	ts, _ := newTestServer(t, nil) // no mocks → zero tokens
-	resp, data := doJSON(t, http.MethodGet, ts.URL+"/metrics", nil, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("metrics status = %d, want 200: %s", resp.StatusCode, data)
-	}
-	body := string(data)
-
-	if !strings.Contains(body, "# Deprecated:") {
-		t.Errorf("metrics missing the deprecated alias section marker:\n%s", body)
-	}
-	for _, family := range []string{
-		"freebucks_proxy_uptime_seconds",
-		"freebucks_proxy_models_total",
-		"freebucks_proxy_tokens_total",
-		"freebucks_proxy_token_requests_total",
-	} {
-		for _, want := range []string{"# HELP " + legacy(family) + " ", "# TYPE " + legacy(family) + " "} {
-			if !strings.Contains(body, want) {
-				t.Errorf("legacy alias %q missing from /metrics (compat contract):\n%s", want, body)
-			}
-		}
-	}
-	// The alias section carries real samples, not just headers.
-	if want := legacy("freebucks_proxy_tokens_total") + " 0"; !strings.Contains(body, want) {
-		t.Errorf("legacy alias sample row %q missing from /metrics:\n%s", want, body)
-	}
 }
 
 // TestModelsEndpointLimitedTier verifies that when upstream reports accessTier: "limited",

@@ -73,7 +73,7 @@ func defaultHintForCode(code, message string) string {
 	case code == "rate_limited":
 		return "Upstream refused the request (rate limit). Honor Retry-After before retrying; persistent refusals mean the account's upstream pool is spent."
 	case code == "model_ip_limited":
-		return "Model restricted on this egress IP/tier. Limited-tier accounts should switch to 'mimo/mimo-v2.5', or route traffic through a Tier-1 country (US/EU/SG)."
+		return "Model restricted on this egress IP/tier. Limited-tier accounts should switch to 'mimo/mimo-v2.5', or route traffic through a Tier-1 country (US/UK/EU)."
 	case code == "ip_capped":
 		return "Too many distinct users on this egress IP (admission-only). Retry after Retry-After or use a different egress."
 	case code == "load_shedding":

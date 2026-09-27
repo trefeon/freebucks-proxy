@@ -5,11 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +13,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 func TestPoolSnapshotQuotaByModel(t *testing.T) {
@@ -276,9 +277,14 @@ func TestPoolSnapshotTransientRetryCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The first upstream call (agent-runs START during Acquire) fails at the
-	// transport level once; TRANSIENT_RETRIES replays it and succeeds.
-	client.SetTransport(&flakyFirstRT{base: http.DefaultTransport})
+	// Admission is warmed up disarmed: the CLI never re-POSTs admission
+	// after a transport failure (disposition unknown), so flakiness must
+	// strike a retryable call — arm only after the session is cached, and
+	// the armed failure then lands on agent-runs START during the second
+	// lease acquisition; TRANSIENT_RETRIES replays it.
+	flaky := &flakyFirstRT{base: http.DefaultTransport}
+	flaky.disarm()
+	client.SetTransport(flaky)
 
 	sess := session.NewManager(client)
 	reg := registry.New(cfg, nil)
@@ -287,6 +293,13 @@ func TestPoolSnapshotTransientRetryCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	warm, err := p.Acquire(context.Background(), modelA)
+	if err != nil {
+		t.Fatalf("warmup acquire failed: %v", err)
+	}
+	p.LeaseRelease(warm)
+	flaky.arm()
 
 	lease, err := p.Acquire(context.Background(), modelA)
 	if err != nil {

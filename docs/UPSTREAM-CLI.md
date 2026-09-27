@@ -1040,6 +1040,29 @@ tag at this tip):
 | `common/src/types/freebuff-session.ts` | **+2 `FreebuffPrivacyDecision` members** (`spur_suspicious_limited`, `client_hints_limited`, with doc comments) | **DRIFT** — snapshot re-pinned; parse coverage is the egress lane's gap 5 (passthrough expected, regression test with both literals) |
 | the other 11 wire files | byte-identical pin → tip | **SAME** — no snapshot rewrite (the pre-refresh baseline anchors for `freebuff-model-availability.ts`, `run-agent-step.ts`, and `prompt-agent-stream.ts` predated the `40c75256` pin and read DRIFT against it spuriously; the baseline refresh in this port corrects that, no new drift) |
 
+### 14.10 Delta `775383b3` → `ede39b345` (0.0.204 → 0.1.0, 48 commits)
+
+Wrapper `0.1.0` (2026-09-27): version + all 8 platform binary hashes
+rotated, scripts untouched (unpacked `freebuff-0.0.204.tgz` vs
+`freebuff-0.1.0.tgz` — only `package.json` differs). CLI tag
+`freebuff-v0.1.0` same day; Desktop latest `freebuff-desktop-v0.0.150`.
+Full-range review (three-slice sweep, 2026-09-27): **no proxy-behavioral
+delta** — session/admission/headers/statuses/timeouts, served set, prices,
+tiers, UA versions all byte-identical at the wire. Functional notes:
+
+| File | Change | Disposition |
+|---|---|---|
+| `common/src/constants/freebuff-desktop-sessions.ts` | NEW `x-freebuff-client` header const (`desktop` value) — defined only, no CLI send site (Desktop closed-source is the sole sender); CLI sends nothing | No proxy change (absence stays CLI-shaped) |
+| `common/src/constants/freebuff-peak-hours.ts` | `isSupportedTimeZone` + UTC fallback for unformattable zones (Etc/Unknown crash fix) — vendor-declared display-only | No proxy change (Go UTC math has no Intl path) |
+| `common/src/constants/freebuff-placements.ts` | +2 CLI partner slots (`CLI-Partner-Composer-PR`, `CLI-Partner-Slash-Review`) | Retained omission (proxy fills no slots) |
+| `common/src/ads/inline-ad-layout.ts`, `partner-triggers.ts` (NEW) | Partner render math + 12-word PR-intent keyword set | Render/client-only, no wire adoption |
+| `cli/src/ads/partner-ads.ts` (NEW, 344 lines) | Partner hold/ack module (30min TTL, first-party-only fills) | No proxy change (no partner slots) |
+| `common/src/constants/freebuff-models.ts` | Comment-only trim | No port |
+| `freebuff-referral-tiers.ts` | Comment rewrite + deleted server-side-only `FREEBUFF_WEB_REFERRAL_LIMIT` | No proxy mirror exists; KEEP |
+| `anthropic.ts`, `free-agents.ts`, `freebuff-community.ts` (NEW) | Token-count rows, comment trims, Discord constants | Display-only / no mirror |
+
+Pins stay `0.0.204`/`775383b3` — re-pin rides the drift bot, not hand edits.
+
 ## 15. Proxy cross-reference
 
 Where each CLI surface lands in this repo (gateway side), and which CLI facts

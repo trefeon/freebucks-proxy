@@ -577,19 +577,26 @@ func TestChatCompletionsRetriesTwiceWhenAllowed(t *testing.T) {
 	}
 }
 
-func TestCreateSessionRetriesConnectionReset(t *testing.T) {
-	// A real abrupt connection close surfaces as context.Canceled on some
-	// platforms (Go cancels the request context when the server tears the
-	// connection down mid-request), which MUST NOT be retried. Inject the
-	// transport-level reset at the RoundTripper boundary instead: this is
-	// the same code path a live dial/TLS failure takes.
+// TestCreateSessionNeverRetriesTransportFailure pins R5 (vendor tip 57943aa71,
+// cli/src/utils/freebuff-session-api.ts:57-74): a session admission POST whose
+// disposition is unknown after a transport failure is NEVER retried — not even
+// with TRANSIENT_RETRIES budget left. Exactly one upstream hit fires and the
+// error surfaces as unknown/unavailable (generic transport wrap, never a
+// classified sentinel). Replaces the pre-parity TestCreateSessionRetriesConnectionReset,
+// which pinned the old #120 deliberate-retry behavior this carves the admission
+// exception out of.
+func TestCreateSessionNeverRetriesTransportFailure(t *testing.T) {
+	// Inject the transport-level reset at the RoundTripper boundary: this is
+	// the same code path a live dial/TLS failure takes. (A real abrupt close
+	// surfaces as context.Canceled on some platforms, which is likewise never
+	// retried.)
 	rt := &flakyRT{
 		failN:  1,
 		err:    errors.New("read tcp 127.0.0.1:443: connection reset by peer"),
 		header: http.Header{"Content-Type": []string{"application/json"}},
 		body:   []byte(`{"status":"active","instanceId":"inst-1","expiresAt":"2030-01-01T00:00:00Z"}`),
 	}
-	client, err := New("tok-a", testConfig("", func(c *config.Config) { c.TransientRetries = 1 }))
+	client, err := New("tok-a", testConfig("", func(c *config.Config) { c.TransientRetries = 3 }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -597,21 +604,22 @@ func TestCreateSessionRetriesConnectionReset(t *testing.T) {
 	client.SetTransport(rt)
 
 	st, err := client.CreateSession(context.Background())
-	if err != nil {
-		t.Fatalf("CreateSession failed after retry: %v", err)
+	if err == nil {
+		t.Fatalf("CreateSession succeeded after transport failure, want unknown/unavailable error (st=%+v)", st)
 	}
-	if st.Status != "active" || st.InstanceID != "inst-1" {
-		t.Errorf("session = %+v, want active inst-1", st)
+	if rt.calls.Load() != 1 {
+		t.Errorf("upstream attempts = %d, want exactly 1 (admission POST never retried)", rt.calls.Load())
 	}
-	if rt.calls.Load() != 2 {
-		t.Errorf("upstream attempts = %d, want 2 (1 failure + 1 retry)", rt.calls.Load())
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("admission transport error = %v, want the transport failure itself (do() must not launder it through cancel())", err)
 	}
-	if got := client.TransientRetries(); got != 1 {
-		t.Errorf("TransientRetries = %d, want 1", got)
+	if !strings.Contains(err.Error(), "connection reset by peer") {
+		t.Errorf("admission transport error = %v, want the reset failure surfaced", err)
 	}
-	// The session POST body was replayed identically.
-	if len(rt.seen) != 2 || string(rt.seen[0]) != string(rt.seen[1]) {
-		t.Errorf("replayed session body differs: %q vs %q", rt.seen[0], rt.seen[1])
+	for _, sentinel := range []error{ErrRateLimited, ErrBanned, ErrSessionInvalid, ErrSessionSuperseded, ErrSessionAdmissionUnsupported} {
+		if errors.Is(err, sentinel) {
+			t.Errorf("admission transport error %v matches classified sentinel %v, want generic unknown/unavailable", err, sentinel)
+		}
 	}
 }
 

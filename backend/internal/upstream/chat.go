@@ -236,8 +236,10 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 		// context; abandoning it leaks the timer goroutine until it fires.
 		// Served turn (2xx headers): stamp chat-surface ad activity. A due
 		// round runs detached in the background - chat latency and the
-		// body below are untouched.
-		c.noteChatServed(ctx)
+		// body below are untouched. The enveloped body carries the served
+		// turn's transcript so the cli_chat auction mirrors the CLI's
+		// user+assistant messages (waiting-room passes nil → []).
+		c.noteChatServedWithBody(ctx, enveloped)
 		c.dump("chat", req, enveloped, resp.StatusCode, "[streaming 2xx]")
 		return &cancelBody{ReadCloser: resp.Body, cancel: cancel}, nil
 	}

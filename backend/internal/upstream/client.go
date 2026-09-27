@@ -125,10 +125,11 @@ func (c *Client) TokenKey() string {
 }
 
 // cliUserAgent mirrors the official CLI chat user agent: the
-// @codebuff/llm-providers version interpolated at
-// sdk/src/impl/model-provider.ts:432 (NOT the CLI_VERSION knob), recorded
+// @codebuff/llm-providers VERSION interpolated at
+// sdk/src/impl/model-provider.ts:361-370 (NOT the CLI_VERSION knob), recorded
 // as wirefacts.LlmProvidersVersion from
-// upstream/freebuff/packages/llm-providers/package.json at re-pin time.
+// upstream/freebuff/packages/llm-providers/src/openai-compatible/version.ts:1-5
+// at re-pin time (value unchanged).
 // The upstream free-tier gate (403 free_mode_cli_required) keys on
 // the CLI request envelope (x-freebuff-* headers, codebuff_metadata and
 // forced streaming — see the package comment), but the server still

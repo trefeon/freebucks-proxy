@@ -70,8 +70,7 @@ Desktop.ini
 
 # ── dev tooling & verification (local only, not published) ──
 .codegraph/
-uicheck/
-scripts/token_ref/
+/devtools/
 # Host-specific dev deploy scripts (ssh targets, LAN names) stay local.
 scripts/dev-acer.sh
 frontend/verify-ui.mjs

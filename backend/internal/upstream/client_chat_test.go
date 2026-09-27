@@ -971,9 +971,11 @@ func TestChatSendsActingUserID(t *testing.T) {
 // matches the CLI wire shape — header UA the Freebuff-CLI product UA at the
 // vendored CLI version (never the old 2.0.42 login UA), body userAgent the
 // Chrome-151 browser UA, device carries the host IANA timezone/locale,
-// messages stays [] with no sessionId (fresh waiting-room), and the streak
-// GET carries newRequest's bunUserAgent (the real CLI's request() sets no
-// override → Bun default).
+// messages stays [] with the fresh per-session id (the CLI sends
+// chatSessionId on every auction including waiting-room —
+// cli/src/ads/ad-request.ts:153; the chain mints it at the session
+// boundary), and the streak GET carries newRequest's bunUserAgent (the
+// real CLI's request() sets no override → Bun default).
 func TestWaitingRoomChainWireFidelity(t *testing.T) {
 	var mu sync.Mutex
 	var adsHeaders, streakHeaders http.Header
@@ -1043,13 +1045,14 @@ func TestWaitingRoomChainWireFidelity(t *testing.T) {
 	if os, _ := device["os"].(string); os != deviceOS() {
 		t.Errorf("ads device os = %q, want %q (host wire mapping)", os, deviceOS())
 	}
-	// Faithful details kept: empty messages and NO sessionId (the chain
-	// fires before a session exists).
+	// Faithful details kept: empty messages (no history exists yet) with the
+	// fresh per-session id the chain minted at the session boundary
+	// (ad-request.ts:153 sends sessionId on every auction).
 	if msgs, _ := adsBody["messages"].([]any); len(msgs) != 0 {
 		t.Errorf("ads body messages = %v, want []", msgs)
 	}
-	if _, hasSession := adsBody["sessionId"]; hasSession {
-		t.Error("ads body carries sessionId, want omitted (fresh waiting-room)")
+	if sid, _ := adsBody["sessionId"].(string); sid == "" {
+		t.Error("ads body missing sessionId, want the fresh per-session id")
 	}
 	// Streak GET: no UA override — it inherits newRequest's bunUserAgent
 	// (plain Bun fetch traffic).

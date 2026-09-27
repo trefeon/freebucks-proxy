@@ -6,8 +6,6 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +16,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // testConfig builds a config; baseURL "" keeps the default (only for tests
@@ -242,9 +243,8 @@ func TestWrapDecompress(t *testing.T) {
 
 // TestDumpRedactsTokenHeaders verifies the debug dump redacts the
 // Authorization header, and that a chat dump never contains an
-// x-codebuff-api-key line: chat is the only credential on its wire path
-// (agent-runs START/FINISH set x-codebuff-api-key, but dump() only runs on
-// the chat/session paths, and the redaction list still covers it
+// x-codebuff-api-key line: no wire path sets it (agent-runs are
+// Bearer-only like the CLI; the redaction list still covers it
 // defensively). Regression: dump() only redacted Authorization, so
 // DEBUG_DUMP=true leaked the plaintext token into dump/ files via
 // x-codebuff-api-key.
@@ -285,10 +285,9 @@ func TestDumpRedactsTokenHeaders(t *testing.T) {
 	if !strings.Contains(dump, "Authorization: [redacted]") {
 		t.Errorf("dump file missing redacted Authorization header:\n%s", dump)
 	}
-	// The chat request never carries x-codebuff-api-key (agent-runs
-	// START/FINISH set it, but dump() does not run on the agent-runs path),
-	// so it must not appear in the chat dump (the defensive redaction list
-	// stays for any future setter).
+	// The chat request never carries x-codebuff-api-key (no wire path sets
+	// it), so it must not appear in the chat dump (the defensive redaction
+	// list stays for any future setter).
 	if strings.Contains(strings.ToLower(dump), "x-codebuff-api-key") {
 		t.Errorf("dump file contains an x-codebuff-api-key header line (absent on the chat path):\n%s", dump)
 	}

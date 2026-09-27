@@ -1,10 +1,11 @@
 # ADS-VERDICT — chat-surface ads mirror: feasibility verdict
 
-> Verdict: **DO NOT MIRROR the chat surface.** Keep the waiting-room chain
-> only, document this decision, revisit only on server evidence.
-> Sources: `devdocs/re-kit/ADS.md` (live CLI 0.0.194 vs static pin 0.0.193),
-> `devdocs/re-kit/PORT-MAP.md` §8 + §10 item 4, proxy
-> `backend/internal/upstream/ads.go`. No tokens/hosts; samples redacted.
+> SUPERSEDED 2026-09-27: the `DO NOT MIRROR` verdict below predates
+> `backend/internal/upstream/ads_chat.go` (operator-ordered `cli_chat`
+> proofing loop: auction + impression skeleton, honest-values-only).
+> Current posture lives in `ads_chat.go:11-58` + `docs/CLI-WIRE-TRACE.md`
+> §7. Historical record preserved below.
+
 
 ## Verdict
 

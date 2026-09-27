@@ -28,6 +28,19 @@ const (
 	SessionReusePath = "/api/v1/freebuff/session/reuse"
 	// ReuseInstanceHeader names the exact live instance to reuse.
 	ReuseInstanceHeader = "x-freebuff-reuse-instance-id"
+	// Takeover (vendor tip 57943aa71,
+	// common/src/constants/freebuff-models.ts:3481-3482): the vendor sends
+	// x-freebuff-takeover-instance-id on the admission POST only when taking
+	// over — Desktop's explicit "Use it here", naming the single-slot holder
+	// the rejection just identified ("end that tab's session and give me the
+	// slot"). The server honors it only when it still matches that holder, so
+	// a stale click can never end an unseen tab. The proxy NEVER sends it:
+	// there is no user-confirmed holder here, and the superseded path is
+	// terminal by design (auto-takeover risks ping-pong — see classify.go's
+	// 409 session_superseded handling): the cached row drops and the NEXT
+	// request re-joins fresh without naming a holder. Wiring it into
+	// automatic recovery would fabricate a user gesture the operator never
+	// made.
 	// WalletSpendLimitHeader carries the per-request wallet spend cap on
 	// admission. The proxy holds no user-confirmed limit, so it always
 	// sends the server default, exactly like a CLI POST with no explicit
@@ -99,7 +112,11 @@ func (c *Client) CreateSession(ctx context.Context) (*SessionState, error) {
 // requested model and wallet limit. Ordinary models use a client-minted
 // cli:<uuid> multi-session attempt ID; TierOffer models retain the upstream
 // legacy single-session identity. The POST carries NO body and therefore no
-// Content-Type.
+// Content-Type. It is NEVER retried at the transport level (vendor tip
+// 57943aa71, cli/src/utils/freebuff-session-api.ts:57-74): a POST network
+// failure leaves disposition unknown, and it never carries
+// x-freebuff-takeover-instance-id (see the Takeover note above — no
+// user-confirmed holder, never auto-takeover).
 func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.CreateSession(c.token, model)
@@ -394,11 +411,12 @@ func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRef
 
 // stampActingUser sets x-freebuff-acting-user-id when the client holds the
 // token's OWN account id (ACTING_USER_ID), mirroring the CLI which sends
-// the /api/v1/me-derived id on chat (model-provider.ts) and on agent-runs
-// START/FINISH (database.ts startAgentRun/finishAgentRun: Bearer plus the
-// optional acting-user header). Omitted when unset. Only the token's own
-// id is ever sent: any other value impersonates a foreign user (see the
-// chat-path comment in ChatCompletions).
+// the /api/v1/me-derived id on chat (sdk/src/impl/model-provider.ts:361-370,
+// VERSION from packages/llm-providers/src/openai-compatible/version.ts:1-5)
+// and on agent-runs START/FINISH (database.ts startAgentRun/finishAgentRun:
+// Bearer plus the optional acting-user header). Omitted when unset. Only the
+// token's own id is ever sent: any other value impersonates a foreign user
+// (see the chat-path comment in ChatCompletions).
 func (c *Client) stampActingUser(req *http.Request) {
 	if c.userID != "" {
 		req.Header.Set("x-freebuff-acting-user-id", c.userID)

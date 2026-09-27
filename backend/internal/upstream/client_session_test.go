@@ -496,6 +496,38 @@ func TestLimitedOfferAdmissionUsesLegacySessionHeaders(t *testing.T) {
 	}
 }
 
+// TestAdmissionPostOmitsTakeoverHeader pins U1 (vendor tip 57943aa71,
+// common/src/constants/freebuff-models.ts:3481-3482): the vendor sends
+// x-freebuff-takeover-instance-id on the admission POST only for Desktop's
+// explicit "Use it here" — naming the single-slot holder the rejection just
+// identified. The proxy NEVER sends it: there is no user-confirmed holder,
+// and the superseded path is terminal (auto-takeover risks ping-pong), so the
+// NEXT request re-joins fresh without naming a holder.
+func TestAdmissionPostOmitsTakeoverHeader(t *testing.T) {
+	for _, model := range []string{"thudm/glm-5.2", "anthropic/claude-fable-5.1", ""} {
+		t.Run("model="+model, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			var captured http.Header
+			mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+				captured = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"status":"active","instanceId":"inst-1","expiresAt":"2030-01-01T00:00:00Z"}`)
+			}
+			client, err := New("tok-a", testConfig(mock.URL(), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.CreateSessionForModel(context.Background(), model); err != nil {
+				t.Fatal(err)
+			}
+			if got := captured.Get("x-freebuff-takeover-instance-id"); got != "" {
+				t.Errorf("x-freebuff-takeover-instance-id = %q, want absent (no user-confirmed holder; never auto-takeover)", got)
+			}
+		})
+	}
+}
+
 func TestGetSessionWithOptsHeaders(t *testing.T) {
 	for _, compact := range []bool{false, true} {
 		name := "non-compact"

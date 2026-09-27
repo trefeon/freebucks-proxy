@@ -4,15 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
-	"net/http"
-	"sync"
-	"testing"
-	"time"
 )
 
 // Test models must map to agents with EXCLUSIVE ownership in the registry
@@ -125,19 +127,26 @@ func (e *atomicErr) get() error {
 	return e.err
 }
 
-// flakyFirstRT fails the very first request with a transient transport error
+// flakyFirstRT fails requests with a transient transport error while armed
 // and delegates everything else to base. It drives a real retry through the
 // full stack deterministically (a live connection teardown surfaces as
 // context.Canceled on some platforms, which must never be retried).
+// Disarmed by default; arm once the retryable call is due (e.g. after
+// session admission, which the CLI never re-POSTs after a transport
+// failure).
 type flakyFirstRT struct {
 	mu     sync.Mutex
 	failed bool
+	armed  atomic.Bool
 	base   http.RoundTripper
 }
 
+func (f *flakyFirstRT) arm()    { f.armed.Store(true) }
+func (f *flakyFirstRT) disarm() { f.armed.Store(false) }
+
 func (f *flakyFirstRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	f.mu.Lock()
-	shouldFail := !f.failed
+	shouldFail := f.armed.Load() && !f.failed
 	if shouldFail {
 		f.failed = true
 	}

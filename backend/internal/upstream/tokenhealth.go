@@ -1,8 +1,9 @@
 // Token-health validation mode (-validate-tokens): a read-only, per-token
 // account report for operators. For each token it performs exactly two
-// non-mutating upstream calls — GET /api/v1/me?fields=id,email,discord_id
-// and the CLI's own token probe GET /api/v1/freebuff/session (no instance
-// id) — and classifies the result (OK / rate/spend limited / country
+// non-mutating upstream calls — GET /api/v1/me?fields=id,email (the CLI's
+// exact field set, verified live 2026-09-27 via MITM capture) and the CLI's
+// own token probe GET /api/v1/freebuff/session (no instance id) — and
+// classifies the result (OK / rate/spend limited / country
 // blocked / banned / invalid / unknown), the email-domain risk from the
 // upstream referral-abuse classifier, and a shared-mailbox heuristic.
 //
@@ -215,13 +216,14 @@ func FormatHealthReport(rows []TokenHealth) string {
 	return b.String()
 }
 
-// probeMe performs GET /api/v1/me?fields=id,email,discord_id, the CLI's own
+// probeMe performs GET /api/v1/me?fields=id,email, the CLI's own
 // account-state check (Bearer; codebuff-api.ts me()/request()). The URL
 // shape mirrors the CLI exactly: fields joined by ',' and encoded by
-// URLSearchParams (codebuff-api.test.ts pins fields=id%2Cemail).
+// URLSearchParams (codebuff-api.test.ts pins fields=id%2Cemail; live
+// capture confirms the CLI requests exactly id,email — no discord_id).
 func (c *Client) probeMe(ctx context.Context) (*meAccount, int, error) {
 	q := url.Values{}
-	q.Set("fields", "id,email,discord_id")
+	q.Set("fields", "id,email")
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/me?"+q.Encode(), nil)
 	if err != nil {
 		return nil, 0, err
@@ -247,12 +249,11 @@ func (c *Client) probeMe(ctx context.Context) (*meAccount, int, error) {
 	return &acct, resp.StatusCode, nil
 }
 
-// meAccount is the parsed /api/v1/me response (UserDetails T = id/email/
-// discord_id; discord_id is nullable per the CLI type).
+// meAccount is the parsed /api/v1/me response (UserDetails T = id/email
+// per the CLI type; extra fields are ignored).
 type meAccount struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	DiscordID string `json:"discord_id"`
+	ID    string `json:"id"`
+	Email string `json:"email"`
 }
 
 // FetchAccountInfo queries GET /api/v1/me to retrieve the account email and id.
