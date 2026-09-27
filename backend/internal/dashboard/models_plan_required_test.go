@@ -2,17 +2,16 @@ package dashboard
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
-
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
 )
 
 // TestModelsPlanRequiredViewer pins the plan-lock column (json plan_required)
@@ -67,7 +66,7 @@ func TestModelsPlanRequiredViewer(t *testing.T) {
 			state: upstream.SessionState{Freebucks: &upstream.FreebucksInfo{
 				Balance: 100,
 			}},
-			want: map[string]bool{gemini: true, mimo: true, luna: true},
+			want: map[string]bool{gemini: true, mimo: false, luna: false},
 		},
 		{
 			name: "live paid plan locks nothing",

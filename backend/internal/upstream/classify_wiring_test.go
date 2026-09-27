@@ -183,3 +183,36 @@ func TestClassifyRunIDGateStays400(t *testing.T) {
 		}
 	}
 }
+
+// TestClassifyContentFilter pins the DeepSeek content filter refusal: HTTP 400
+// with "content exists risk" returns a non-retryable 400 UpstreamError.
+func TestClassifyContentFilter(t *testing.T) {
+	body := `{"error":{"message":"Content Exists Risk (request_id: 12345)","type":"invalid_request_error"}}`
+	err := classifyError(http.StatusBadRequest, body, http.Header{})
+	var ue *UpstreamError
+	if !errors.As(err, &ue) {
+		t.Fatalf("classifyError = %T %v, want *UpstreamError", err, err)
+	}
+	if ue.Status != http.StatusBadRequest {
+		t.Errorf("Status = %d, want 400", ue.Status)
+	}
+	if ue.Retryable {
+		t.Errorf("Retryable = true, want false")
+	}
+}
+
+// TestClassifyCodebuffOwnCreditsStaysCreditsError pins CODEBUFF_OWN_CREDITS_ERROR_PATTERN:
+// a 402 body with "Out of credits. Please add credits at https://www.codebuff.com/usage"
+// is the user's account running dry (CreditsError), NOT a shared provider refill issue.
+func TestClassifyCodebuffOwnCreditsStaysCreditsError(t *testing.T) {
+	body := `{"error":"Out of credits. Please add credits at https://www.codebuff.com/usage."}`
+	err := classifyError(http.StatusPaymentRequired, body, http.Header{})
+	var ce *CreditsError
+	if !errors.As(err, &ce) {
+		t.Fatalf("classifyError = %T %v, want *CreditsError", err, err)
+	}
+	var pe *ProviderUsageError
+	if errors.As(err, &pe) {
+		t.Fatalf("classifyError = ProviderUsageError, want CreditsError")
+	}
+}

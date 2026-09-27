@@ -377,11 +377,13 @@ func TestCatalogFactsPinned(t *testing.T) {
 	wantServed := []string{
 		"stealth/space-bunny-alpha",
 		"openai/gpt-6-luna",
+		"upstage/solar-pro4",
 		"upstage/solar-mini4",
 		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.3-flash",
 		"deepseek/deepseek-v4-flash",
 		"mimo/mimo-v2.5",
+		"mimo/mimo-v2.6-pro",
 	}
 	if got := ServedIDs(); !slices.Equal(got, wantServed) {
 		t.Errorf("ServedIDs() = %v, want %v", got, wantServed)
@@ -390,7 +392,7 @@ func TestCatalogFactsPinned(t *testing.T) {
 	// Shared premium pool = Luna + Muse Spark 1.2 since 2026-09-07 (solar's
 	// entitlement went unmetered; gemini is Pro-paywalled and cannot consume
 	// the pool; 1.3 is paused and consumes nothing). GLM 5.3 Flash unmetered.
-	wantPremium := []string{"openai/gpt-6-luna", "meta/muse-spark-1.2-contributor"}
+	wantPremium := []string{"openai/gpt-6-luna", "meta/muse-spark-1.2-contributor", "mimo/mimo-v2.6-pro"}
 	if got := SharedPremiumModels(); !slices.Equal(got, wantPremium) {
 		t.Errorf("SharedPremiumModels() = %v, want %v", got, wantPremium)
 	}
@@ -442,6 +444,7 @@ func TestLimitedTierModelsPinned(t *testing.T) {
 		"deepseek/deepseek-v4-flash",
 		"mimo/mimo-v2.5",
 		"upstage/solar-mini4",
+		"upstage/solar-pro4",
 	}
 	for _, id := range wantAllowed {
 		if !IsLimitedTierAllowed(id) {
@@ -449,7 +452,6 @@ func TestLimitedTierModelsPinned(t *testing.T) {
 		}
 	}
 	wantDisallowed := []string{
-		"upstage/solar-pro4",
 		"stealth/space-bunny-alpha",
 		"openai/gpt-5.6-luna",
 		"openai/gpt-6-luna",
@@ -475,7 +477,7 @@ var wantTiers = map[string][]string{
 	"minimax/minimax-m3":              nil,
 	"openai/gpt-5.6-luna":             nil,
 	"openai/gpt-6-luna":               {TierFull, TierPaid},
-	"upstage/solar-pro4":              nil,
+	"upstage/solar-pro4":              {TierLimited, TierFull},
 	"upstage/solar-mini4":             {TierLimited, TierFull},
 	"stealth/space-bunny-alpha":       {TierFull},
 	"google/gemini-3.8-flash":         {TierFull, TierPaid},

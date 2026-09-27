@@ -317,7 +317,7 @@ var catalogDisplayTrimmed = map[string]bool{
 // Pinned copy the snapshots only reference indirectly (asserted at build).
 const (
 	pinnedTrainingNotice = "May use data for AI training"
-	pinnedSolarTagline   = "0 Freebucks"
+	pinnedSolarTagline   = "Upstage flagship"
 	pinnedSolarNotice    = ""
 	pinnedGlm52Tagline   = "Referral reward"
 	pinnedGlm52Notice    = "Unlocked via referral code"
@@ -455,7 +455,7 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 		switch t := f["tagline"]; {
 		case isTSQuoted(t):
 			r.tagline, _ = tsUnquote(t)
-		case t == "SOLAR_REGULAR_OFFER.tagline":
+		case t == "SOLAR_REGULAR_OFFER.tagline", t == "SOLAR_PRO_4_OFFER.tagline":
 			r.tagline = pinnedSolarTagline
 		default:
 			return nil, fmt.Errorf("wiregen: freebuff-models.ts: row %s tagline=%q is not a string at upstream commit %s", n, t, c.commit)
@@ -485,7 +485,7 @@ func buildCatalogRows(c *catalogInputs) ([]catalogRow, error) {
 			case id == c.solarID:
 				// No warning field upstream; the promo notice rides the offer
 				// object (freebuff-solar-promo.ts, not a mirrored snapshot).
-				if f["tagline"] != "SOLAR_REGULAR_OFFER.tagline" {
+				if f["tagline"] != "SOLAR_REGULAR_OFFER.tagline" && f["tagline"] != "SOLAR_PRO_4_OFFER.tagline" {
 					return nil, fmt.Errorf("wiregen: freebuff-models.ts: solar offer reference moved at upstream commit %s; re-check the pinned promo copy", c.commit)
 				}
 				r.notice = pinnedSolarNotice
@@ -1266,22 +1266,23 @@ func IsSubscriptionPro(id string) bool {
 // DeepSeekV4FlashModelID mirrors upstream FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID.
 const DeepSeekV4FlashModelID = "deepseek/deepseek-v4-flash"
 
-// LimitedTierModelIDs mirrors upstream LIMITED_FREEBUFF_MODEL_IDS: the four models
+// LimitedTierModelIDs mirrors upstream LIMITED_FREEBUFF_MODEL_IDS: the models
 // available to limited-access tier accounts (GLM 5.3 Flash, DeepSeek V4 Flash,
-// MiMo 2.6 Flash — the wire id keeps its v2.5 spelling —, Solar Mini 4, which
-// took Solar Pro 4's slot on 2026-09-23).
+// MiMo 2.6 Flash — the wire id keeps its v2.5 spelling —, Solar Mini 4, and
+// Solar Pro 4, which returned on 2026-09-25).
 var LimitedTierModelIDs = []string{
 	Glm53ModelID,
 	DeepSeekV4FlashModelID,
 	LimitedModelID,
 	SolarMini4ModelID,
+	SolarPro4ModelID,
 }
 
 // IsLimitedTierAllowed reports whether the model is available on the limited tier
 // without requiring special referral grants (matches upstream LIMITED_FREEBUFF_MODEL_IDS).
 func IsLimitedTierAllowed(id string) bool {
 	switch id {
-	case Glm53ModelID, DeepSeekV4FlashModelID, LimitedModelID, SolarMini4ModelID:
+	case Glm53ModelID, DeepSeekV4FlashModelID, LimitedModelID, SolarMini4ModelID, SolarPro4ModelID:
 		return true
 	default:
 		return false
@@ -1301,11 +1302,8 @@ const Glm53ModelID = %q
 // access.
 const SolarMini4ModelID = %q
 
-// SolarPro4ModelID mirrors FREEBUFF_SOLAR_PRO_4_MODEL_ID: RETIRED from every
-// picker on 2026-09-23 (superseded by Solar Mini 4) but still SUPPORTED and
-// admissible, so sessions admitted before the swap drain and released
-// binaries keep working. Kept for the retired-row pins; new picks use
-// SolarMini4ModelID.
+// SolarPro4ModelID mirrors FREEBUFF_SOLAR_PRO_4_MODEL_ID: returned to pickers on
+// 2026-09-25 alongside Solar Mini 4 on the same Upstage lane.
 const SolarPro4ModelID = %q
 
 // GLMSessionLength mirrors upstream FREEBUFF_REWARD_SESSION_LENGTH_MS (the

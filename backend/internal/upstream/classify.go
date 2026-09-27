@@ -85,7 +85,7 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// 502. The incoming status is preserved for telemetry; the server
 		// still surfaces 429 turn_spend_limited with no Retry-After.
 		return &TurnSpendLimitError{Status: status, Body: truncate(body, 200)}
-	case (status == http.StatusPaymentRequired || status == http.StatusUnauthorized) && reProviderUsageBill.MatchString(lower):
+	case (status == http.StatusPaymentRequired || status == http.StatusUnauthorized) && reProviderUsageBill.MatchString(lower) && !reCodebuffOwnCredits.MatchString(lower):
 		// Provider-billing failure behind Freebuff (observed as 401 and
 		// 402): the shared provider account needs a refill — an operator
 		// problem, never the caller's credits. Must precede the blanket
@@ -94,6 +94,8 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// + FREEBUFF_PROVIDER_USAGE_ERROR_PATTERN, checked before the
 		// credit arms in send-message.ts).
 		return parseProviderUsage(status, body)
+	case status == http.StatusBadRequest && reContentFilter.MatchString(lower):
+		return &UpstreamError{Status: status, Body: truncate(body, 500)}
 	case status == http.StatusUnauthorized:
 		return fmt.Errorf("%w: %d %s", ErrAuthRejected, status, truncate(body, 200))
 	case status == http.StatusServiceUnavailable:
@@ -704,6 +706,17 @@ var reNoEndpointsModel = regexp.MustCompile(`no endpoints found for\s+([^\s"']+)
 // survives into a 401/402 refusal body. Matched against the lowercased
 // body, like every other marker in this matrix.
 var reProviderUsageBill = regexp.MustCompile(`(?i)\b(?:(?:not enough|insufficient|out of)\s+credits?|(?:add|refill|top up)\s+(?:more\s+)?credits?)\b`)
+
+// reCodebuffOwnCredits ports CODEBUFF_OWN_CREDITS_ERROR_PATTERN
+// (common/src/constants/freebuff-errors.ts): Codebuff's own 402 for user balance
+// running dry ("Out of credits. Please add credits at https://www.codebuff.com/usage").
+// Excluded from reProviderUsageBill so user credits exhaustion remains CreditsError.
+var reCodebuffOwnCredits = regexp.MustCompile(`(?i)codebuff\.com/usage`)
+
+// reContentFilter ports FREEBUFF_PROVIDER_CONTENT_FILTER_ERROR_PATTERN
+// (common/src/constants/freebuff-errors.ts): DeepSeek platform content filter refusal
+// (HTTP 400 invalid_request_error, "Content Exists Risk").
+var reContentFilter = regexp.MustCompile(`(?i)\bcontent exists risk\b`)
 
 // parseNoEndpoints builds a NoEndpointsError from a 404 no-endpoints body
 // (issue #630). Never a cooldown, never a session invalidation: the

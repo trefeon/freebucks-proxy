@@ -2,13 +2,12 @@ package session
 
 import (
 	"context"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
-
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // TestStatusErrorTerminalRefusals pins the vendor af898dc taxonomy port:
@@ -44,7 +43,7 @@ func TestStatusErrorTerminalRefusals(t *testing.T) {
 		}
 	})
 
-	for _, status := range []string{"purchase_claim_released", "purchase_in_use", "purchase_capacity"} {
+	for _, status := range []string{"purchase_claim_released", "purchase_in_use", "purchase_capacity", "premium_slot_taken"} {
 		t.Run(status+" surfaces honest status", func(t *testing.T) {
 			st := &upstream.SessionState{Status: status, HTTPStatus: http.StatusConflict, Message: "slot busy"}
 			err := statusError(status, st)
@@ -68,6 +67,19 @@ func TestStatusErrorTerminalRefusals(t *testing.T) {
 			t.Errorf("status = %d, want 409 fallback", ue.Status)
 		}
 		if !strings.Contains(ue.Body, "purchase_capacity") {
+			t.Errorf("body = %q, want status code name", ue.Body)
+		}
+	})
+	t.Run("premium_slot_taken without message gets default copy", func(t *testing.T) {
+		err := statusError("premium_slot_taken", &upstream.SessionState{Status: "premium_slot_taken"})
+		ue, ok := err.(*upstream.UpstreamError)
+		if !ok {
+			t.Fatalf("err type = %T, want *upstream.UpstreamError", err)
+		}
+		if ue.Status != http.StatusConflict {
+			t.Errorf("status = %d, want 409 fallback", ue.Status)
+		}
+		if !strings.Contains(ue.Body, "premium_slot_taken") {
 			t.Errorf("body = %q, want status code name", ue.Body)
 		}
 	})

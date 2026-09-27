@@ -127,17 +127,19 @@ func TestModelsEndpoint(t *testing.T) {
 	// from every picker (unserved, tierless, still recognized) while
 	// upstage/solar-mini4 takes its slot and stealth/space-bunny-alpha joins
 	// every surface — 7 served + the same 3 tier rows.
-	if len(out.Data) != 10 {
-		t.Errorf("models = %d, want 10 (7 served + 3 tier rows)", len(out.Data))
+	if len(out.Data) != 11 {
+		t.Errorf("models = %d, want 11 (9 served + 2 tier rows)", len(out.Data))
 	}
 	served := map[string]bool{
 		"deepseek/deepseek-v4-flash":      true,
 		"openai/gpt-6-luna":               true,
+		"upstage/solar-pro4":              true,
 		"upstage/solar-mini4":             true,
 		"stealth/space-bunny-alpha":       true,
 		"meta/muse-spark-1.2-contributor": true,
 		"z-ai/glm-5.3-flash":              true,
 		"mimo/mimo-v2.5":                  true,
+		"mimo/mimo-v2.6-pro":              true,
 	}
 	for i, m := range out.Data {
 		if m.ID == "" || m.Object != "model" || m.OwnedBy == "" {
@@ -260,11 +262,11 @@ func TestConformanceCodexModelsStrictModelInfo(t *testing.T) {
 	for _, m := range legacy.Data {
 		legacyIDs[m.ID] = true
 	}
-	// 7 served ids: the pool reports no plan and no offer, so the tier rows
+	// 9 served ids: the pool reports no plan and no offer, so the tier rows
 	// are listed-but-unadmitted (and the six withdrawn ids are not listed
 	// at all).
-	if len(out.Models) != 7 {
-		t.Fatalf("codex rows = %d, want the 7 admitted ids (legacy lists %d)", len(out.Models), len(legacy.Data))
+	if len(out.Models) != 9 {
+		t.Fatalf("codex rows = %d, want the 9 admitted ids (legacy lists %d)", len(out.Models), len(legacy.Data))
 	}
 	codexIDs := make(map[string]bool, len(out.Models))
 	for i, m := range out.Models {
@@ -453,8 +455,8 @@ func TestHealthz(t *testing.T) {
 	// 5→6 when meta/muse-spark-1.3-contributor was served (2026-09-04).
 	// 6→7 on 2026-09-23 (vendor 0.0.188): solar-mini4 + space-bunny-alpha
 	// served, solar-pro4 retired from every picker.
-	if out.Models != 7 {
-		t.Errorf("models = %d, want 7", out.Models)
+	if out.Models != 9 {
+		t.Errorf("models = %d, want 9", out.Models)
 	}
 	if len(out.Tokens) != 2 {
 		t.Errorf("tokens = %d, want 2", len(out.Tokens))
@@ -806,8 +808,8 @@ func TestModelsAllowEmptyIsOpen(t *testing.T) {
 	// 10 = the catalog surface (7 served + 3 tier rows); no id is pruned by
 	// MODELS_ALLOW or MODELS_HIDE_UNAVAILABLE here, and withdrawn rows are
 	// never listed.
-	if len(out.Data) != 10 {
-		t.Errorf("model count = %d, want 10 (7 served + 3 tier rows)", len(out.Data))
+	if len(out.Data) != 11 {
+		t.Errorf("model count = %d, want 11 (9 served + 2 tier rows)", len(out.Data))
 	}
 	var hasModelA, hasFlash bool
 	for _, m := range out.Data {
@@ -846,8 +848,8 @@ func TestSmokeDefaultsToFallbackModel(t *testing.T) {
 	if len(mock.RecordedChatBodies) == 0 {
 		t.Fatal("no upstream chat body recorded")
 	}
-	if !strings.Contains(mock.RecordedChatBodies[0], `"model":"upstage/solar-mini4"`) {
-		t.Errorf("smoke probe body missing model upstage/solar-mini4: %s", mock.RecordedChatBodies[0])
+	if !strings.Contains(mock.RecordedChatBodies[0], `"model":"upstage/solar-pro4"`) {
+		t.Errorf("smoke probe body missing model upstage/solar-pro4: %s", mock.RecordedChatBodies[0])
 	}
 }
 
@@ -1034,24 +1036,25 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("unmarshal /v1/models: %v", err)
 	}
-	if len(out.Data) != 10 {
-		t.Fatalf("models count = %d, want 10 (7 served + 3 tier rows)", len(out.Data))
+	if len(out.Data) != 11 {
+		t.Fatalf("models count = %d, want 11 (9 served + 2 tier rows)", len(out.Data))
 	}
 	wantSet := map[string]bool{
 		"deepseek/deepseek-v4-flash":      true,
 		"openai/gpt-6-luna":               true,
+		"upstage/solar-pro4":              true,
 		"upstage/solar-mini4":             true,
 		"stealth/space-bunny-alpha":       true,
 		"meta/muse-spark-1.2-contributor": true,
 		"z-ai/glm-5.3-flash":              true,
 		"mimo/mimo-v2.5":                  true,
+		"mimo/mimo-v2.6-pro":              true,
 	}
 	// The two tier rows the catalog surface carries for their STATUS: not
 	// servable on a pool with no plan or offer, listed so a picker can render
 	// the reason (counted above, so the set is fully pinned).
 	gatedSet := map[string]bool{
 		"google/gemini-3.8-flash":    true,
-		"mimo/mimo-v2.6-pro":         true,
 		"anthropic/claude-fable-5.1": true,
 	}
 	// Withdrawn rows are recognized but never advertised: the refusal copy
@@ -1161,8 +1164,8 @@ func TestStrictServedModelsEnforced(t *testing.T) {
 	if err := json.Unmarshal(dataH, &health); err != nil {
 		t.Fatalf("unmarshal healthz: %v", err)
 	}
-	if health.Models != 7 {
-		t.Errorf("health.Models = %d, want 7", health.Models)
+	if health.Models != 9 {
+		t.Errorf("health.Models = %d, want 9", health.Models)
 	}
 }
 
@@ -1486,24 +1489,24 @@ func TestModelsEndpointLimitedTier(t *testing.T) {
 	}
 	// 10 rows: the seven served ids plus the three tier rows. Withdrawn
 	// rows are never listed, and MODELS_HIDE_UNAVAILABLE is off here.
-	if len(out.Data) != 10 {
-		t.Fatalf("models = %d, want 10 (7 served + 3 tier rows)", len(out.Data))
+	if len(out.Data) != 11 {
+		t.Fatalf("models = %d, want 11 (9 served + 2 tier rows)", len(out.Data))
 	}
 	for _, m := range out.Data {
 		if m.CurrentAccessTier != "limited" {
 			t.Errorf("model %s current_access_tier = %q, want limited", m.ID, m.CurrentAccessTier)
 		}
 		switch m.ID {
-		case "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash", "mimo/mimo-v2.5", "upstage/solar-mini4":
+		case "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash", "mimo/mimo-v2.5", "upstage/solar-mini4", "upstage/solar-pro4":
 			if !m.Available {
 				t.Errorf("model %s available = false, want true on limited tier", m.ID)
 			}
-		case "openai/gpt-6-luna", "meta/muse-spark-1.2-contributor", "stealth/space-bunny-alpha":
+		case "openai/gpt-6-luna", "meta/muse-spark-1.2-contributor", "stealth/space-bunny-alpha", "mimo/mimo-v2.6-pro":
 			// Served, but the limited tier demotes the full-tier rows.
 			if m.Available || m.Status != "region_limited" {
 				t.Errorf("model %s = available %v/status %q, want false/region_limited", m.ID, m.Available, m.Status)
 			}
-		case "google/gemini-3.8-flash", "mimo/mimo-v2.6-pro":
+		case "google/gemini-3.8-flash":
 			// Tier rows: no plan reported, so the plan is what is missing.
 			if m.Available || m.Status != "plan_required" {
 				t.Errorf("model %s = available %v/status %q, want false/plan_required", m.ID, m.Available, m.Status)
@@ -1547,8 +1550,8 @@ func TestModelsEndpointLimitedTierHideUnavailable(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("unmarshal /v1/models: %v", err)
 	}
-	if len(out.Data) != 4 {
-		t.Errorf("got %d models (%+v), want 4 limited-tier models", len(out.Data), out.Data)
+	if len(out.Data) != 5 {
+		t.Errorf("got %d models (%+v), want 5 limited-tier models", len(out.Data), out.Data)
 	}
 }
 

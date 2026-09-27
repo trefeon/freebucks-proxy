@@ -5,16 +5,15 @@ package dashboard
 // package (43.8% → the functions below were almost entirely untested).
 
 import (
-	"slices"
-	"strings"
-	"testing"
-	"time"
-
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/modelcat"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/upstream"
+	"slices"
+	"strings"
+	"testing"
+	"time"
 )
 
 // testDashboard builds a dashboard over an empty pool: enough
@@ -381,9 +380,7 @@ func TestLiveCardPerDayDisplay(t *testing.T) {
 // its slot to GPT-6 Luna (c2d2958b) and was then withdrawn outright on
 // 2026-09-24 (FREEBUFF_PAUSED_FREE_MODEL_IDS), so it is a withdrawn row now,
 // not a retired one.
-var retiredPickerModels = map[string]bool{
-	"upstage/solar-pro4": true,
-}
+var retiredPickerModels = map[string]bool{}
 
 // TestModelsDataCatalogTierFacts pins the full-catalog models view: every
 // modelcat row appears exactly once with the tier sets that admit it and its
@@ -511,7 +508,7 @@ func TestModelsDataCatalogTierFacts(t *testing.T) {
 	if !sawWithdrawn {
 		t.Error("models view missing withdrawn rows")
 	}
-	if !sawRetired {
+	if len(retiredPickerModels) > 0 && !sawRetired {
 		t.Errorf("models view missing a retired-from-picker row (want %v)", retiredPickerModels)
 	}
 	if !sawOffer {

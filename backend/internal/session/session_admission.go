@@ -623,12 +623,13 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			slog.Debug("session recreated", "reason", tableReason(status), "status", status, "instance_id", st.InstanceID, "model", dropModel)
 		case "banned", "country_blocked", "rate_limited", "ip_capped", "spend_limited", "session_model_mismatch", "limited_ip",
 			"consent_required", "purchase_claim_released", "purchase_in_use", "purchase_capacity",
-			"first_tab_discount_changed":
-			// The last five are terminal admission refusals (vendor af898dc
-			// plus the 6cd8970 first-tab re-quote): the wallet consent
-			// demand, the Desktop purchase-flow failures, and the stale
-			// first-tab quote stop polling upstream (nextDelayMs returns
-			// null) — surface them with no retry and no cooldown.
+			"first_tab_discount_changed", "premium_slot_taken":
+			// The last six are terminal admission refusals (vendor af898dc,
+			// 6cd8970 first-tab re-quote, and premium-slot concurrency):
+			// the wallet consent demand, the Desktop purchase-flow failures,
+			// the stale first-tab quote, and the one-premium-session limit
+			// stop polling upstream (nextDelayMs returns null) — surface
+			// them with no retry and no cooldown.
 			return statusError(status, st)
 		case "model_locked":
 			// Previous session is locked to a different model.

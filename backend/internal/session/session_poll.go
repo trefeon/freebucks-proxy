@@ -115,10 +115,12 @@ func statusError(status string, st *upstream.SessionState) error {
 			Status: http.StatusConflict,
 			Body:   fmt.Sprintf("upstream balance changed: re-confirm %g wallet Freebucks to admit (consent_required)", spend),
 		}
-	case "purchase_claim_released", "purchase_in_use", "purchase_capacity":
-		// Desktop purchase-flow admission shapes (vendor af898dc): terminal
+	case "purchase_claim_released", "purchase_in_use", "purchase_capacity", "premium_slot_taken":
+		// Desktop purchase-flow admission shapes (vendor af898dc) and
+		// premium-slot concurrency limit (premium_slot_taken): terminal
 		// session failures (nextDelayMs returns null = stop polling). The
-		// proxy runs no purchase flow, so surface the honest upstream
+		// proxy runs no purchase flow and respects the single active
+		// premium session bound, so surface the honest upstream
 		// status with its message — no cooldown, no retry, no WireCode.
 		code := st.HTTPStatus
 		if code == 0 {
@@ -126,7 +128,11 @@ func statusError(status string, st *upstream.SessionState) error {
 		}
 		msg := st.Message
 		if msg == "" {
-			msg = "upstream purchase flow blocked admission (" + status + ")"
+			if status == "premium_slot_taken" {
+				msg = "upstream session admission refused: premium slot already active for this account (premium_slot_taken)"
+			} else {
+				msg = "upstream purchase flow blocked admission (" + status + ")"
+			}
 		}
 		return &upstream.UpstreamError{Status: code, Body: msg}
 	case "first_tab_discount_changed":

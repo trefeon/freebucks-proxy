@@ -13,7 +13,7 @@ import {
   isDeepSeekExpensiveWindow,
 } from './freebuff-peak-hours'
 import { mimoModels } from './model-config'
-import { SOLAR_REGULAR_OFFER } from './freebuff-solar-promo'
+import { SOLAR_PRO_4_OFFER } from './freebuff-solar-promo'
 import {
   FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID,
   FREEBUFF_DEEPSEEK_V4_PRO_MODEL_ID,
@@ -26,6 +26,7 @@ import {
 import {
   FREEBUFF_SOLAR_MINI_4_ENTITLEMENT,
   FREEBUFF_SOLAR_MINI_4_MODEL_ID,
+  FREEBUFF_SOLAR_PRO_4_ENTITLEMENT,
   FREEBUFF_SOLAR_PRO_4_MODEL_ID,
   type FreebuffAccessTier,
 } from './freebuff-model-entitlements'
@@ -501,8 +502,7 @@ export const SOLAR_PRO_4_OPENROUTER_ENDPOINT = 'upstage'
  *    drift onto Vertex shows up as a doubled $/msg on /web/admin/spend rather
  *    than as free traffic.
  *
- * The row is PREMIUM and carries a per-session pacing target
- * (FREEBUFF_PER_MODEL_SESSION_SPEND_CAPS). At the flex rate and the cache
+ * The row is PREMIUM. At the flex rate and the cache
  * rates the browser surfaces actually get, it prices out at roughly 4x DeepSeek
  * V4 Flash and 9x GLM 5.3 Flash per message; the cache-read rate is the dearest
  * in the catalog and cache reads are ~96% of an agent turn's tokens. Figures
@@ -1506,9 +1506,11 @@ const MIMO_V26_PRO_MODEL = {
   // Same host and terms as the MiMo row: Xiaomi's API, reached through
   // OpenRouter's `xiaomi/fp8` endpoint with Xiaomi direct as the backup lane.
   dataUse: 'service',
-  // Premium, like Gemini 3.8 Flash: a paid-only row must not be read as a
-  // STANDARD (free, unmetered) model — FREEBUFF_STANDARD_MODEL_IDS is derived
-  // from `!premium`. Freebucks is still the meter that prices it.
+  // Premium, like GPT-6 Luna: not a STANDARD (free, unmetered) model —
+  // FREEBUFF_STANDARD_MODEL_IDS is derived from `!premium`. Open to every
+  // full-access account without a plan since 2026-09-25 (paid-only before,
+  // US-exempt from 09-22); plan-only at limited access. Freebucks is the
+  // meter that prices it.
   premium: true,
   // OpenRouter lists text + image (+ audio, video) input; verified with a real
   // image against both lanes before shipping.
@@ -2344,30 +2346,24 @@ const GPT_6_LUNA_MODEL = {
 } as const satisfies FreebuffModelOption
 
 /**
- * RETIRED FROM EVERY PICKER on 2026-09-23, replaced by Solar Mini 4 on the
- * same Upstage lane. Like GPT-5.6 Luna, this is the picker-only first stage:
- * the row stays in SUPPORTED_FREEBUFF_MODELS and admissible, so sessions
- * admitted before the swap drain on it and the released binaries that still
- * list it keep working at its own price.
+ * Solar Pro 4 (Upstage). Retired from every picker on 2026-09-23 when Solar
+ * Mini 4 took its slot, and RETURNED beside Mini 4 on 2026-09-25 at 10
+ * Freebucks (SOLAR_PRO_4_OFFER), by product decision. The two share the
+ * pinned Upstage lane; Mini is the cheap row, Pro the stronger one.
+ *
+ * The `supersededBy` pointer to Mini 4 went with the return: it would keep
+ * rewriting saved Pro 4 picks onto Mini 4 on every load.
  */
 const SOLAR_PRO_4_MODEL = {
   id: FREEBUFF_SOLAR_PRO_4_MODEL_ID,
   displayName: 'Solar Pro 4',
-  tagline: SOLAR_REGULAR_OFFER.tagline,
+  tagline: SOLAR_PRO_4_OFFER.tagline,
   availability: 'always',
   // Provider-side debugging logs are allowed; this is not a ZDR promise or
   // permission for AI training. Keep our own training traces disabled.
   dataUse: 'service',
-  premium: false,
+  premium: FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.fullAccess.premium,
   multimodal: false,
-  // The one live use of the pointer: the row is in no picker, so the notice
-  // renders nowhere, but migrateSupersededFreebuffModelPreference moves a
-  // SAVED Pro 4 pick onto Solar Mini 4 the next time a surface reads it.
-  supersededBy: {
-    modelId: FREEBUFF_SOLAR_MINI_4_MODEL_ID,
-    notice: 'Solar Mini 4 replaces Solar Pro 4',
-    actionLabel: 'Switch to Solar Mini 4',
-  },
 } as const satisfies FreebuffModelOption
 
 /**
@@ -2407,7 +2403,7 @@ const SOLAR_MINI_4_MODEL = {
 /**
  * Gemini 3.8 Flash. Premium, and unlike most premium rows it is priced premium
  * as well as badged it — see FREEBUFF_GEMINI_38_FLASH_MODEL_ID for the tier
- * table and FREEBUFF_PER_MODEL_SESSION_SPEND_CAPS for its pacing target.
+ * table.
  */
 const GEMINI_38_FLASH_MODEL = {
   id: FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
@@ -2903,10 +2899,12 @@ export const FREEBUFF_MODELS = [
   // stays in SUPPORTED_FREEBUFF_MODELS so the id remains recognisable and
   // coercible for the installed binaries that still hold it.
   //
-  // SOLAR MINI 4 TAKES SOLAR PRO 4'S SLOT (2026-09-23): same Upstage lane, at
-  // half Pro 4's Freebucks price. Pro 4 left this list in the same change and
-  // stays admissible for the binaries that still hold it.
+  // SOLAR MINI 4 TOOK SOLAR PRO 4'S SLOT on 2026-09-23 (same Upstage lane, at
+  // half Pro 4's Freebucks price), and PRO 4 RETURNED beside it on 2026-09-25.
+  // Their order here only matters off the meter: every picker sorts its rows
+  // cheapest first once prices arrive.
   SOLAR_MINI_4_MODEL,
+  SOLAR_PRO_4_MODEL,
   // SPACE BUNNY ALPHA (2026-09-23), a BETA stealth row. Placed after the
   // named-vendor rows: a row carrying the stealth caveat should not outrank
   // ones without it.
@@ -2938,7 +2936,7 @@ export const FREEBUFF_MODELS = [
   // GEMINI 3.8 FLASH IS BACK IN THIS LIST since 2026-09-21, on every surface,
   // and still a PAID-ONLY row (FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS). What kept
   // it Web-only was that its paywall ran on Web alone; it is now in
-  // FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS beside MiMo 2.6 Pro, so listing
+  // FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS, so listing
   // it here no longer hands the dearest row out free. The CLI and Desktop pickers draw it LOCKED
   // for an account without a plan (`freebuffPlanRequired`): no price, a "paid
   // plan" note, and a press that opens the plans page.
@@ -2984,26 +2982,6 @@ export function isFreebuffExperimentalModel(
 }
 
 /**
- * Historical per-model ceilings, retained as soft session pacing targets.
- * Crossing a target adds a pause; it never refuses a prompt or model call.
- */
-export const FREEBUFF_PER_MODEL_SESSION_SPEND_CAPS: Readonly<
-  Record<string, number>
-> = {
-  // Gemini 3.8 Flash, $0.50 a session from the day it shipped (2026-09-03).
-  // Revisit after its implicit-cache hit rate has been measured in production.
-  [FREEBUFF_GEMINI_38_FLASH_MODEL_ID]: 0.5,
-}
-
-/** Optional model-specific pacing target; the legacy name is retained. */
-export function getFreebuffPerModelSessionSpendCap(
-  model: string | null | undefined,
-): number | undefined {
-  if (!model) return undefined
-  return FREEBUFF_PER_MODEL_SESSION_SPEND_CAPS[model]
-}
-
-/**
  * Models free mode no longer runs, but still RECOGNISES.
  *
  * This is not a picker-only retirement (FREEBUFF_WEB_RETIRED_PICKER_MODEL_IDS
@@ -3041,10 +3019,11 @@ export const FREEBUFF_PAUSED_FREE_MODEL_IDS: readonly string[] = [
   // `model_unavailable`, which names GLM 5.3 Flash (the default) as the
   // replacement; a limited pick is coerced to the limited default.
   //
-  // NOT substituted with GPT-6 Luna, deliberately: GPT-6 Luna is open only to
-  // US or paid accounts (FREEBUFF_US_OR_PAID_MODEL_IDS), so a silent
-  // substitution would either hand the gated row to everyone holding an old
-  // binary or refuse them for a model they never picked. That is the same
+  // NOT substituted with GPT-6 Luna, deliberately: GPT-6 Luna was open only
+  // to US or paid accounts when this was written (every full-access account
+  // since 2026-09-25, but still plan-only at limited access), so a silent
+  // substitution would either hand the gated row to limited accounts holding
+  // an old binary or refuse them for a model they never picked. That is the same
   // reason the row carries no `supersededBy`.
   //
   // Its roots (base2-free-luna, base3-free-luna, code-reviewer-luna) and their
@@ -3788,6 +3767,9 @@ export const LIMITED_FREEBUFF_MODEL_IDS = [
   ...(FREEBUFF_SOLAR_MINI_4_ENTITLEMENT.limitedAccess
     ? [FREEBUFF_SOLAR_MINI_4_ENTITLEMENT.modelId]
     : []),
+  ...(FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.limitedAccess
+    ? [FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.modelId]
+    : []),
 ] as const
 export const LIMITED_FREEBUFF_MODELS = LIMITED_FREEBUFF_MODEL_IDS.map(
   (modelId) => SUPPORTED_FREEBUFF_MODELS.find((model) => model.id === modelId)!,
@@ -3892,7 +3874,7 @@ export const FREEBUFF_CLOUD_PLANNER_TURN_LIMIT = 12
  * afford a session was also the one barred from the cheap one.
  *
  * Freebucks meters access through session prices and a daily pool, while
- * session length and per-session pacing govern usage within an hour.
+ * session length governs usage within an hour.
  *
  * Luna is the deliberate full-access exception: it stays plan-gated only at
  * the limited tier
@@ -3929,71 +3911,30 @@ export const FREEBUFF_CLOUD_PLANNER_TURN_LIMIT = 12
 export const FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS: readonly string[] =
   Object.freeze([
     FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
-    // MiMo 2.6 Pro, paid-only from 2026-09-21. Both rows are paid-only on
-    // EVERY surface since that day (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS).
-    //
-    // MiMo 2.6 Pro and GPT-6 Luna carry a US EXEMPTION from 2026-09-22: a
-    // viewer in the US opens them with no plan. They stay listed here because
-    // for everyone else the paywall is exactly this one — see
-    // FREEBUFF_US_OR_PAID_MODEL_IDS, which is the exemption, not a second gate.
-    FREEBUFF_MIMO_V26_PRO_MODEL_ID,
-    FREEBUFF_GPT_6_LUNA_MODEL_ID,
+    // MiMo 2.6 Pro and GPT-6 Luna LEFT this list on 2026-09-25, by product
+    // decision: every FULL-ACCESS account opens them with no plan (metered in
+    // Freebucks at their own prices). They were paid-only from 2026-09-21, and
+    // open to US viewers without a plan from 2026-09-22 (the retired
+    // FREEBUFF_US_OR_PAID_MODEL_IDS exemption). At LIMITED access they are
+    // still plan-only — FREEBUFF_LIMITED_TIER_PLAN_ONLY_MODEL_IDS below.
   ])
-
-/**
- * Rows a viewer opens when they are IN THE US **or** hold a live plan.
- * Everyone else sees them listed and locked, and admission refuses the start.
- *
- * The country half is resolved SERVER-SIDE from the authenticated request
- * (`countryAccess.countryCode`, the same resolution the access tier uses), and
- * never from anything a client sends — a client-chosen country is one an
- * abusive client rotates. US is FREE_MODE_TIER_ONE_COUNTRIES.
- *
- * It fails CLOSED: a viewer whose country cannot be resolved is treated as
- * non-US and sees the paywall, the direction every narrowing control here
- * takes.
- *
- * No client can see the country this turns on, so the server ships the
- * VERDICT per viewer on the session response
- * (`FreebuffFreebucksInfo.planRequiredModelIds`) and the pickers draw their
- * existing lock from it. Same shape as the first-tab discount, which also
- * sends the decision rather than the geography.
- */
-export const FREEBUFF_US_OR_PAID_MODEL_IDS: readonly string[] = Object.freeze([
-  FREEBUFF_GPT_6_LUNA_MODEL_ID,
-  FREEBUFF_MIMO_V26_PRO_MODEL_ID,
-])
-
-export function isFreebuffUsOrPaidModelId(
-  id: string | null | undefined,
-): boolean {
-  return (
-    !!id &&
-    FREEBUFF_US_OR_PAID_MODEL_IDS.some((gated) =>
-      freebuffModelIdMatches(id, gated),
-    )
-  )
-}
 
 /**
  * Pro-only rows whose paywall is enforced on CLI and Desktop too, not only on
  * Freebuff Web (FREEBUFF_PRO_ENFORCED_SURFACES).
  *
- * Both are in the CLI/Desktop catalog (FREEBUFF_MODELS): MiMo 2.6 Pro since it
- * shipped, Gemini 3.8 Flash since 2026-09-21 (it was Web-only before, which is
- * what kept it paid there). Two things carry the gate on those surfaces:
- * session admission refuses a non-paying account (`checkProOnlyModel` in
+ * Gemini 3.8 Flash has been in the CLI/Desktop catalog (FREEBUFF_MODELS) since
+ * 2026-09-21. Two things carry the gate on those surfaces: session admission
+ * refuses a non-paying account (`checkProOnlyModel` in
  * web/src/server/free-session/public-api.ts), and the CLI and Desktop pickers
  * draw the row LOCKED for an account without a live plan
  * (`freebuffPlanRequired`): listed, with no price, and a press opens the plans
  * page instead of starting a session. The first is the gate; the second only
- * stops the picker offering what admission would refuse.
+ * stops the picker offering what admission would refuse. (MiMo 2.6 Pro was
+ * here too until it opened to full access on 2026-09-25.)
  */
 export const FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS: readonly string[] =
-  Object.freeze([
-    FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
-    FREEBUFF_MIMO_V26_PRO_MODEL_ID,
-  ])
+  Object.freeze([FREEBUFF_GEMINI_38_FLASH_MODEL_ID])
 
 export function isFreebuffProOnlyEverySurfaceModelId(
   id: string | null | undefined,
@@ -4016,17 +3957,16 @@ export function isFreebuffProOnlyCatalogModelId(id: string): boolean {
 /**
  * Rows an unpaid LIMITED-tier account cannot open.
  *
- * Every globally Pro-only row belongs here, plus Luna: Luna is part of the
- * ordinary full-access premium pool, but a paid plan is still what unlocks it
- * at limited access. Keeping this distinction explicit prevents the global Pro
- * gate from accidentally paywalling full-access users just to preserve the
- * limited-tier catalog boundary.
+ * Every globally Pro-only row belongs here, plus GPT-6 Luna and MiMo 2.6 Pro:
+ * both are open to every full-access account since 2026-09-25, but a paid plan
+ * is still what unlocks them at limited access. Keeping this distinction
+ * explicit prevents the global Pro gate from paywalling full-access users just
+ * to preserve the limited-tier catalog boundary.
  */
 export const FREEBUFF_LIMITED_TIER_PLAN_ONLY_MODEL_IDS: readonly string[] =
   Object.freeze([
     FREEBUFF_GPT_6_LUNA_MODEL_ID,
-    // MiMo 2.6 Pro arrives through the spread below: it is paid-only at every
-    // tier, which includes this one.
+    FREEBUFF_MIMO_V26_PRO_MODEL_ID,
     ...FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS,
   ])
 
