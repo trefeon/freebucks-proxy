@@ -2,14 +2,12 @@
 
 Pin state: `scripts/vendor-version.txt` = `0.0.204`,
 `backend/internal/wirefacts/wirefacts_gen.go:7` UpstreamSHA `775383b3`.
-Vendor tip checked here: `57943aa71` (gitignored `upstream/freebuff`,
-`origin/main`). Live since 2026-09-27: npm `0.1.0` (wrapper + all 8 binary
-hashes rotated), CLI tag `freebuff-v0.1.0`, Desktop latest
-`freebuff-desktop-v0.0.150`, vendor tip `ede39b345` (48 sync commits past
-pin). Functional delta so far: new `x-freebuff-client: desktop` header
-const (Desktop-only send; CLI sends nothing — proxy absence stays
-CLI-shaped), peak-hours TZ hardening, placements/inline-ad/partner-trigger
-changes. Re-pin rides the drift bot, not hand edits.
+Vendor tip checked here: `25f1d6153` (gitignored `upstream/freebuff`,
+`origin/main`, fetched 2026-09-28). Live: npm `0.1.2`, CLI `0.1.1`
+(release package at tip), Desktop latest `freebuff-desktop-v0.0.150`.
+0.1.1 assessed 2026-09-28 (25 files, §14.11): **no wire port needed** —
+abort/watchdog/banner fixes, compaction heuristics, BYOK internals; zero
+new routes/headers/statuses. Re-pin rides the drift bot, not hand edits.
 
 Recently ported (do NOT re-queue): `complete_compaction` anti-ban signal
 (`convert/foreign_signals.go:114-118`); `model_unavailable` refusal + window

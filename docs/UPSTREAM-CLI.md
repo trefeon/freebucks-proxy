@@ -1063,6 +1063,27 @@ tiers, UA versions all byte-identical at the wire. Functional notes:
 
 Pins stay `0.0.204`/`775383b3` — re-pin rides the drift bot, not hand edits.
 
+### 14.11 Delta `ede39b345` → `25f1d6153` (CLI 0.1.0 → 0.1.1, 25 files)
+
+Release package `freebuff/cli/release/package.json` `0.1.0` → `0.1.1`
+(2026-09-28); npm wrapper since moved to `0.1.2`. Diff reviewed file by
+file 2026-09-28: **no wire delta** — no new routes, no header/param/status
+changes on any captured leg (login, agent-runs, chat, ads, profile).
+
+| File | Change | Disposition |
+|---|---|---|
+| `cli/release-core/launcher.js` (+69) + `launcher-avx2-fallback.test.ts` (NEW) | AVX2-gated binary fallback in launcher | Local exec only, no wire |
+| `cli/src/hooks/use-freebuff-session.ts` (+5) | Abort in-flight fetches + arm fresh controller on unmount (fixes spent-signal refusal of the next send's admission) | Client lifecycle only; matches proxy NEVER reusing dead rows |
+| `cli/src/hooks/helpers/send-message.ts` (±30) | Session-ended UX: always set turn-stop error, banner copy, next send admits anew | Copy only; confirms rejoin-on-next-send semantics (proxy #12 rejoins in-request on refund wording) |
+| `cli/src/hooks/use-message-queue.ts` (+48) | Watchdog keeps watching while a chain/agent stream is live (fixes reset under long first turns) | Client-only |
+| `cli/src/utils/*` (keyboard, slash-menu, ai-sdk-warnings) + tests | Input + warning copy | Client-only |
+| `packages/agent-runtime/src/run-agent-step.ts` (+64) | Compaction low-water: skip automatic pass when it can't clear threshold; fallback target floor; BYOK-window copy | Server-side turn logic; no chat-body shape change |
+| `packages/agent-runtime/src/model-compaction.ts` (+150) + tests | Compaction heuristics | No wire |
+| `sdk/src/byok.ts` (+218) + tests | BYOK key plumbing (own-key connections, context-window discovery) | No new routes (grep: no fetch/API additions); no proxy BYOK surface |
+| `cli/src/hooks/__tests__/freebuff-multi-session.test.tsx` (+28) | Regression: send after mid-run session-end is admitted, not refused | Confirms admission-on-next-send; proxy behavior unchanged |
+
+Pins stay `0.0.204`/`775383b3` — re-pin rides the drift bot, not hand edits.
+
 ## 15. Proxy cross-reference
 
 Where each CLI surface lands in this repo (gateway side), and which CLI facts
@@ -1077,7 +1098,7 @@ are load-bearing for wire parity.
 | Model registry rows (catalog, paused/retired, served ids) | `backend/internal/modelcat`, `backend/internal/registry`, pins in `backend/internal/wirefacts/testdata/wire/snapshots.json` | tracked by `scripts/check-upstream.sh` + drift PRs |
 | Reasoning effort reporting | `convert_request.go` / chat path writes `codebuff_metadata.freebuff_reasoning_effort` | see §9 for the CLI-side ladders |
 | Tool-name translation | proxy-side only (`backend/internal/convert/toolmap_request.go`); the CLI never sees foreign harness names | `docs/UNIVERSAL-CLIENTS.md` |
-| Takeover / superseded | proxy surfaces `503 session_superseded` and never re-acquires in-request | row 5 (`GAP-P1`); §6 for the CLI side |
+| Takeover / superseded | proxy surfaces `503 session_superseded` and rejoins in-request ONLY on refund wording (`engine.go` `isRefundSuperseded`; takeover-worded stays terminal) | row 5 (`GAP-P1` narrowed 2026-09-28); §6 for the CLI side |
 | Credential files (`~/.config/manicode/credentials.json`) | read path `backend/internal/cli/clicreds.go`; write path deliberately not ported | rows 16, 17, W3 |
 
 Notes:
