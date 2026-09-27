@@ -3,14 +3,15 @@ package server_test
 import (
 	"bytes"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 func TestWaitingRoom503ThenRetry(t *testing.T) {
@@ -192,6 +193,46 @@ func TestChatSessionSupersededTerminal(t *testing.T) {
 	}
 	if got := mock.SessionCreates; got != 1 {
 		t.Errorf("session creates = %d, want exactly 1 (no re-admit against the superseding instance)", got)
+	}
+}
+
+// TestChatSessionSupersededRefundRejoinsOnce pins the live 2026-09-28
+// behavior: a 409 whose wording describes a REFUNDED purchase ("purchase
+// was refunded. Start a new session to try again." — e.g. after a
+// waiting-room 503 consumed the hold) carries no competitor, so the
+// request rejoins fresh exactly once and succeeds. Takeover-worded 409s
+// stay terminal (TestChatSessionSupersededTerminal).
+func TestChatSessionSupersededRefundRejoinsOnce(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	callCount := 0
+	originalHandler := mock.ChatHandler
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"session_superseded","message":"This model purchase was refunded. Start a new session to try again."}`))
+			return
+		}
+		if originalHandler != nil {
+			originalHandler(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: " + chunk("cmpl-test", 1234567890, `"choices":[{"delta":{"content":"ok"},"index":0}]`) + "\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}
+	ts, _ := newTestServer(t, nil, mock)
+
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 after refund rejoin: %s", resp.StatusCode, data)
+	}
+	if got := callCount; got != 2 {
+		t.Errorf("upstream chat attempts = %d, want exactly 2 (one rejoin, no loop)", got)
+	}
+	if got := mock.SessionCreates; got != 2 {
+		t.Errorf("session creates = %d, want 2 (fresh admit for the rejoin)", got)
 	}
 }
 

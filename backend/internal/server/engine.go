@@ -3,14 +3,29 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
 	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/phasetiming"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/upstream"
-	"io"
-	"net/http"
-	"time"
 )
+
+// isRefundSuperseded reports whether err is a 409 session_superseded whose
+// upstream wording describes a REFUNDED purchase ("purchase was refunded.
+// Start a new session") rather than a takeover ("another CLI took over").
+// A refund means no competitor holds the seat and no charge landed, so a
+// single fresh rejoin is safe; takeovers stay terminal per #159.
+func isRefundSuperseded(err error) bool {
+	var sse *upstream.SessionSupersededError
+	if !errors.As(err, &sse) {
+		return false
+	}
+	return strings.Contains(strings.ToLower(sse.Body), "refund")
+}
 
 // --- Shared completion engine (protocol-neutral) ---
 //
@@ -146,6 +161,18 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		// (in-memory + persisted record removed), so the re-acquire below cannot
 		// re-adopt it: rotate-and-retry-once, the sentinel's documented contract
 		// (upstream/errors.go).
+		st.retried = true
+		up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
+	}
+	if err != nil && ctx.Err() == nil && isRefundSuperseded(err) {
+		// Live 2026-09-28: a waiting-room 503 consumed the purchase hold and
+		// the same-request retry met 409 "purchase was refunded. Start a new
+		// session to try again." No competitor holds the seat (fresh
+		// accounts, refund = no charge) — upstream explicitly instructs a
+		// fresh session, so rejoin once. Takeover-worded 409s ("another CLI
+		// took over") stay terminal per #159: rejoining those burns a daily
+		// session against the superseding instance. chatAttempt already
+		// dropped the dead row, so the re-acquire below admits fresh.
 		st.retried = true
 		up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
 	}
