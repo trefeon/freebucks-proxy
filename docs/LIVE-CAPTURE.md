@@ -104,7 +104,45 @@ START + **3 chat POSTs** (197451 → 197917 → 198526B) + FINISH:
   Observed calls: `list_directory {"path":"frontend/src"}` →
   `read_files {"paths":["frontend/src/main.js"]}`; result content is a
   JSON-encoded string (`{"files":["app.css","App.svelte","main.js"],...}`).
+
 - Full transcript replayed every step (no compaction in this window);
   `run_id`, `freebuff_instance_id`, `trace_session_id` constant.
 - FINISH: `totalSteps: 4`, `steps[3]`, `directCredits: 0`,
   `totalCredits: 0` — free-tier tool turns also report zero credits.
+
+## Fourth turn: full login + session-start ads (hosts-override rig)
+
+Capturing the `freebuff.com` leg needs more than env overrides (the login
+route ignores `NEXT_PUBLIC_FREEBUFF_APP_URL` at runtime): lab recipe is
+`hosts: 127.0.0.1 freebuff.com` + `netsh portproxy 443->8444` + leaf cert
+with DNS SANs + DoH-based upstream resolution (the poisoned hosts file
+would otherwise loop the forwarder into itself) + correct `Host` header
+(`http.client` defaults to the dial IP; Cloudflare 403s that). Rig notes
+in `docs/MITM-CAPTURE.md`; scripts in `devtools/mitm/` (gitignored).
+Overrides removed after capture; values below redacted to shapes.
+
+- `POST /api/auth/cli/code` `{"fingerprintId":"enhanced-<64B64url>"}`
+  (Bun UA, no auth) → `200 {fingerprintId, fingerprintHash (hex64),
+  loginUrl: "https://freebuff.com/login?auth_code=<24ch>",
+  expiresAt: <epoch-ms str>, expiresInMs: 3600000}` (1h code lifetime).
+- `GET /api/auth/cli/status?fingerprintId=…&fingerprintHash=…&expiresAt=…`
+  polls ~every 5s → `401` while pending → `200 {user: {id, name, email,
+  authToken, fingerprintId, fingerprintHash}, message:
+  "Authentication successful!"}`. The `user.id` equals the
+  `x-freebuff-acting-user-id` the codebuff leg sends.
+- Session-start ads (right after login, BEFORE any chat):
+  `POST /api/ads` with UA `Freebuff-CLI/<cli-version>` (NOT Bun):
+  `{"provider":"gravity","messages":[],"sessionId":"<freebuff-session-uuid>",
+  "device":{"os":"windows","timezone":"<IANA>","locale":"en-US"},
+  "capabilityInspection":{"status":"unavailable",
+  "reason":"windows_no_containment"},"surface":"cli_chat",
+  "placementId":"Single-Ad-Unit-1",
+  "userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) ... Chrome/151.0.0.0 Safari/537.36",
+  "cliDockArm":"control"}`
+  → `200 {"ads":[],"provider":"gravity"}` (no fill on this session).
+- The freebuff `sessionId` is a DIFFERENT uuid than the codebuff
+  `freebuff_instance_id` (`cli:<uuid>`): two session identifiers, one per
+  leg. No `freebuff/session` admission call exists on either leg — the
+  codebuff side links via metadata, the freebuff side via the ads-call
+  `sessionId` (client-minted at session start; absent from the login
+  response).

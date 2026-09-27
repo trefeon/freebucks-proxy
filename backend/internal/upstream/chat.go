@@ -536,6 +536,7 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	if re, ok := payload["reasoning_effort"].(string); ok && re != "" {
 		metadata["freebuff_reasoning_effort"] = re
 	}
+	// repo_snapshot is intentionally never stamped: the proxy has no repo access and must not fabricate it (live capture docs/LIVE-CAPTURE.md shows the CLI sending it; BLOCKED until a repo-aware source exists).
 	payload["codebuff_metadata"] = metadata
 	// Provider routing passes the client's OpenRouter keys through: the CLI
 	// builds providerConfig from the agent's provider options when set, else

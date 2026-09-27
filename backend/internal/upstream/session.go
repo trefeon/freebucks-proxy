@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/modelcat"
 	"net/http"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/modelcat"
 )
 
 // Session wire vocabulary shared with the upstream CLI and desktop clients
@@ -482,17 +483,21 @@ type RunStep struct {
 	ID string `json:"id"`
 	// StepNumber is the 1-based per-run step index (sequential 1,2,3…).
 	StepNumber int `json:"stepNumber"`
-	// Credits is always 0 for the proxy (the upstream account owns spend).
-	Credits int `json:"credits,omitempty"`
+	// Credits is always 0 for the proxy (the upstream account owns spend);
+	// sent verbatim — the CLI emits "credits":0 on free-tier steps
+	// (live-captured 2026-09-27), never elided.
+	Credits int `json:"credits"`
 	// ChildRunIDs is empty for proxy-recorded steps (child runs are
-	// separate runs, not steps).
-	ChildRunIDs []string `json:"childRunIds,omitempty"`
+	// separate runs, not steps); sent as [] — the CLI emits
+	// "childRunIds":[] verbatim, never null or elided.
+	ChildRunIDs []string `json:"childRunIds"`
 	// MessageID is the completed chat response id; null when the stream
 	// never carried one (the CLI schema allows a null messageId).
 	MessageID *string `json:"messageId"`
 	// Status mirrors the CLI step lifecycle; proxy-recorded steps are
-	// always "completed" (recorded only after a successful chat).
-	Status string `json:"status,omitempty"`
+	// always "completed" (recorded only after a successful chat), sent
+	// verbatim like the CLI.
+	Status string `json:"status"`
 	// StartTime is the step start instant, RFC3339Nano UTC.
 	StartTime string `json:"startTime"`
 }

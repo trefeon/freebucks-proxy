@@ -3,14 +3,16 @@ package upstream
 import (
 	"context"
 	"errors"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 func TestSessionControlCalls(t *testing.T) {
@@ -372,6 +374,37 @@ func TestStartAndFinishRun(t *testing.T) {
 	if len(f.Steps) != 2 || f.Steps[0].StepNumber != 1 || f.Steps[0].MessageID == nil || *f.Steps[0].MessageID != "msg-1" ||
 		f.Steps[1].StepNumber != 2 || f.Steps[1].MessageID != nil || f.Steps[1].StartTime == "" {
 		t.Errorf("FINISH steps = %+v, want 2 CLI-shaped steps", f.Steps)
+	}
+}
+
+// TestFinishRunStepZeroValuesVerbatim pins the live-captured free-tier step
+// encoding (2026-09-27, docs/LIVE-CAPTURE.md): the CLI sends "credits":0
+// and "childRunIds":[] verbatim — never elided or null.
+func TestFinishRunStepZeroValuesVerbatim(t *testing.T) {
+	var raw []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/agent-runs" {
+			raw, _ = io.ReadAll(r.Body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true}`)
+	}))
+	t.Cleanup(srv.Close)
+	client, _ := New("tok", testConfig(srv.URL, nil))
+	steps := []RunStep{
+		{ID: "2f1a9c3e-5b7d-4a11-8f2e-6c0d9b4a7e31", StepNumber: 1, ChildRunIDs: []string{}, Status: "completed", StartTime: "2026-08-18T00:00:00.000Z"},
+	}
+	if err := client.FinishRun(context.Background(), "run-1", "completed", 1, steps, ""); err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	for _, want := range []string{`"credits":0`, `"childRunIds":[]`, `"status":"completed"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("FINISH body missing %s:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `"childRunIds":null`) {
+		t.Errorf("FINISH body carries null childRunIds, want []:\n%s", body)
 	}
 }
 

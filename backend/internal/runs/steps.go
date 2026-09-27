@@ -10,11 +10,12 @@ package runs
 import (
 	cryptoRand "crypto/rand"
 	"fmt"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"sync/atomic"
 	"time"
+
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // newTraceSessionID mints a UUIDv4 trace session id from crypto/rand,
@@ -134,11 +135,12 @@ func (m *RunManager) RecordStep(run *Run, messageID string) {
 		stepNumber = int64(len(run.Steps) + 1)
 	}
 	run.Steps = append(run.Steps, upstream.RunStep{
-		ID:         newTraceSessionID(),
-		StepNumber: int(stepNumber),
-		MessageID:  msgID,
-		Status:     "completed",
-		StartTime:  time.Now().UTC().Format(time.RFC3339Nano),
+		ID:          newTraceSessionID(),
+		StepNumber:  int(stepNumber),
+		ChildRunIDs: []string{},
+		MessageID:   msgID,
+		Status:      "completed",
+		StartTime:   time.Now().UTC().Format(time.RFC3339Nano),
 	})
 	if len(run.Steps) > maxRecordedSteps {
 		run.Steps = run.Steps[len(run.Steps)-maxRecordedSteps:]

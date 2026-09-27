@@ -344,6 +344,103 @@ func TestInjectEnvelopeMetadataParityAndAnthropicProvider(t *testing.T) {
 	}
 }
 
+// TestInjectEnvelopeLiveCaptureParity pins the full second-turn GLM shape
+// from docs/LIVE-CAPTURE.md (official CLI 0.1.0): chat body top keys exactly
+// {model, codebuff_metadata, provider, messages, tools, tool_choice, stream},
+// every codebuff_metadata contract key (run_id == START runId, per-run
+// client_id, trace_session_id, cli:<uuid> instance, multi_session '1',
+// surface cli, llm_step_number String(n), cost_mode), provider deny, forced
+// stream, repo_snapshot absent (proxy has no repo access — never fabricated),
+// and the reasoning conditional (DeepSeek turn sent "max", GLM turn omitted).
+func TestInjectEnvelopeLiveCaptureParity(t *testing.T) {
+	body := `{"model":"z-ai/glm-5.3-flash",` +
+		`"messages":[{"role":"system","content":"Buffy prompt"},{"role":"user","content":[{"type":"text","text":"hello"}]}],` +
+		`"tools":[{"type":"function","function":{"name":"read_files"}}],` +
+		`"tool_choice":"auto","stream":false}`
+	out, err := injectEnvelope([]byte(body), "free", ChatOptions{
+		RunID:             "run-live-1",
+		SessionInstanceID: "cli:123e4567-e89b-42d3-a456-426614174000",
+		TraceSessionID:    "trace-live-1",
+		ClientID:          "abc123def4567",
+		StepNumber:        1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(out, &sent); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"model", "codebuff_metadata", "provider", "messages", "tools", "tool_choice", "stream"} {
+		if _, ok := sent[key]; !ok {
+			t.Errorf("top-level %q missing from chat body", key)
+		}
+	}
+	if sent["model"] != "z-ai/glm-5.3-flash" {
+		t.Errorf("model = %v, want z-ai/glm-5.3-flash", sent["model"])
+	}
+	if sent["tool_choice"] != "auto" {
+		t.Errorf("tool_choice = %v, want auto (client-supplied, preserved)", sent["tool_choice"])
+	}
+	if sent["stream"] != true {
+		t.Errorf("stream = %v, want true (forced)", sent["stream"])
+	}
+	md, ok := sent["codebuff_metadata"].(map[string]any)
+	if !ok {
+		t.Fatal("codebuff_metadata missing")
+	}
+	for key, want := range map[string]any{
+		"run_id":                 "run-live-1",
+		"client_id":              "abc123def4567",
+		"trace_session_id":       "trace-live-1",
+		"freebuff_instance_id":   "cli:123e4567-e89b-42d3-a456-426614174000",
+		"freebuff_multi_session": "1",
+		"surface":                "cli",
+		"llm_step_number":        "1",
+		"cost_mode":              "free",
+	} {
+		if md[key] != want {
+			t.Errorf("codebuff_metadata[%q] = %v, want %q", key, md[key], want)
+		}
+	}
+	prov, ok := sent["provider"].(map[string]any)
+	if !ok {
+		t.Fatal("provider missing")
+	}
+	if prov["data_collection"] != "deny" {
+		t.Errorf("provider.data_collection = %v, want deny", prov["data_collection"])
+	}
+	if _, present := md["repo_snapshot"]; present {
+		t.Errorf("repo_snapshot present: the proxy has no repo access and must never fabricate it")
+	}
+	if _, present := md["freebuff_reasoning_effort"]; present {
+		t.Errorf("freebuff_reasoning_effort present on a silent (GLM) turn: %v", md)
+	}
+
+	// Reasoning-selected turn (DeepSeek shape): a top-level
+	// reasoning_effort the convert layer clamped is mirrored into metadata.
+	outReasoned, err := injectEnvelope([]byte(`{"model":"deepseek/deepseek-v4-flash","reasoning_effort":"max"}`), "free", ChatOptions{
+		RunID:             "run-live-2",
+		SessionInstanceID: "cli:123e4567-e89b-42d3-a456-426614174000",
+		ClientID:          "abc123def4567",
+		StepNumber:        2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sentReasoned map[string]any
+	if err := json.Unmarshal(outReasoned, &sentReasoned); err != nil {
+		t.Fatal(err)
+	}
+	mdReasoned := sentReasoned["codebuff_metadata"].(map[string]any)
+	if mdReasoned["freebuff_reasoning_effort"] != "max" {
+		t.Errorf("freebuff_reasoning_effort = %v, want max (reasoning selected)", mdReasoned["freebuff_reasoning_effort"])
+	}
+	if mdReasoned["llm_step_number"] != "2" {
+		t.Errorf("llm_step_number = %v, want 2 (second step of the run)", mdReasoned["llm_step_number"])
+	}
+}
+
 // --- #94: 428 waiting_room_required classification ---------------------------
 
 func TestClassifyWaitingRoomRequired(t *testing.T) {
