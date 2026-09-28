@@ -137,6 +137,21 @@ func (p *Pool) Start(ctx context.Context) {
 		go p.maintainLoop(runCtx)
 		p.wg.Add(1)
 		go p.backfillLoop(runCtx)
+		// Boot refund sweep (pending-refund persistence): refunds parked by
+		// pre-restart releases replay once through the single-flight path.
+		// Async with a bound so a slow upstream never blocks boot; a
+		// cancelled shutdown context aborts it. Per-slot failures stay
+		// parked (persisted) for the dashboard trigger; the error is
+		// warn-only — the sweep never fails the boot.
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			sweepCtx, sweepCancel := context.WithTimeout(runCtx, 30*time.Second)
+			defer sweepCancel()
+			if _, err := p.ReplayPendingRefunds(sweepCtx); err != nil && p.logger != nil {
+				p.logger.Warn("pool: boot refund replay sweep incomplete", "err", err)
+			}
+		}()
 	})
 }
 

@@ -23,3 +23,11 @@ regexes = [
   '''SENTINEL-[A-Z-]+-9f13''',
   '''hooks\.invalid''',
 ]
+
+# Synthetic session-store fixture ids (session_refund_persist_test.go) — never real.
+[[allowlists]]
+description = "synthetic refund-test instance ids"
+regexes = [
+  '''inst-(parked|live)-[0-9]+''',
+  '''inst-abc-123''',
+]

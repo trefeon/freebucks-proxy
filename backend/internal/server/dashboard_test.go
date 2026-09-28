@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/egress"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/server"
@@ -1136,6 +1137,55 @@ func TestDashboardTokenRemoveRollsBackOnPersistFailure(t *testing.T) {
 	srv.FlushSettingsSpill()
 	if v, ok, _ := st.GetSetting(config.OverlayRowKey("AUTH_TOKENS")); ok {
 		t.Errorf("overlay AUTH_TOKENS = %q after rejected remove, want absent", v)
+	}
+}
+
+// handleDiag surfaces the gateway egress exit-IP (same readout as the CLI
+// doctor's egressRegionRow): seeded tracker result renders "IP (country)".
+func TestDashboardDiagEgressExitIP(t *testing.T) {
+	t.Chdir(t.TempDir())
+	mock := testutil.NewMock()
+	defer mock.Close()
+
+	cfg := &config.Config{
+		AuthTokens:         []string{"tok-0"},
+		RotationInterval:   time.Hour,
+		RequestTimeout:     15 * time.Minute,
+		SessionCallTimeout: 5 * time.Second,
+		RegistryRefresh:    6 * time.Hour,
+		UpstreamBaseURL:    mock.URL(),
+		AdminToken:         "secret",
+		DashboardEnabled:   true,
+	}
+	clientCfg := *cfg
+	clientCfg.UpstreamBaseURL = mock.URL()
+	client, err := upstream.New(cfg.AuthTokens[0], &clientCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := []*session.Manager{session.NewManager(client)}
+	reg := registry.New(cfg, nil)
+	reg.LoadFallback()
+	pp, err := pool.New(cfg, []*upstream.Client{client}, sessions, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := server.New(cfg, pp, reg, nil, nil, "")
+	cache := egress.NewCache()
+	cache.Set("direct", egress.Result{IP: "203.0.113.7", Country: "US"})
+	srv.SetEgressTracker(egress.NewTracker(cache, egress.Path{Key: "direct"}, time.Minute))
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	cookie := authedCookie(t, ts)
+
+	resp := postJSON(t, ts.URL, cookie, "/admin/diag", "{}")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("diag status = %d, want 200", resp.StatusCode)
+	}
+	body := bodyOf(t, resp)
+	if !strings.Contains(body, "203.0.113.7") {
+		t.Errorf("diag missing egress exit-IP 203.0.113.7:\n%s", body)
 	}
 }
 

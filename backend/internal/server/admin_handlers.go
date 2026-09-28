@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/egress"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/ratelimit"
 	"freebucks-proxy/backend/internal/registry"
@@ -61,6 +62,10 @@ type adminHandlers struct {
 	// handleChat forwards the playground's synthetic chat request to the
 	// normal chat pipeline (admin.go:176).
 	handleChat func(w http.ResponseWriter, r *http.Request)
+	// egressResult reports the last known direct-egress probe result
+	// without touching the network (nil = region detection off). Wired
+	// from Server.egressTracker so diag stays hermetic in tests.
+	egressResult func() (egress.Result, bool)
 }
 
 func (a *adminHandlers) handleAdminRestart(w http.ResponseWriter, r *http.Request) {

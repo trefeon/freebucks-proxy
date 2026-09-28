@@ -80,6 +80,19 @@ func (a *adminHandlers) handleDiag(w http.ResponseWriter, r *http.Request) {
 
 	checks = append(checks, dashboard.DiagCheck{OK: true, Message: fmt.Sprintf("Model registry: %d models", a.reg.ModelCount())})
 
+	// Egress exit-IP: the public IP/country seen at the far end of the
+	// direct outbound path. Mirrors the CLI doctor's egressRegionRow
+	// (backend/internal/cli/doctor/doctor.go): reads only the last known
+	// tracker result, never probes - a missing/failed probe is an
+	// unavailable row, not a diag failure.
+	if a.egressResult != nil {
+		if res, ok := a.egressResult(); ok && res.Err == nil && res.Country != "" && res.IP != "" {
+			checks = append(checks, dashboard.DiagCheck{OK: true, Message: fmt.Sprintf("Egress exit IP: %s (%s)", res.IP, res.Country)})
+		} else {
+			checks = append(checks, dashboard.DiagCheck{Message: "Egress exit IP unavailable (no direct probe result)"})
+		}
+	}
+
 	// Per-token validity probes. Each
 	// probe is a zero-cost upstream GET /api/v1/freebuff/session (no session
 	// claim, no model needed), so they always run; a token with no active

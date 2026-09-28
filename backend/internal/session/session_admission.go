@@ -696,13 +696,24 @@ func (m *Manager) recordReleaseReceipt(instanceID string, rcpt *upstream.Session
 		return
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.lastRefund = rcpt.Refund
+	if rcpt.Refund != nil {
+		v := *rcpt.Refund
+		m.lastRefund = &v
+	} else {
+		m.lastRefund = nil
+	}
 	if rcpt.Pending && instanceID != "" {
 		m.pendingRefund = instanceID
+		m.pendingRefundAt = m.now()
 	} else {
 		m.pendingRefund = ""
+		m.pendingRefundAt = time.Time{}
 	}
+	m.mu.Unlock()
+	// The parked entry must survive a restart: EndSession's commit(nil)
+	// already dropped the session row, so this write recreates it as a
+	// refund-only entry (or clears it on settle).
+	m.persistRefundSnapshot()
 }
 
 // RefreshRefund replays the DELETE for a pending early-end refund (vendor
@@ -725,8 +736,12 @@ func (m *Manager) RefreshRefund(ctx context.Context) error {
 			m.mu.Lock()
 			if m.pendingRefund == pending {
 				m.pendingRefund = ""
+				m.pendingRefundAt = time.Time{}
 			}
 			m.mu.Unlock()
+			// A gone row settles the disk entry too: nothing is left to
+			// replay after a restart.
+			m.persistRefundSnapshot()
 			return nil
 		}
 		return err
@@ -735,8 +750,10 @@ func (m *Manager) RefreshRefund(ctx context.Context) error {
 		m.mu.Lock()
 		if m.pendingRefund == pending {
 			m.pendingRefund = ""
+			m.pendingRefundAt = time.Time{}
 		}
 		m.mu.Unlock()
+		m.persistRefundSnapshot()
 		return nil
 	}
 	if rcpt.Status == "ended" && !rcpt.Pending {
@@ -747,9 +764,11 @@ func (m *Manager) RefreshRefund(ctx context.Context) error {
 		m.mu.Lock()
 		if m.pendingRefund == pending {
 			m.pendingRefund = ""
+			m.pendingRefundAt = time.Time{}
 			m.lastRefund = &refund
 		}
 		m.mu.Unlock()
+		m.persistRefundSnapshot()
 		return nil
 	}
 	if rcpt.Pending {

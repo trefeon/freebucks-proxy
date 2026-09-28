@@ -3,18 +3,17 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/upstream"
 	"net"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/modelcat"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // --- overview ---
@@ -702,6 +701,7 @@ type modelRow struct {
 	Pool           string   `json:"pool,omitempty"`
 	Agent          string   `json:"agent"`
 	Quota          string   `json:"quota"`
+	Affordable     string   `json:"affordable,omitempty"`
 	Served         bool     `json:"served"`
 	// Tiers lists the access levels that can admit the row (limited/full/
 	// paid/offer in canonical order); empty for withdrawn and god-only
@@ -856,6 +856,54 @@ func (d *Dashboard) firstFreebucksPriceNotices() map[string]string {
 	return nil
 }
 
+// maxSpendable returns the largest admission-time spendable amount across
+// token snapshots (balance + claimable grants, the same number the gate
+// admits on). Admission is per-token (pool/quota.go), so the pool can serve
+// any model one funded token can start — the first snapshot alone would
+// read "pool empty" while a later token is still funded. 0 when no token
+// reports Freebucks, so rows read "pool empty".
+func (d *Dashboard) maxSpendable() float64 {
+	if d.pool == nil {
+		return 0
+	}
+	best := 0.0
+	for _, t := range d.pool.Snapshot() {
+		if t.Freebucks != nil {
+			if v := t.Freebucks.Spendable(); v > best {
+				best = v
+			}
+		}
+	}
+	return best
+}
+
+// affordableDurationLabel renders how long the pool balance buys one model
+// at its per-hour price: floor(remaining / price). Zero or negative
+// remaining reads "pool empty"; zero or negative prices read "" so the
+// table keeps its em-dash fallback. Sub-hour amounts read "Nm", whole
+// hours "Xh", mixed "Xh Ym".
+func affordableDurationLabel(remaining, price float64) string {
+	if price <= 0 {
+		return ""
+	}
+	if remaining <= 0 {
+		return "pool empty"
+	}
+	totalMinutes := int(remaining / price * 60)
+	if totalMinutes <= 0 {
+		return "pool empty"
+	}
+	if totalMinutes < 60 {
+		return strconv.FormatInt(int64(totalMinutes), 10) + "m"
+	}
+	h := totalMinutes / 60
+	m := totalMinutes % 60
+	if m == 0 {
+		return strconv.FormatInt(int64(h), 10) + "h"
+	}
+	return strconv.FormatInt(int64(h), 10) + "h " + strconv.FormatInt(int64(m), 10) + "m"
+}
+
 // formatSessionUnits mirrors the CLI's unit display
 // (format-session-units.ts): integers render bare, fractionals to one
 // decimal. Shared name with the CLI file; here it formats Freebucks/hr
@@ -968,6 +1016,7 @@ func (d *Dashboard) modelsData() modelsData {
 	offers := d.offerByModel()
 	verdict, hasPlan := d.planRequiredViewer()
 	effectivePrices := make(map[string]float64)
+	spendable := d.maxSpendable()
 	md := modelsData{Agents: len(d.reg.AgentIDs())}
 	md.Models = make([]modelRow, 0, len(modelcat.Catalog))
 	for _, info := range modelcat.Catalog {
@@ -993,6 +1042,7 @@ func (d *Dashboard) modelsData() modelsData {
 			row.Price = p
 			effectivePrices[id] = p
 			row.PriceLabel = freebucksPriceLabel(p)
+			row.Affordable = affordableDurationLabel(spendable, p)
 		}
 		if lp, ok := listPrices[id]; ok {
 			row.ListPrice = lp

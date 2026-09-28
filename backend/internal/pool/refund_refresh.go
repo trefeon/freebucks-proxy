@@ -109,3 +109,35 @@ func (p *Pool) refreshTokenRefund(ctx context.Context, token int) (RefundRefresh
 		return RefundRefreshResult{}, nil
 	}
 }
+
+// ReplayPendingRefunds is the boot sweep for parked pending refunds: one
+// replay per parked entry through the existing single-flight
+// RefreshTokenRefund path (same-instance re-DELETE; gone-rows clear as
+// today). Slots with nothing parked are cheap no-ops. A per-slot replay
+// failure keeps that entry parked (persisted) for the next trigger and is
+// logged; the sweep continues with the remaining slots and reports how many
+// replays ran plus the first error. It never fails the boot — callers
+// treat an error as warn-only.
+func (p *Pool) ReplayPendingRefunds(ctx context.Context) (replayed int, err error) {
+	toks := p.roster.Load()
+	for i := range *toks {
+		if ctx.Err() != nil {
+			return replayed, ctx.Err()
+		}
+		if (*toks)[i].session.Snapshot().PendingRefund == "" {
+			continue
+		}
+		_, rerr := p.RefreshTokenRefund(ctx, i)
+		if rerr != nil {
+			if p.logger != nil {
+				p.logger.Warn("pool: boot refund replay failed (entry stays parked)", "token", i, "err", rerr)
+			}
+			if err == nil {
+				err = rerr
+			}
+			continue
+		}
+		replayed++
+	}
+	return replayed, err
+}

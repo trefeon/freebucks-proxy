@@ -234,8 +234,10 @@
     <!-- Desktop: table (lg+). The table only renders where the card can hold
       it without a horizontal scrollbar (see DESIGN.md "### Tables"): every
       variable cell stacks its own lines (`min-w-0`, `truncate` + `title`) and
-      the fixed columns hug their widest line. Below lg the stacked cards
-      below take over — same rows, same information, taller composition. -->
+      the fixed columns hug their widest line. The Affordable column hides
+      below xl — at lg widths the card is too narrow for six columns. Below
+      lg the stacked cards below take over — same rows, same information,
+      taller composition. -->
     <div class="hidden lg:block overflow-x-auto">
       <table class="fp-table w-full">
         <thead>
@@ -247,9 +249,14 @@
             <th scope="col" class="text-right w-[1%] whitespace-nowrap"
               >{$tr("Price")}</th
             >
+            <th
+              scope="col"
+              class="hidden text-right w-[1%] whitespace-nowrap xl:table-cell"
+              >{$tr("Affordable")}</th
+            >
             <th scope="col" class="w-[1%] whitespace-nowrap">{$tr("Tier")}</th>
-          </tr>
-        </thead><tbody>
+          </tr></thead
+        ><tbody>
           {#each orderedModels as m (m.id)}
             {@const bound = Boolean(m.agent)}
             {@const st = modelState(m)}
@@ -355,6 +362,13 @@
                     >
                   {/if}
                 </span>
+              </td>
+              <td
+                class="hidden w-[1%] whitespace-nowrap text-right fp-num text-xs text-[var(--fp-muted)] xl:table-cell"
+                data-testid="model-affordable"
+                title={m.quota || ""}
+              >
+                {m.affordable || "—"}
               </td>
               <td class="w-[1%] whitespace-nowrap" data-testid="model-tier">
                 {#if m.withdrawn}
@@ -493,6 +507,13 @@
                   >{offPeak}</span
                 >
               {/if}
+            </span>
+            <span
+              class="fp-num text-xs text-[var(--fp-muted)] shrink-0"
+              data-testid="model-affordable"
+              title={m.quota || ""}
+            >
+              {m.affordable || "—"}
             </span>
           </div>
           <div

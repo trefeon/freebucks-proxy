@@ -13,11 +13,10 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"time"
-
 	"freebucks-proxy/backend/internal/modelcat"
 	"freebucks-proxy/backend/internal/upstream"
+	"log/slog"
+	"time"
 )
 
 const (
@@ -411,6 +410,43 @@ func (m *Manager) restorePersistedQuotaLocked() {
 	m.stampQuotaSourceLocked(m.snap.savedQuotaAt)
 }
 
+// restorePersistedRefundLocked seeds the in-memory refund tracking from the
+// on-disk entry when this process has not seen a receipt yet (restart with
+// a parked pending refund). Caller must hold m.mu. It only fills empty
+// memory: any live receipt already recorded this process wins over disk.
+func (m *Manager) restorePersistedRefundLocked() {
+	if m.store == nil || m.key == "" || m.pendingRefund != "" || m.lastRefund != nil {
+		return
+	}
+	pending, parkedAt, last := m.store.LoadRefund(m.key)
+	if pending == "" && last == nil {
+		return
+	}
+	m.pendingRefund = pending
+	m.pendingRefundAt = parkedAt
+	m.lastRefund = last
+}
+
+// persistRefundSnapshot writes the current in-memory refund tracking to the
+// store without holding m.mu across the call (same discipline as
+// persistSaveLocked: the store write itself is memory + spill enqueue, but
+// callers keep their lock discipline). A nil store is a no-op.
+func (m *Manager) persistRefundSnapshot() {
+	m.mu.Lock()
+	pending, parkedAt := m.pendingRefund, m.pendingRefundAt
+	var last *float64
+	if m.lastRefund != nil {
+		v := *m.lastRefund
+		last = &v
+	}
+	store, key := m.store, m.key
+	m.mu.Unlock()
+	if store == nil || key == "" {
+		return
+	}
+	store.SaveRefund(key, pending, parkedAt, last)
+}
+
 // Snapshot returns a best-effort view of the cached session state. All
 // fields may be zero when no session has been created yet. Added for
 func (m *Manager) Snapshot() SessionSnapshot {
@@ -421,6 +457,9 @@ func (m *Manager) Snapshot() SessionSnapshot {
 		// so seed the last-seen quota from the on-disk entry (quota tracker
 		// stays populated instead of empty until the next request re-polls).
 		m.restorePersistedQuotaLocked()
+		// Same restart: a parked pending refund restores from the same row
+		// so the dashboard refund line and the boot replay see it.
+		m.restorePersistedRefundLocked()
 		var quota map[string]QuotaSnapshot
 		if len(m.snap.savedQuota) > 0 {
 			quota = make(map[string]QuotaSnapshot, len(m.snap.savedQuota))

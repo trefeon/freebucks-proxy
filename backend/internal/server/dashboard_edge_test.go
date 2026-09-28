@@ -655,6 +655,28 @@ func TestDashboardDiagProbesRunUnconditionally(t *testing.T) {
 	})
 }
 
+// TestDashboardDiagNilTrackerUnavailableRow: without a wired egress tracker
+// (the default test stack) diag stays hermetic — no probe traffic — and
+// reports the exit-IP row as unavailable instead of failing the fragment.
+func TestDashboardDiagNilTrackerUnavailableRow(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	ts, _ := newTestServerCfg(t, nil, func(c *config.Config) { c.AdminToken = "secret" }, mock)
+	cookie := authedCookie(t, ts)
+
+	resp := postJSON(t, ts.URL, cookie, "/admin/diag", "{}")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("diag status = %d, want 200", resp.StatusCode)
+	}
+	body := bodyOf(t, resp)
+	if !strings.Contains(body, "Egress exit IP unavailable") {
+		t.Errorf("diag missing nil-tracker unavailable row:\n%s", body)
+	}
+	if got := mock.SessionCreatesSnapshot(); got != 0 {
+		t.Errorf("diag created %d upstream session(s), want 0 (hermetic, no probe traffic)", got)
+	}
+}
+
 // --- CSRF ---
 
 // csrfPost issues a POST with the given extra headers and returns the body.

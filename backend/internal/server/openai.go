@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebucks-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"
-
-	"freebucks-proxy/backend/internal/convert"
+	"time"
 )
 
 // completions, Responses, embeddings, model catalog) onto the mux. The
@@ -81,6 +81,22 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	stream := false
 	if v, ok := raw["stream"].(bool); ok {
 		stream = v
+	}
+	// Healthcheck prober bypass: external probers (9Router-style) poll with a
+	// prober User-Agent and a minimal single-word probe body. Serving the
+	// probe locally avoids a 1-hour upstream session admission per poll.
+	// Narrow by construction: a prober UA plus a minimal tool-less probe
+	// shape. Genuine client requests (normal UAs, tools, multi-message
+	// turns) always fall through. Unknown model ids never reach here: the
+	// model gate above rejects them first, so the bypass only serves models
+	// the gateway actually serves.
+	if isHealthcheckProbe(r, raw) {
+		if stream {
+			s.writeHealthcheckProbeStream(w, rawModel)
+		} else {
+			s.writeHealthcheckProbe(w, rawModel)
+		}
+		return
 	}
 	normalized, toolMap, err := convert.NormalizeRequestMappedOpts(body, model, s.convertOptions())
 	if err != nil {
@@ -194,4 +210,145 @@ func (s *Server) handleModelRetrieve(w http.ResponseWriter, r *http.Request) {
 	available, status := modelAvailability(model, snaps)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(modelRow(modelName, model, created, available, status, currentAccessTier(snaps), snaps))
+}
+
+// proberUserAgents are substrings (lowercased) identifying external
+// healthcheck probers. Matched only together with a minimal probe body,
+// so genuine clients sending short greetings are never caught.
+var proberUserAgents = []string{
+	"9router",
+	"healthcheck",
+	"health-check",
+	"kube-probe",
+	"uptime",
+	"pingdom",
+	"statuscake",
+}
+
+// probeContents is the 98h-0002 trigger shape: single-word synthetic
+// healthcheck messages. Content alone NEVER triggers the bypass (genuine
+// clients greet too) — it counts only with a prober UA.
+var probeContents = []string{"hi", "ping", "test", "hello"}
+
+// isHealthcheckProbe reports whether a chat request is an external
+// healthcheck probe that must be served without upstream session admission:
+// a prober User-Agent together with a minimal single-word probe body.
+func isHealthcheckProbe(r *http.Request, raw map[string]any) bool {
+	return isProberUA(r.UserAgent()) && isMinimalProbe(raw)
+}
+
+func isProberUA(ua string) bool {
+	ua = strings.ToLower(ua)
+	if ua == "" {
+		return false
+	}
+	for _, sub := range proberUserAgents {
+		if strings.Contains(ua, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// isMinimalProbe matches only tool-less single-user-message probes with a
+// single-word synthetic content.
+func isMinimalProbe(raw map[string]any) bool {
+	if _, ok := raw["tools"]; ok {
+		return false
+	}
+	if _, ok := raw["tool_choice"]; ok {
+		return false
+	}
+	msgs, ok := raw["messages"].([]any)
+	if !ok || len(msgs) != 1 {
+		return false
+	}
+	m, ok := msgs[0].(map[string]any)
+	if !ok {
+		return false
+	}
+	if role, _ := m["role"].(string); role != "user" {
+		return false
+	}
+	content, _ := m["content"].(string)
+	c := strings.ToLower(strings.TrimSpace(content))
+	for _, p := range probeContents {
+		if c == p {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) writeHealthcheckProbe(w http.ResponseWriter, rawModel string) {
+	now := time.Now().Unix()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"id":      fmt.Sprintf("chatcmpl-probe-%d", now),
+		"object":  "chat.completion",
+		"created": now,
+		"model":   rawModel,
+		"choices": []any{
+			map[string]any{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "ok",
+				},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": map[string]any{
+			"prompt_tokens":     0,
+			"completion_tokens": 0,
+			"total_tokens":      0,
+		},
+	})
+}
+
+func (s *Server) writeHealthcheckProbeStream(w http.ResponseWriter, rawModel string) {
+	now := time.Now().Unix()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, _ := w.(http.Flusher)
+	chunk := map[string]any{
+		"id":      fmt.Sprintf("chatcmpl-probe-%d", now),
+		"object":  "chat.completion.chunk",
+		"created": now,
+		"model":   rawModel,
+		"choices": []any{
+			map[string]any{
+				"index": 0,
+				"delta": map[string]any{
+					"role":    "assistant",
+					"content": "ok",
+				},
+				"finish_reason": nil,
+			},
+		},
+	}
+	data, _ := json.Marshal(chunk)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	stop := map[string]any{
+		"id":      fmt.Sprintf("chatcmpl-probe-%d", now),
+		"object":  "chat.completion.chunk",
+		"created": now,
+		"model":   rawModel,
+		"choices": []any{
+			map[string]any{
+				"index":         0,
+				"delta":         map[string]any{},
+				"finish_reason": "stop",
+			},
+		},
+	}
+	stopData, _ := json.Marshal(stop)
+	_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", stopData)
+	if flusher != nil {
+		flusher.Flush()
+	}
 }

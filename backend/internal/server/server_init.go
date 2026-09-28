@@ -340,6 +340,13 @@ func New(cfg *config.Config, p *pool.Pool, reg *registry.Registry, logger *slog.
 		authClientFunc: func() *upstream.Client { return s.authClient },
 		rateLimiter:    s.rateLimiter,
 		handleChat:     s.handleChat,
+		egressResult: func() (egress.Result, bool) {
+			t := s.egressTracker.Load()
+			if t == nil {
+				return egress.Result{}, false
+			}
+			return t.Result()
+		},
 	}
 	s.reasoningCache = reasoningcache.New(10000, 2*time.Hour)
 	return s

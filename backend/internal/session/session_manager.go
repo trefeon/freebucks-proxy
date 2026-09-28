@@ -44,11 +44,13 @@ type Manager struct {
 	// pendingRefund is the instance id of a released session whose DELETE
 	// receipt reported freebucksRefundPending (vendor af898dc): final usage
 	// is outstanding and the DELETE must be replayed with the same instance
-	// for its receipt. lastRefund is the last settled freebucksRefund
-	// (nil when the server sent none). Memory-only like the CLI store —
-	// guarded by mu, never persisted.
-	pendingRefund string
-	lastRefund    *float64
+	// for its receipt. pendingRefundAt is when the entry was parked.
+	// lastRefund is the last settled freebucksRefund
+	// (nil when the server sent none). Guarded by mu and persisted through
+	// the store, so a parked entry survives a restart until replayed.
+	pendingRefund   string
+	pendingRefundAt time.Time
+	lastRefund      *float64
 	// testWaiterPark, when set (tests only), runs while mu is held at the
 	// moment a follower parks on refreshCh — lets tests deterministically
 	// count parked waiters before releasing a held leader request.

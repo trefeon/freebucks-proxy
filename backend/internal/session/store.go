@@ -44,10 +44,19 @@ type persistedState struct {
 	// referral banner, Freebucks card and standing until the next full
 	// admission refreshes them (rework 2026-09-05): compact polls never
 	// carry them, so without this the UI goes blank on every restart.
-	// All optional — old files load with nils.
 	Referral  *upstream.SessionReferral `json:"referral,omitempty"`
 	Freebucks *upstream.FreebucksInfo   `json:"freebucks,omitempty"`
 	Standing  *upstream.SessionStanding `json:"standing,omitempty"`
+	// PendingRefund is the instance id of a released session whose DELETE
+	// receipt reported freebucksRefundPending (vendor af898dc): final usage
+	// is outstanding and the DELETE must be replayed with the same instance
+	// for its receipt. PendingRefundAt is when the entry was parked.
+	// LastRefund is the last settled freebucksRefund (nil when the server
+	// sent none). A row may hold only these fields (no live session) so a
+	// restart keeps the parked entry until a boot replay settles it.
+	PendingRefund   string    `json:"pending_refund,omitempty"`
+	PendingRefundAt time.Time `json:"pending_refund_at,omitempty"`
+	LastRefund      *float64  `json:"last_refund,omitempty"`
 }
 
 // persistedQuota is one model's live session quota persisted on disk.
@@ -705,9 +714,32 @@ func (s *Store) Load(key string) *cachedState {
 	}
 	// Drop entries whose grace window is already closed: resuming them is
 	// impossible and keeping them only delays the inevitable re-create.
+	// A parked refund survives the trim as a refund-only entry so the boot
+	// replay can still settle it.
 	if !ps.GracePeriodEndsAt.IsZero() && time.Now().After(ps.GracePeriodEndsAt) {
-		delete(s.data, key)
-		s.spillKeyLocked(key)
+		if hasPersistedRefund(&ps) {
+			ps.InstanceID = ""
+			ps.Model = ""
+			ps.Status = ""
+			ps.ExpiresAt = time.Time{}
+			ps.GracePeriodEndsAt = time.Time{}
+			ps.Position = 0
+			ps.QueueDepth = 0
+			ps.PollAt = time.Time{}
+			ps.CountryCode = ""
+			ps.CountryBlockReason = ""
+			ps.AccessTier = ""
+			ps.QuotaByModel = nil
+			ps.GlmPromo = ""
+			ps.Referral = nil
+			ps.Freebucks = nil
+			ps.Standing = nil
+			s.data[key] = ps
+			s.spillKeyLocked(key)
+		} else {
+			delete(s.data, key)
+			s.spillKeyLocked(key)
+		}
 		return nil
 	}
 	cs := &cachedState{
@@ -766,10 +798,36 @@ func (s *Store) Save(key string, cs *cachedState) {
 	s.fetched[key] = true
 
 	if cs == nil || (cs.instanceID == "" && cs.status != "queued") {
-		delete(s.data, key)
+		// A parked refund outlives the session row: downgrade to a
+		// refund-only entry instead of dropping the parked instance id.
+		if ps, ok := s.data[key]; ok && hasPersistedRefund(&ps) {
+			ps.InstanceID = ""
+			ps.Model = ""
+			ps.Status = ""
+			ps.ExpiresAt = time.Time{}
+			ps.GracePeriodEndsAt = time.Time{}
+			ps.Position = 0
+			ps.QueueDepth = 0
+			ps.PollAt = time.Time{}
+			ps.CountryCode = ""
+			ps.CountryBlockReason = ""
+			ps.AccessTier = ""
+			ps.QuotaByModel = nil
+			ps.GlmPromo = ""
+			ps.Referral = nil
+			ps.Freebucks = nil
+			ps.Standing = nil
+			s.data[key] = ps
+		} else {
+			delete(s.data, key)
+		}
 		s.spillKeyLocked(key)
 		return
 	}
+	// A live-session save must not clobber a parked refund: the receipt
+	// that parks it lands outside commit, so carry the refund fields over
+	// from the existing row.
+	prev := s.data[key]
 	s.data[key] = persistedState{
 		InstanceID:         cs.instanceID,
 		Model:              cs.model,
@@ -783,6 +841,9 @@ func (s *Store) Save(key string, cs *cachedState) {
 		CountryBlockReason: cs.countryBlockReason,
 		AccessTier:         cs.accessTier,
 		GlmPromo:           cs.glmPromo,
+		PendingRefund:      prev.PendingRefund,
+		PendingRefundAt:    prev.PendingRefundAt,
+		LastRefund:         prev.LastRefund,
 	}
 	if len(cs.quotaByModel) > 0 {
 		ps := s.data[key]
@@ -914,8 +975,92 @@ func (s *Store) Remove(key, expectedInstanceID string) {
 	if expectedInstanceID != "" && s.data[key].InstanceID != expectedInstanceID {
 		return
 	}
-	delete(s.data, key)
+	// A parked refund is independent of the live slot: the released session
+	// is already gone, so an invalidation must not strand its settlement.
+	// Downgrade to a refund-only entry; the boot replay clears it.
+	if ps := s.data[key]; hasPersistedRefund(&ps) {
+		ps.InstanceID = ""
+		ps.Model = ""
+		ps.Status = ""
+		ps.ExpiresAt = time.Time{}
+		ps.GracePeriodEndsAt = time.Time{}
+		ps.Position = 0
+		ps.QueueDepth = 0
+		ps.PollAt = time.Time{}
+		ps.CountryCode = ""
+		ps.CountryBlockReason = ""
+		ps.AccessTier = ""
+		ps.QuotaByModel = nil
+		ps.GlmPromo = ""
+		ps.Referral = nil
+		ps.Freebucks = nil
+		ps.Standing = nil
+		s.data[key] = ps
+	} else {
+		delete(s.data, key)
+	}
 	s.spillKeyLocked(key)
+}
+
+// hasPersistedRefund reports whether the row carries refund tracking worth
+// keeping across a session invalidation.
+func hasPersistedRefund(ps *persistedState) bool {
+	return ps.PendingRefund != "" || ps.LastRefund != nil
+}
+
+// SaveRefund swaps the refund tracking for key, creating a refund-only row
+// when no live session is stored. Empty tracking on a row with no session
+// fields deletes the row; on a live row it only clears the refund fields.
+// Like Save it swaps memory synchronously and spills behind — zero disk I/O
+// on the calling path.
+func (s *Store) SaveRefund(key, pending string, parkedAt time.Time, last *float64) {
+	if key == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureImportedLocked()
+	// This process now owns the key (same reason as Save).
+	s.fetched[key] = true
+	ps := s.data[key]
+	ps.PendingRefund = pending
+	ps.PendingRefundAt = parkedAt
+	if last != nil {
+		v := *last
+		ps.LastRefund = &v
+	} else {
+		ps.LastRefund = nil
+	}
+	if !hasPersistedRefund(&ps) && (ps.InstanceID == "" && ps.Status != "queued") {
+		delete(s.data, key)
+	} else {
+		s.data[key] = ps
+	}
+	s.spillKeyLocked(key)
+}
+
+// LoadRefund returns the persisted refund tracking for key. It never
+// performs upstream calls and ignores the session-expiry filter: a parked
+// entry must replay even when its session row is long gone.
+func (s *Store) LoadRefund(key string) (pending string, parkedAt time.Time, last *float64) {
+	if key == "" {
+		return "", time.Time{}, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureImportedLocked()
+	if _, ok := s.data[key]; !ok {
+		s.fetchLocked(key)
+	}
+	ps, ok := s.data[key]
+	if !ok {
+		return "", time.Time{}, nil
+	}
+	if ps.LastRefund != nil {
+		v := *ps.LastRefund
+		last = &v
+	}
+	return ps.PendingRefund, ps.PendingRefundAt, last
 }
 
 // SaveRun persists one active run for token key under agentID (issue #40).
