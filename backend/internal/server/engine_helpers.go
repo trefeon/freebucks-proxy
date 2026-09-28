@@ -1,15 +1,46 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/phasetiming"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/store"
 	"strconv"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/store"
 )
+
+// stampOpenAISystemCacheMarker stamps {"type":"ephemeral"} cache_control on
+// the system message of an OpenAI-family chat body, matching the official
+// CLI's own POST (live-captured 2026-09-28, CLI 0.1.2: system object carries
+// the marker, string content, all models). OpenAI-family ingress ONLY
+// (chat + responses): the Anthropic ingress drops client markers by
+// construction and its conformance tests pin a marker-free upstream body,
+// and that surface has no CLI equivalent to match. Unmarshal failure
+// returns the body untouched (callers already validated it).
+func stampOpenAISystemCacheMarker(body []byte) []byte {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	msgs, ok := payload["messages"].([]any)
+	if !ok || len(msgs) == 0 {
+		return body
+	}
+	sys, ok := msgs[0].(map[string]any)
+	if !ok || sys["role"] != "system" {
+		return body
+	}
+	sys["cache_control"] = map[string]any{"type": "ephemeral"}
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return out
+}
 
 // traceChat records a structured "chat trace" entry for the dashboard
 // traces page (the page filters the shared log ring by msg == "chat trace").

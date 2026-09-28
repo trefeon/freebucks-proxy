@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"
+
+	"freebucks-proxy/backend/internal/convert"
 )
 
 // completions, Responses, embeddings, model catalog) onto the mux. The
@@ -88,6 +89,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(withOriginalBody(r.Context(), body)) // #140: strict-tool gate reads the client's own declarations
+	normalized = stampOpenAISystemCacheMarker(normalized)
 	var relay relayFunc
 	if stream {
 		relay = s.relayStream

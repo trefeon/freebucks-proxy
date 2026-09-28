@@ -236,6 +236,25 @@ func TestChatSessionSupersededRefundRejoinsOnce(t *testing.T) {
 	}
 }
 
+// TestOpenAIChatStampsSystemCacheMarker pins the live-captured CLI 0.1.2
+// shape (2026-09-28): the chat POST carries cache_control ephemeral on the
+// system message object. Anthropic-ingress conformance tests still pin a
+// marker-free body on their path — this is the OpenAI-family surface only.
+func TestOpenAIChatStampsSystemCacheMarker(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	ts, _ := newTestServer(t, nil, mock)
+
+	body := []byte(`{"model":"` + modelA + `","messages":[{"role":"system","content":"You are a helper."},{"role":"user","content":"hi"}],"stream":false}`)
+	resp, _ := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", body, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !mock.BodyContains(`"cache_control":{"type":"ephemeral"}`) {
+		t.Error("upstream chat body missing system cache_control ephemeral marker")
+	}
+}
+
 // TestChatSessionSupersededNextRequestReadmits pins #159: a superseded chat
 // invalidates the cached session immediately, so the NEXT request re-admits
 // fresh instead of reusing the dead row. Two requests: the first surfaces

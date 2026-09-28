@@ -87,6 +87,10 @@ model-specific values:
   `messages`: system (Buffy prompt, ~21KB) + user as parts array
   `[{"type":"text","text":"hello"}]`. `tools`: 16 `type:function` defs
   (`read_files`, …), `tool_choice: auto`, `stream: true`.
+- System message carries `cache_control: {"type":"ephemeral"}` (0.1.2;
+  0.1.0 turns showed bare `{role,content}`) — prompt-cache marker on the
+  message object, string content, all models; ported 2026-09-28 on the
+  OpenAI-family ingress only (Anthropic path stays marker-free).
 - SSE stream is pure OpenAI shape: `chatcmpl-*` chunks each with
   `tool_calls` + `usage`, final `finish_reason: stop`, `data: [DONE]`.
   **Zero `ads`/`gravity`/`freebuck`/`auction` markers in-stream** — chat

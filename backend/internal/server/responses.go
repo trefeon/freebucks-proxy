@@ -7,12 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"freebucks-proxy/backend/internal/convert"
 )
 
 // randCounter backs randHexString's crypto/rand failure fallback.
@@ -119,6 +120,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(withOriginalBody(r.Context(), chatParams)) // #140: strict-tool gate reads the client's own declarations
 	respID := "resp_" + randHexString(12)
+	normalized = stampOpenAISystemCacheMarker(normalized)
 	reasoningEffort := convert.ExtractReasoningEffort(raw)
 	var relay relayFunc
 	if stream {
