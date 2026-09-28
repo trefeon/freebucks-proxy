@@ -19,6 +19,13 @@ import (
 // quarantines a country block, so expiry always revives the token.
 var countryBlockCooldown = 15 * time.Minute
 
+// banLiftFloor is the short floor memory kept for an already-past resumes_at
+// (prod 20:53-21:05 lift-then-burn loop): the upstream unban already lifted,
+// but an immediate full admission POST re-burns the account. Keeping 60s of
+// ban memory lets the pool quarantine gate fire and routes the first
+// post-lift admission through the zero-cost GET probe before any POST.
+const banLiftFloor = 60 * time.Second
+
 // SetCooldownTuning keeps the operator-config push point (pool.SetConfig
 // pushes the live values on boot and every reload) for the surviving
 // country-block window. The retired knobs (default, ceiling, ip readmits,
@@ -226,12 +233,13 @@ func (m *RunManager) CooldownBan(be *upstream.BanError) {
 		m.banUntil = time.Time{}
 		m.banPermanent = true
 	} else if !be.ResumesAt.After(time.Now()) {
-		// resumes_at present but past: an expired temporary ban — already
-		// lifted upstream, so keep no ban memory at all. Retiring it would
-		// wrongly kill a merely-expired temporary ban; a stale window would
-		// only delay the next (correct) admission.
-		m.ban = nil
-		m.banUntil = time.Time{}
+		// resumes_at present but past: the upstream unban already lifted.
+		// Keep a short floor memory (banLiftFloor) instead of nil so the
+		// pool quarantine gate still fires and the first post-lift
+		// admission probes (zero-cost GET) before any full POST — without
+		// it a lifted token POSTs admission immediately and re-burns
+		// (prod 20:53-21:05 lift-then-burn loop).
+		m.banUntil = time.Now().Add(banLiftFloor)
 		m.banPermanent = false
 	} else {
 		m.banUntil = be.ResumesAt

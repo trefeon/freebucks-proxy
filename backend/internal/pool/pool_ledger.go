@@ -50,7 +50,12 @@ func (l *AccountLedger) usageCount(now time.Time) int {
 
 // recordSpend adds tokens to the ledger's spend bucket as of now.
 func (l *AccountLedger) recordSpend(tokens int64, now time.Time) {
-	l.spend.add(tokens, now)
+	l.recordSpendInZone(tokens, now, "")
+}
+
+// recordSpendInZone adds tokens in the account reset zone's buckets.
+func (l *AccountLedger) recordSpendInZone(tokens int64, now time.Time, zone string) {
+	l.spend.addInZone(tokens, now, zone)
 }
 
 // spendSnapshot snapshots the ledger's spend view as of now.
@@ -67,17 +72,29 @@ func (l *AccountLedger) recordSpendLimited() {
 // Pacific day, rolling the bucket at Pacific midnight (bucketStart
 // semantics, DST-correct — the upstream official daily reset).
 func (l *AccountLedger) recordDayRequest(now time.Time) {
-	if start := bucketStart(now, "day"); start != l.reqDayStart {
+	l.recordDayRequestInZone(now, "")
+}
+
+// dayRequestCount returns the successful-request count for the current
+// Pacific day, rolling the bucket if the day turned over.
+func (l *AccountLedger) dayRequestCount(now time.Time) int {
+	return l.dayRequestCountInZone(now, "")
+}
+
+// recordDayRequestInZone counts one request in the account reset zone's day
+// (FreebucksInfo.ResetTimeZone, Pacific fallback): the bucket rolls at that
+// zone's midnight, the same instant upstream resets its daily quota windows.
+func (l *AccountLedger) recordDayRequestInZone(now time.Time, zone string) {
+	if start := bucketStartInZone(now, "day", zone); start != l.reqDayStart {
 		l.reqDayStart = start
 		l.reqDayCount = 0
 	}
 	l.reqDayCount++
 }
 
-// dayRequestCount returns the successful-request count for the current
-// Pacific day, rolling the bucket if the day turned over.
-func (l *AccountLedger) dayRequestCount(now time.Time) int {
-	if start := bucketStart(now, "day"); start != l.reqDayStart {
+// dayRequestCountInZone returns the count for the account zone's current day.
+func (l *AccountLedger) dayRequestCountInZone(now time.Time, zone string) int {
+	if start := bucketStartInZone(now, "day", zone); start != l.reqDayStart {
 		l.reqDayStart = start
 		l.reqDayCount = 0
 	}

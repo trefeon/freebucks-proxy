@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// banLiftFloor mirrors runs.banLiftFloor: short quarantine lift for an
+// already-past resumes_at so the quarantine gate still fires once and the
+// first post-lift admission probes before POSTing.
+const banLiftFloor = 60 * time.Second
+
 // CooldownToken puts token in a cooldown window of duration d (auth-reject
 // recovery). Out-of-range tokens are ignored.
 func (p *Pool) CooldownToken(token int, d time.Duration) {
@@ -51,10 +56,10 @@ func (p *Pool) CooldownTokenBan(token int, be *upstream.BanError) {
 	tok := (*toks)[token]
 	tok.runs.CooldownBan(be)
 	p.notifyBan(token+1, "")
-	// Quarantine only while the ban is still live after CooldownBan (hard,
-	// or a future resumes_at): an expired temporary ban — resumes_at in the
-	// past — is already lifted upstream, CooldownBan kept no ban memory,
-	// and marking the token terminal would kill a healthy account.
+	// Quarantine while the ban is still live after CooldownBan (hard,
+	// future resumes_at, or the 60s floor for a past resumes_at): the floor
+	// keeps the quarantine gate live so the first post-lift admission
+	// probes before POSTing.
 	if tok.runs.BanError() != nil {
 		p.quarantineToken(tok, "banned", be)
 	}
@@ -282,6 +287,7 @@ func (p *Pool) UnlockToken(token int) error {
 	}
 	(*toks)[token].runs.ClearCooldowns()
 	(*toks)[token].quarantine.Store(nil)
+	(*toks)[token].quarantineLiftedAt.Store(time.Now().UnixNano())
 	// The operator restored the account: drop its terminal hint too, or a
 	// restart would keep skipping one healthy probe per walk.
 	p.clearCooldownHintFor((*toks)[token])
@@ -320,8 +326,16 @@ func (p *Pool) quarantineToken(tok *tokenEntry, reason string, err error) {
 		// permanent (liftAt zero). The "country_blocked" and "invalid"
 		// reasons below are legacy: no caller produces them anymore.
 		var be *upstream.BanError
-		if reason == "banned" && errors.As(err, &be) && !be.ResumesAt.IsZero() && be.ResumesAt.After(time.Now()) {
-			rec.liftAt = be.ResumesAt
+		if reason == "banned" && errors.As(err, &be) && !be.ResumesAt.IsZero() {
+			if be.ResumesAt.After(time.Now()) {
+				rec.liftAt = be.ResumesAt
+			} else {
+				// Past resumes_at: floor-memory quarantine — the runs
+				// layer keeps 60s of ban memory so this gate fires, and
+				// the marker lifts with it. Without a lift the past ban
+				// would quarantine forever.
+				rec.liftAt = time.Now().Add(banLiftFloor)
+			}
 		}
 	}
 	if tok.quarantine.CompareAndSwap(nil, rec) {
@@ -358,6 +372,9 @@ func (p *Pool) clearLiftedQuarantine(tok *tokenEntry) bool {
 		// The upstream unban lifted the terminal state: the ban hint is
 		// stale, drop it so the token re-admits immediately.
 		p.clearCooldownHintFor(tok)
+		// Arm the probe-first admission: the next admit consumes this and
+		// GET-probes before POSTing.
+		tok.quarantineLiftedAt.Store(time.Now().UnixNano())
 		return true
 	}
 	return false

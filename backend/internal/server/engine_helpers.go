@@ -42,6 +42,27 @@ func stampOpenAISystemCacheMarker(body []byte) []byte {
 	return out
 }
 
+// systemCacheMarker reports whether the chat body's system message already
+// carries a cache_control marker (proxy-stamped on the OpenAI-family
+// ingress). Used to preserve the marker across fallback re-normalizes
+// whose client-marker strip cannot distinguish origin.
+func systemCacheMarker(body []byte) bool {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	msgs, ok := payload["messages"].([]any)
+	if !ok || len(msgs) == 0 {
+		return false
+	}
+	sys, ok := msgs[0].(map[string]any)
+	if !ok || sys["role"] != "system" {
+		return false
+	}
+	_, ok = sys["cache_control"].(map[string]any)
+	return ok
+}
+
 // traceChat records a structured "chat trace" entry for the dashboard
 // traces page (the page filters the shared log ring by msg == "chat trace").
 // phases carries the per-request latency phases (#89); the map is ordered

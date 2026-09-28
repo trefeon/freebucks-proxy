@@ -21,11 +21,12 @@ package pool
 import (
 	"context"
 	"errors"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/runs"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
-	"time"
 )
 
 const (
@@ -132,7 +133,11 @@ func smartProbeResetInstant(ss session.SessionSnapshot, rs runs.RunSnapshot, now
 		consider(ss.Freebucks.Daily.ResetAt)
 	}
 	if earliest.IsZero() {
-		return nextPacificMidnight(now), true
+		zone := ""
+		if ss.Freebucks != nil {
+			zone = ss.Freebucks.Daily.ResetTimeZone
+		}
+		return nextMidnightInZone(now, zone), true
 	}
 	return earliest, true
 }
@@ -324,10 +329,12 @@ func (p *Pool) smartProbeFireOne(ctx context.Context, idx int) {
 
 // smartProbeExhaustedResume sleeps an exhausted account exactly until its
 // known refill: the probe outcome's reset_at when it parses and lies ahead,
-// else the next Pacific midnight (same fallback as recoverAtForProbe).
+// else the next midnight in the account zone (same fallback as
+// recoverAtForProbe). The zone rides the outcome's reset-zone hint when
+// present; empty stays Pacific.
 func smartProbeExhaustedResume(outcome ProbeTokenOutcome, now time.Time) time.Time {
 	if t, err := time.Parse(time.RFC3339, outcome.ResetAt); err == nil && t.After(now) {
 		return t
 	}
-	return nextPacificMidnight(now)
+	return nextMidnightInZone(now, outcome.ResetZone)
 }

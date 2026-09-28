@@ -5,9 +5,10 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"freebucks-proxy/backend/internal/config"
 	"net/http"
 	"strings"
+
+	"freebucks-proxy/backend/internal/config"
 )
 
 // cfgSnapshotKey carries the per-request *config.Config snapshot through
@@ -86,6 +87,15 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if !s.authorized(cfg, r) {
+			// Envelope follows the ingress: Anthropic clients get the
+			// Anthropic error shape (same 401 message/code), everyone
+			// else the OpenAI shape. A blanket writeClientError is wrong
+			// here (openAIErrorType maps 401/invalid_api_key to
+			// upstream_error, silently changing the OpenAI type).
+			if isAnthropicRequest(r) {
+				s.writeAnthropicError(w, r, http.StatusUnauthorized, "Invalid API key", "invalid_api_key", 0)
+				return
+			}
 			s.writeJSONError(w, http.StatusUnauthorized,
 				"Invalid API key", "invalid_request_error", "invalid_api_key", 0)
 			return

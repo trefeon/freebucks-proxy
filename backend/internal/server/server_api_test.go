@@ -9,11 +9,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/server"
-	"freebucks-proxy/backend/internal/testutil"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +16,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/server"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // newTestServerWithLogger builds the full stack like newTestServer but with
@@ -956,6 +957,31 @@ func TestMessagesCountTokensAuth(t *testing.T) {
 
 	if mock.RequestsSnapshot() != 0 {
 		t.Errorf("upstream requests = %d, want 0", mock.RequestsSnapshot())
+	}
+}
+
+// TestMessagesAuthEnvelope pins the ingress-appropriate 401: /v1/messages
+// answers the Anthropic error shape, /v1/chat/completions the OpenAI shape.
+func TestMessagesAuthEnvelope(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	ts, _ := newTestServer(t, []string{"sk-test"}, mock)
+	body := []byte(`{"model":"` + modelA + `","messages":[{"role":"user","content":"hi"}]}`)
+
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/messages", body, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anthropic no-key status = %d, want 401: %s", resp.StatusCode, truncate(string(data), 200))
+	}
+	if !strings.Contains(string(data), `"type":"error"`) {
+		t.Errorf("anthropic 401 missing error envelope: %s", data)
+	}
+
+	resp, data = doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", body, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("openai no-key status = %d, want 401: %s", resp.StatusCode, truncate(string(data), 200))
+	}
+	if strings.Contains(string(data), `"type":"error"`) {
+		t.Errorf("openai 401 carries anthropic envelope: %s", data)
 	}
 }
 

@@ -183,6 +183,12 @@ type walkState struct {
 	// serve. When every ordered token is hinted the walk ignores hints and
 	// attempts upstream live — a hint alone never fails Acquire.
 	skipHinted bool
+	// lifted tracks lanes whose time-limited quarantine just lifted on this
+	// walk (clearLiftedQuarantine fired in walkGates). The first post-lift
+	// admission on such a lane probes (zero-cost GET) before any full
+	// EnsureSessionForModel POST, so a still-banned account re-quarantines
+	// without burning a session admission.
+	lifted map[*tokenEntry]struct{}
 }
 
 // laneOutcome is what one lane attempt asks its caller to do next.
@@ -271,23 +277,29 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 	// resumes_at (the ban auto-lifts upstream), so a lifted token falls
 	// through to the normal eligibility checks instead of staying
 	// excluded forever.
-	if q := tok.quarantine.Load(); q != nil && !p.clearLiftedQuarantine(tok) {
-		ws.errs = append(ws.errs, fmt.Sprintf("%s: quarantined (%s: %s)", name, q.reason, q.detail))
-		p.logger.Debug("pool: token skipped (quarantined)", "token", idx+1, "model", model, "state", q.reason, "reason", q.detail)
-		switch terr := q.err.(type) {
-		case *upstream.BanError:
-			dup := false
-			for _, existing := range ws.banned {
-				if existing.Error() == terr.Error() {
-					dup = true
-					break
+	if q := tok.quarantine.Load(); q != nil {
+		if !p.clearLiftedQuarantine(tok) {
+			ws.errs = append(ws.errs, fmt.Sprintf("%s: quarantined (%s: %s)", name, q.reason, q.detail))
+			p.logger.Debug("pool: token skipped (quarantined)", "token", idx+1, "model", model, "state", q.reason, "reason", q.detail)
+			switch terr := q.err.(type) {
+			case *upstream.BanError:
+				dup := false
+				for _, existing := range ws.banned {
+					if existing.Error() == terr.Error() {
+						dup = true
+						break
+					}
+				}
+				if !dup {
+					ws.banned = append(ws.banned, terr)
 				}
 			}
-			if !dup {
-				ws.banned = append(ws.banned, terr)
-			}
+			return true
 		}
-		return true
+		if ws.lifted == nil {
+			ws.lifted = make(map[*tokenEntry]struct{})
+		}
+		ws.lifted[tok] = struct{}{}
 	}
 	// Single-pin routing (PIN_MODEL): a slot pinned to another model
 	// is skipped before any session/run contact, so a request never
@@ -697,6 +709,39 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 		p.logger.Debug("pool: firing waiting-room pre-session chain", "token", idx+1, "model", model)
 		tok.client.FireWaitingRoomChain(ctx)
 	}
+	// Lifted-quarantine probe-first: this lane's time-limited quarantine
+	// just lifted (walk-map mark or the entry timestamp that survives
+	// spillOrder's pre-walk clear). Verify liveness with the zero-cost GET
+	// probe (ProbeTokenDetailed path) before any full admission POST: a
+	// still-banned account re-quarantines without burning a session
+	// admission (prod 20:53-21:05 lift-then-burn loop). Healthy lanes
+	// proceed to the POST below with fresh quota truth. The timestamp is
+	// consumed once (CAS to 0) so only the first post-lift admission probes.
+	_, walkLifted := ws.lifted[tok]
+	liftedAt := tok.quarantineLiftedAt.Load()
+	if walkLifted || liftedAt != 0 {
+		delete(ws.lifted, tok)
+		if liftedAt != 0 {
+			tok.quarantineLiftedAt.CompareAndSwap(liftedAt, 0)
+		}
+		if cur := p.roster.Load(); idx >= 0 && idx < len(*cur) && (*cur)[idx] == tok {
+			probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			_, _, perr := p.ProbeTokenDetailed(probeCtx, idx)
+			cancel()
+			if perr != nil {
+				ws.errs = append(ws.errs, fmt.Sprintf("%s: lift probe refused: %v", name, perr))
+				if be := tok.runs.BanError(); be != nil {
+					ws.banned = appendBan(ws.banned, be)
+				}
+				if rle := tok.runs.RateLimitError(); rle != nil {
+					ws.rateLimited = appendRateLimitEntry(ws.rateLimited, rle, idx)
+				}
+				p.logger.Debug("pool: lifted lane probe refused, failing over without admission POST", "token", idx+1, "model", model, "err", perr)
+				routeSlot.Release()
+				return laneResult{outcome: laneNext}
+			}
+		}
+	}
 	instanceID, err := tok.session.EnsureSessionForModel(ctx, model)
 	p.markPersistDirty()
 	phasetiming.FromContext(ctx).Since(phasetiming.SessionRefreshMS, sessionStart)
@@ -791,9 +836,9 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 			if li := p.indexOfEntry(tok); li >= 0 {
 				p.notifyBan(li+1, model)
 			}
-			// CooldownBan (hard, or a future resumes_at): an expired
-			// temporary ban is already lifted upstream and must not
-			// mark the token terminal.
+			// CooldownBan keeps live-ban memory (hard, future resumes_at,
+			// or the 60s floor for a past resumes_at): the quarantine gate
+			// fires while it is live so the next admission probes first.
 			if tok.runs.BanError() != nil {
 				p.quarantineToken(tok, "banned", err)
 			}
@@ -937,9 +982,9 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 			if li := p.indexOfEntry(tok); li >= 0 {
 				p.notifyBan(li+1, model)
 			}
-			// CooldownBan (hard, or a future resumes_at): an expired
-			// temporary ban is already lifted upstream and must not
-			// mark the token terminal.
+			// CooldownBan keeps live-ban memory (hard, future resumes_at,
+			// or the 60s floor for a past resumes_at): the quarantine gate
+			// fires while it is live so the next admission probes first.
 			if tok.runs.BanError() != nil {
 				p.quarantineToken(tok, "banned", err)
 			}
@@ -977,6 +1022,19 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 	lease := &Lease{
 		Token: idx, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: instanceID,
 		entry: tok, routeSlot: routeSlot, QueueWait: ws.queueWait, AcquiredAt: time.Now(),
+	}
+	// Bounded warm-reuse accounting: a decisive bypass serve (live reusable
+	// session that would cap without the bypass) counts toward
+	// bypassMaxServes / bypassMaxAge; any other grant revalidates live
+	// balance and resets the window so cold lanes can go warm.
+	if snap := tok.session.Snapshot(); isReusableSession(snap, model) {
+		if capped, _ := freebucksCappedNoBypass(snap, model); capped {
+			noteBypassServe(tok)
+		} else {
+			resetBypassServe(tok)
+		}
+	} else {
+		resetBypassServe(tok)
 	}
 	// MASQ precious (precious.go): the account served this model, so its
 	// live session is never proactively dropped from here on.

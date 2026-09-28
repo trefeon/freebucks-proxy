@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+// Warm-reuse bypass bound (token=1x3 stickiness): a live reusable session
+// skips the balance gate because reuse costs zero admission POST, but an
+// unbounded bypass pins one warm lane forever while cold lanes never go
+// warm after a refill. Revalidate after N decisive bypass serves or T
+// minutes in bypass, whichever hits first.
+const (
+	bypassMaxServes = 10
+	bypassMaxAge    = 5 * time.Minute
+)
+
 // freebucksCapped reports whether the token's Freebucks allowance is exhausted
 // for model (issue #321 wire drift: balance is now the server-computed
 // spendable = daily.remaining + wallet.balance; vendor af898dc adds eligible
@@ -23,7 +33,64 @@ import (
 // stale and the token is NOT capped — one admission revalidates live truth
 // (polls never carry Freebucks, so nothing else could refresh them).
 func freebucksCapped(acc *tokenEntry, model string) (bool, time.Duration) {
-	return freebucksCappedForSnapshot(acc.session.Snapshot(), model)
+	snap := acc.session.Snapshot()
+	if isReusableSession(snap, model) {
+		if bypassAllowed(acc) {
+			return false, 0
+		}
+		// Bound hit: fall through and revalidate the live balance so a
+		// cold lane can go warm after refill.
+	}
+	return freebucksCappedNoBypass(snap, model)
+}
+
+// isReusableSession reports whether snap holds a live reusable session for
+// model: reuse performs zero admission POST, so the balance gate is skipped
+// while the bound holds. Deliberately conservative: "ended"+grace sessions
+// are NOT bypassed — a walk attempt may still reuse them, but the
+// pre-filter stays strict.
+func isReusableSession(snap session.SessionSnapshot, model string) bool {
+	return snap.Status == "active" && snap.InstanceID != "" &&
+		(snap.Model == "" || snap.Model == model) &&
+		(snap.ExpiresAt.IsZero() || time.Now().Before(snap.ExpiresAt))
+}
+
+// bypassAllowed reports whether the entry may still skip revalidation: fewer
+// than bypassMaxServes decisive bypasses and less than bypassMaxAge in
+// bypass. Side-effect-free so laneAdmissible can call it.
+func bypassAllowed(acc *tokenEntry) bool {
+	if acc == nil {
+		return true
+	}
+	if acc.bypassServes.Load() >= bypassMaxServes {
+		return false
+	}
+	if start := acc.bypassStart.Load(); start != 0 {
+		if time.Since(time.Unix(0, start)) >= bypassMaxAge {
+			return false
+		}
+	}
+	return true
+}
+
+// noteBypassServe counts one decisive bypass serve, starting the bypass age
+// window on the first one.
+func noteBypassServe(acc *tokenEntry) {
+	if acc == nil {
+		return
+	}
+	acc.bypassStart.CompareAndSwap(0, time.Now().UnixNano())
+	acc.bypassServes.Add(1)
+}
+
+// resetBypassServe clears the bypass window: any non-bypass grant proves a
+// live balance revalidation, so the next reuse starts fresh.
+func resetBypassServe(acc *tokenEntry) {
+	if acc == nil {
+		return
+	}
+	acc.bypassServes.Store(0)
+	acc.bypassStart.Store(0)
 }
 
 // EffectiveFreebucksPrices projects the server's announced repricing schedule
@@ -146,20 +213,18 @@ func offPeakQuoteAt(offer upstream.FreebuffOffPeakPrice, now time.Time) (float64
 // (kept for testing and for spillOrder's quotaLimited loop which already
 // holds a snapshot).
 func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (bool, time.Duration) {
-	fb := snap.Freebucks
-	if fb == nil {
+	if isReusableSession(snap, model) {
 		return false, 0
 	}
-	// Reuse bypass: a token holding a live reusable session for THIS model
-	// is never capped — reuse performs zero admission POST, so the balance
-	// is irrelevant, and a later chat-path refusal is owned by the existing
-	// chat handling. Applies to balance- and monthly-based caps alike (the
-	// gate predicts a fresh admission's cost; a live session pays none).
-	// Deliberately conservative: "ended"+grace sessions are NOT bypassed —
-	// a walk attempt may still reuse them, but the pre-filter stays strict.
-	if snap.Status == "active" && snap.InstanceID != "" &&
-		(snap.Model == "" || snap.Model == model) &&
-		(snap.ExpiresAt.IsZero() || time.Now().Before(snap.ExpiresAt)) {
+	return freebucksCappedNoBypass(snap, model)
+}
+
+// freebucksCappedNoBypass runs the balance/monthly/exemption gate without the
+// reuse bypass (the bound-hit revalidation path and decisive-bypass
+// accounting share it).
+func freebucksCappedNoBypass(snap session.SessionSnapshot, model string) (bool, time.Duration) {
+	fb := snap.Freebucks
+	if fb == nil {
 		return false, 0
 	}
 	// New-session quote at read time: due repricings and the off-peak window
@@ -222,10 +287,10 @@ func freebucksCappedForSnapshot(snap session.SessionSnapshot, model string) (boo
 			return false, 0
 		}
 		// When no explicit reset timestamp was provided by upstream, fall back
-		// to the next Pacific midnight (daily Freebucks refill). An account
-		// with exhausted Freebucks balance must be skipped rather than
-		// repeatedly failing admission live against upstream.
-		earliest = nextPacificMidnight(now)
+		// to the next midnight in the account reset zone (Pacific fallback).
+		// An account with exhausted Freebucks balance must be skipped rather
+		// than repeatedly failing admission live against upstream.
+		earliest = nextMidnightInZone(now, fb.Daily.ResetTimeZone)
 	}
 	return true, time.Until(earliest)
 }

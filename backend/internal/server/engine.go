@@ -16,15 +16,26 @@ import (
 
 // isRefundSuperseded reports whether err is a 409 session_superseded whose
 // upstream wording describes a REFUNDED purchase ("purchase was refunded.
-// Start a new session") rather than a takeover ("another CLI took over").
-// A refund means no competitor holds the seat and no charge landed, so a
-// single fresh rejoin is safe; takeovers stay terminal per #159.
+// Start a new session") rather than a takeover ("another CLI took over",
+// "took over", "takeover"). A refund means no competitor holds the seat
+// and no charge landed, so a single fresh rejoin is safe; takeovers stay
+// terminal per #159. Both markers must hold: a takeover message that
+// merely mentions refunds must not rejoin.
 func isRefundSuperseded(err error) bool {
 	var sse *upstream.SessionSupersededError
 	if !errors.As(err, &sse) {
 		return false
 	}
-	return strings.Contains(strings.ToLower(sse.Body), "refund")
+	lower := strings.ToLower(sse.Body)
+	if !strings.Contains(lower, "refund") {
+		return false
+	}
+	for _, takeover := range []string{"took over", "takeover", "taken over"} {
+		if strings.Contains(lower, takeover) {
+			return false
+		}
+	}
+	return true
 }
 
 // --- Shared completion engine (protocol-neutral) ---

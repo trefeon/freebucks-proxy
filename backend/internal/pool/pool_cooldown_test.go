@@ -128,11 +128,11 @@ func TestIdleRotationFinishesRuns(t *testing.T) {
 }
 
 // TestCooldownTokenBanQuarantinesLiveBansOnly pins the quarantine gate: a
-// ban only marks the token terminal while it is still live after
+// ban marks the token terminal while it is still live after
 // runs.CooldownBan — a hard ban (no resumes_at) stays live forever and
-// quarantines, a future resumes_at quarantines for the window, but an
-// EXPIRED temporary ban (resumes_at in the past) is already lifted
-// upstream and must not quarantine a healthy token.
+// quarantines, a future resumes_at quarantines for the window, and a past
+// resumes_at keeps the short floor memory (60s) so the gate fires once and
+// the first post-lift admission probes before POSTing.
 func TestCooldownTokenBanQuarantinesLiveBansOnly(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -146,17 +146,31 @@ func TestCooldownTokenBanQuarantinesLiveBansOnly(t *testing.T) {
 		t.Error("hard ban (no resumes_at) did not quarantine the token")
 	}
 
-	// Expired temporary ban: already lifted upstream → NOT quarantined.
+	// Past resumes_at: floor-memory quarantine (short lift, not permanent).
 	p.CooldownTokenBan(1, &upstream.BanError{Body: "banned", ResumesAt: time.Now().Add(-time.Hour)})
-	if q := p.Snapshot()[1]; q.Quarantined || q.QuarantineReason != "" {
-		t.Errorf("expired temporary ban quarantined the token: %+v", q)
+	snap := p.Snapshot()[1]
+	if !snap.Quarantined {
+		t.Fatalf("past resumes_at did not quarantine (want floor memory): %+v", snap)
+	}
+	if toks := p.roster.Load(); toks != nil && len(*toks) > 1 {
+		if q := (*toks)[1].quarantine.Load(); q == nil || q.liftAt.IsZero() || time.Until(q.liftAt) > banLiftFloor+5*time.Second {
+			t.Errorf("floor quarantine liftAt = %v, want ~60s floor", q)
+		}
+		if be := (*toks)[1].runs.BanError(); be == nil {
+			t.Error("floor BanError() = nil, want live floor memory")
+		}
 	}
 
-	// The lifted token is immediately usable again.
-	_, err := p.Acquire(context.Background(), modelB)
-	if err != nil {
-		t.Fatalf("acquire on lifted token: %v (want success after expired temp ban)", err)
+	// Floor quarantine is short-lived, not permanent: operator unlock clears
+	// it and the token serves again.
+	if err := p.UnlockToken(1); err != nil {
+		t.Fatalf("UnlockToken: %v", err)
 	}
+	lease, err := p.Acquire(context.Background(), modelB)
+	if err != nil {
+		t.Fatalf("acquire after unlock: %v (want success)", err)
+	}
+	p.LeaseRelease(lease)
 }
 
 // TestIdleRotationSkipsInflight is the regression guard for the idle

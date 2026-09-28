@@ -488,6 +488,20 @@ type tokenEntry struct {
 	streakFetch atomic.Bool
 	maturityMu  sync.Mutex
 	maturity    *MaturitySnapshot
+	// bypassServes / bypassStart bound the warm-reuse Freebucks bypass
+	// (quota.go): consecutive zero-cost reuses of a live session without a
+	// balance revalidation. Unbounded reuse pins one warm lane forever
+	// (token=1x3 stickiness) while cold lanes never go warm after refill.
+	// Reset on any non-bypass grant.
+	bypassServes atomic.Int64
+	bypassStart  atomic.Int64
+	// quarantineLiftedAt marks the instant a time-limited quarantine lifted
+	// (unix nanos, 0 = none): set by clearLiftedQuarantine and UnlockToken.
+	// The first post-lift admission consumes it (CAS to 0) and probes
+	// (zero-cost GET) before any full POST — spillOrder may clear the
+	// marker before the walk builds its state, so the walk map alone cannot
+	// carry the signal.
+	quarantineLiftedAt atomic.Int64
 }
 
 func (e *tokenEntry) Email() string {

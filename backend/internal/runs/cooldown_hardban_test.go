@@ -29,15 +29,25 @@ func TestHardBanNeverSelfHeals(t *testing.T) {
 		t.Errorf("hard-ban snapshot = %v/%v, want ban + zero BannedUntil", snap.BanError, snap.BannedUntil)
 	}
 
-	// A past resumes_at is an already-lifted temporary ban — NOT hard: no
-	// stale ban memory, the token is immediately usable again.
+	// A past resumes_at keeps a short floor memory (banLiftFloor): the
+	// quarantine gate still fires once and the first post-lift admission
+	// probes before POSTing (prod 20:53-21:05 lift-then-burn loop).
 	mgr.ClearCooldowns()
 	mgr.CooldownBan(&upstream.BanError{Body: "banned", ResumesAt: time.Now().Add(-time.Hour)})
-	if be := mgr.BanError(); be != nil {
-		t.Errorf("BanError() = %v for past-resumes ban, want nil (already lifted)", be)
+	if be := mgr.BanError(); be == nil {
+		t.Errorf("BanError() = nil for past-resumes ban, want floor memory")
+	} else {
+		if until := mgr.CooldownUntil(); until.IsZero() || time.Until(until) > banLiftFloor+5*time.Second {
+			t.Errorf("CooldownUntil = %v for past-resumes ban, want ~60s floor", until)
+		}
 	}
-	if until := mgr.CooldownUntil(); !until.IsZero() {
-		t.Errorf("CooldownUntil = %v for past-resumes ban, want zero (no stale window)", until)
+	// Floor expiry auto-lifts (simulate by aging the window past).
+	mgr.mu.Lock()
+	mgr.banUntil = time.Now().Add(-time.Second)
+	mgr.cooldownUntil = mgr.banUntil
+	mgr.mu.Unlock()
+	if be := mgr.BanError(); be != nil {
+		t.Errorf("BanError() = %v after floor expiry, want nil (auto-lift)", be)
 	}
 
 	// Operator unlock clears it.

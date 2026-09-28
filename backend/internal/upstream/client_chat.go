@@ -211,12 +211,13 @@ func (c *Client) do(req *http.Request, timeout time.Duration) (*http.Response, c
 
 		// Transient transport failure with attempts remaining: rotate the
 		// pinned fingerprint, replay the body on a fresh connection, and
-		// retry after a jittered backoff. Session admission POSTs never take
-		// this branch (vendor tip 57943aa71,
-		// cli/src/utils/freebuff-session-api.ts:57-74): POST disposition is
-		// unknown after a transport failure, so the error surfaces as
+		// retry after a jittered backoff. Session admission AND agent-runs
+		// START/FINISH POSTs never take this branch (same unknown-
+		// disposition rule: a replayed START mints a duplicate run — the
+		// free_mode_run_fanout signal — and a replayed FINISH double-reports
+		// steps; run recovery happens at the engine level with a fresh run).
 		if c.transientRetriesLimit > 0 && attempt <= c.transientRetriesLimit &&
-			ctx.Err() == nil && replayBody != nil && isTransient(err) && !isSessionAdmissionRequest(req) {
+			ctx.Err() == nil && replayBody != nil && isTransient(err) && !isSessionAdmissionRequest(req) && !isAgentRunsRequest(req) {
 			c.rotateStealthProfileForRetry(req)
 			body, bodyErr := replayBody()
 			if bodyErr != nil {

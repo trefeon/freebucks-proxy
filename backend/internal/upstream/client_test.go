@@ -51,12 +51,12 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
-// TestCrossHostRedirectStripsToken verifies a redirect out of the upstream
-// trust zone does not carry x-codebuff-api-key (or Authorization): Go strips
+// TestCrossHostRedirectStripsToken verifies a redirect outside the bare<->www
+// trust pair does not carry x-codebuff-api-key (or Authorization): Go strips
 // the latter itself but not the former, so the raw token used to leak to any
-// redirect target. Same-zone redirects — same host, or bare-host <-> www and
-// other same-registrable-domain hops the CLI follows on every call (GETs 301,
-// POSTs 307; live-captured 2026-09-27) — keep their credentials.
+// redirect target. Identical-host and bare<->www hops (the CLI's 301/307s,
+// live-captured 2026-09-27) keep their credentials, restoring Authorization
+// from the predecessor when Go already removed it.
 func TestCrossHostRedirectStripsToken(t *testing.T) {
 	const token = "tok-secret-redirect"
 
@@ -98,7 +98,7 @@ func TestCrossHostRedirectStripsToken(t *testing.T) {
 		check(t, "http://www.codebuff.com", "https://www.codebuff.com", false)
 		check(t, "https://codebuff.com", "https://www.codebuff.com", false)
 		check(t, "https://www.codebuff.com", "https://codebuff.com", false)
-		check(t, "https://codebuff.com", "https://api.codebuff.com", false)
+		check(t, "https://codebuff.com", "https://api.codebuff.com", true)
 		check(t, "https://codebuff.com", "https://evil.com", true)
 		check(t, "https://www.codebuff.com", "https://www.evil.com", true)
 		check(t, "https://127.0.0.1:1", "https://localhost:2", true)
@@ -114,11 +114,8 @@ func TestCrossHostRedirectStripsToken(t *testing.T) {
 	defer target.Close()
 
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Rewrite 127.0.0.1 -> localhost: different hostname, different
-		// trust zone (registrableDomain treats IP and single-label names
-		// as exact-match-only), so credentials must be stripped — same
-		// assertion as before, now against the zone rule instead of a
-		// port difference.
+		// Rewrite 127.0.0.1 -> localhost: different hostname, outside the
+		// bare<->www trust pair, so credentials must be stripped.
 		crossURL := strings.Replace(target.URL+"/final", "127.0.0.1", "localhost", 1)
 		http.Redirect(w, r, crossURL, http.StatusTemporaryRedirect)
 	}))
@@ -171,6 +168,38 @@ func TestCrossHostRedirectStripsToken(t *testing.T) {
 	if got := <-sameKey; got != "" {
 		t.Errorf("same-host request carried x-codebuff-api-key %q, want absent (newRequest-only paths never set it; agent-runs set it separately)", got)
 	}
+}
+
+// TestRedirectRestoresStrippedAuth pins the belt-and-braces restore: when Go
+// removes Authorization before CheckRedirect on a trusted hop, the handler
+// copies it back from the immediate predecessor; on an untrusted hop the
+// stripped header stays empty (never fabricated).
+func TestRedirectRestoresStrippedAuth(t *testing.T) {
+	const token = "tok-restore-me"
+	client, err := New(token, testConfig("http://127.0.0.1:1", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(t *testing.T, from, to string, wantAuth bool) {
+		t.Helper()
+		via := []*http.Request{{
+			URL:    mustParseURL(t, from),
+			Header: http.Header{"Authorization": {"Bearer " + token}},
+		}}
+		req := &http.Request{URL: mustParseURL(t, to), Header: http.Header{}}
+		if err := client.http.CheckRedirect(req, via); err != nil {
+			t.Fatalf("CheckRedirect: %v", err)
+		}
+		got := req.Header.Get("Authorization")
+		if wantAuth && got != "Bearer "+token {
+			t.Errorf("redirect %s -> %s auth = %q, want restored Bearer", from, to, got)
+		}
+		if !wantAuth && got != "" {
+			t.Errorf("redirect %s -> %s auth = %q, want empty (never fabricated)", from, to, got)
+		}
+	}
+	check(t, "https://codebuff.com/start", "https://www.codebuff.com/final", true)
+	check(t, "https://codebuff.com/start", "https://evil.com/final", false)
 }
 
 func TestWrapDecompress(t *testing.T) {

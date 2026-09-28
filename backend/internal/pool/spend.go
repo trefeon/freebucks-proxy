@@ -41,6 +41,95 @@ var pacificLoc = sync.OnceValue(func() *time.Location {
 	return loc
 })
 
+// zoneLocCache memoizes account reset zones: LoadLocation consults disk
+// (ZONEINFO/system zoneinfo/zoneinfo.zip) and must not run on the per-chat
+// ledger hot path.
+var zoneLocCache sync.Map // string -> *time.Location (nil stored as nil *time.Location)
+
+// zoneLocation resolves the account reset zone (FreebucksInfo.ResetTimeZone
+// via LoadLocation) with Pacific fallback: unknown/empty zones and missing
+// tzdata fall back to Pacific, never a fixed UTC hour. MeterHistory showed
+// non-Pacific accounts rolling day buckets at the wrong instant.
+func zoneLocation(zone string) *time.Location {
+	if zone != "" && zone != "America/Los_Angeles" {
+		if v, ok := zoneLocCache.Load(zone); ok {
+			if loc, _ := v.(*time.Location); loc != nil {
+				return loc
+			}
+			return pacificLoc()
+		}
+		if loc, err := time.LoadLocation(zone); err == nil {
+			zoneLocCache.Store(zone, loc)
+			return loc
+		}
+		zoneLocCache.Store(zone, (*time.Location)(nil))
+	}
+	return pacificLoc()
+}
+
+// bucketStartInZone is bucketStart in the account reset zone (zone "" or
+// unloadable = Pacific). Week = Monday 00:00, month = 1st 00:00, day =
+// 00:00 in that zone's wall clock.
+func bucketStartInZone(now time.Time, period, zone string) int64 {
+	if loc := zoneLocation(zone); loc != nil {
+		n := now.In(loc)
+		switch period {
+		case "week":
+			days := (int(n.Weekday()) + 6) % 7 // Monday=0 … Sunday=6
+			return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, loc).
+				AddDate(0, 0, -days).UTC().Unix()
+		case "month":
+			return time.Date(n.Year(), n.Month(), 1, 0, 0, 0, 0, loc).UTC().Unix()
+		default:
+			y, m, d := n.Date()
+			return time.Date(y, m, d, 0, 0, 0, 0, loc).UTC().Unix()
+		}
+	}
+	return bucketStartFallback(now, period)
+}
+
+// needsRolloverInZone is needsRollover in the account reset zone.
+func needsRolloverInZone(start int64, period string, now time.Time, zone string) bool {
+	if start == 0 {
+		return true
+	}
+	loc := zoneLocation(zone)
+	end := time.Unix(start, 0).UTC()
+	if loc != nil {
+		end = end.In(loc)
+	}
+	switch period {
+	case "week":
+		if loc == nil {
+			end = fallbackNextBoundary(end, 0, 7)
+		} else {
+			end = end.AddDate(0, 0, 7)
+		}
+	case "month":
+		if loc == nil {
+			end = fallbackNextBoundary(end, 1, 0)
+		} else {
+			end = end.AddDate(0, 1, 0)
+		}
+	default:
+		if loc == nil {
+			end = nextPacificMidnight(end)
+		} else {
+			end = end.AddDate(0, 0, 1)
+		}
+	}
+	return !now.Before(end)
+}
+
+// nextMidnightInZone is nextPacificMidnight in the account reset zone
+// (same strictly-after-midnight semantics, Pacific fallback).
+func nextMidnightInZone(now time.Time, zone string) time.Time {
+	if loc := zoneLocation(zone); loc != nil {
+		return now.In(loc).AddDate(0, 0, 1)
+	}
+	return nextPacificMidnight(now)
+}
+
 // spendEntry is one recorded spend amount at a point in time (rolling 24h
 // window).
 type spendEntry struct {
@@ -81,6 +170,13 @@ func newSpendLedger() *spendLedger { return &spendLedger{} }
 // add records tokens spent now, rolling the period buckets when their
 // windows closed (NeedsRollover). Caller holds Pool.spendMu.
 func (l *spendLedger) add(tokens int64, now time.Time) {
+	l.addInZone(tokens, now, "")
+}
+
+// addInZone records spend in the account reset zone's buckets (Pacific
+// fallback): day/week/month roll at that zone's boundaries, matching the
+// upstream daily reset for non-Pacific accounts.
+func (l *spendLedger) addInZone(tokens int64, now time.Time, zone string) {
 	if l == nil || tokens <= 0 {
 		return
 	}
@@ -98,17 +194,22 @@ func (l *spendLedger) add(tokens int64, now time.Time) {
 	l.rolling = append(l.rolling[first:], spendEntry{at: now, tokens: tokens})
 	l.rollingTotal += tokens
 
-	// Period buckets with rollover.
-	l.dayUsed, l.dayStart = rollBucket(l.dayUsed, l.dayStart, "day", now, tokens)
-	l.weekUsed, l.weekStart = rollBucket(l.weekUsed, l.weekStart, "week", now, tokens)
-	l.monthUsed, l.monthStart = rollBucket(l.monthUsed, l.monthStart, "month", now, tokens)
+	// Period buckets with rollover in the account zone.
+	l.dayUsed, l.dayStart = rollBucketInZone(l.dayUsed, l.dayStart, "day", now, tokens, zone)
+	l.weekUsed, l.weekStart = rollBucketInZone(l.weekUsed, l.weekStart, "week", now, tokens, zone)
+	l.monthUsed, l.monthStart = rollBucketInZone(l.monthUsed, l.monthStart, "month", now, tokens, zone)
 }
 
 // rollBucket adds tokens to one period bucket, resetting it first when the
 // window rolled over (start == 0 or PeriodEnd passed).
 func rollBucket(used, start int64, period string, now time.Time, tokens int64) (int64, int64) {
-	if needsRollover(start, period, now) {
-		start = bucketStart(now, period)
+	return rollBucketInZone(used, start, period, now, tokens, "")
+}
+
+// rollBucketInZone is rollBucket in the account reset zone.
+func rollBucketInZone(used, start int64, period string, now time.Time, tokens int64, zone string) (int64, int64) {
+	if needsRolloverInZone(start, period, now, zone) {
+		start = bucketStartInZone(now, period, zone)
 		used = 0
 	}
 	return used + tokens, start

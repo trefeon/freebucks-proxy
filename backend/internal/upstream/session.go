@@ -23,6 +23,13 @@ const (
 	sessionDesktopAttemptIDHeader   = "x-freebuff-desktop-attempt-id"
 	// SessionAdmissionPath is the dedicated session-create route.
 	SessionAdmissionPath = "/api/v1/freebuff/session/admission"
+	// AgentRunsPath is the agent-run lifecycle route (START/FINISH). Like
+	// admission, its POSTs are never transport-retried: disposition is
+	// unknown after a network failure, and a replayed START mints a
+	// duplicate run (the free_mode_run_fanout signal) while a replayed
+	// FINISH double-reports steps. The run lifecycle owns its own
+	// recovery (fresh run + replay at the engine level).
+	AgentRunsPath = "/api/v1/agent-runs"
 	// SessionReusePath reuses an exact live single-session instance without
 	// buying or taking over. No proxy caller needs it yet (the CLI does
 	// not call it either); pinned so every client agrees on the string.
@@ -87,10 +94,16 @@ func sessionAttemptSuffix(instanceID string) (string, bool) {
 	return attemptID, true
 }
 
-// isSessionAdmissionRequest reports whether req targets the dedicated
 // admission route (suffix match: the client base URL may carry a prefix).
 func isSessionAdmissionRequest(req *http.Request) bool {
 	return req != nil && req.URL != nil && strings.HasSuffix(req.URL.Path, SessionAdmissionPath)
+}
+
+// isAgentRunsRequest reports a START/FINISH lifecycle POST (suffix match
+// like admission): never transport-retried, same unknown-disposition rule.
+func isAgentRunsRequest(req *http.Request) bool {
+	return req != nil && req.URL != nil && req.Method == http.MethodPost &&
+		strings.HasSuffix(req.URL.Path, AgentRunsPath)
 }
 
 // SessionRefundReceipt is the parsed session-DELETE receipt (vendor
@@ -438,6 +451,10 @@ func (c *Client) StartRun(ctx context.Context, agentID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Never transport-retried (unknown disposition; a replayed START mints
+	// a duplicate run): nil GetBody fails fast with exactly one upstream
+	// hit. do() holds the same guard belt-and-braces.
+	req.GetBody = nil
 	// Bearer-only like the CLI (sdk/src/impl/database.ts startAgentRun sends
 	// Authorization plus the optional acting-user header and no
 	// x-codebuff-api-key — that dual-auth pair lives only on the
@@ -537,6 +554,9 @@ func (c *Client) FinishRun(ctx context.Context, runID, status string, totalSteps
 	if err != nil {
 		return err
 	}
+	// Never transport-retried (a replayed FINISH double-reports steps);
+	// see StartRun. do() holds the same guard belt-and-braces.
+	req.GetBody = nil
 	// Bearer-only like the CLI (sdk/src/impl/database.ts finishAgentRun sends
 	// Authorization plus the optional acting-user header and no
 	// x-codebuff-api-key — see StartRun). newRequest already set

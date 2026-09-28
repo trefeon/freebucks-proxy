@@ -3,12 +3,13 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+
 	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/pool"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
-	"io"
-	"net/http"
 )
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the
@@ -92,8 +93,17 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		effectiveModel = model
 	}
 	if effectiveModel != model {
+		// Snapshot the proxy-stamped system cache marker before the
+		// fallback re-normalize: NormalizeRequest's client-marker strip
+		// cannot tell proxy-originated markers from client echoes, so
+		// re-apply afterwards — scoped to bodies that already carried it
+		// (the Anthropic ingress stays marker-free by design).
+		keepMarker := systemCacheMarker(normalized)
 		if renormalized, nerr := convert.NormalizeRequest(normalized, effectiveModel); nerr == nil {
 			normalized = renormalized
+			if keepMarker {
+				normalized = stampOpenAISystemCacheMarker(normalized)
+			}
 		}
 	}
 

@@ -35,3 +35,32 @@ func TestChatErrClass(t *testing.T) {
 		})
 	}
 }
+
+// TestSystemCacheMarkerRoundTrip pins the fallback-preserve pair: detect a
+// stamped system marker, and re-stamping is idempotent. Bodies without a
+// system message (or with a non-system first message) report absent and
+// pass through untouched.
+func TestSystemCacheMarkerRoundTrip(t *testing.T) {
+	withSys := []byte(`{"model":"m","messages":[{"role":"system","content":"s"},{"role":"user","content":"hi"}]}`)
+	if systemCacheMarker(withSys) {
+		t.Error("unstamped body reports marker present")
+	}
+	stamped := stampOpenAISystemCacheMarker(withSys)
+	if !systemCacheMarker(stamped) {
+		t.Fatal("stamped body reports marker absent")
+	}
+	restamped := stampOpenAISystemCacheMarker(stamped)
+	if string(restamped) != string(stamped) {
+		t.Error("re-stamp not idempotent")
+	}
+	noSys := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+	if systemCacheMarker(noSys) {
+		t.Error("user-first body reports marker present")
+	}
+	if got := string(stampOpenAISystemCacheMarker(noSys)); got != string(noSys) {
+		t.Error("user-first body modified by stamp")
+	}
+	if got := string(stampOpenAISystemCacheMarker([]byte(`{broken`))); got != `{broken` {
+		t.Error("invalid JSON not passed through")
+	}
+}

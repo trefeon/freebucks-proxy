@@ -324,20 +324,26 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 			// Go strips Authorization/Cookie on cross-host redirects but not
 			// x-codebuff-api-key (defensive: no current caller sets it after
 			// the Bearer-only agent-runs fix, but a relayed downstream value
-			// must never leak to a redirect target). Drop
-			// both when the redirect leaves the upstream trust zone (a
-			// different registrable domain) OR downgrades the scheme
-			// https->http (same host, plaintext) so the token never leaves
-			// the trusted origin. Same-zone redirects — including bare-host
-			// <-> www, which the CLI follows on EVERY call (GETs 301,
-			// POSTs 307; live-captured 2026-09-27, docs/LIVE-CAPTURE.md) —
-			// keep their credentials: the follow-up re-POST is
-			// authenticated upstream, and stripping it 401s.
+			// must never leak to a redirect target). Credentials survive
+			// ONLY on an identical host or the bare<->www pair — the only
+			// hop the CLI ever follows (GETs 301, POSTs 307 bare to www;
+			// live-captured 2026-09-27, docs/LIVE-CAPTURE.md). Anything
+			// wider (api./evil. subdomains) strips, as does any
+			// https->http downgrade (same host, plaintext).
 			from, to := via[0].URL, req.URL
 			downgrade := strings.EqualFold(from.Scheme, "https") && strings.EqualFold(to.Scheme, "http")
-			if downgrade || registrableDomain(from.Host) != registrableDomain(to.Host) {
+			if downgrade || !sameBareWWW(from.Host, to.Host) {
 				req.Header.Del("Authorization")
 				req.Header.Del("x-codebuff-api-key")
+				return nil
+			}
+			// Belt-and-braces: Go removes Authorization before CheckRedirect
+			// on some cross-host hops across versions — restore it from the
+			// immediate predecessor when we just decided the hop is trusted.
+			if req.Header.Get("Authorization") == "" {
+				if auth := via[len(via)-1].Header.Get("Authorization"); auth != "" {
+					req.Header.Set("Authorization", auth)
+				}
 			}
 			return nil
 		},
@@ -345,25 +351,22 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 	return c, nil
 }
 
-// registrableDomain returns the last two DNS labels of host
-// ("www.codebuff.com" -> "codebuff.com") for redirect trust-zone
-// comparison. IP literals and single-label names return as-is (lowercased),
-// so only an exact match keeps credentials — 127.0.0.1 and localhost are
-// different zones. Ports are ignored (URL.Host may carry one).
-func registrableDomain(host string) string {
-	h := host
-	if bare, _, err := net.SplitHostPort(host); err == nil {
-		h = bare
+// sameBareWWW reports whether two URL hosts are identical or the bare<->www
+// pair ("codebuff.com" <-> "www.codebuff.com") — the only redirect hop the
+// live CLI ever follows. Ports ignored; case-insensitive; IP literals and
+// single-label names match exactly only (127.0.0.1 vs localhost differ).
+func sameBareWWW(a, b string) bool {
+	norm := func(host string) string {
+		if bare, _, err := net.SplitHostPort(host); err == nil {
+			host = bare
+		}
+		return strings.ToLower(strings.TrimSuffix(host, "."))
 	}
-	h = strings.ToLower(strings.TrimSuffix(h, "."))
-	if net.ParseIP(h) != nil {
-		return h
+	na, nb := norm(a), norm(b)
+	if na == nb {
+		return true
 	}
-	parts := strings.Split(h, ".")
-	if len(parts) < 2 {
-		return h
-	}
-	return parts[len(parts)-2] + "." + parts[len(parts)-1]
+	return na == "www."+nb || nb == "www."+na
 }
 
 // reqIDKey carries the request correlation id (opts.RequestID) through the

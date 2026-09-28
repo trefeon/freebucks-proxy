@@ -27,6 +27,21 @@ type tokenRoster struct {
 	mismatch map[int]mismatchEscalation
 }
 
+// entryResetZone returns the entry's account reset zone for day buckets
+// (FreebucksInfo.Daily.ResetTimeZone, "" = Pacific fallback). Snapshot is
+// taken before the roster lock, so no lock ordering with the session
+// manager is introduced.
+func entryResetZone(entry *tokenEntry) string {
+	if entry == nil || entry.session == nil {
+		return ""
+	}
+	snap := entry.session.Snapshot()
+	if snap.Freebucks == nil {
+		return ""
+	}
+	return snap.Freebucks.Daily.ResetTimeZone
+}
+
 // newTokenRoster builds a roster over the initial entries (New's fixed
 // tokens); the mismatch map starts empty.
 func newTokenRoster(entries []*tokenEntry) *tokenRoster {
@@ -216,23 +231,34 @@ func (r *tokenRoster) recordChatEntry(entry *tokenEntry) {
 	if entry == nil {
 		return
 	}
+	zone := entryResetZone(entry)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := time.Now()
 	entry.ledger.recordChat(now)
-	entry.ledger.recordDayRequest(now)
+	entry.ledger.recordDayRequestInZone(now, zone)
 }
 
 // dayRequestCount returns the entry at token's successful-request count in
 // the current Pacific day, rolling the bucket at Pacific midnight.
 func (r *tokenRoster) dayRequestCount(token int) int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	cur := *r.toks.Load()
+	curPtr := r.toks.Load()
+	if curPtr == nil {
+		return 0
+	}
+	cur := *curPtr
 	if token < 0 || token >= len(cur) {
 		return 0
 	}
-	return cur[token].ledger.dayRequestCount(time.Now())
+	zone := entryResetZone(cur[token])
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Re-resolve under lock: the roster may have swapped under the snapshot.
+	live := *r.toks.Load()
+	if token < 0 || token >= len(live) {
+		return 0
+	}
+	return live[token].ledger.dayRequestCountInZone(time.Now(), zone)
 }
 
 // usageCount returns the entry at token's in-window chat count, pruning
@@ -249,13 +275,22 @@ func (r *tokenRoster) usageCount(token int) int {
 
 // recordSpend adds tokens to the entry at token's spend ledger.
 func (r *tokenRoster) recordSpend(token int, tokens int64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	cur := *r.toks.Load()
+	curPtr := r.toks.Load()
+	if curPtr == nil {
+		return
+	}
+	cur := *curPtr
 	if token < 0 || token >= len(cur) {
 		return
 	}
-	cur[token].ledger.recordSpend(tokens, time.Now())
+	zone := entryResetZone(cur[token])
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	live := *r.toks.Load()
+	if token < 0 || token >= len(live) {
+		return
+	}
+	live[token].ledger.recordSpendInZone(tokens, time.Now(), zone)
 }
 
 // recordSpendEntry adds tokens to a lease's backing entry's ledger by
@@ -264,9 +299,10 @@ func (r *tokenRoster) recordSpendEntry(entry *tokenEntry, tokens int64) {
 	if entry == nil {
 		return
 	}
+	zone := entryResetZone(entry)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry.ledger.recordSpend(tokens, time.Now())
+	entry.ledger.recordSpendInZone(tokens, time.Now(), zone)
 }
 
 // spendSnapshot returns the entry at token's ledger view.
@@ -287,15 +323,24 @@ func (r *tokenRoster) spendSnapshot(token int) spendView {
 // three times per token there serialized with the request completion path
 // (recordChatEntry/recordSpendEntry) for no reason (issue #656).
 func (r *tokenRoster) ledgerSnapshot(token int) (usage int, spend spendView, dayReqs int) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	cur := *r.toks.Load()
+	curPtr := r.toks.Load()
+	if curPtr == nil {
+		return 0, spendView{}, 0
+	}
+	cur := *curPtr
 	if token < 0 || token >= len(cur) {
 		return 0, spendView{}, 0
 	}
+	zone := entryResetZone(cur[token])
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	live := *r.toks.Load()
+	if token < 0 || token >= len(live) {
+		return 0, spendView{}, 0
+	}
 	now := time.Now()
-	l := cur[token].ledger
-	return l.usageCount(now), l.spendSnapshot(), l.dayRequestCount(now)
+	l := live[token].ledger
+	return l.usageCount(now), l.spendSnapshot(), l.dayRequestCountInZone(now, zone)
 }
 
 // recordSpendLimited marks one upstream spend_limited refusal on the entry

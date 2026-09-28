@@ -23,6 +23,9 @@ type ProbeTokenOutcome struct {
 	Cooling      bool    `json:"cooling"`
 	CoolingUntil string  `json:"cooldown_until,omitempty"`
 	ResetAt      string  `json:"reset_at,omitempty"`
+	// ResetZone carries the account reset zone for the resume fallback
+	// (FreebucksInfo.Daily.ResetTimeZone, "" = Pacific). Internal only.
+	ResetZone string `json:"-"`
 }
 
 // probeFreebucksExhausted mirrors freebucksCappedForSnapshot's cap decision
@@ -88,7 +91,7 @@ func recoverAtForProbe(fb *upstream.FreebucksInfo, monthlySpent bool) time.Time 
 		}
 	}
 	if earliest.IsZero() {
-		return nextPacificMidnight(now)
+		return nextMidnightInZone(now, fb.Daily.ResetTimeZone)
 	}
 	return earliest
 }
@@ -229,10 +232,10 @@ func (p *Pool) ProbeTokenDetailed(ctx context.Context, token int) (ProbeTokenOut
 		outcome.DailySpentFB = fb.Daily.Spent
 
 		if exhausted, reason, recoverAt := probeFreebucksExhausted(fb); exhausted {
-			// Exhausted Freebucks: lock until recovery
+			// Exhausted Freebucks: lock until recovery in the account zone.
 			resetAt := recoverAt
 			if resetAt.IsZero() || !resetAt.After(time.Now()) {
-				resetAt = nextPacificMidnight(time.Now())
+				resetAt = nextMidnightInZone(time.Now(), fb.Daily.ResetTimeZone)
 			}
 			d := time.Until(resetAt)
 			if d > 0 {
@@ -242,6 +245,7 @@ func (p *Pool) ProbeTokenDetailed(ctx context.Context, token int) (ProbeTokenOut
 			outcome.Cooling = true
 			outcome.CoolingUntil = time.Now().Add(d).Format(time.RFC3339)
 			outcome.ResetAt = resetAt.UTC().Format(time.RFC3339)
+			outcome.ResetZone = fb.Daily.ResetTimeZone
 			outcome.Detail = fmt.Sprintf("%s; locked until reset at %s", reason, resetAt.UTC().Format("15:04 UTC"))
 		} else {
 			// Freebucks available: clear any freebucks-exhaustion cooldown
