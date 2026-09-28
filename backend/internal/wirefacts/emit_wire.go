@@ -75,6 +75,11 @@ var wireCodes = []wireCode{
 	{"WireCodeFreeModeUnavailable", "free_mode_unavailable", "WireCodeFreeModeUnavailable: the free tier refused the request (region/egress gate, 403).", ""},
 	{"WireCodeConsentRequired", "consent_required", "WireCodeConsentRequired: wallet-consent demand (409 admission status).", wireSessionFile},
 	{"WireCodeFirstTabDiscountChanged", "first_tab_discount_changed", "WireCodeFirstTabDiscountChanged: first-tab re-quote (409 admission status).", wireSessionFile},
+	{"WireCodeModelUnavailable", "model_unavailable", "WireCodeModelUnavailable: requested model valid but not selectable right now (409 admission refusal, with an availableHours window when it re-opens).", wireSessionFile},
+	{"WireCodePremiumSlotTaken", "premium_slot_taken", "WireCodePremiumSlotTaken: every slot-bound Desktop session occupied (409 admission refusal; CLI/web run one session per user).", wireSessionFile},
+	{"WireCodePurchaseClaimReleased", "purchase_claim_released", "WireCodePurchaseClaimReleased: retired single-use Desktop claim (409 admission refusal; persist a new id before retrying).", wireSessionFile},
+	{"WireCodePurchaseInUse", "purchase_in_use", "WireCodePurchaseInUse: Desktop purchase held by another live session (409 admission refusal).", wireSessionFile},
+	{"WireCodePurchaseCapacity", "purchase_capacity", "WireCodePurchaseCapacity: Desktop purchase admission bucket full (409 admission refusal, with the exact bucket and entitlement-derived limit).", wireSessionFile},
 }
 
 // wireGate pins one FREEBUFF_GATE_CODES row: code plus its HTTP status and
@@ -85,9 +90,8 @@ type wireGate struct {
 }
 
 // wireGates mirrors FREEBUFF_GATE_CODES in freebuff-session.ts declaration
-// order. Model_unavailable is a known gate row with no WireCode constant —
-// it rides availableHours prose, not a body marker — so it is verified but
-// not emitted.
+// order. Model_unavailable is a gate row (410, non-ending) and a status
+// literal, so it is verified both ways and emitted as a WireCode.
 var wireGates = []struct {
 	code string
 	gate wireGate
@@ -112,19 +116,16 @@ var wireGateBacked = map[string]bool{
 }
 
 // wireKnownStatuses are status literals in freebuff-session.ts that carry no
-// WireCode: lifecycle states plus admission-only shapes that never appear as
-// classifyError body markers (superseded is the server-response shape while
-// session_superseded is the gate/chat error code; model_unavailable rides
-// availableHours prose; premium_slot_taken and the purchase_* trio are
-// Desktop-only purchase-flow admission shapes; consent_required is the 409
-// wallet-consent admission shape, handled from the parsed session status;
-// first_tab_discount_changed is the 409 first-tab re-quote (vendor 6cd8970),
-// handled the same way). Anything outside this set plus the
-// snapshot-verified wire values fails the run as unknown.
+// WireCode: lifecycle states plus admission-only shapes handled from the
+// parsed session status, never as classifyError body markers (superseded is
+// the server-response shape while session_superseded is the gate/chat error
+// code; consent_required is the 409 wallet-consent admission shape;
+// first_tab_discount_changed is the 409 first-tab re-quote (vendor 6cd8970)).
+// Anything outside this set plus the snapshot-verified wire values fails the
+// run as unknown.
 var wireKnownStatuses = map[string]bool{
 	"none": true, "active": true, "ended": true,
-	"superseded": true, "model_unavailable": true, "premium_slot_taken": true,
-	"purchase_claim_released": true, "purchase_in_use": true, "purchase_capacity": true,
+	"superseded":       true,
 	"consent_required": true, "first_tab_discount_changed": true,
 }
 
@@ -246,18 +247,50 @@ func wireReadVerified(wireDir string, bySHA map[string]string, rel, commit strin
 }
 
 // wireVerifySession cross-checks the admission status literals and the
-// FREEBUFF_GATE_CODES rows against the pinned tables. Unknown literals fail
-// explicitly; a missing expected literal fails as drift.
+// FREEBUFF_GATE_CODES rows against the pinned tables. One status may carry
+// same-union arms (status: 'purchase_in_use' | 'purchase_capacity'): every
+// arm is envelope, so '|' continuations are followed like
+// verifySessionStatuses in emit_tools.go. Unknown literals fail explicitly;
+// a missing expected literal fails as drift.
 func wireVerifySession(src []byte, commit string) error {
 	seen := map[string]bool{}
-	for _, loc := range wireStatusRE.FindAllSubmatchIndex(src, -1) {
-		val := string(src[loc[2]:loc[3]])
+	check := func(val string, off int) error {
 		seen[val] = true
 		if wireKnownStatuses[val] || wireGateBacked[val] || wireSnapshotValue(val) {
-			continue
+			return nil
 		}
-		line := wireLineOf(src, loc[0])
+		line := wireLineOf(src, off)
 		return fmt.Errorf("wiregen: unknown status literal %q in %s:%d at upstream commit %s; pin a WireCode or allowlist it before regenerating", val, wireSessionFile, line, commit)
+	}
+	for _, loc := range wireStatusRE.FindAllSubmatchIndex(src, -1) {
+		if err := check(string(src[loc[2]:loc[3]]), loc[0]); err != nil {
+			return err
+		}
+		rest := src[loc[1]:]
+		for {
+			j := 0
+			for j < len(rest) && (rest[j] == ' ' || rest[j] == '\t') {
+				j++
+			}
+			if j >= len(rest) || rest[j] != '|' {
+				break
+			}
+			j++
+			for j < len(rest) && (rest[j] == ' ' || rest[j] == '\t') {
+				j++
+			}
+			if j >= len(rest) || rest[j] != '\'' {
+				break
+			}
+			end := bytes.IndexByte(rest[j+1:], '\'')
+			if end < 0 {
+				break
+			}
+			if err := check(string(rest[j+1:j+1+end]), loc[1]); err != nil {
+				return err
+			}
+			rest = rest[j+1+end+1:]
+		}
 	}
 	for _, want := range wireSnapshotValues() {
 		if !seen[want] {

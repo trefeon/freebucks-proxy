@@ -17,11 +17,7 @@ only names are rewritten.
 - Model field: any served model id.
 - Never forward vendor env names upstream (`ANTHROPIC_BASE_URL`,
   `KIMI_CODE_BASE_URL`, …) — they are harness-side config only.
-- `tools` is forwarded verbatim (`backend/internal/convert/convert_request.go`):
-  the proxy neither injects nor strips a sentinel, so an empty `tools:[]` is the
-  client's own choice, not a gateway rule. (A client that trims its tool list
-  must still carry the matching tool history, or its turn has no tools to
-  answer with.)
+- `tools` keeps client defs with structural schema normalization (`backend/internal/convert/schemacache_store.go:normalizeToolSchemas`); missing `end_turn`/`decide` sentinels are appended, never duplicated (`schemacache_endturn.go:injectEndTurnTool`, foreign_toolset gate). An empty `tools:[]` is the client's own choice, not a gateway rule. (A client that trims its tool list must still carry the matching tool history, or its turn has no tools to answer with.)
 - Responses API: preserve strict item order
   `message(s) → function_call(s) → function_call_output(s)` and inject
   `reasoning_text` per thinking turn (opencode-go strict gateway).

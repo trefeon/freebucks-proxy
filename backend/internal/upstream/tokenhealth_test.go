@@ -738,3 +738,83 @@ func TestMainExitCodeContract(t *testing.T) {
 		})
 	}
 }
+
+// TestAdmissionTerminalFoldsOverOkProbe pins the P4 admission → tokenhealth
+// feedback: ban is enforced at the admission POST while the probes are
+// GET-only, so a remembered admission terminal folds over an OK/UNKNOWN probe
+// verdict. The live GET still fires first (no request is skipped) and a live
+// terminal probe verdict is never overridden by the memory.
+func TestAdmissionTerminalFoldsOverOkProbe(t *testing.T) {
+	srv, log := newTokenHealthServer(t, nil, nil)
+	c := healthClient(t, "tok-1", 0, srv.URL)
+
+	row, err := CheckTokenHealth(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State != TokenOK {
+		t.Fatalf("state = %q, want OK before any admission terminal", row.State)
+	}
+	if got := log.paths["/api/v1/me"] + log.paths["/api/v1/freebuff/session"]; got != 2 {
+		t.Fatalf("probe requests = %d, want exactly the 2 read-only GETs", got)
+	}
+
+	// The live observation: GET says OK, admission said banned.
+	c.NoteAdmissionTerminal(TokenBanned, "banned at admission (terminal)")
+	row, err = CheckTokenHealth(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State != TokenBanned {
+		t.Fatalf("state = %q, want BANNED with a remembered admission terminal", row.State)
+	}
+	if !strings.Contains(row.Hint, "banned at admission") || !strings.Contains(row.Hint, "GET probe") {
+		t.Errorf("hint = %q, want the admission verdict plus the live GET verdict", row.Hint)
+	}
+	if got := log.paths["/api/v1/me"] + log.paths["/api/v1/freebuff/session"]; got != 4 {
+		t.Errorf("probe requests = %d, want 4 (the live GETs still fire with memory set)", got)
+	}
+
+	// A healthy admission clears the memory: the report goes back to live.
+	c.ClearAdmissionTerminal()
+	if _, _, ok := c.AdmissionTerminal(); ok {
+		t.Fatal("AdmissionTerminal still set after ClearAdmissionTerminal")
+	}
+	row, err = CheckTokenHealth(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State != TokenOK {
+		t.Fatalf("state = %q, want OK after the memory clears", row.State)
+	}
+
+	// Non-terminal notes never stick.
+	c.NoteAdmissionTerminal(TokenBanned, "banned at admission (terminal)")
+	c.NoteAdmissionTerminal(TokenOK, "")
+	if _, _, ok := c.AdmissionTerminal(); ok {
+		t.Fatal("AdmissionTerminal set by a non-terminal note, want cleared")
+	}
+}
+
+// TestAdmissionTerminalNeverOverridesLiveTerminal pins the other half of the
+// fold-over: when the live GET probe itself reports a terminal state, the
+// remembered admission verdict does not mask it.
+func TestAdmissionTerminalNeverOverridesLiveTerminal(t *testing.T) {
+	srv, _ := newTokenHealthServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"status":"banned"}`)
+	})
+	c := healthClient(t, "tok-1", 0, srv.URL)
+	c.NoteAdmissionTerminal(TokenCountryBlocked, "country_blocked at admission")
+
+	row, err := CheckTokenHealth(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State != TokenBanned {
+		t.Fatalf("state = %q, want the live BANNED probe verdict, not the remembered %q", row.State, TokenCountryBlocked)
+	}
+	if strings.Contains(row.Hint, "GET probe said") {
+		t.Errorf("hint = %q, want the live verdict without the memory fold-over", row.Hint)
+	}
+}

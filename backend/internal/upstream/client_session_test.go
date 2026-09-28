@@ -1231,3 +1231,139 @@ func TestEndSessionRefundReceipt(t *testing.T) {
 		}
 	})
 }
+
+// TestSessionParsePurchaseCapacityHolder pins the purchase_capacity opaque
+// decode: the holder instance, capacity bucket, and desktop metadata ride
+// the state verbatim, and the holder id is surfaced in the message text
+// (enrichment only — no admission branching).
+func TestSessionParsePurchaseCapacityHolder(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"purchase_capacity","requestedModel":"openai/gpt-5.6-luna",`+
+			`"currentInstanceId":"inst-holder-1","concurrency":"multi-tab","slotLimit":8,`+
+			`"desktopPurchases":[{"model":"openai/gpt-5.6-luna","expiresAt":"2026-09-29T00:00:00Z","holderInstanceId":"inst-holder-1"}],`+
+			`"desktopSessionCounts":{"premium":1,"unlimited":2,"nextExpiryAt":"2026-09-29T00:00:00Z"}}`)
+	}
+	client, err := New("tok", testConfig(mock.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := client.CreateSession(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Status != "purchase_capacity" {
+		t.Fatalf("Status = %q, want purchase_capacity", st.Status)
+	}
+	if st.CurrentInstanceID != "inst-holder-1" {
+		t.Errorf("CurrentInstanceID = %q, want inst-holder-1", st.CurrentInstanceID)
+	}
+	if st.Concurrency != "multi-tab" {
+		t.Errorf("Concurrency = %q, want multi-tab", st.Concurrency)
+	}
+	if st.SlotLimit == nil || *st.SlotLimit != 8 {
+		t.Errorf("SlotLimit = %+v, want 8", st.SlotLimit)
+	}
+	if len(st.DesktopPurchases) != 1 || st.DesktopPurchases[0].HolderInstanceID != "inst-holder-1" {
+		t.Errorf("DesktopPurchases = %+v, want the holder row", st.DesktopPurchases)
+	}
+	if st.DesktopSessionCounts == nil || st.DesktopSessionCounts.Premium != 1 || st.DesktopSessionCounts.Unlimited != 2 {
+		t.Errorf("DesktopSessionCounts = %+v, want premium=1 unlimited=2", st.DesktopSessionCounts)
+	}
+	if !strings.Contains(st.Message, "inst-holder-1") {
+		t.Errorf("Message = %q, want the holder id surfaced", st.Message)
+	}
+}
+
+// TestSessionParseSupersededDesktopBlocks pins the superseded poll decode:
+// desktop counts, purchases, and refunds ride the state verbatim.
+func TestSessionParseSupersededDesktopBlocks(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"superseded",`+
+			`"desktopSessionCounts":{"premium":0,"unlimited":1},`+
+			`"desktopPurchases":[{"model":"openai/gpt-5.6-luna","expiresAt":"2026-09-29T00:00:00Z"}],`+
+			`"desktopRefunds":[{"purchaseId":"p-1","model":"openai/gpt-5.6-luna","amount":2,"walletAmount":2,`+
+			`"refundedAt":"2026-09-28T00:00:00Z","poolDate":"2026-09-28"}]}`)
+	}
+	client, err := New("tok", testConfig(mock.URL(), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := client.CreateSession(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Status != "superseded" {
+		t.Fatalf("Status = %q, want superseded", st.Status)
+	}
+	if st.DesktopSessionCounts == nil || st.DesktopSessionCounts.Unlimited != 1 {
+		t.Errorf("DesktopSessionCounts = %+v, want unlimited=1", st.DesktopSessionCounts)
+	}
+	if len(st.DesktopPurchases) != 1 || st.DesktopPurchases[0].Model != "openai/gpt-5.6-luna" {
+		t.Errorf("DesktopPurchases = %+v, want one row", st.DesktopPurchases)
+	}
+	if len(st.DesktopRefunds) != 1 || st.DesktopRefunds[0].PurchaseID != "p-1" {
+		t.Errorf("DesktopRefunds = %+v, want the p-1 receipt", st.DesktopRefunds)
+	}
+}
+
+// TestSessionParseActiveFreeWindows pins the freeWindows opaque decode on
+// an active session, and that older servers omitting every new block leave
+// the state zero (never fabricated).
+func TestSessionParseActiveFreeWindows(t *testing.T) {
+	t.Run("present", func(t *testing.T) {
+		mock := testutil.NewMock()
+		defer mock.Close()
+		mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"active","instanceId":"i-1","model":"m",`+
+				`"freeWindows":{"dayUsed":1,"dayLimit":5,"weekUsed":2,"weekLimit":20,`+
+				`"monthUsed":3,"monthLimit":80,"dayResetAt":"2026-09-29T00:00:00Z",`+
+				`"monthResetAt":"2026-10-01T00:00:00Z"}}`)
+		}
+		client, err := New("tok", testConfig(mock.URL(), nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, err := client.CreateSession(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(st.FreeWindows, `"dayLimit":5`) {
+			t.Errorf("FreeWindows = %q, want the raw block", st.FreeWindows)
+		}
+	})
+	t.Run("absent stays zero", func(t *testing.T) {
+		mock := testutil.NewMock()
+		defer mock.Close()
+		mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"active","instanceId":"i-1","model":"m"}`)
+		}
+		client, err := New("tok", testConfig(mock.URL(), nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, err := client.CreateSession(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if st.FreeWindows != "" || st.CurrentInstanceID != "" || st.Concurrency != "" {
+			t.Errorf("new string fields = %q/%q/%q, want all empty", st.FreeWindows, st.CurrentInstanceID, st.Concurrency)
+		}
+		if st.SlotLimit != nil || st.DesktopSessionCounts != nil {
+			t.Errorf("new pointer fields non-nil: slot=%+v counts=%+v", st.SlotLimit, st.DesktopSessionCounts)
+		}
+		if len(st.DesktopPurchases) != 0 || len(st.DesktopRefunds) != 0 {
+			t.Errorf("new slice fields non-empty: %+v %+v", st.DesktopPurchases, st.DesktopRefunds)
+		}
+		if st.Message != "" {
+			t.Errorf("Message = %q, want empty (no enrichment without a holder)", st.Message)
+		}
+	})
+}

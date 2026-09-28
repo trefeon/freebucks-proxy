@@ -595,3 +595,130 @@ func TestPollPersistedDropsRowOnWaitingRoomRequired(t *testing.T) {
 		t.Errorf("store after re-admit = %+v, want the fresh inst-abc-123 (dead inst-persist dropped)", got)
 	}
 }
+
+// TestPollCompactMergeCarriesAdmissionQuota pins the P2 compact-merge carry
+// (vendor freebuff-session-api.ts mergeCompactActiveSession): a compact poll
+// that omits quota fields must not blank the admission values, while a
+// compact poll that carries fresh quota wins.
+func TestPollCompactMergeCarriesAdmissionQuota(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr := newTestManager(t, mock)
+
+	exp := time.Now().Add(time.Hour).Format(time.RFC3339)
+	admit := `{"status":"active","instanceId":"inst-merge-1","model":"model-a","expiresAt":"` + exp + `","rateLimitsByModel":{"model-a":{"model":"model-a","limit":10,"recentCount":3}},"subscription":{"tierId":"plan_pro"},"freebucks":{"balance":42}}`
+	var pollBody atomic.Value
+	pollBody.Store(`{"status":"active","instanceId":"inst-merge-1"}`)
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			_, _ = io.WriteString(w, admit)
+			return
+		}
+		_, _ = io.WriteString(w, pollBody.Load().(string))
+	}
+
+	if _, err := mgr.EnsureSessionForModel(context.Background(), "model-a"); err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	assertMergeQuota := func(stage string, recent float64, tier string, balance float64) {
+		t.Helper()
+		snap := mgr.Snapshot()
+		if snap.Status != "active" || snap.InstanceID != "inst-merge-1" {
+			t.Fatalf("%s: snapshot = %q/%q, want active/inst-merge-1", stage, snap.Status, snap.InstanceID)
+		}
+		if got := snap.QuotaByModel["model-a"].RecentCount; got != recent {
+			t.Errorf("%s: RecentCount = %v, want %v", stage, got, recent)
+		}
+		if snap.SubscriptionTierID != tier {
+			t.Errorf("%s: SubscriptionTierID = %q, want %q", stage, snap.SubscriptionTierID, tier)
+		}
+		if snap.Freebucks == nil || snap.Freebucks.Balance != balance {
+			t.Errorf("%s: Freebucks = %+v, want balance %v", stage, snap.Freebucks, balance)
+		}
+	}
+	assertMergeQuota("admission", 3, "plan_pro", 42)
+
+	// A quota-less compact poll keeps the admission values.
+	if err := mgr.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll quota-less: %v", err)
+	}
+	assertMergeQuota("quota-less compact", 3, "plan_pro", 42)
+
+	// Fresh compact values win over the carried ones.
+	pollBody.Store(`{"status":"active","instanceId":"inst-merge-1","rateLimitsByModel":{"model-a":{"model":"model-a","limit":10,"recentCount":9}},"subscription":{"tierId":"plan_pro_max"},"freebucks":{"balance":7}}`)
+	if err := mgr.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll quota-full: %v", err)
+	}
+	assertMergeQuota("quota-full compact", 9, "plan_pro_max", 7)
+}
+
+// TestPollCompactMismatchForcesFullPoll pins the keepCompact=false half of P2:
+// a compact poll for another slot must not inherit its meter — the cached row
+// stays untouched and the next poll fetches one full response before resuming
+// compact polls.
+func TestPollCompactMismatchForcesFullPoll(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr := newTestManager(t, mock)
+
+	exp := time.Now().Add(time.Hour).Format(time.RFC3339)
+	admit := `{"status":"active","instanceId":"inst-merge-1","model":"model-a","expiresAt":"` + exp + `","rateLimitsByModel":{"model-a":{"model":"model-a","limit":10,"recentCount":3}}}`
+	var compactGETs, fullGETs atomic.Int32
+	var pollBody atomic.Value
+	pollBody.Store(`{"status":"active","instanceId":"inst-other","model":"model-a"}`)
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			_, _ = io.WriteString(w, admit)
+			return
+		}
+		if r.Header.Get("x-freebuff-compact-session") == "1" {
+			compactGETs.Add(1)
+		} else {
+			fullGETs.Add(1)
+		}
+		_, _ = io.WriteString(w, pollBody.Load().(string))
+	}
+
+	if _, err := mgr.EnsureSessionForModel(context.Background(), "model-a"); err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+
+	// Foreign slot: no commit, no error — and the next poll goes full.
+	if err := mgr.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll foreign slot: %v", err)
+	}
+	if snap := mgr.Snapshot(); snap.InstanceID != "inst-merge-1" {
+		t.Fatalf("instance = %q, want inst-merge-1 (foreign compact must not commit)", snap.InstanceID)
+	}
+	if got := snapQuotaRecent(t, mgr); got != 3 {
+		t.Fatalf("RecentCount = %v, want 3 (foreign meter must not carry)", got)
+	}
+	if compactGETs.Load() != 1 || fullGETs.Load() != 0 {
+		t.Fatalf("GETs = compact %d/full %d, want 1/0", compactGETs.Load(), fullGETs.Load())
+	}
+
+	// The forced full poll still refuses the foreign slot, then compact resumes.
+	pollBody.Store(`{"status":"active","instanceId":"inst-merge-1","rateLimitsByModel":{"model-a":{"model":"model-a","limit":10,"recentCount":5}}}`)
+	if err := mgr.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll forced-full: %v", err)
+	}
+	if fullGETs.Load() != 1 {
+		t.Fatalf("full GETs = %d, want 1 (mismatch forces one full poll)", fullGETs.Load())
+	}
+	if got := snapQuotaRecent(t, mgr); got != 5 {
+		t.Fatalf("RecentCount = %v, want 5 (full response commits directly)", got)
+	}
+	if err := mgr.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll resumed-compact: %v", err)
+	}
+	if compactGETs.Load() != 2 {
+		t.Fatalf("compact GETs = %d, want 2 (compact resumes after the full poll)", compactGETs.Load())
+	}
+}
+
+func snapQuotaRecent(t *testing.T, mgr *Manager) float64 {
+	t.Helper()
+	return mgr.Snapshot().QuotaByModel["model-a"].RecentCount
+}

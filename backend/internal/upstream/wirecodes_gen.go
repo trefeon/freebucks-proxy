@@ -109,4 +109,19 @@ const (
 	// WireCodeFirstTabDiscountChanged: first-tab re-quote (409 admission status).
 	// snapshot: common/src/types/freebuff-session.ts.
 	WireCodeFirstTabDiscountChanged WireCode = "first_tab_discount_changed"
+	// WireCodeModelUnavailable: requested model valid but not selectable right now (409 admission refusal, with an availableHours window when it re-opens).
+	// snapshot: common/src/types/freebuff-session.ts.
+	WireCodeModelUnavailable WireCode = "model_unavailable"
+	// WireCodePremiumSlotTaken: every slot-bound Desktop session occupied (409 admission refusal; CLI/web run one session per user).
+	// snapshot: common/src/types/freebuff-session.ts.
+	WireCodePremiumSlotTaken WireCode = "premium_slot_taken"
+	// WireCodePurchaseClaimReleased: retired single-use Desktop claim (409 admission refusal; persist a new id before retrying).
+	// snapshot: common/src/types/freebuff-session.ts.
+	WireCodePurchaseClaimReleased WireCode = "purchase_claim_released"
+	// WireCodePurchaseInUse: Desktop purchase held by another live session (409 admission refusal).
+	// snapshot: common/src/types/freebuff-session.ts.
+	WireCodePurchaseInUse WireCode = "purchase_in_use"
+	// WireCodePurchaseCapacity: Desktop purchase admission bucket full (409 admission refusal, with the exact bucket and entitlement-derived limit).
+	// snapshot: common/src/types/freebuff-session.ts.
+	WireCodePurchaseCapacity WireCode = "purchase_capacity"
 )

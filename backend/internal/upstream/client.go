@@ -106,6 +106,21 @@ type Client struct {
 	// acquire path when the chain fires.
 	waitingRoomRequired atomic.Bool
 
+	// admissionTerminalMu guards admissionTerminal*: the last admission-side
+	// terminal state observed for this token (PORT-QUEUE P4). Ban is
+	// enforced at the admission POST while the tokenhealth probes are
+	// GET-only, so a GET probe can report OK for an account whose last
+	// admission returned banned. The session layer records terminal
+	// admission outcomes here (NoteAdmissionTerminal) and clears the memory
+	// on any healthy admission (ClearAdmissionTerminal); probeSession folds
+	// a remembered terminal over an OK/UNKNOWN probe so the Tokens view
+	// reflects admission reality. No new polling: the live GET always fires
+	// first and a live terminal probe verdict is never overridden.
+	admissionTerminalMu   sync.Mutex
+	admissionTerminal     TokenHealthState
+	admissionTerminalHint string
+	admissionTerminalAt   time.Time
+
 	// authOnly marks a token-less client built by NewForAuth (issue #62):
 	// newRequest must never attach auth headers (there is no credential),
 	// and the /api/auth/cli/* flow uses its own login-request helper.

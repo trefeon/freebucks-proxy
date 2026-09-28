@@ -47,8 +47,9 @@ and users driving the CLI through the gateway.
   `cli/src/utils/constants.ts:11`), i.e. the shipped `freebuff` binary.
   Behavior of the sibling build (the same source tree compiled without
   `FREEBUFF_MODE`) is mentioned only where it explains shared code paths.
-- **Companion docs**: `CLI-Limitations.md` (behavior-by-behavior port audit vs
-  the proxy), `UNIVERSAL-CLIENTS.md` (pointing other harnesses at the gateway).
+- **Companion docs**: `CLI-Limitations.md` was purged 2026-09-28 (pin 0.0.178,
+  superseded by live `UPSTREAM-PORT-QUEUE.md`); `UNIVERSAL-CLIENTS.md` (pointing
+  other harnesses at the gateway).
 
 | § | Section |
 |---|---|

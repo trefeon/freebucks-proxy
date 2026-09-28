@@ -11,11 +11,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // SetAdmissionProbeTTL configures the admission probe cache TTL (issue #60):
@@ -115,7 +116,7 @@ func statusError(status string, st *upstream.SessionState) error {
 			Status: http.StatusConflict,
 			Body:   fmt.Sprintf("upstream balance changed: re-confirm %g wallet Freebucks to admit (consent_required)", spend),
 		}
-	case "purchase_claim_released", "purchase_in_use", "purchase_capacity", "premium_slot_taken":
+	case string(upstream.WireCodePurchaseClaimReleased), string(upstream.WireCodePurchaseInUse), string(upstream.WireCodePurchaseCapacity), string(upstream.WireCodePremiumSlotTaken):
 		// Desktop purchase-flow admission shapes (vendor af898dc) and
 		// premium-slot concurrency limit (premium_slot_taken): terminal
 		// session failures (nextDelayMs returns null = stop polling). The
@@ -128,7 +129,7 @@ func statusError(status string, st *upstream.SessionState) error {
 		}
 		msg := st.Message
 		if msg == "" {
-			if status == "premium_slot_taken" {
+			if status == string(upstream.WireCodePremiumSlotTaken) {
 				msg = "upstream session admission refused: premium slot already active for this account (premium_slot_taken)"
 			} else {
 				msg = "upstream purchase flow blocked admission (" + status + ")"
@@ -152,6 +153,138 @@ func statusError(status string, st *upstream.SessionState) error {
 		}
 	}
 	return nil
+}
+
+// noteAdmissionErr feeds admission-side terminal states into the client's
+// tokenhealth memory (PORT-QUEUE P4): ban is enforced at the admission POST
+// while the tokenhealth probes are GET-only, so without this feedback a GET
+// probe reports OK for an account whose last admission returned banned
+// (observed live: dashboard ban None while admission banned on both tokens
+// and the pool quarantined both). Only terminal states stick (banned,
+// country_blocked, auth-rejected); every other error leaves the memory
+// untouched. Shared by refresh and Poll so both map the same way.
+func (m *Manager) noteAdmissionErr(err error) {
+	if err == nil || m.client == nil {
+		return
+	}
+	switch {
+	case errors.Is(err, upstream.ErrBanned):
+		var be *upstream.BanError
+		_ = errors.As(err, &be)
+		hint := "banned at admission (terminal)"
+		if be != nil && !be.ResumesAt.IsZero() {
+			hint = "banned at admission (resumes at " + be.ResumesAt.Format(time.RFC3339) + ")"
+		}
+		m.client.NoteAdmissionTerminal(upstream.TokenBanned, hint)
+	case errors.Is(err, upstream.ErrCountryBlocked):
+		var cbe *upstream.CountryBlockedError
+		_ = errors.As(err, &cbe)
+		hint := "country_blocked at admission (terminal for this account+egress)"
+		if cbe != nil && cbe.CountryCode != "" {
+			hint = "country_blocked at admission (country " + cbe.CountryCode + "; terminal for this account+egress)"
+		}
+		m.client.NoteAdmissionTerminal(upstream.TokenCountryBlocked, hint)
+	case errors.Is(err, upstream.ErrAuthRejected):
+		m.client.NoteAdmissionTerminal(upstream.TokenInvalid, "token rejected at admission (HTTP 401)")
+	}
+}
+
+// noteAdmissionStatus feeds a terminal admission status string into the
+// client's tokenhealth memory (same P4 feedback as noteAdmissionErr, for the
+// refresh path that switches on the raw status before building the typed
+// error). Non-terminal statuses leave the memory untouched.
+func (m *Manager) noteAdmissionStatus(status string, st *upstream.SessionState) {
+	if m.client == nil {
+		return
+	}
+	switch status {
+	case "banned":
+		hint := "banned at admission (terminal)"
+		if st != nil && !st.ResumesAt.IsZero() {
+			hint = "banned at admission (resumes at " + st.ResumesAt.Format(time.RFC3339) + ")"
+		}
+		m.client.NoteAdmissionTerminal(upstream.TokenBanned, hint)
+	case "country_blocked":
+		hint := "country_blocked at admission (terminal for this account+egress)"
+		if st != nil && st.CountryCode != "" {
+			hint = "country_blocked at admission (country " + st.CountryCode + "; terminal for this account+egress)"
+		}
+		m.client.NoteAdmissionTerminal(upstream.TokenCountryBlocked, hint)
+	}
+}
+
+// MergeCompactSnapshot is the compact-merge carry (PORT-QUEUE
+// P2, vendor freebuff-session-api.ts mergeCompactActiveSession): a compact
+// poll omits quota fields already returned by admission, so the previous
+// snapshot's values carry across — otherwise quota displays go stale until
+// the next full poll. Fresh compact values win when present
+// (vendor `next ?? current`).
+//
+// keepCompact=false mirrors the vendor's null return: the sessions are not
+// the same active slot (status/instance/model mismatch), so the caller must
+// fetch one full response before compacting again instead of carrying
+// another session's meter forward. Single implementation — pool delegates
+// via mergeCompactSessionSnapshot (pool imports session, not the reverse).
+func MergeCompactSnapshot(current, next SessionSnapshot) (merged SessionSnapshot, keepCompact bool) {
+	if current.Status != "active" || next.Status != "active" ||
+		current.InstanceID != next.InstanceID ||
+		current.Model != next.Model {
+		return SessionSnapshot{}, false
+	}
+	merged = next
+	if len(merged.QuotaByModel) == 0 {
+		merged.QuotaByModel = current.QuotaByModel
+	}
+	if merged.SubscriptionTierID == "" {
+		merged.SubscriptionTierID = current.SubscriptionTierID
+	}
+	if merged.Freebucks == nil {
+		merged.Freebucks = current.Freebucks
+	}
+	return merged, true
+}
+
+// quotaSnapshotFromWire converts a wire quota map to the snapshot view for
+// the compact merge; quotaWireFromSnapshot converts back for the commit.
+// Empty stays nil so the commit-time saved restores keep their shape.
+func quotaSnapshotFromWire(in map[string]upstream.ModelQuota) map[string]QuotaSnapshot {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]QuotaSnapshot, len(in))
+	for id, q := range in {
+		out[id] = QuotaSnapshot{
+			Model:       q.Model,
+			Limit:       q.Limit,
+			RecentCount: q.RecentCount,
+			ResetAt:     q.ResetAt,
+			Period:      q.Period,
+			Pool:        q.Pool,
+			PoolLabel:   q.PoolLabel,
+			Entitlement: q.Entitlement,
+		}
+	}
+	return out
+}
+
+func quotaWireFromSnapshot(in map[string]QuotaSnapshot) map[string]upstream.ModelQuota {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]upstream.ModelQuota, len(in))
+	for id, q := range in {
+		out[id] = upstream.ModelQuota{
+			Model:       q.Model,
+			Limit:       q.Limit,
+			RecentCount: q.RecentCount,
+			ResetAt:     q.ResetAt,
+			Period:      q.Period,
+			Pool:        q.Pool,
+			PoolLabel:   q.PoolLabel,
+			Entitlement: q.Entitlement,
+		}
+	}
+	return out
 }
 
 // pollPersisted attempts to resume a persisted session before a fresh create
@@ -261,10 +394,15 @@ func (m *Manager) Poll(ctx context.Context) error {
 	// the poll GET carries only the instance id, so without this snapshot
 	// the drop/park/heartbeat lines cannot name their model.
 	polledModel := m.state.model
+	// P2: a declined compact merge forces one full (non-compact) poll before
+	// resuming compact polls. Consumed once: the flag clears even when the
+	// GET below fails, so a flaky upstream cannot pin every poll to full.
+	wasFullPoll := m.forceFullPoll
+	m.forceFullPoll = false
 	m.mu.Unlock()
 
 	start := time.Now()
-	st, err := m.client.GetSessionWithOpts(ctx, instanceID, true)
+	st, err := m.client.GetSessionWithOpts(ctx, instanceID, !wasFullPoll)
 	ms := time.Since(start).Milliseconds()
 	if err != nil {
 		// #116: 428 waiting_room_required is session-ENDING
@@ -286,6 +424,10 @@ func (m *Manager) Poll(ctx context.Context) error {
 				slog.Warn("session dropped during poll", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", instanceID, "model", polledModel)
 			}
 		}
+		// P4: a poll GET can itself observe the terminal state (e.g. 403
+		// banned on a dead slot) — feed it back to tokenhealth the same way
+		// admission does. Non-terminal errors leave the memory untouched.
+		m.noteAdmissionErr(err)
 		// Hold: any other poll GET error keeps the slot — the row stays
 		// cached (never commit(nil)/Invalidate/ClearQueued/DELETE) and the
 		// consecutive-failure count paces the re-GET with the vendor
@@ -307,8 +449,30 @@ func (m *Manager) Poll(ctx context.Context) error {
 	// status mapping below is a typed refusal, not a poll failure).
 	m.pollFailures = 0
 	m.lastAdmitted = time.Now()
+	// Refund-pending replay holder: a refund receipt can land on a compact
+	// poll GET between polls (the ended body carries freebucksRefund /
+	// freebucksRefundPending exactly like a DELETE receipt — the parse is
+	// shared). A pending receipt parks the polled instance so a later
+	// EndSession/RefreshRefund replays its DELETE with the same instance id
+	// (vendor af898dc replay semantics); a settled amount records lastRefund
+	// so the balance is never mis-stated, clearing only a matching pending
+	// entry (a newer release may have superseded it). Memory-only like the
+	// CLI zustand store (freebuff-session-store.ts refreshRefund): the
+	// pending entry settles via immediate replay, not across restarts, so a
+	// persisted stale instance id would only buy a tolerated-404 on boot.
+	if st.FreebucksRefundPending && instanceID != "" {
+		m.pendingRefund = instanceID
+	} else if st.FreebucksRefund != nil {
+		m.lastRefund = st.FreebucksRefund
+		if m.pendingRefund == instanceID {
+			m.pendingRefund = ""
+		}
+	}
 	m.mu.Unlock()
 	if serr := statusError(st.Status, st); serr != nil {
+		// P4: feed a terminal poll status (banned, country_blocked) back to
+		// tokenhealth so the Tokens view reflects poll reality too.
+		m.noteAdmissionErr(serr)
 		// A banned session is dead until the account unban: drop the cached
 		// admission (cooldown) so the token re-admits only after the pool's
 		// ban window, instead of polling a stale slot.
@@ -378,6 +542,119 @@ func (m *Manager) Poll(ctx context.Context) error {
 		}
 		return nil
 	}
+	// P2 compact-merge carry (vendor freebuff-session-api.ts
+	// mergeCompactActiveSession; pool-side port in pool/compact_merge.go): a
+	// compact poll omits quota fields already returned by admission, so the
+	// cached admission values carry across — otherwise quota displays go
+	// stale until the next full poll while a compact poll that DID carry
+	// fresh quota would be discarded. Fresh compact values win when present.
+	// A slot mismatch declines the merge and forces one full poll before
+	// resuming compact polls instead of carrying another session's meter
+	// forward; a forced-full response is authoritative and commits directly.
+	// P3's refund fold-in above stays untouched.
+	var quota map[string]upstream.ModelQuota
+	var tier string
+	var fb *upstream.FreebucksInfo
+	if !wasFullPoll {
+		current := m.Snapshot()
+		nextModel := st.Model
+		if nextModel == "" {
+			// The poll GET carries only the instance id, so an omitted
+			// model is "not reported", never a different slot (see
+			// polledModel above).
+			nextModel = current.Model
+		}
+		next := SessionSnapshot{
+			Status:             st.Status,
+			InstanceID:         st.InstanceID,
+			Model:              nextModel,
+			QuotaByModel:       quotaSnapshotFromWire(st.RateLimitsByModel),
+			SubscriptionTierID: st.SubscriptionTierID,
+			Freebucks:          st.Freebucks,
+		}
+		merged, keep := MergeCompactSnapshot(current, next)
+		if !keep {
+			m.mu.Lock()
+			// A concurrent refresh may have replaced the row mid-poll:
+			// only a mismatch against the still-polled row refetches.
+			if m.state != nil && m.state.instanceID == instanceID {
+				m.forceFullPoll = true
+			}
+			m.mu.Unlock()
+			slog.Debug("session: compact poll declined, forcing full poll", "instance_id", shortInstance(instanceID), "model", polledModel, "status", st.Status)
+			return nil
+		}
+		quota = quotaWireFromSnapshot(merged.QuotaByModel)
+		tier = merged.SubscriptionTierID
+		fb = merged.Freebucks
+	} else {
+		quota = st.RateLimitsByModel
+		tier = st.SubscriptionTierID
+		fb = st.Freebucks
+	}
+	m.mu.Lock()
+	if m.state != nil && m.state.instanceID == instanceID && (st.InstanceID == "" || st.InstanceID == instanceID) {
+		// Copy-then-overwrite: fields the poll body omits keep their cached
+		// admission values; fresh poll values win when present.
+		cs := *m.state
+		cs.status = "active"
+		if st.InstanceID != "" {
+			cs.instanceID = st.InstanceID
+		}
+		if !st.ExpiresAt.IsZero() {
+			cs.expiresAt = st.ExpiresAt
+			cs.gracePeriodEndsAt = graceEndFromState(st.ExpiresAt, st.GracePeriodEndsAt)
+		}
+		if st.CountryCode != "" {
+			cs.countryCode = st.CountryCode
+			cs.countryBlockReason = st.CountryBlockReason
+		}
+		if len(st.IpPrivacySignals) > 0 {
+			cs.ipPrivacySignals = st.IpPrivacySignals
+		}
+		if st.ActiveUsersForIP != 0 {
+			cs.activeUsersForIP = st.ActiveUsersForIP
+		}
+		if st.Limit != 0 {
+			cs.limit = st.Limit
+		}
+		if st.GlmPromo != "" {
+			cs.glmPromo = st.GlmPromo
+		}
+		if st.Standing != nil {
+			cs.standing = st.Standing
+		}
+		if st.RemainingMs != 0 {
+			cs.remainingMs = st.RemainingMs
+		}
+		if st.Referral != nil {
+			cs.referral = st.Referral
+		}
+		if st.UpgradeHint != nil {
+			cs.upgradeHint = st.UpgradeHint
+		}
+		if st.Message != "" {
+			cs.serverMessage = st.Message
+		}
+		if st.AccessTier != "" {
+			cs.accessTier = st.AccessTier
+		}
+		if len(st.LimitedModelOffers) > 0 {
+			cs.limitedModelOffers = st.LimitedModelOffers
+		}
+		if st.LimitedOfferReason != "" {
+			cs.limitedOfferReason = st.LimitedOfferReason
+		}
+		cs.quotaByModel = quota
+		cs.freebucks = fb
+		cs.subscriptionTierID = tier
+		m.commit(&cs)
+	}
+	m.mu.Unlock()
+	// A live active poll proves the account reachable: drop any remembered
+	// admission terminal (mirrors the pool clearing its hint on live
+	// admission).
+	m.client.ClearAdmissionTerminal()
 	// Heartbeat liveness confirmed: the compact poll returned a usable
 	// status (active). instance/ms/status standardize the heartbeat poll
 	// line so ops can see each liveness beat and its latency.

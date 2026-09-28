@@ -337,3 +337,126 @@ func TestRefreshRefundZeroSettles(t *testing.T) {
 		t.Errorf("LastRefund = %v, want 0", *snap.LastRefund)
 	}
 }
+
+// TestPollRefundPendingRetained pins the between-polls holder: a refund
+// receipt landing on a compact poll GET (ended + freebucksRefundPending,
+// same parse as a DELETE receipt) parks the polled instance, and a later
+// slotless EndSession replays its DELETE with the same instance id to
+// settle — the balance is never mis-stated as unknown.
+func TestPollRefundPendingRetained(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr := newTestManager(t, mock)
+	if _, err := mgr.EnsureSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var deleteIDs []string
+	deletes := 0
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = io.WriteString(w, `{"status":"ended","instanceId":"inst-abc-123","freebucksRefundPending":true}`)
+		case http.MethodDelete:
+			deletes++
+			deleteIDs = append(deleteIDs, r.Header.Get("x-freebuff-instance-id"))
+			_, _ = io.WriteString(w, `{"status":"ended","instanceId":"inst-abc-123","freebucksRefund":1.5}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}
+	if err := mgr.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if got := mgr.Snapshot().PendingRefund; got != "inst-abc-123" {
+		t.Fatalf("PendingRefund = %q, want inst-abc-123 (poll receipt retained)", got)
+	}
+	if got := mgr.Snapshot().LastRefund; got != nil {
+		t.Fatalf("LastRefund = %v, want nil (unsettled)", *got)
+	}
+	// The poll dropped the ended row, so this teardown is slotless: it
+	// must replay the parked DELETE instead of stranding the settlement.
+	if err := mgr.EndSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if deletes != 1 {
+		t.Fatalf("deletes = %d, want 1 (parked replay)", deletes)
+	}
+	if deleteIDs[0] != "inst-abc-123" {
+		t.Errorf("replay DELETE instance = %q, want inst-abc-123 (same instance for receipt)", deleteIDs[0])
+	}
+	snap := mgr.Snapshot()
+	if snap.PendingRefund != "" {
+		t.Errorf("PendingRefund = %q, want cleared after settle", snap.PendingRefund)
+	}
+	if snap.LastRefund == nil || *snap.LastRefund != 1.5 {
+		t.Errorf("LastRefund = %+v, want 1.5", snap.LastRefund)
+	}
+}
+
+// TestPollRefundRetrySameAmount pins the vendor replay idempotence: every
+// replay DELETE carries the same parked instance id, a still-pending retry
+// keeps the entry, and the settled retry records the same amount the
+// server returns for that instance.
+func TestPollRefundRetrySameAmount(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr := newTestManager(t, mock)
+	if _, err := mgr.EnsureSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var deleteIDs []string
+	deletes := 0
+	mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = io.WriteString(w, `{"status":"ended","instanceId":"inst-abc-123","freebucksRefundPending":true}`)
+		case http.MethodDelete:
+			deletes++
+			deleteIDs = append(deleteIDs, r.Header.Get("x-freebuff-instance-id"))
+			if deletes == 1 {
+				_, _ = io.WriteString(w, `{"status":"ended","instanceId":"inst-abc-123","freebucksRefundPending":true}`)
+			} else {
+				_, _ = io.WriteString(w, `{"status":"ended","instanceId":"inst-abc-123","freebucksRefund":2.5}`)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}
+	if err := mgr.Poll(context.Background()); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if got := mgr.Snapshot().PendingRefund; got != "inst-abc-123" {
+		t.Fatalf("PendingRefund = %q, want inst-abc-123 (poll receipt retained)", got)
+	}
+	// First retry: server still computing — entry kept for the next replay.
+	if err := mgr.RefreshRefund(context.Background()); err != nil {
+		t.Fatalf("RefreshRefund retry 1: %v", err)
+	}
+	if got := mgr.Snapshot().PendingRefund; got != "inst-abc-123" {
+		t.Errorf("PendingRefund = %q after still-pending retry, want kept", got)
+	}
+	if got := mgr.Snapshot().LastRefund; got != nil {
+		t.Errorf("LastRefund = %v after still-pending retry, want nil", *got)
+	}
+	// Second retry: settled — same amount recorded, entry cleared.
+	if err := mgr.RefreshRefund(context.Background()); err != nil {
+		t.Fatalf("RefreshRefund retry 2: %v", err)
+	}
+	if deletes != 2 {
+		t.Fatalf("deletes = %d, want 2 (two same-instance replays)", deletes)
+	}
+	for i, id := range deleteIDs {
+		if id != "inst-abc-123" {
+			t.Errorf("replay %d DELETE instance = %q, want inst-abc-123", i+1, id)
+		}
+	}
+	snap := mgr.Snapshot()
+	if snap.PendingRefund != "" {
+		t.Errorf("PendingRefund = %q, want cleared after settle", snap.PendingRefund)
+	}
+	if snap.LastRefund == nil || *snap.LastRefund != 2.5 {
+		t.Errorf("LastRefund = %+v, want 2.5 (same amount on retry)", snap.LastRefund)
+	}
+}

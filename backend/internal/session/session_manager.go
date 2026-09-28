@@ -8,10 +8,11 @@ package session
 import (
 	"context"
 	"errors"
-	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"sync"
 	"time"
+
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // Manager owns the cached session state for one token.
@@ -91,6 +92,12 @@ type Manager struct {
 	// pollFailures counts consecutive transient poll GET failures; reset on
 	// any successful GET. Guarded by mu.
 	pollFailures int
+	// forceFullPoll forces the next Poll to fetch one full (non-compact)
+	// response before resuming compact polls (PORT-QUEUE P2): a compact poll
+	// whose slot does not match the cached session (status/instance/model
+	// mismatch) must not inherit another session's meter, so the merge
+	// declines it and the next poll refetches full. Guarded by mu.
+	forceFullPoll bool
 	// unavailableTTL + modelUnavailable cache model_unavailable refusals per
 	// model (issue #158); entry.until = min(next window opening, now+TTL).
 	unavailableTTL   time.Duration

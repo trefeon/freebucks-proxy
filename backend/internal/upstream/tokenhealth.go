@@ -271,10 +271,60 @@ func (c *Client) FetchAccountInfo(ctx context.Context) (email, id string, err er
 	return acct.Email, acct.ID, nil
 }
 
+// NoteAdmissionTerminal records an admission-side terminal outcome for this
+// token (PORT-QUEUE P4): ban is enforced at the admission POST while the
+// tokenhealth probes are GET-only, so without this feedback a GET probe
+// reports OK for an account whose last admission returned banned (observed
+// live: dashboard ban None while admission banned on both tokens and the
+// pool quarantined both). Only terminal states stick (BANNED,
+// COUNTRY_BLOCKED, INVALID); any other state clears the memory. Called by
+// the session layer at its terminal admission sites; cleared by
+// ClearAdmissionTerminal on a healthy admission.
+func (c *Client) NoteAdmissionTerminal(state TokenHealthState, hint string) {
+	c.admissionTerminalMu.Lock()
+	defer c.admissionTerminalMu.Unlock()
+	switch state {
+	case TokenBanned, TokenCountryBlocked, TokenInvalid:
+		c.admissionTerminal = state
+		c.admissionTerminalHint = hint
+		c.admissionTerminalAt = time.Now()
+	default:
+		c.admissionTerminal = ""
+		c.admissionTerminalHint = ""
+		c.admissionTerminalAt = time.Time{}
+	}
+}
+
+// ClearAdmissionTerminal drops the remembered admission-side terminal state
+// after a healthy admission proves the account reachable again.
+func (c *Client) ClearAdmissionTerminal() {
+	c.admissionTerminalMu.Lock()
+	defer c.admissionTerminalMu.Unlock()
+	c.admissionTerminal = ""
+	c.admissionTerminalHint = ""
+	c.admissionTerminalAt = time.Time{}
+}
+
+// AdmissionTerminal reports the remembered admission-side terminal state ("",
+// "", false when none). Exported so the session layer's tests can assert the
+// admission → tokenhealth feedback without driving a full probe.
+func (c *Client) AdmissionTerminal() (TokenHealthState, string, bool) {
+	c.admissionTerminalMu.Lock()
+	defer c.admissionTerminalMu.Unlock()
+	if c.admissionTerminal == "" {
+		return "", "", false
+	}
+	return c.admissionTerminal, c.admissionTerminalHint, true
+}
+
 // probeSession reuses the Client's zero-cost token probe (GET
 // /api/v1/freebuff/session with no x-freebuff-instance-id header — claims
 // no session slot, consumes none of the daily allowance) and maps the
-// shared sentinel matrix onto the report vocabulary:
+// shared sentinel matrix onto the report vocabulary. A remembered
+// admission-side terminal (NoteAdmissionTerminal) folds over an OK/UNKNOWN
+// probe verdict so the report reflects admission reality (PORT-QUEUE P4);
+// the live GET always fires first and a live terminal probe verdict is
+// never overridden by the memory:
 //
 //	404 / ended / none / active  -> OK      (idle or live, no problem)
 //	403 banned/account_suspended -> BANNED
@@ -285,6 +335,23 @@ func (c *Client) FetchAccountInfo(ctx context.Context) (email, id string, err er
 //	402 no credits               -> SPEND_LIMITED (soft)
 //	5xx / 428 / unknown          -> UNKNOWN
 func (c *Client) probeSession(ctx context.Context) (TokenHealthState, string) {
+	state, hint := c.probeSessionLive(ctx)
+	if aState, aHint, ok := c.AdmissionTerminal(); ok && (state == TokenOK || state == TokenUnknown) {
+		live := hint
+		if live == "" {
+			live = string(state)
+		}
+		if aHint != "" {
+			return aState, aHint + " (GET probe said: " + live + ")"
+		}
+		return aState, "terminal at last admission (GET probe said: " + live + ")"
+	}
+	return state, hint
+}
+
+// probeSessionLive is the GET-only probe behind probeSession: same matrix,
+// without the admission-terminal fold-over.
+func (c *Client) probeSessionLive(ctx context.Context) (TokenHealthState, string) {
 	state, err := c.ProbeAccount(ctx)
 	if err == nil {
 		return sessionStateFromStatus(state.Status)
@@ -381,7 +448,7 @@ func sessionStateFromStatus(status string) (TokenHealthState, string) {
 		return TokenCountryBlocked, "country_blocked upstream (terminal for this account+egress)"
 	case "superseded":
 		return TokenOK, "session held by another instance (superseded; not a token problem)"
-	case "premium_slot_taken":
+	case string(WireCodePremiumSlotTaken):
 		return TokenOK, "premium slot already taken (not a token problem)"
 	default:
 		return TokenOK, "session status " + status + " (account reachable)"

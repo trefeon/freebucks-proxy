@@ -17,50 +17,48 @@ cache + fallback + metric (#158: `session/session_admission.go:659`,
 `session/session_poll.go:118-132`); off-peak pricing fixture; 0.0.204
 registry (9 served models).
 
+CLI-sweep ports (2026-09-28, do NOT re-queue): P1 SessionState parse gaps
+(`desktopPurchases/desktopRefunds/desktopSessionCounts/freeWindows` +
+`purchase_capacity` holder, opaque passthrough in `upstream/session_parse.go`);
+P2 compact-merge carry (single `session.MergeCompactSnapshot`, pool
+delegates, wired into the `session_poll.go` active path with `forceFullPoll`);
+P3 refund-pending replay holder (`session_poll.go` compact-GET fold-in);
+P4 admission→tokenhealth feedback (`NoteAdmissionTerminal` sticks
+BANNED/COUNTRY_BLOCKED/INVALID, folds over OK/UNKNOWN probes only);
+P5 wirecode consts (`WireCodeModelUnavailable/PremiumSlotTaken/
+PurchaseClaimReleased/PurchaseInUse/PurchaseCapacity` via wiregen regen,
+match-site swaps only). P6 notices copy verified SAME (no action).
+
 ## Queue (impact × effort)
 
-### P1 — SessionState parse gaps (S effort, M impact)
-`upstream/common/src/types/freebuff-session.ts:829-1265` carries
-`desktopPurchases`, `desktopRefunds`, `desktopSessionCounts`,
-`freeWindows` which `upstream/session_parse.go:13-202` drops. We already
-hit this live: a `409 purchase_capacity` names `currentInstanceId` +
-`nextExpiryAt` that the parsed state cannot surface, forcing manual
-forensics. Parse + expose (no behavior change), then use in admission
-error messages.
+### P1 — SessionState parse gaps — PORTED 2026-09-28 (see Recently ported)
 
-### P2 — Compact-merge carry fields (S effort, M impact)
-Vendor merges `rateLimit/rateLimitsByModel/subscription/freebucks` on
-compact polls (`freebuff-session-api.ts:301-328`); proxy sends the compact
-header (`upstream/session.go:164`) but merge ownership is pool-side and
-unverified. Stale quota displays after compact polls. Verify + port the
-merge.
+### P2 — Compact-merge carry fields — PORTED 2026-09-28 (see Recently ported)
 
-### P3 — Refund-pending replay holder (M effort, M impact)
-Vendor `cli/src/state/freebuff-session-store.ts:121-201` replays
-refund-pending state across polls; proxy has no equivalent — a refund that
-lands between polls can be missed, mis-stating balance. Port the holder.
+### P3 — Refund-pending replay holder — PORTED 2026-09-28 (see Recently ported)
 
-### P4 — Tokenhealth admission-visibility gap (S effort, M impact, observed live)
-Ban is enforced at admission POST, invisible to the GET-based probe:
-dashboard showed `ban: None` while admission returned banned on both tokens
-(pool quarantined both). Admission-side terminal states should feed back
-into tokenhealth so the Tokens page reflects reality. (Recorded 2026-09-27
-against `vps-us`; no upstream change needed — proxy-side fix.)
+### P4 — Tokenhealth admission-visibility gap — PORTED 2026-09-28 (see Recently ported)
 
-### P5 — Wirecode vocab for purchase/slot statuses (S effort, L impact)
-`upstream/wirecodes_gen.go` has no `model_unavailable`,
-`premium_slot_taken`, `purchase_*` constants — session layer matches raw
-strings (`session_admission.go:659`, `session_poll.go:118`) while
-`classify.go` speaks only `WireCode*`. Behavior is correct; add the
-constants + snapshot source comments for consistency (watch: `wiregen`
-inputs — generated file, edit via the tool, not by hand).
+### P5 — Wirecode vocab for purchase/slot statuses — PORTED 2026-09-28 (see Recently ported)
 
-### P6 — Notices/spend-ceiling copy at tip (S effort, L impact)
-`upstream/common/src/constants/freebuff-spend-ceilings.ts:5-15` and
-`tier-change` source `upstream/common/src/util/freebuff-model-availability.ts:26-27`
-postdate the pin; `upstream/notices_gen.go:1-39` is generated at pin.
-Re-check copy at next re-pin (bot covers if snapshots refresh; hand-verify
-`dashboard/data/upstream_drift.json`).
+### P6 — Notices/spend-ceiling copy — VERIFIED SAME 2026-09-28, no action (re-pin bot owns pin-age lag)
+
+### P7 — Setup writers for roo/cline/goose/qwen/kilocode/pi/omp (S effort, L impact)
+Folded from `docs/CLI-Limitations.md` (purged 2026-09-28, pin 0.0.178): `cli/setup/setup.go`
+covers only Continue/opencode/aider; the rest stay manual. No harness impact beyond setup UX.
+
+### P8 — Dead-owner takeover resolution (M effort, M impact)
+Folded from CLI-Limitations P1-2: proxy surfaces terminal `503 session_superseded`,
+never resolves (pid-file mechanism is single-user WONT). Open: steer shared-token
+clients (omp/pi multi-session) on takeover instead of a dead screen.
+
+### P9 — `model_locked` GET→DELETE→POST auto-repick (M effort, M impact)
+Folded from CLI-Limitations P1-3: refusal is terminal `409 model_locked` with
+re-pick copy; no repick — a stale row on another model costs a failed turn.
+
+### P10 — Country-block best-effort DELETE (S effort, L impact)
+Folded from CLI-Limitations P1-4: `403 country_blocked` invalidates cache but
+sends no upstream DELETE; the row lingers server-side until natural expiry.
 
 ## Accepted gaps (do NOT port — reasoning recorded in code)
 
@@ -84,3 +82,6 @@ Re-check copy at next re-pin (bot covers if snapshots refresh; hand-verify
 - `x-freebuff-takeover-instance-id`: never sent — no user-confirmed holder;
   `session_superseded` stays terminal to avoid ping-pong
   (`upstream/session.go` const block).
+- Sponsored-run settle timers (`sponsored-run.ts`, `exit-cleanly.ts`): CLI-only
+  concept, no harness drives sponsored runs through the proxy. Folded from
+  CLI-Limitations P1-5.

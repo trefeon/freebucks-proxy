@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"math"
 	"net/http"
@@ -14,6 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 func TestStatusErrorModelIPLimited(t *testing.T) {
@@ -1062,5 +1063,34 @@ func TestModelUnavailableFallbackWithLimitedOfferReason(t *testing.T) {
 	}
 	if createdModels[0] != "rare/model" || createdModels[1] != DefaultFallbackModel() {
 		t.Errorf("createdModels = %v, want rare/model then cheapest fallback %s", createdModels, DefaultFallbackModel())
+	}
+}
+
+// TestAdmissionBanMarksTokenHealth pins the P4 admission → tokenhealth
+// feedback: a banned admission marks the client's tokenhealth memory (so the
+// GET-based probes report BANNED instead of OK), and a later healthy
+// admission clears it.
+func TestAdmissionBanMarksTokenHealth(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.Ban = true
+	mgr := newTestManager(t, mock)
+
+	_, err := mgr.EnsureSessionForModel(context.Background(), "model-a")
+	var be *upstream.BanError
+	if !errors.As(err, &be) {
+		t.Fatalf("admit on banned token = %v, want *upstream.BanError", err)
+	}
+	state, _, ok := mgr.client.AdmissionTerminal()
+	if !ok || state != upstream.TokenBanned {
+		t.Fatalf("AdmissionTerminal = %q/%v, want BANNED/true after banned admission", state, ok)
+	}
+
+	mock.Ban = false
+	if _, err := mgr.EnsureSessionForModel(context.Background(), "model-a"); err != nil {
+		t.Fatalf("admit after unban: %v", err)
+	}
+	if state, _, ok := mgr.client.AdmissionTerminal(); ok {
+		t.Fatalf("AdmissionTerminal = %q/true, want cleared after healthy admission", state)
 	}
 }

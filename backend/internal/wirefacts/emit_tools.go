@@ -142,7 +142,8 @@ func parseToolConst(path string, src []byte, name, commit string) (string, error
 // fails (upstream added a shape we do not handle), missing fails (upstream
 // removed one we may reference). The purchase_* trio are Desktop purchase-
 // flow admission shapes (78a7ab4); they ride the default TokenOK path at
-// runtime, never a WireCode. consent_required (af898dc) is the 409
+// runtime, matched from the parsed session status via WireCode (never a
+// classifyError body marker). consent_required (af898dc) is the 409
 // wallet-consent admission shape, handled from the parsed session status.
 // first_tab_discount_changed (6cd8970) is the 409 first-tab re-quote,
 // handled the same way.

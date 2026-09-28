@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -121,6 +122,35 @@ type SessionState struct {
 	// closed/exhausted it carries no countdown (the state build skips the
 	// UnavailableWindow parse for it).
 	LimitedOfferReason string
+	// DesktopPurchases mirrors the upstream desktopPurchases block
+	// (FreebuffDesktopPurchaseInfo: {model, expiresAt, holderInstanceId?}).
+	// Opaque passthrough like PrivacyDecision — never switched on, never
+	// clamped; nil when the server sent none.
+	DesktopPurchases []DesktopPurchase
+	// DesktopRefunds mirrors the upstream desktopRefunds block
+	// (FreebuffDesktopRefundInfo). Opaque passthrough; nil when absent.
+	DesktopRefunds []DesktopRefund
+	// DesktopSessionCounts mirrors the upstream desktopSessionCounts block
+	// (FreebuffDesktopSessionCounts: live multi-session Desktop totals).
+	// Opaque passthrough; nil when the server sent none.
+	DesktopSessionCounts *DesktopSessionCounts
+	// FreeWindows carries the raw JSON of the upstream freeWindows block
+	// (FreebuffFreeWindowsInfo) when the response includes it. Kept as a
+	// string so callers render the shape without the upstream adding
+	// fields; "" when absent.
+	FreeWindows string
+	// CurrentInstanceID mirrors the purchase_in_use|purchase_capacity (and
+	// premium_slot_taken) currentInstanceId holder: the live session
+	// holding the purchase. Opaque passthrough; "" when absent.
+	CurrentInstanceID string
+	// Concurrency mirrors the purchase_capacity concurrency bucket
+	// (FreebuffDesktopConcurrency: slot-bound|multi-tab). Opaque
+	// passthrough; "" when the server omitted it (older servers).
+	Concurrency string
+	// SlotLimit mirrors the purchase_capacity slotLimit entitlement cap.
+	// Opaque passthrough; nil when the server omitted it — callers must
+	// not guess the limit.
+	SlotLimit *int
 	// LimitedModelOffers carries the capacity-limited models the picker may
 	// additionally offer right now, parsed from the pre-join (none)
 	// response (vendor e2b911eca, FreebuffLimitedModelOffer); nil when the
@@ -175,6 +205,38 @@ type LimitedModelOffer struct {
 // offer: the client treats userRemaining == 0 as "not now" rather than
 // hiding the row.
 func (o LimitedModelOffer) Joinable() bool { return o.UserRemaining > 0 }
+
+// DesktopPurchase mirrors FreebuffDesktopPurchaseInfo
+// (common/src/types/freebuff-session.ts): one unexpired Desktop purchase,
+// including occupied hours. HolderInstanceID is "" when the hour is free.
+type DesktopPurchase struct {
+	Model            string `json:"model"`
+	ExpiresAt        string `json:"expiresAt"`
+	HolderInstanceID string `json:"holderInstanceId"`
+}
+
+// DesktopRefund mirrors FreebuffDesktopRefundInfo: one settled Desktop
+// purchase reversal. Opaque passthrough — never switched on.
+type DesktopRefund struct {
+	ClaimInstanceIDs   []string `json:"claimInstanceIds"`
+	PurchaseID         string   `json:"purchaseId"`
+	Model              string   `json:"model"`
+	Amount             float64  `json:"amount"`
+	WalletAmount       float64  `json:"walletAmount"`
+	ExpiredBonusAmount float64  `json:"expiredBonusAmount"`
+	RefundedAt         string   `json:"refundedAt"`
+	PoolDate           string   `json:"poolDate"`
+	PoolLocalDate      string   `json:"poolLocalDate"`
+}
+
+// DesktopSessionCounts mirrors FreebuffDesktopSessionCounts: live,
+// unexpired Desktop rows across all Desktop processes for the user.
+// NextExpiryAt is "" when the server omitted it.
+type DesktopSessionCounts struct {
+	Premium      int    `json:"premium"`
+	Unlimited    int    `json:"unlimited"`
+	NextExpiryAt string `json:"nextExpiryAt"`
+}
 
 // Fable 5.1 trace-campaign pins (vendor e2b911eca,
 // common/src/constants/freebuff-models.ts): the capacity-limited trial
@@ -269,6 +331,21 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 		// multi-session refusal flags (vendor 3f00c77); absent = false.
 		UpdateRequired  bool `json:"updateRequired"`
 		PurchasesPaused bool `json:"purchasesPaused"`
+		// Desktop purchase metadata rides every admission state plus the
+		// superseded poll row (vendor freebuff-session.ts @ede39b345):
+		// unexpired purchases, settled refunds, and live multi-session
+		// totals. All opaque passthrough — absent on older servers stays
+		// zero (nil/""), never fabricated.
+		DesktopPurchases     []DesktopPurchase     `json:"desktopPurchases"`
+		DesktopRefunds       []DesktopRefund       `json:"desktopRefunds"`
+		DesktopSessionCounts *DesktopSessionCounts `json:"desktopSessionCounts"`
+		FreeWindows          json.RawMessage       `json:"freeWindows"`
+		// purchase_in_use|purchase_capacity (and premium_slot_taken) carry
+		// the holder instance plus the capacity bucket; older servers omit
+		// the bucket, so Concurrency stays "" and SlotLimit stays nil.
+		CurrentInstanceID string `json:"currentInstanceId"`
+		Concurrency       string `json:"concurrency"`
+		SlotLimit         *int   `json:"slotLimit"`
 		// freebucksRefund / freebucksRefundPending ride the ended DELETE
 		// receipt (vendor af898dc); walletConsent rides consent_required.
 		FreebucksRefund        *float64          `json:"freebucksRefund"`
@@ -281,33 +358,40 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 	}
 	if err := json.Unmarshal([]byte(body), &raw); err == nil && raw.Status != "" {
 		state := &SessionState{
-			Status:             raw.Status,
-			WireBody:           body,
-			InstanceID:         raw.InstanceID,
-			Model:              raw.Model,
-			CurrentModel:       raw.CurrentModel,
-			RequestedModel:     raw.RequestedModel,
-			RemainingMs:        raw.RemainingMs,
-			GraceRemainingMs:   raw.GracePeriodRemainingMs,
-			Position:           raw.Position,
-			QueueDepth:         raw.QueueDepth,
-			EstimatedWaitMs:    raw.EstimatedWaitMs,
-			CountryCode:        raw.CountryCode,
-			CountryBlockReason: raw.CountryBlockReason,
-			PrivacyDecision:    raw.PrivacyDecision,
-			IpPrivacySignals:   raw.IpPrivacySignals,
-			AccessTier:         raw.AccessTier,
-			ActiveUsersForIP:   raw.ActiveUsersForIP,
-			Limit:              raw.Limit,
-			RecentCount:        raw.RecentCount,
-			RetryAfterMs:       raw.RetryAfterMs,
-			WindowHours:        raw.WindowHours,
-			FreebucksShortfall: freebucksShortfallPresent(raw.FreebucksShortfall),
-			AvailableHours:     raw.AvailableHours,
-			Message:            raw.Message,
-			GlmPromo:           string(raw.GlmPromo),
-			UpdateRequired:     raw.UpdateRequired,
-			PurchasesPaused:    raw.PurchasesPaused,
+			Status:               raw.Status,
+			WireBody:             body,
+			InstanceID:           raw.InstanceID,
+			Model:                raw.Model,
+			CurrentModel:         raw.CurrentModel,
+			RequestedModel:       raw.RequestedModel,
+			RemainingMs:          raw.RemainingMs,
+			GraceRemainingMs:     raw.GracePeriodRemainingMs,
+			Position:             raw.Position,
+			QueueDepth:           raw.QueueDepth,
+			EstimatedWaitMs:      raw.EstimatedWaitMs,
+			CountryCode:          raw.CountryCode,
+			CountryBlockReason:   raw.CountryBlockReason,
+			PrivacyDecision:      raw.PrivacyDecision,
+			IpPrivacySignals:     raw.IpPrivacySignals,
+			AccessTier:           raw.AccessTier,
+			ActiveUsersForIP:     raw.ActiveUsersForIP,
+			Limit:                raw.Limit,
+			RecentCount:          raw.RecentCount,
+			RetryAfterMs:         raw.RetryAfterMs,
+			WindowHours:          raw.WindowHours,
+			FreebucksShortfall:   freebucksShortfallPresent(raw.FreebucksShortfall),
+			AvailableHours:       raw.AvailableHours,
+			Message:              raw.Message,
+			GlmPromo:             string(raw.GlmPromo),
+			FreeWindows:          string(raw.FreeWindows),
+			CurrentInstanceID:    raw.CurrentInstanceID,
+			Concurrency:          raw.Concurrency,
+			SlotLimit:            raw.SlotLimit,
+			DesktopPurchases:     raw.DesktopPurchases,
+			DesktopRefunds:       raw.DesktopRefunds,
+			DesktopSessionCounts: raw.DesktopSessionCounts,
+			UpdateRequired:       raw.UpdateRequired,
+			PurchasesPaused:      raw.PurchasesPaused,
 			// LimitedOfferReason deliberately unset here: the switch below
 			// admits only the three known vendor members, anything else stays ''.
 		}
@@ -321,6 +405,18 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 		}
 		if len(raw.LimitedModelOffers) > 0 {
 			state.LimitedModelOffers = append([]LimitedModelOffer(nil), raw.LimitedModelOffers...)
+		}
+		// purchase_capacity names the holder only in currentInstanceId — the
+		// vendor sends no message on this refusal — so enrich the message
+		// text with the holder id for log readability. Text only: no new
+		// branches, no admission behavior change.
+		if raw.Status == "purchase_capacity" && state.CurrentInstanceID != "" &&
+			!strings.Contains(state.Message, state.CurrentInstanceID) {
+			if state.Message != "" {
+				state.Message += " (instance " + state.CurrentInstanceID + ")"
+			} else {
+				state.Message = "purchase capacity held by instance " + state.CurrentInstanceID
+			}
 		}
 		// A 'used' personal trial cannot be replenished by waiting, so it
 		// carries no countdown: skip the UnavailableWindow parse and leave

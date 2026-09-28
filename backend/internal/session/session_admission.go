@@ -12,11 +12,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // SetReAdmitLead configures the pre-emptive re-admit lead (issue #99): when
@@ -473,6 +474,11 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 					slog.Warn("session dropped on queued refresh", "reason", reasonPoll, "status", "waiting_room_required", "instance_id", cached.instanceID, "model", cached.model)
 				}
 			}
+			// P4: a terminal admission refusal (banned, country_blocked,
+			// auth-rejected) feeds back into the client's tokenhealth memory
+			// so the GET-based probes reflect admission reality. Waiting-room
+			// and other refusals leave the memory untouched.
+			m.noteAdmissionErr(err)
 			return err
 		}
 
@@ -513,6 +519,9 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			// skipped.
 			m.lastAdmitted = time.Now()
 			m.mu.Unlock()
+			// P4: a healthy admission proves the account reachable — drop any
+			// remembered admission terminal so the probes report live state.
+			m.client.ClearAdmissionTerminal()
 			slog.Debug("session created", "status", "active", "instance_id", st.InstanceID,
 				"model", model, "expires_at", st.ExpiresAt.Format(time.RFC3339))
 			return nil
@@ -622,14 +631,20 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			}
 			slog.Debug("session recreated", "reason", tableReason(status), "status", status, "instance_id", st.InstanceID, "model", dropModel)
 		case "banned", "country_blocked", "rate_limited", "ip_capped", "spend_limited", "session_model_mismatch", "limited_ip",
-			"consent_required", "purchase_claim_released", "purchase_in_use", "purchase_capacity",
-			"first_tab_discount_changed", "premium_slot_taken":
+			"consent_required", string(upstream.WireCodePurchaseClaimReleased), string(upstream.WireCodePurchaseInUse), string(upstream.WireCodePurchaseCapacity),
+			"first_tab_discount_changed", string(upstream.WireCodePremiumSlotTaken):
 			// The last six are terminal admission refusals (vendor af898dc,
 			// 6cd8970 first-tab re-quote, and premium-slot concurrency):
 			// the wallet consent demand, the Desktop purchase-flow failures,
 			// the stale first-tab quote, and the one-premium-session limit
 			// stop polling upstream (nextDelayMs returns null) — surface
 			// them with no retry and no cooldown.
+			// P4: banned/country_blocked stop here as status strings (never
+			// reaching the typed-error path above) — feed them back into the
+			// client's tokenhealth memory so the GET-based probes reflect
+			// admission reality. Other terminal refusals are request-scoped
+			// (consent, purchase flow, slot limits), not account health.
+			m.noteAdmissionStatus(status, st)
 			return statusError(status, st)
 		case "model_locked":
 			// Previous session is locked to a different model.
@@ -656,7 +671,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				m.recordReleaseReceipt(releaseID, rcpt)
 			}
 			slog.Debug("session released on model lock, retrying", "instance_id", releaseID, "reason", reasonModelLock, "current", st.CurrentModel, "target", targetModel)
-		case "model_unavailable":
+		case string(upstream.WireCodeModelUnavailable):
 			// Requested model is not available; fall back to the cheapest
 			// served unmetered model for this token's live Freebucks meter
 			// (resolved at call time, never a pinned id).
