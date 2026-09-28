@@ -218,14 +218,35 @@ func (m *Manager) createSessionForModel(ctx context.Context, model string) (*ups
 			}
 		}
 	}
-	st, err := m.client.CreateSessionForModel(ctx, model)
-	if err != nil {
+	// G4: resolve the stable purchase claim once per admission round — every
+	// POST in the retry loop below rejoins on it via
+	// CreateSessionForModelWithClaim; rotation happens only on
+	// DELETE/superseded paths (rotateClaim), never per attempt.
+	claim := m.ensureClaim()
+	var st *upstream.SessionState
+	var err error
+	for attempt := 0; ; attempt++ {
+		st, err = m.client.CreateSessionForModelWithClaim(ctx, model, claim)
+		if err == nil {
+			return st, nil
+		}
 		var rle *upstream.RateLimitError
 		if errors.As(err, &rle) && rle.Model == "" {
 			rle.Model = model
 		}
+		// G5: a 503/capacity/transient admission refusal retries the SAME
+		// claim with backoff (20s doubling, 5m cap) before surfacing to
+		// the pool's failover — never fail over across tokens on a
+		// waiting-room without exhausting these first.
+		if !admissionRetryable(err) || attempt >= admissionMaxRetries {
+			return st, err
+		}
+		backoff := admissionRetryBackoff(attempt+1, pollRetryAfter(err))
+		slog.Debug("session: admission refused, retrying same claim", "model", model, "claim", shortInstance(claim), "attempt", attempt+1, "backoff_ms", backoff.Milliseconds(), "err", err)
+		if serr := admissionRetrySleep(ctx, backoff); serr != nil {
+			return nil, serr
+		}
 	}
-	return st, err
 }
 
 // shortInstance renders a session instance id's first 8 chars for logs.
@@ -401,6 +422,9 @@ func (m *Manager) releaseHeldSlotForTarget(ctx context.Context, targetModel stri
 		m.commit(nil)
 	}
 	m.mu.Unlock()
+	// The old row is explicitly gone: the next admission must rejoin on a
+	// fresh purchase claim (G4 rotate-after-DELETE).
+	m.rotateClaim(reasonModelLock)
 	slog.Info("session: slot released on model switch", "instance_id", oldID, "model", heldModel, "held_model", heldModel, "requested_model", targetModel, "reason", reasonModelLock, "status", "ended")
 }
 
@@ -417,6 +441,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 	if m.modelUnavailableShortCircuit(&targetModel) {
 		return nil
 	}
+	claimRetried := false
 	for i := 0; i < maxRefreshIterations; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -514,10 +539,7 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				limitedModelOffers: st.LimitedModelOffers,
 				limitedOfferReason: st.LimitedOfferReason,
 			})
-			// Issue #60: the successful admission refreshes the probe cache
-			// window — subsequent session poll GETs within the TTL are
-			// skipped.
-			m.lastAdmitted = time.Now()
+			// G6: no probe-cache window refresh — polls are unconditional.
 			m.mu.Unlock()
 			// P4: a healthy admission proves the account reachable — drop any
 			// remembered admission terminal so the probes report live state.
@@ -621,6 +643,13 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			m.mu.Lock()
 			m.commit(nil)
 			m.mu.Unlock()
+			// A superseded row is terminally taken over (endsTheSession:true):
+			// the claim that held it is dead, so rotate before the loop
+			// re-admits — the next admission rejoins on a fresh claim (G4).
+			// ended/none rejoin on the SAME claim (CLI rejoin re-POSTs it).
+			if status == "superseded" {
+				m.rotateClaim(reasonSuperseded)
+			}
 			m.recordInvalidation(tableReason(status))
 			// The dropped row's model is the live-refresh target (a fresh
 			// manager re-admitting from the store has no cached model yet,
@@ -630,20 +659,25 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				dropModel = cached.model
 			}
 			slog.Debug("session recreated", "reason", tableReason(status), "status", status, "instance_id", st.InstanceID, "model", dropModel)
+		case string(upstream.WireCodePurchaseClaimReleased):
+			// G4: a released claim is single-use (CLI claimRetired: "persist a new id before retrying").
+			// Rotate to a fresh claim ID and retry admission in the loop once before failing.
+			m.noteAdmissionStatus(status, st)
+			m.rotateClaim(string(upstream.WireCodePurchaseClaimReleased))
+			if i+1 < maxRefreshIterations && !claimRetried {
+				claimRetried = true
+				continue
+			}
+			return statusError(status, st)
 		case "banned", "country_blocked", "rate_limited", "ip_capped", "spend_limited", "session_model_mismatch", "limited_ip",
-			"consent_required", string(upstream.WireCodePurchaseClaimReleased), string(upstream.WireCodePurchaseInUse), string(upstream.WireCodePurchaseCapacity),
+			"consent_required", string(upstream.WireCodePurchaseInUse), string(upstream.WireCodePurchaseCapacity),
 			"first_tab_discount_changed", string(upstream.WireCodePremiumSlotTaken):
-			// The last six are terminal admission refusals (vendor af898dc,
+			// The remaining terminal admission refusals (vendor af898dc,
 			// 6cd8970 first-tab re-quote, and premium-slot concurrency):
 			// the wallet consent demand, the Desktop purchase-flow failures,
 			// the stale first-tab quote, and the one-premium-session limit
 			// stop polling upstream (nextDelayMs returns null) — surface
 			// them with no retry and no cooldown.
-			// P4: banned/country_blocked stop here as status strings (never
-			// reaching the typed-error path above) — feed them back into the
-			// client's tokenhealth memory so the GET-based probes reflect
-			// admission reality. Other terminal refusals are request-scoped
-			// (consent, purchase flow, slot limits), not account health.
 			m.noteAdmissionStatus(status, st)
 			return statusError(status, st)
 		case "model_locked":
@@ -666,9 +700,15 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				releaseID = heldID
 			}
 			// Best-effort like before; a receipt still feeds the refund
-			// tracking so a pending settlement stays replayable.
-			if rcpt, _ := m.client.EndSession(ctx, releaseID); rcpt != nil {
+			// tracking so a pending settlement stays replayable. A successful
+			// DELETE retires the old row: rotate the purchase claim (G4) so
+			// the retry rejoins fresh, like the CLI's deliberate-pick switch.
+			rcpt, derr := m.client.EndSession(ctx, releaseID)
+			if rcpt != nil {
 				m.recordReleaseReceipt(releaseID, rcpt)
+			}
+			if derr == nil && releaseID != "" {
+				m.rotateClaim(reasonModelLock)
 			}
 			slog.Debug("session released on model lock, retrying", "instance_id", releaseID, "reason", reasonModelLock, "current", st.CurrentModel, "target", targetModel)
 		case string(upstream.WireCodeModelUnavailable):
@@ -823,6 +863,10 @@ func (m *Manager) EndSession(ctx context.Context) error {
 		return err
 	}
 	m.recordReleaseReceipt(instanceID, rcpt)
+	// The old row is explicitly gone: rotate the purchase claim (G4) so
+	// the next admission rejoins fresh. (Shutdown's exit-release keeps
+	// the claim — the persisted row may still resume-adopt it.)
+	m.rotateClaim(reasonEnded)
 	return nil
 }
 

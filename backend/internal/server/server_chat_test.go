@@ -149,22 +149,22 @@ func TestChatTurnTimeRateLimitRehitsUpstream(t *testing.T) {
 // TestChatSessionSupersededTerminal pins #159: 409 session_superseded
 // (another instance took over the account, endsTheSession:true) is TERMINAL
 // for the current request — the cached session is dropped immediately and
-// the error surfaces with NO in-request retry. The success canary proves the
-// retry never fires: one chat attempt, one session create, 503
-// session_superseded (the #119 re-admit-once behavior wasted a fresh daily
-// session slot against the superseding instance and still failed).
+// the honest 409 surfaces with NO in-request retry and NO Retry-After
+// invitation (a 503 + Retry-After:1s would hand the harness a retry storm
+// against the superseding instance). The success canary proves the retry
+// never fires: one chat attempt, one session create, 409 session_superseded.
 func TestChatSessionSupersededTerminal(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	// First chat attempt returns session_superseded; a SECOND attempt would
-	// succeed (canary) — the response must still be 503 and the canary must
+	// succeed (canary) — the response must still be 409 and the canary must
 	// never fire, proving the dead instance is not re-attempted.
 	callCount := 0
 	originalHandler := mock.ChatHandler
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		if callCount == 1 {
-			w.WriteHeader(http.StatusBadRequest)
+			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"error":{"message":"session_superseded"}}`))
 			return
 		}
@@ -179,11 +179,14 @@ func TestChatSessionSupersededTerminal(t *testing.T) {
 	ts, _ := newTestServer(t, nil, mock)
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503: %s", resp.StatusCode, data)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", resp.StatusCode, data)
 	}
 	if !strings.Contains(string(data), "session_superseded") {
 		t.Errorf("body missing session_superseded: %s", data)
+	}
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		t.Errorf("Retry-After = %q, want empty (terminal 409 invites no retry)", ra)
 	}
 	if got := callCount; got != 1 {
 		t.Errorf("upstream chat attempts = %d, want exactly 1 (no retry on the dead instance)", got)
@@ -196,13 +199,15 @@ func TestChatSessionSupersededTerminal(t *testing.T) {
 	}
 }
 
-// TestChatSessionSupersededRefundRejoinsOnce pins the live 2026-09-28
-// behavior: a 409 whose wording describes a REFUNDED purchase ("purchase
-// was refunded. Start a new session to try again." — e.g. after a
-// waiting-room 503 consumed the hold) carries no competitor, so the
-// request rejoins fresh exactly once and succeeds. Takeover-worded 409s
-// stay terminal (TestChatSessionSupersededTerminal).
-func TestChatSessionSupersededRefundRejoinsOnce(t *testing.T) {
+// TestChatSessionSupersededRefundNeverRejoins pins the fail-fast rule for
+// the live 2026-09-28 shape: a 409 whose wording describes a REFUNDED
+// purchase ("purchase was refunded. Start a new session to try again." —
+// e.g. after a waiting-room 503 consumed the hold) is TERMINAL for the
+// current turn, exactly like a takeover. The gate match is error code +
+// HTTP status, never message prose, so no wording ever reopens a rejoin:
+// one chat attempt, one session create, honest 409 with no Retry-After.
+// The success canary proves the rejoin never fires.
+func TestChatSessionSupersededRefundNeverRejoins(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	callCount := 0
@@ -210,7 +215,7 @@ func TestChatSessionSupersededRefundRejoinsOnce(t *testing.T) {
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		if callCount == 1 {
-			w.WriteHeader(http.StatusBadRequest)
+			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"error":"session_superseded","message":"This model purchase was refunded. Start a new session to try again."}`))
 			return
 		}
@@ -225,14 +230,62 @@ func TestChatSessionSupersededRefundRejoinsOnce(t *testing.T) {
 	ts, _ := newTestServer(t, nil, mock)
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200 after refund rejoin: %s", resp.StatusCode, data)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (refund wording never rejoins): %s", resp.StatusCode, data)
 	}
-	if got := callCount; got != 2 {
-		t.Errorf("upstream chat attempts = %d, want exactly 2 (one rejoin, no loop)", got)
+	if !strings.Contains(string(data), "session_superseded") {
+		t.Errorf("body missing session_superseded: %s", data)
+	}
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		t.Errorf("Retry-After = %q, want empty (terminal 409 invites no retry)", ra)
+	}
+	if got := callCount; got != 1 {
+		t.Errorf("upstream chat attempts = %d, want exactly 1 (no rejoin on refund wording)", got)
+	}
+	if got := mock.SessionCreates; got != 1 {
+		t.Errorf("session creates = %d, want 1 (no fresh admit in-request; the next turn re-joins)", got)
+	}
+}
+
+// TestChatSessionSupersededNextRequestReadmits pins #159: a superseded chat
+// invalidates the cached session immediately, so the NEXT request re-admits
+// fresh instead of reusing the dead row. Two requests: the first surfaces
+// 409 session_superseded (one create, no Retry-After), the second succeeds
+// on a NEW session (second create — proves the cache was dropped, not reused).
+func TestChatSessionSupersededNextRequestReadmits(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.ChatStatus = http.StatusConflict
+	mock.ChatErrorBody = `{"error":{"message":"session_superseded"}}`
+	ts, _ := newTestServer(t, nil, mock)
+
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", resp.StatusCode, data)
+	}
+	if !strings.Contains(string(data), "session_superseded") {
+		t.Errorf("body missing session_superseded: %s", data)
+	}
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		t.Errorf("Retry-After = %q, want empty (terminal 409 invites no retry)", ra)
+	}
+	if got := mock.SessionCreates; got != 1 {
+		t.Fatalf("session creates after superseded request = %d, want 1", got)
+	}
+
+	// Upstream heals; the next request must create a FRESH session (the
+	// superseded row was invalidated, so no cached instance is reused).
+	mock.ChatStatus = http.StatusOK
+	mock.ChatErrorBody = ""
+	resp2, data2 := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("second request status = %d, want 200: %s", resp2.StatusCode, data2)
 	}
 	if got := mock.SessionCreates; got != 2 {
-		t.Errorf("session creates = %d, want 2 (fresh admit for the rejoin)", got)
+		t.Errorf("session creates after re-admit request = %d, want 2 (fresh session, not cache reuse)", got)
+	}
+	if got := len(mock.RecordedChatHeaders); got != 2 {
+		t.Errorf("upstream chat attempts = %d, want 2 (1 per request — no in-request retry)", got)
 	}
 }
 
@@ -252,45 +305,6 @@ func TestOpenAIChatStampsSystemCacheMarker(t *testing.T) {
 	}
 	if !mock.BodyContains(`"cache_control":{"type":"ephemeral"}`) {
 		t.Error("upstream chat body missing system cache_control ephemeral marker")
-	}
-}
-
-// TestChatSessionSupersededNextRequestReadmits pins #159: a superseded chat
-// invalidates the cached session immediately, so the NEXT request re-admits
-// fresh instead of reusing the dead row. Two requests: the first surfaces
-// 503 session_superseded (one create), the second succeeds on a NEW session
-// (second create — proves the cache was dropped, not reused).
-func TestChatSessionSupersededNextRequestReadmits(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	mock.ChatStatus = http.StatusBadRequest
-	mock.ChatErrorBody = `{"error":{"message":"session_superseded"}}`
-	ts, _ := newTestServer(t, nil, mock)
-
-	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503: %s", resp.StatusCode, data)
-	}
-	if !strings.Contains(string(data), "session_superseded") {
-		t.Errorf("body missing session_superseded: %s", data)
-	}
-	if got := mock.SessionCreates; got != 1 {
-		t.Fatalf("session creates after superseded request = %d, want 1", got)
-	}
-
-	// Upstream heals; the next request must create a FRESH session (the
-	// superseded row was invalidated, so no cached instance is reused).
-	mock.ChatStatus = http.StatusOK
-	mock.ChatErrorBody = ""
-	resp2, data2 := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("second request status = %d, want 200: %s", resp2.StatusCode, data2)
-	}
-	if got := mock.SessionCreates; got != 2 {
-		t.Errorf("session creates after re-admit request = %d, want 2 (fresh session, not cache reuse)", got)
-	}
-	if got := len(mock.RecordedChatHeaders); got != 2 {
-		t.Errorf("upstream chat attempts = %d, want 2 (1 per request — no in-request retry)", got)
 	}
 }
 
@@ -601,6 +615,13 @@ func TestChatModelIPLimitedAdmissionPath(t *testing.T) {
 func TestChatModelIPLimitedConcurrentRefusals(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
+	// Mint-per-turn: 16 concurrent turns burn 16 STARTs — extend beyond the
+	// 3-id default.
+	ids := make([]string, 16)
+	for i := range ids {
+		ids[i] = "run-conc-000" + string(rune('0'+i/10)) + string(rune('0'+i%10))
+	}
+	mock.RunIDs = ids
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
 		writeRawJSON(w, http.StatusConflict, limitedChatBody())
 	}

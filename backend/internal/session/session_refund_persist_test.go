@@ -2,12 +2,13 @@ package session
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestRefundSurvivesReload pins the P0 spend-correctness gap: a parked
@@ -239,9 +240,12 @@ func TestStoreRemoveDowngradesToRefundOnly(t *testing.T) {
 	}
 
 	// Matching invalidation: live fields drop, the parked refund survives.
+	// Load reports no resumable session (nil — a sessionless row holds
+	// nothing to adopt); the refund survives via LoadRefund for the boot
+	// replay below.
 	store.Remove("k", "inst-live")
-	if got := store.Load("k"); got == nil || got.instanceID != "" {
-		t.Fatalf("Load after matching Remove = %+v, want refund-only entry (empty instance)", got)
+	if got := store.Load("k"); got != nil {
+		t.Fatalf("Load after matching Remove = %+v, want nil (nothing resumable)", got)
 	}
 	if pending, _, _ := store.LoadRefund("k"); pending != "inst-parked-1" {
 		t.Errorf("LoadRefund after Remove = %q, want parked inst-parked-1", pending)

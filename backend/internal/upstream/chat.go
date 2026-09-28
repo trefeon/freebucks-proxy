@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +39,21 @@ type ChatOptions struct {
 	// system prompt: base3-free-* roots speak the base3 sentence (agents/
 	// base3.ts), everything else keeps the base2 one. Empty = base2 marker.
 	AgentID string
+	// AgentMode is the CLI agent mode (DEFAULT/LITE/MAX/PLAN) selecting
+	// codebuff_metadata.cost_mode per AGENT_MODE_TO_COST_MODE
+	// (upstream/freebuff cli/src/utils/constants.ts:182-187):
+	// LITE=free, DEFAULT/PLAN=normal, MAX=max. Empty falls back to the
+	// client's configured cost mode so callers without a mode keep the
+	// legacy behavior.
+	AgentMode string
+	// RepoSnapshot is the JSON-encoded aggregate repository snapshot
+	// (the REPO_SNAPSHOT_FIELDS projection: counts and bounded enums
+	// only, never paths/patches/branches) stamped verbatim as
+	// codebuff_metadata.repo_snapshot, exactly like the CLI's
+	// JSON.stringify(repoSnapshot) (upstream/freebuff sdk/src/run.ts:
+	// 1002-1046). Empty means absent. The proxy never fabricates one:
+	// with no repo access there is nothing honest to send.
+	RepoSnapshot string
 	// StepNumber is the 1-based per-run agent step counter (CLI parity:
 	// llm_step_number is merged on every chat call, String(n);
 	// upstream/freebuff agent-runtime run-agent-step.ts:1175-1177).
@@ -58,27 +73,18 @@ type ChatOptions struct {
 	ExtraCodebuffMetadata map[string]string
 }
 
-// queueWait jitters the transient-queue honor window (+0-30%, never below
-// the window upstream asked for): concurrent turns refused by the same 503
-// would otherwise sleep the identical window and re-POST in lockstep.
-// Same distribution as the transport retryDelay; the CLI's session poll
-// jitters ±20% (polling-backoff.ts:48-59).
-func queueWait(window time.Duration) time.Duration {
-	if window <= 0 {
-		return window
-	}
-	var b [8]byte
-	_, _ = cryptoRand.Read(b[:])
-	u := binary.BigEndian.Uint64(b[:])
-	jitterMax := int64(window)/10*3 + 1
-	return window + time.Duration(u%uint64(jitterMax))
-}
-
 // ChatCompletions POSTs an OpenAI-shaped request to the upstream chat
 // endpoint, injecting the CLI envelope, and returns the raw SSE body reader
 // on 2xx. On error status it drains (up to 500 chars), classifies, and
 // returns a typed error. The returned reader must be closed; closing it
 // releases the connection.
+//
+// Single attempt: a classified gate error (waiting room, capacity,
+// superseded, run refusals, rate limits, bans) is returned immediately —
+// the CLI never retries a refused turn in-request (send-message.ts
+// fails the turn; the 30s session poll resyncs and the next message mints
+// a fresh run). Transport-level failures (dial/TLS/reset/EOF) keep the
+// fresh-connection retry under TRANSIENT_RETRIES inside do().
 func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []byte) (io.ReadCloser, error) {
 	// D1: thread the server's correlation id into the request context so
 	// every do()/retry log line for this chat shares the server's req_id.
@@ -104,145 +110,80 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 		return nil, fmt.Errorf("upstream: envelope: %w", err)
 	}
 
-	// Transient upstream queues are retried IN PLACE against the same lease
-	// and session (opts are unchanged, so the instance id is reused),
-	// bounded by the TRANSIENT_RETRIES budget — never a token cooldown,
-	// never a session invalidation:
-	//   - free_mode_capacity_deferred (429): upstream says "your request
-	//     will be retried automatically" and a same-session retry recovers
-	//     immediately (empirically common on deepseek-v4-flash;
-	//     reference/freebucks-proxy-hengxin proxy.js:652-668).
-	//   - the waiting room (503, incl. the 429 waiting_room_queued race):
-	//     the model has no serving slot right now; the CLI keeps polling
-	//     the session on 503 instead of failing the chat
-	//     (upstream/freebuff cli/src/utils/freebuff-session-api.ts:48-72),
-	//     so the proxy waits out the same window in-request before
-	//     surfacing 503 + Retry-After.
-	// transientQueueAttempts is the per-request budget: a fresh call starts
-	// at zero, so every request gets its own TRANSIENT_RETRIES allowance
-	// (the client-lifetime atomics only track the metrics).
-	transientQueueAttempts := 0
-	for {
-		req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/chat/completions", enveloped)
-		if err != nil {
-			return nil, err
-		}
-		// The streamed response body must stay readable after this call
-		// returns, so no deadline is attached to the request context: the
-		// transport's ResponseHeaderTimeout (REQUEST_TIMEOUT) bounds only
-		// the wait for response headers, and the body streams until
-		// upstream EOF or the caller cancels (client disconnect). cancel
-		// stays nil here; cancelBody exists so a future deadline-based
-		// caller still gets correct release-on-close semantics.
-		var cancel context.CancelFunc
-		// No Accept header: the CLI's chat POST carries exactly Authorization +
-		// the ai-sdk UA (+ optional acting-user-id) via the ai-sdk fetch
-		// (model-provider.ts); the proxy's old
-		// "Accept: application/json, text/event-stream" was proxy-only and is
-		// removed until a capture proves the wire carries it.
-		// Chat is the ONLY path carrying the ai-sdk UA: the real
-		// CLI pins it on model calls alone; newRequest defaulted this
-		// request to the plain Bun fetch UA every other call sends.
-		req.Header.Set("User-Agent", cliUserAgent)
-		// The chat POST carries NO x-freebuff-model / x-freebuff-instance-id
-		// headers (#106): the official CLI sends exactly Authorization + the
-		// ai-sdk UA (+ optional acting-user-id) on chat
-		// (upstream/freebuff model-provider.ts:146-152); the model and
-		// instance id ride only in the body metadata (injectEnvelope).
-		if c.userID != "" {
-			// The official CLI sends x-freebuff-acting-user-id on every
-			// chat call with the account's OWN id, derived from
-			// GET /api/v1/me (upstream/freebuff sdk/src/run.ts:649-658;
-			// sdk/src/impl/model-provider.ts:148-153 — agent-runs
-			// START/FINISH carry it too, database.ts:318-320/396-398).
-			// The server treats it as a trusted server-to-server header
-			// honored only when the request authenticates as the FreeBuff
-			// Web service account (upstream/freebuff
-			// common/src/constants/freebuff-models.ts:1180-1183).
-			// ACTING_USER_ID is therefore only safe when it equals the
-			// token's own account id; any other value impersonates a
-			// foreign user (a possible flag).
-			req.Header.Set("x-freebuff-acting-user-id", c.userID)
-		}
-		resp, _, cerr := c.do(req, 0)
-		if cerr != nil && resp == nil {
-			// Transport failure (no upstream response read): surface it.
-			releaseCancel(cancel)
-			return nil, cerr
-		}
-		if cerr != nil {
-			// Classified >=400 response: do() already classified the body once
-			// (the 428 waiting-room flag and the rate-limit ledger are
-			// recorded). Preserve the chat path's debug dump and the
-			// same-session transient-queue retry.
-			bodyText := drainBody(resp.Body)
-			_ = resp.Body.Close()
-			releaseCancel(cancel)
-			c.dump("chat", req, enveloped, resp.StatusCode, bodyText)
-			deferred := isCapacityDeferred(cerr)
-			waitingRoom := isWaitingRoom(cerr)
-			if (deferred || waitingRoom) && transientQueueAttempts < c.transientRetriesLimit {
-				transientQueueAttempts++
-				msg := "upstream capacity deferred, retrying same session"
-				if waitingRoom {
-					msg = "upstream waiting room, retrying same session"
-					c.waitingRoomRetries.Add(1) // lifetime metric
-				} else {
-					c.capacityDeferredRetries.Add(1) // lifetime metric
-				}
-				// #105: a queued upstream asks the client to WAIT before
-				// retrying — the AI SDK absorbs the deferral silently,
-				// honoring retry-after with a 10s default
-				// (upstream/freebuff sdk model-provider.ts:41-49,62-81). Sleep
-				// the parsed retry-after (floor 10s) so the same-session retry
-				// does not re-POST immediately (amplification); ctx
-				// cancellation aborts the sleep like every other upstream wait.
-				ra := 10 * time.Second
-				if isWaitingRoomQueued(cerr) {
-					// waiting_room_queued is a transient admission race
-					// (upstream cli/src/hooks/helpers/send-message.ts:610-619:
-					// "sessions are admitted immediately now, so this is only reachable
-					// in a transient race with a concurrent session request").
-					// When upstream sends no explicit Retry-After, use an exponential
-					// backoff (500ms, 1s, 2s) so the race clears without timing out
-					// the downstream client IDE.
-					ra = time.Duration(500*(1<<(transientQueueAttempts-1))) * time.Millisecond
-				}
-				if d := queueRetryAfter(cerr); d > 0 {
-					ra = d
-				}
-				// Jitter the honor window so concurrent turns refused by the
-				// same queue do not re-POST in lockstep (thundering herd);
-				// queueWait only ever extends the window, never undercuts it.
-				wait := queueWait(ra)
-				// Same-session retry after the parsed wait: Debug like the
-				// transport retry in do(), carrying the same join keys.
-				slog.Debug(msg,
-					"method", req.Method, "path", req.URL.Path,
-					"status", resp.StatusCode, "class", errClassName(cerr),
-					"retry_after", wait.String(), "req_id", ReqID(ctx))
-				timer := time.NewTimer(wait)
-				select {
-				case <-timer.C:
-				case <-ctx.Done():
-					timer.Stop()
-					return nil, ctx.Err()
-				}
-				continue
-			}
-			return nil, cerr
-		}
-		// Callers MUST close the returned body to release the timeout
-		// context; abandoning it leaks the timer goroutine until it fires.
-		// Served turn (2xx headers): stamp chat-surface ad activity. A due
-		// round runs detached in the background - chat latency and the
-		// body below are untouched. The enveloped body carries the served
-		// turn's transcript so the cli_chat auction mirrors the CLI's
-		// user+assistant messages (waiting-room passes nil → []).
-		c.noteChatServedWithBody(ctx, enveloped)
-		c.dump("chat", req, enveloped, resp.StatusCode, "[streaming 2xx]")
-		return &cancelBody{ReadCloser: resp.Body, cancel: cancel}, nil
+	// No in-request retry: a refused turn fails here and recovery happens
+	// at the engine level with a fresh run (CLI parity). Re-POSTing the
+	// same session burns a new admission on 409-refunded rows and escalates
+	// 503-wait loops into terminal + account bans.
+	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/chat/completions", enveloped)
+	if err != nil {
+		return nil, err
 	}
+	// The streamed response body must stay readable after this call
+	// returns, so no deadline is attached to the request context: the
+	// transport's ResponseHeaderTimeout (REQUEST_TIMEOUT) bounds only
+	// the wait for response headers, and the body streams until
+	// upstream EOF or the caller cancels (client disconnect). cancel
+	// stays nil here; cancelBody exists so a future deadline-based
+	// caller still gets correct release-on-close semantics.
+	var cancel context.CancelFunc
+	// No Accept header: the CLI's chat POST carries exactly Authorization +
+	// the ai-sdk UA (+ optional acting-user-id) via the ai-sdk fetch
+	// (model-provider.ts); the proxy's old
+	// "Accept: application/json, text/event-stream" was proxy-only and is
+	// removed until a capture proves the wire carries it.
+	// Chat is the ONLY path carrying the ai-sdk UA: the real
+	// CLI pins it on model calls alone; newRequest defaulted this
+	// request to the plain Bun fetch UA every other call sends.
+	req.Header.Set("User-Agent", cliUserAgent)
+	// The chat POST carries NO x-freebuff-model / x-freebuff-instance-id
+	// headers (#106): the official CLI sends exactly Authorization + the
+	// ai-sdk UA (+ optional acting-user-id) on chat
+	// (upstream/freebuff model-provider.ts:146-152); the model and
+	// instance id ride only in the body metadata (injectEnvelope).
+	if c.userID != "" {
+		// The official CLI sends x-freebuff-acting-user-id on every
+		// chat call with the account's OWN id, derived from
+		// GET /api/v1/me (upstream/freebuff sdk/src/run.ts:649-658;
+		// sdk/src/impl/model-provider.ts:148-153 — agent-runs
+		// START/FINISH carry it too, database.ts:318-320/396-398).
+		// The server treats it as a trusted server-to-server header
+		// honored only when the request authenticates as the FreeBuff
+		// Web service account (upstream/freebuff
+		// common/src/constants/freebuff-models.ts:1180-1183).
+		// ACTING_USER_ID is therefore only safe when it equals the
+		// token's own account id; any other value impersonates a
+		// foreign user (a possible flag).
+		req.Header.Set("x-freebuff-acting-user-id", c.userID)
+	}
+	resp, _, cerr := c.do(req, 0)
+	if cerr != nil && resp == nil {
+		// Transport failure (no upstream response read): surface it.
+		releaseCancel(cancel)
+		return nil, cerr
+	}
+	if cerr != nil {
+		// Classified >=400 response: do() already classified the body once
+		// (the 428 waiting-room flag and the rate-limit ledger are
+		// recorded). Preserve the chat path's debug dump, then fail the
+		// turn immediately — no same-session wait-and-retry (CLI parity:
+		// send-message.ts:575-631 has no 503 arm; the turn fails, the 30s
+		// poll resyncs, and the next message mints a fresh run).
+		bodyText := drainBody(resp.Body)
+		_ = resp.Body.Close()
+		releaseCancel(cancel)
+		c.dump("chat", req, enveloped, resp.StatusCode, bodyText)
+		return nil, cerr
+	}
+	// Callers MUST close the returned body to release the timeout
+	// context; abandoning it leaks the timer goroutine until it fires.
+	// Served turn (2xx headers): stamp chat-surface ad activity. A due
+	// round runs detached in the background - chat latency and the
+	// body below are untouched. The enveloped body carries the served
+	// turn's transcript so the cli_chat auction mirrors the CLI's
+	// user+assistant messages (waiting-room passes nil → []).
+	c.noteChatServedWithBody(ctx, enveloped)
+	c.dump("chat", req, enveloped, resp.StatusCode, "[streaming 2xx]")
+	return &cancelBody{ReadCloser: resp.Body, cancel: cancel}, nil
 }
 
 const (
@@ -258,6 +199,43 @@ const (
 	// Alpha) onto base3 roots, so runs on those agents must open with THEIR
 	// canonical identity, not base2's.
 	cliSystemMarkerBase3 = "You are Buffy, the coding agent behind Codebuff."
+	// cliSystemMarkerBase3Instructions is the canonical base3 coding agent instructions block
+	// from upstream agents/base3.ts. Upstream's free-mode gate checks for this instructions block;
+	// sending only a single opening sentence triggers a 503 "The model is temporarily unavailable" refusal.
+	cliSystemMarkerBase3Instructions = `You are Buffy, the coding agent behind Codebuff. You help users with software engineering tasks: fixing bugs, adding functionality, refactoring, and explaining code.
+
+Current date: %s.
+
+- Match the project's existing conventions. Verify a library is already used in the project before employing it.
+- Prefer editing existing files over creating new ones. Make the fewest changes that address the request.
+- Verify non-trivial changes by running the project's typecheck and relevant tests.
+- Use write_todos to plan and track multi-step tasks.
+- Your responses are displayed in a terminal. Keep them short and concise.
+- Don't run destructive or hard-to-undo commands (git push, resets, deploys) unless the user asks for them.
+
+# Working with the user
+
+- **Ask about important decisions:** Use the ask_user tool to collaborate with the user on non-obvious choices — alternate implementation strategies, ambiguous requirements. Gather context first, and skip it when the answer is obvious or the detail can be changed later.
+- **Suggest next steps:** At the end of your turn, use the suggest_followups tool to suggest ~3 next steps the user might want to take. Keep every suggestion short and goal-oriented: one sentence naming the outcome you want, not the steps to get there.
+
+# Freebuff Meta-information
+
+You are running on the %s model.
+
+You are the AI agent behind Freebuff, a tool where users can chat with you to code with AI for free. See freebuff.com for more information about the product.
+
+# System Info
+
+Operating System: %s
+Shell: bash
+Chrome: installed
+
+<user_shell_config_files>
+</user_shell_config_files>
+
+The following are the most recently read files according to the OS atime. This is cached from the start of this conversation:
+<recently_read_file_paths_most_recent_first>
+</recently_read_file_paths_most_recent_first>`
 )
 
 // cliSystemGateOpenings mirrors FREEBUFF_ROOT_SYSTEM_PROMPT_OPENINGS (pinned
@@ -336,9 +314,19 @@ func sanitizeSystemMessageContent(content any) any {
 
 // systemMarkerFor picks the canonical identity matching the run's root agent
 // family: base3 roots speak base3, everything else keeps the base2 marker.
-func systemMarkerFor(agentID string) string {
+func systemMarkerFor(agentID, model string) string {
 	if strings.HasPrefix(agentID, "base3") {
-		return cliSystemMarkerBase3
+		if model == "" {
+			model = "z-ai/glm-5.3-flash"
+		}
+		osName := "win32"
+		switch runtime.GOOS {
+		case "darwin":
+			osName = "darwin"
+		case "linux":
+			osName = "linux"
+		}
+		return fmt.Sprintf(cliSystemMarkerBase3Instructions, time.Now().Format("January 2, 2006"), model, osName)
 	}
 	return cliSystemMarker
 }
@@ -362,8 +350,12 @@ func hasCanonicalOpening(content string) bool {
 // marker rather than replacing, so custom system instructions survive. A
 // message that already opens with ANY of the five canonical identities is
 // left alone regardless of agentID: the gate is any-of-five.
-func ensureCliSystemMarker(payload map[string]any, agentID string) {
-	marker := systemMarkerFor(agentID)
+func ensureCliSystemMarker(payload map[string]any, agentID string, model ...string) {
+	m := ""
+	if len(model) > 0 {
+		m = model[0]
+	}
+	marker := systemMarkerFor(agentID, m)
 	rawMsgs, ok := payload["messages"].([]any)
 	if !ok || len(rawMsgs) == 0 {
 		payload["messages"] = []any{
@@ -436,6 +428,29 @@ func ensureCliSystemMarker(payload map[string]any, agentID string) {
 	payload["messages"] = newMsgs
 }
 
+// ensureCliTools guarantees a coding-agent toolset on the wire for requests
+// that carry none: a plain chat request (curl, an IDE probe, a harness that
+// does not declare tools) otherwise reaches upstream with tools absent, which
+// the free-tier traffic gate reads as a non-coding client. Those requests get
+// the canonical CLI declarations.
+//
+// A request that DID declare tools is left exactly as the convert layer built
+// it: the ordered name-translation pass owns those declarations (rename +
+// dedupe + restore ownership — docs/decisions/tool-name-translation.md), the
+// model fills arguments per the schema the client declared, and appending
+// tools the client never offered would let the model emit calls the client
+// cannot execute.
+//
+// tool_choice is never fabricated: a client that sent none keeps none (the
+// OpenAI default is auto), and inventing one rewrites an envelope the client
+// deliberately shaped (TestConformanceGooseNoToolChoiceUsageTail).
+func ensureCliTools(payload map[string]any) {
+	rawTools, ok := payload["tools"].([]any)
+	if !ok || len(rawTools) == 0 {
+		payload["tools"] = defaultCliTools()
+	}
+}
+
 // injectEnvelope merges the CLI fingerprint into the request body without
 // disturbing client-supplied fields: codebuff_metadata, provider
 // data_collection=deny, and forced streaming. The envelope carries no stop
@@ -443,13 +458,33 @@ func ensureCliSystemMarker(payload map[string]any, agentID string) {
 // argument that passed it (agent-runtime constants.ts, prompt-agent-stream.ts
 // at vendor 0.0.183), so the real CLI now sends none and a request only ever
 // carries a stop list the client supplied itself.
+// agentModeCostMode maps a CLI agent mode to its wire cost_mode, mirroring
+// AGENT_MODE_TO_COST_MODE (upstream/freebuff cli/src/utils/constants.ts:
+// 182-187, IS_FREEBUFF=true): DEFAULT/PLAN=normal, LITE=free, MAX=max.
+// Empty or unknown modes return "" so the caller falls back to the
+// client's configured cost mode. BYOK callers send normal — they never
+// reach this path with a Freebuff agent mode.
+func agentModeCostMode(mode string) string {
+	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case "LITE":
+		return "free"
+	case "MAX":
+		return "max"
+	case "DEFAULT", "PLAN":
+		return "normal"
+	default:
+		return ""
+	}
+}
+
 func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("parse request body: %w", err)
 	}
 
-	ensureCliSystemMarker(payload, opts.AgentID)
+	ensureCliSystemMarker(payload, opts.AgentID, opts.Model)
+	ensureCliTools(payload)
 
 	// client_id is minted ONCE PER RUN and repeated here — never a fresh
 	// draw per chat call. The CLI mints it once per prompt (run.ts:722
@@ -475,7 +510,7 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	if raw, ok := payload["codebuff_metadata"].(map[string]any); ok {
 		for k, v := range raw {
 			switch k {
-			case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "freebuff_multi_session", "surface", "llm_step_number", "cost_mode", "freebuff_reasoning_effort":
+			case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "freebuff_multi_session", "surface", "llm_step_number", "cost_mode", "freebuff_reasoning_effort", "repo_snapshot":
 				// reserved — overwritten below (server-trusted identifiers)
 			default:
 				extraMeta[k] = v
@@ -484,7 +519,7 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	}
 	for k, v := range opts.ExtraCodebuffMetadata {
 		switch k {
-		case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "freebuff_multi_session", "surface", "llm_step_number", "cost_mode", "freebuff_reasoning_effort":
+		case "run_id", "client_id", "trace_session_id", "freebuff_instance_id", "freebuff_multi_session", "surface", "llm_step_number", "cost_mode", "freebuff_reasoning_effort", "repo_snapshot":
 			// reserved — must not be smuggled via extra
 			continue
 		default:
@@ -515,12 +550,6 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	if opts.N > 0 {
 		metadata["n"] = opts.N
 	}
-	if costMode != "" {
-		metadata["cost_mode"] = costMode
-		if costMode == "free" {
-			metadata["surface"] = "cli"
-		}
-	}
 	if opts.CacheDebugCorrelation != "" {
 		metadata["cache_debug_correlation"] = opts.CacheDebugCorrelation
 	}
@@ -536,7 +565,27 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	if re, ok := payload["reasoning_effort"].(string); ok && re != "" {
 		metadata["freebuff_reasoning_effort"] = re
 	}
-	// repo_snapshot is intentionally never stamped: the proxy has no repo access and must not fabricate it (live capture docs/LIVE-CAPTURE.md shows the CLI sending it; BLOCKED until a repo-aware source exists).
+	// cost_mode follows the CLI agent mode when the caller names one
+	// (use-send-message.ts:749 `costMode: AGENT_MODE_TO_COST_MODE[agentMode]`),
+	// else the client's configured cost mode (llm.ts:121 stamps costMode
+	// only when set — absent means upstream applies its own default).
+	effectiveCostMode := costMode
+	if m := agentModeCostMode(opts.AgentMode); m != "" {
+		effectiveCostMode = m
+	}
+	if effectiveCostMode != "" {
+		metadata["cost_mode"] = effectiveCostMode
+		if effectiveCostMode == "free" {
+			metadata["surface"] = "cli"
+		}
+	}
+	// repo_snapshot rides verbatim when the caller supplies the
+	// JSON-encoded aggregate snapshot (the CLI's JSON.stringify form);
+	// absent otherwise — never fabricated, never forwarded from raw
+	// client bodies (reserved above).
+	if opts.RepoSnapshot != "" {
+		metadata["repo_snapshot"] = opts.RepoSnapshot
+	}
 	payload["codebuff_metadata"] = metadata
 	// Provider routing passes the client's OpenRouter keys through: the CLI
 	// builds providerConfig from the agent's provider options when set, else

@@ -70,11 +70,9 @@ func classifyError(status int, body string, hdr http.Header) error {
 		}
 	case containsAny(lower, string(WireCodeFreeModeCapacityDeferred)):
 		// Free-tier transient capacity queue: upstream says "your request
-		// will be retried automatically" and a same-session retry recovers
-		// immediately. Retryable transport-level condition handled under the
-		// TRANSIENT_RETRIES budget in ChatCompletions against the SAME
-		// lease/session — never a token cooldown, never a session
-		// invalidation (reference/freebucks-proxy-hengxin proxy.js:652-668).
+		// will be retried automatically". Fail-fast: the chat path surfaces
+		// the typed error immediately for the caller to honor on the next
+		// turn — never a token cooldown, never a session invalidation.
 		return &CapacityDeferredError{Status: status, Body: truncate(body, 500), RetryAfter: retryAfter}
 	case containsAny(lower, string(WireCodeTurnSpendLimit)):
 		// turn_spend_limit is a distinctive loop-protection literal and it is
@@ -738,8 +736,9 @@ func isCapacityDeferred(err error) bool {
 
 // isWaitingRoom reports whether err is an upstream waiting-room refusal: any
 // 503 (the model has no serving slot right now) or the 429
-// waiting_room_queued admission race. Both are transient queue conditions
-// the chat path waits out same-session under the TRANSIENT_RETRIES budget.
+// waiting_room_queued admission race. Both surface immediately to the
+// caller with their Retry-After (fail-fast: no in-request retry — the turn
+// fails, the session poll resyncs, and the next message mints a fresh run).
 func isWaitingRoom(err error) bool {
 	var wr *WaitingRoomError
 	return errors.As(err, &wr)
@@ -757,7 +756,7 @@ func isWaitingRoomQueued(err error) bool {
 
 // queueRetryAfter extracts the honor-this-window delay from a transient
 // queue error: the parsed Retry-After when upstream sent one, else 0 (the
-// caller applies the 10s AI-SDK default).
+// caller applies its own default).
 func queueRetryAfter(err error) time.Duration {
 	var cde *CapacityDeferredError
 	if errors.As(err, &cde) && cde.RetryAfter > 0 {

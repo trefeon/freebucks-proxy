@@ -92,7 +92,7 @@ func TestRequestFailedWarnDedupe(t *testing.T) {
 // fix: 100 identical session_superseded errors (a competing instance holding
 // the seat, so every chat 409s) produce <=4 `request failed` rows at INFO
 // (1st + every 50th, sharing the D6 ledger with rate_limited) while the
-// per-key ledger still counts every occurrence and the 503 + code response
+// per-key ledger still counts every occurrence and the 409 + code response
 // is written on every call. Pre-fix this logged a WARN per request, flooding
 // the logs history table for the whole contention window.
 func TestRequestFailedSupersededQuiesced(t *testing.T) {
@@ -110,8 +110,8 @@ func TestRequestFailedSupersededQuiesced(t *testing.T) {
 			firstBody = w.Body.String()
 		}
 	}
-	if gotStatus != http.StatusServiceUnavailable {
-		t.Errorf("response status = %d, want 503 even on suppressed INFOs", gotStatus)
+	if gotStatus != http.StatusConflict {
+		t.Errorf("response status = %d, want 409 even on suppressed INFOs", gotStatus)
 	}
 	if !strings.Contains(firstBody, "session_superseded") {
 		t.Errorf("response body missing session_superseded: %s", firstBody)

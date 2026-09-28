@@ -43,26 +43,16 @@ type Client struct {
 	debugDump          bool
 
 	// transientRetriesLimit is TRANSIENT_RETRIES: the maximum number of
-	// additional attempts after a transient failure (0 disables retries
-	// entirely). Transport-level failures (dial/TLS/reset/EOF) retry on a
-	// fresh connection; transient upstream queues
-	// (free_mode_capacity_deferred, the waiting room) retry in place
-	// against the SAME lease/session in ChatCompletions. Any other
-	// classified upstream error never retries.
+	// additional attempts after a transient transport failure (0 disables
+	// retries entirely). Transport-level failures (dial/TLS/reset/EOF)
+	// retry on a fresh connection inside do(). Classified upstream errors
+	// never retry: a refused turn fails immediately (CLI parity) and
+	// recovery happens at the engine level with a fresh run.
 	transientRetriesLimit int
 
-	// capacityDeferredRetries counts free_mode_capacity_deferred retries
-	// served by this client: the free-tier capacity queue is retried
-	// in-place against the SAME lease/session, bounded by the
-	// TRANSIENT_RETRIES budget (per-request, tracked separately from
-	// transient transport retries).
-	capacityDeferredRetries atomic.Int64
-
-	// waitingRoomRetries counts waiting-room retries served by this client:
-	// the upstream waiting room (any 503, or the 429 waiting_room_queued
-	// race) is retried in-place against the SAME lease/session under the
-	// same per-request TRANSIENT_RETRIES budget as the capacity queue.
-	waitingRoomRetries atomic.Int64
+	// (Retired: capacityDeferredRetries / waitingRoomRetries were the
+	// fail-fast port's always-0 same-session queue counters — deleted with
+	// the pool snapshot columns and /metrics split.)
 
 	// stealthProfile is the active TLS fingerprint. profileMu guards swaps
 	// made by the retry loop (rotating the pinned profile before a retry);
@@ -459,15 +449,6 @@ func h2ALPN() []string { return _h2ALPN[:] }
 // TransientRetries returns how many transient transport failures were
 // retried by this client (pool snapshot /metrics aggregation).
 func (c *Client) TransientRetries() int64 { return c.transientRetries.Load() }
-
-// CapacityDeferredRetries returns how many free_mode_capacity_deferred
-// retries this client served (same-session retries under the
-// TRANSIENT_RETRIES budget, issue #75).
-func (c *Client) CapacityDeferredRetries() int64 { return c.capacityDeferredRetries.Load() }
-
-// WaitingRoomRetries returns how many waiting-room retries this client
-// served (same-session retries under the TRANSIENT_RETRIES budget).
-func (c *Client) WaitingRoomRetries() int64 { return c.waitingRoomRetries.Load() }
 
 // PendingWaitingRoomChain reports whether the client last classified a 428
 // waiting_room_required (issue #94) and the pre-session chain has not been

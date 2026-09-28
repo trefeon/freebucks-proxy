@@ -5,15 +5,23 @@
 // Responsibilities (PRD §6 error matrix):
 //   - optional client auth (Bearer / x-api-key exact match, constant-time)
 //   - request sanitization via backend/internal/convert before the upstream call
-//   - retry-once recovery for session-invalid / run-invalid chat errors
+//   - single-attempt fail-fast chat: gate refusals invalidate and surface
+//     immediately, never a re-acquire/rejoin/second attempt in-request
 //   - 30-min token cooldown on upstream auth rejection
-//   - error mapping to the OpenAI error shape, 503 + Retry-After for the
-//     waiting room, 502 when every token is exhausted
+//   - error mapping to the OpenAI error shape: honest downstream gate
+//     statuses (409 terminal superseded, 503 + Retry-After waiting room),
+//     502 when every token is exhausted
 //   - SSE relay (sanitized chunks + [DONE]) and non-streaming accumulation
 //   - client-disconnect propagation to the upstream (request context)
 package server
 
 import (
+	"log/slog"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/dashboard"
@@ -27,11 +35,6 @@ import (
 	"freebucks-proxy/backend/internal/tokenestimate"
 	"freebucks-proxy/backend/internal/updatecheck"
 	"freebucks-proxy/backend/internal/upstream"
-	"log/slog"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 const (

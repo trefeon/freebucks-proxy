@@ -139,12 +139,13 @@ type MockUpstream struct {
 	// the runs package's FINISH-failure re-drain path.
 	FinishFailures int
 
-	RecordedChatHeaders []http.Header
-	RecordedChatBodies  []string
-	SessionCreates      int
-	SessionPolls        int
-	SessionProbes       int // token-level probes: GET session without x-freebuff-instance-id
-	SessionEnds         int
+	RecordedChatHeaders    []http.Header
+	RecordedChatBodies     []string
+	RecordedSessionCreates []http.Header
+	SessionCreates         int
+	SessionPolls           int
+	SessionProbes          int // token-level probes: GET session without x-freebuff-instance-id
+	SessionEnds            int
 	// StreakBody, when non-nil, is served verbatim by GET
 	// /api/v1/freebuff/streak (maturity tests); nil serves a default
 	// zero-streak body. StreakHits counts streak GETs.
@@ -252,6 +253,7 @@ func (m *MockUpstream) handle(w http.ResponseWriter, r *http.Request) {
 		case http.MethodPost:
 			m.mu.Lock()
 			m.SessionCreates++
+			m.RecordedSessionCreates = append(m.RecordedSessionCreates, r.Header.Clone())
 			m.mu.Unlock()
 			m.handleSession(w, r)
 		case http.MethodGet:
@@ -738,6 +740,20 @@ func (m *MockUpstream) SessionCreatesSnapshot() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.SessionCreates
+}
+
+// SessionCreateClaimsSnapshot returns the x-freebuff-instance-id claim each
+// admission POST carried, in arrival order ("" when the POST sent none —
+// the TierOffer legacy path). Locked copy, safe to poll while an admission
+// is in flight (see StartedRunsSnapshot).
+func (m *MockUpstream) SessionCreateClaimsSnapshot() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.RecordedSessionCreates))
+	for _, h := range m.RecordedSessionCreates {
+		out = append(out, h.Get("x-freebuff-instance-id"))
+	}
+	return out
 }
 
 // SessionProbesSnapshot returns a locked copy of the token-probe (GET

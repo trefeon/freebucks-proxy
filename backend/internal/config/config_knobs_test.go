@@ -1,8 +1,9 @@
 package config
 
 // Wave-3 config knob tests: the bounded finish queue (#90), the
-// draining-list bounds (#55), the re-admit lead (#99), and the probe cache
-// TTL (#60).
+// draining-list bounds (#55), and the re-admit lead (#99).
+// (Retired: SESSION_PROBE_CACHE_TTL — the admission probe-cache skip is
+// gone; polls are unconditional like the CLI.)
 
 import (
 	"testing"
@@ -28,9 +29,6 @@ func TestWave3KnobDefaults(t *testing.T) {
 	if cfg.SessionReAdmitLead != 60*time.Second {
 		t.Errorf("SessionReAdmitLead = %v, want 60s", cfg.SessionReAdmitLead)
 	}
-	if cfg.SessionProbeCacheTTL != 15*time.Second {
-		t.Errorf("SessionProbeCacheTTL = %v, want 15s", cfg.SessionProbeCacheTTL)
-	}
 }
 
 func TestWave3KnobEnvOverrides(t *testing.T) {
@@ -41,7 +39,6 @@ func TestWave3KnobEnvOverrides(t *testing.T) {
 	t.Setenv("RUNS_DRAIN_QUEUE_CAP", "3")
 	t.Setenv("RUNS_DRAIN_TTL", "5m")
 	t.Setenv("SESSION_RE_ADMIT_LEAD", "30s")
-	t.Setenv("SESSION_PROBE_CACHE_TTL", "7s")
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -52,8 +49,8 @@ func TestWave3KnobEnvOverrides(t *testing.T) {
 	if cfg.RunsDrainQueueCap != 3 || cfg.RunsDrainTTL != 5*time.Minute {
 		t.Errorf("drain bounds = %d/%v, want 3/5m", cfg.RunsDrainQueueCap, cfg.RunsDrainTTL)
 	}
-	if cfg.SessionReAdmitLead != 30*time.Second || cfg.SessionProbeCacheTTL != 7*time.Second {
-		t.Errorf("session knobs = %v/%v, want 30s/7s", cfg.SessionReAdmitLead, cfg.SessionProbeCacheTTL)
+	if cfg.SessionReAdmitLead != 30*time.Second {
+		t.Errorf("session knob = %v, want 30s", cfg.SessionReAdmitLead)
 	}
 }
 

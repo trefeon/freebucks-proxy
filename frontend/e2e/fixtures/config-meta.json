@@ -366,17 +366,6 @@
     "description": "Persist session state AND active agent runs to disk so a restart resumes them instead of re-creating (default true). Set via container environment."
   },
   {
-    "key": "SESSION_PROBE_CACHE_TTL",
-    "group": "pool",
-    "kind": "text",
-    "default": "15s",
-    "restart_only": false,
-    "secret": false,
-    "essential": false,
-    "hidden": true,
-    "description": "Reuse the last successful quota probe (skip redundant upstream status GETs) within this window."
-  },
-  {
     "key": "SESSION_RE_ADMIT_LEAD",
     "group": "pool",
     "kind": "text",

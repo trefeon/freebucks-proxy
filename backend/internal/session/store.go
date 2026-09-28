@@ -3,13 +3,14 @@ package session
 import (
 	"encoding/json"
 	"errors"
-	"freebucks-proxy/backend/internal/upstream"
 	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // storeVersion guards the legacy on-disk format; a stale file is ignored
@@ -57,6 +58,12 @@ type persistedState struct {
 	PendingRefund   string    `json:"pending_refund,omitempty"`
 	PendingRefundAt time.Time `json:"pending_refund_at,omitempty"`
 	LastRefund      *float64  `json:"last_refund,omitempty"`
+	// ClaimID is the manager's CLI-parity purchase claim (cli:<uuid>), one
+	// per token lifetime (G4: use-freebuff-session.ts:576): re-POSTed on
+	// every admission, rotated only after an explicit DELETE or a dead-claim
+	// terminal. Independent of the session row — it survives invalidation
+	// like the refund tracking, so a restart rejoins on the same claim.
+	ClaimID string `json:"claim_id,omitempty"`
 }
 
 // persistedQuota is one model's live session quota persisted on disk.
@@ -715,9 +722,10 @@ func (s *Store) Load(key string) *cachedState {
 	// Drop entries whose grace window is already closed: resuming them is
 	// impossible and keeping them only delays the inevitable re-create.
 	// A parked refund survives the trim as a refund-only entry so the boot
-	// replay can still settle it.
+	// replay can still settle it; a purchase claim survives the same way
+	// (G4) so the next admission rejoins on it.
 	if !ps.GracePeriodEndsAt.IsZero() && time.Now().After(ps.GracePeriodEndsAt) {
-		if hasPersistedRefund(&ps) {
+		if rowKeeps(&ps) {
 			ps.InstanceID = ""
 			ps.Model = ""
 			ps.Status = ""
@@ -740,6 +748,12 @@ func (s *Store) Load(key string) *cachedState {
 			delete(s.data, key)
 			s.spillKeyLocked(key)
 		}
+		return nil
+	}
+	// A sessionless row (claim-only or refund-only) holds no resumable
+	// session: report absent so callers re-admit instead of adopting an
+	// empty slot. The claim/refund survive via LoadClaim/LoadRefund.
+	if ps.InstanceID == "" && ps.Status != "queued" {
 		return nil
 	}
 	cs := &cachedState{
@@ -798,9 +812,10 @@ func (s *Store) Save(key string, cs *cachedState) {
 	s.fetched[key] = true
 
 	if cs == nil || (cs.instanceID == "" && cs.status != "queued") {
-		// A parked refund outlives the session row: downgrade to a
-		// refund-only entry instead of dropping the parked instance id.
-		if ps, ok := s.data[key]; ok && hasPersistedRefund(&ps) {
+		// A parked refund or purchase claim outlives the session row:
+		// downgrade to a sessionless entry instead of dropping the parked
+		// instance id (refund) or the lifetime identity (claim, G4).
+		if ps, ok := s.data[key]; ok && rowKeeps(&ps) {
 			ps.InstanceID = ""
 			ps.Model = ""
 			ps.Status = ""
@@ -824,9 +839,9 @@ func (s *Store) Save(key string, cs *cachedState) {
 		s.spillKeyLocked(key)
 		return
 	}
-	// A live-session save must not clobber a parked refund: the receipt
-	// that parks it lands outside commit, so carry the refund fields over
-	// from the existing row.
+	// A live-session save must not clobber a parked refund or the lifetime
+	// claim: the receipt that parks a refund lands outside commit, and the
+	// claim is owned by the manager — carry both over from the existing row.
 	prev := s.data[key]
 	s.data[key] = persistedState{
 		InstanceID:         cs.instanceID,
@@ -844,6 +859,7 @@ func (s *Store) Save(key string, cs *cachedState) {
 		PendingRefund:      prev.PendingRefund,
 		PendingRefundAt:    prev.PendingRefundAt,
 		LastRefund:         prev.LastRefund,
+		ClaimID:            prev.ClaimID,
 	}
 	if len(cs.quotaByModel) > 0 {
 		ps := s.data[key]
@@ -975,10 +991,12 @@ func (s *Store) Remove(key, expectedInstanceID string) {
 	if expectedInstanceID != "" && s.data[key].InstanceID != expectedInstanceID {
 		return
 	}
-	// A parked refund is independent of the live slot: the released session
-	// is already gone, so an invalidation must not strand its settlement.
-	// Downgrade to a refund-only entry; the boot replay clears it.
-	if ps := s.data[key]; hasPersistedRefund(&ps) {
+	// A parked refund or purchase claim is independent of the live slot: the
+	// released session is already gone, so an invalidation must not strand
+	// its settlement (refund) or rotate its identity (claim, G4). Downgrade
+	// to a sessionless entry; the boot replay clears the refund, the next
+	// admission rejoins on the claim.
+	if ps := s.data[key]; rowKeeps(&ps) {
 		ps.InstanceID = ""
 		ps.Model = ""
 		ps.Status = ""
@@ -1008,6 +1026,20 @@ func hasPersistedRefund(ps *persistedState) bool {
 	return ps.PendingRefund != "" || ps.LastRefund != nil
 }
 
+// hasPersistedClaim reports whether the row carries a purchase claim worth
+// keeping across a session invalidation (G4): the claim outlives the session
+// row, so ending a session must downgrade to a claim-only entry, never drop
+// the claim with it.
+func hasPersistedClaim(ps *persistedState) bool {
+	return ps.ClaimID != ""
+}
+
+// rowKeeps reports whether the row must survive a session invalidation:
+// refund tracking or a purchase claim keep a sessionless row alive.
+func rowKeeps(ps *persistedState) bool {
+	return hasPersistedRefund(ps) || hasPersistedClaim(ps)
+}
+
 // SaveRefund swaps the refund tracking for key, creating a refund-only row
 // when no live session is stored. Empty tracking on a row with no session
 // fields deletes the row; on a live row it only clears the refund fields.
@@ -1031,12 +1063,56 @@ func (s *Store) SaveRefund(key, pending string, parkedAt time.Time, last *float6
 	} else {
 		ps.LastRefund = nil
 	}
-	if !hasPersistedRefund(&ps) && (ps.InstanceID == "" && ps.Status != "queued") {
+	if !hasPersistedRefund(&ps) && ps.ClaimID == "" && (ps.InstanceID == "" && ps.Status != "queued") {
 		delete(s.data, key)
 	} else {
 		s.data[key] = ps
 	}
 	s.spillKeyLocked(key)
+}
+
+// SaveClaim swaps the purchase claim for key, creating a claim-only row
+// when no live session is stored (G4). An empty claim on a row with no
+// session fields and no refund tracking deletes the row; on a live row it
+// only clears the claim field. Like Save it swaps memory synchronously and
+// spills behind — zero disk I/O on the calling path.
+func (s *Store) SaveClaim(key, claimID string) {
+	if key == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureImportedLocked()
+	// This process now owns the key (same reason as Save).
+	s.fetched[key] = true
+	ps := s.data[key]
+	ps.ClaimID = claimID
+	if ps.ClaimID == "" && !hasPersistedRefund(&ps) && (ps.InstanceID == "" && ps.Status != "queued") {
+		delete(s.data, key)
+	} else {
+		s.data[key] = ps
+	}
+	s.spillKeyLocked(key)
+}
+
+// LoadClaim returns the persisted purchase claim for key (G4). It never
+// performs upstream calls and ignores the session-expiry filter: the claim
+// is a lifetime identity, not a session row.
+func (s *Store) LoadClaim(key string) string {
+	if key == "" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureImportedLocked()
+	if _, ok := s.data[key]; !ok {
+		s.fetchLocked(key)
+	}
+	ps, ok := s.data[key]
+	if !ok {
+		return ""
+	}
+	return ps.ClaimID
 }
 
 // LoadRefund returns the persisted refund tracking for key. It never

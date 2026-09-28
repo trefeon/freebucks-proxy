@@ -3,14 +3,15 @@ package pool
 import (
 	"context"
 	"errors"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 func TestCooldownToken(t *testing.T) {
@@ -431,7 +432,8 @@ func TestSessionPollSkipsWhileChatInFlight(t *testing.T) {
 	defer mock.Close()
 	p := newTestPool(t, mock)
 
-	// Admit an active session; the lease holds InflightCount() > 0.
+	// Admit an active session; the held lease counts on the pool's
+	// outstanding-lease tracker (per-turn mint is unleased at the runs layer).
 	lease, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
 		t.Fatal(err)

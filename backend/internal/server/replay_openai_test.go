@@ -786,10 +786,11 @@ func TestReplayAiderChatToolcallsIgnored(t *testing.T) {
 	if errBody.Error.Message == "" || errBody.Error.Code == "" {
 		t.Errorf("error body incomplete: %s", truncate(string(dataE), 300))
 	}
-	// chatAttempt retries once on the generic upstream error; a storm (the
+	// The failed turn surfaces with a single upstream attempt (fail-fast —
+	// never a re-acquire or second attempt in-request); a storm (the
 	// pre-fix shape) would show 4+ chat calls, so bound the assertion.
 	if n := len(errMock.RecordedChatBodies); n > 2 {
-		t.Errorf("upstream chat calls = %d, want <= 2 (single retry-once, no storm)", n)
+		t.Errorf("upstream chat calls = %d, want <= 2 (single attempt, no storm)", n)
 	}
 }
 

@@ -47,21 +47,21 @@ func newTestClient(t *testing.T, mock *testutil.MockUpstream) (*upstream.Client,
 func TestFinishWorkerStopsOnShutdown(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	mgr, _ := newTestManager(t, mock, 40*time.Millisecond)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
-	// Rotate once so the worker starts and processes a FINISH.
+	// Mint twice so the worker starts and processes a FINISH: the second
+	// turn drains the first (per-turn mint, no aging).
 	first, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mgr.Release(first)
-	time.Sleep(80 * time.Millisecond)
 	second, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mgr.Release(second)
-	eventually(t, "rotated FINISH", func() bool {
+	eventually(t, "drained FINISH", func() bool {
 		_, ok := finishedRun(mock, "run-0001")
 		return ok
 	})
@@ -86,9 +86,8 @@ func TestFinishQueueBoundsInlineFallback(t *testing.T) {
 	defer mock.Close()
 	mock.SetFinishDelay(300 * time.Millisecond)
 	mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004", "run-0005"}
-	const rotInt = 5 * time.Millisecond
 	mgr, _ := newTestManagerOpts(t, mock, Options{
-		RotationInterval:    rotInt,
+		RotationInterval:    time.Hour,
 		FinishQueueSize:     1,
 		InlineFinishTimeout: 50 * time.Millisecond,
 	})
@@ -103,26 +102,20 @@ func TestFinishQueueBoundsInlineFallback(t *testing.T) {
 		return r
 	}
 	r1 := acquire()
-	// Rotate r1 deterministically (the old 15ms sleep raced the 5ms
-	// rotation interval).
-	ageRun(t, mgr, agentA, 2*rotInt)
-	r2 := acquire() // rotates r1 → worker FINISHes r1 (slow)
+	// Per-turn mint: the next acquire drains r1 (no aging).
+	r2 := acquire() // drains r1 → worker FINISHes r1 (slow)
 
 	// The ordering asserted below holds only while the worker is busy
-	// inside r1's 300ms FINISH: r2's rotated FINISH then lands in the
-	// queue (cap 1) and r3's rotation finds it full and hits the inline
-	// fallback. If the worker dequeued r1's job between the r3 and r4
-	// acquisitions, r3's FINISH would queue and complete instead of
-	// aborting inline — the old 5ms sleeps raced exactly that window. Poll
-	// the mock's started-FINISH counter (exposed in-flight state) until
-	// the worker is mid-FINISH on r1 so the ordering is deterministic.
+	// inside r1's 300ms FINISH: r2's drained FINISH then lands in the
+	// queue (cap 1) and r3's drain finds it full and hits the inline
+	// fallback. Poll the mock's started-FINISH counter (exposed in-flight
+	// state) until the worker is mid-FINISH on r1 so the ordering is
+	// deterministic.
 	eventually(t, "worker mid-FINISH on r1", func() bool {
 		return mock.FinishesStartedSnapshot() >= 1
 	})
-	ageRun(t, mgr, agentA, 2*rotInt)
-	r3 := acquire() // rotates r2 → queued (queue cap 1, worker busy)
-	ageRun(t, mgr, agentA, 2*rotInt)
-	r4 := acquire() // rotates r3 → queue full → inline fallback (aborts)
+	r3 := acquire() // drains r2 → queued (queue cap 1, worker busy)
+	r4 := acquire() // drains r3 → queue full → inline fallback (aborts)
 
 	// r3's inline FINISH was aborted by the 50ms deadline: it must still be
 	// draining (the retry semantics keep it for a Maintain pass).
@@ -162,14 +155,14 @@ func TestFinishQueueBoundsInlineFallback(t *testing.T) {
 }
 
 func TestDrainQueueCapEviction(t *testing.T) {
-	// DrainQueueCap=2 with a slow FINISH: rotations pile up in the draining
-	// list, and the cap must force-drop the oldest entries.
+	// DrainQueueCap=2 with a slow FINISH: per-turn mints pile up in the
+	// draining list, and the cap must force-drop the oldest entries.
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.SetFinishDelay(500 * time.Millisecond)
 	mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004", "run-0005", "run-0006", "run-0007"}
 	mgr, _ := newTestManagerOpts(t, mock, Options{
-		RotationInterval:    5 * time.Millisecond,
+		RotationInterval:    time.Hour,
 		FinishQueueSize:     1,
 		InlineFinishTimeout: 5 * time.Millisecond,
 		DrainQueueCap:       2,
@@ -183,9 +176,9 @@ func TestDrainQueueCapEviction(t *testing.T) {
 		}
 		mgr.Release(r)
 	}
+	// Every turn drains its predecessor (no sleeps: minting needs no aging).
 	for i := 0; i < 6; i++ {
 		acquire()
-		time.Sleep(8 * time.Millisecond)
 	}
 
 	mgr.mu.Lock()
@@ -203,7 +196,7 @@ func TestDrainTTLEviction(t *testing.T) {
 	defer mock.Close()
 	mock.SetFinishFailures(1) // first FINISH fails → run stays draining
 	mgr, _ := newTestManagerOpts(t, mock, Options{
-		RotationInterval: 5 * time.Millisecond,
+		RotationInterval: time.Hour,
 		DrainTTL:         50 * time.Millisecond,
 	})
 
@@ -212,7 +205,7 @@ func TestDrainTTLEviction(t *testing.T) {
 		t.Fatal(err)
 	}
 	mgr.Release(r1)
-	time.Sleep(15 * time.Millisecond)
+	// Per-turn mint: the next turn drains r1 (no sleep for rotation).
 	r2, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
@@ -288,6 +281,8 @@ func TestReleaseAbandonedKeepsConcurrentRequests(t *testing.T) {
 	defer mock.Close()
 	mgr, _ := newTestManager(t, mock, time.Hour)
 
+	// Per-turn mint: concurrent turns are distinct runs, each with its own
+	// lease — abandoning one must not touch the other.
 	r1, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
@@ -296,30 +291,30 @@ func TestReleaseAbandonedKeepsConcurrentRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r1 != r2 {
-		t.Fatalf("concurrent acquires on different runs (%s vs %s)", r1.RunID, r2.RunID)
+	if r1 == r2 {
+		t.Fatalf("concurrent turns shared run %s, want distinct runs per turn", r1.RunID)
 	}
 
-	// Abandoning one of two in-flight requests must keep the run alive.
+	// Abandoning the first turn's lease FINISHes it (cancelled) while the
+	// second turn stays active.
 	mgr.ReleaseAbandoned(r1)
-	select {
-	case <-time.After(150 * time.Millisecond):
-	case <-mockFinishDone(mock, r1.RunID):
-		t.Fatal("run FINISHed while a concurrent request was in flight")
-	}
+	eventually(t, "abandoned turn FINISH", func() bool {
+		f, ok := finishedRun(mock, r1.RunID)
+		return ok && f.Status == "cancelled"
+	})
 	mgr.mu.Lock()
-	_, active := mgr.runs[agentA]
+	current := mgr.runs[agentA]
 	mgr.mu.Unlock()
-	if !active {
-		t.Error("run dropped from active while a concurrent request holds it")
+	if current != r2 {
+		t.Errorf("active run = %+v, want the surviving second turn %s", current, r2.RunID)
 	}
 
-	// The second request completes normally: still no FINISH (normal
-	// release never finishes a run).
+	// The second turn completes normally: still no FINISH (normal release
+	// never finishes a run).
 	mgr.Release(r2)
 	select {
 	case <-time.After(100 * time.Millisecond):
-	case <-mockFinishDone(mock, r1.RunID):
+	case <-mockFinishDone(mock, r2.RunID):
 		t.Fatal("run FINISHed after a normal release")
 	}
 	mgr.Shutdown(context.Background())
@@ -353,12 +348,15 @@ func TestRecordStepBatchesWithFinish(t *testing.T) {
 	mgr.Shutdown(context.Background())
 }
 
-func TestRunPersistenceAdoptAndFinish(t *testing.T) {
+// TestRunPersistenceNoAdoptPerTurn pins the retired store-resume: a restart
+// never adopts the persisted run — the next turn mints fresh (per-turn mint,
+// one START per prompt), overwriting the persisted record.
+func TestRunPersistenceNoAdoptPerTurn(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	store := session.NewStore(t.TempDir() + "/state.json")
 
-	// First process: START a run (persisted).
+	// First process: START a turn (persisted).
 	mgr1, _ := newTestManagerOpts(t, mock, Options{RotationInterval: time.Hour, Store: store})
 	run, err := mgr1.Acquire(context.Background(), agentA)
 	if err != nil {
@@ -371,30 +369,30 @@ func TestRunPersistenceAdoptAndFinish(t *testing.T) {
 	}
 	mgr1.Release(run)
 	mgr1.Shutdown(context.Background())
-	// Second process (restart) on the same store: Acquire must ADOPT the
-	// persisted run without a new START.
+	// Second process (restart) on the same store: the next turn mints fresh
+	// instead of adopting the persisted run.
 	mgr2, _ := newTestManagerOpts(t, mock, Options{RotationInterval: time.Hour, Store: store})
-	adopted, err := mgr2.Acquire(context.Background(), agentA)
+	fresh, err := mgr2.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if adopted.RunID != run.RunID {
-		t.Errorf("restart acquired run %s, want persisted %s (re-STARTed instead of resumed)", adopted.RunID, run.RunID)
+	if fresh.RunID == run.RunID {
+		t.Errorf("restart acquired persisted run %s, want a fresh mint (no adopt)", run.RunID)
 	}
 	started := mock.StartedRunsSnapshot()
-	if len(started) != 1 {
-		t.Errorf("STARTs after restart = %d, want 1 (no re-START on adopt)", len(started))
+	if len(started) != 2 {
+		t.Errorf("STARTs after restart = %d, want 2 (fresh mint, no adopt)", len(started))
 	}
-	if adopted.TraceSessionID != run.TraceSessionID {
-		t.Errorf("adopted trace session id = %q, want persisted %q", adopted.TraceSessionID, run.TraceSessionID)
+	if fresh.TraceSessionID == run.TraceSessionID {
+		t.Errorf("restart reused persisted trace session id %q, want a fresh id", run.TraceSessionID)
 	}
-	mgr2.Release(adopted)
+	mgr2.Release(fresh)
 
 	// FINISHing the run must remove it from the store so a third restart
 	// does not resurrect it.
-	mgr2.FinishRun(context.Background(), adopted)
+	mgr2.FinishRun(context.Background(), fresh)
 	eventually(t, "FINISH lands", func() bool {
-		_, ok := finishedRun(mock, adopted.RunID)
+		_, ok := finishedRun(mock, fresh.RunID)
 		return ok
 	})
 	if pr := store.LoadRun(mgr2.key, agentA); pr != nil {

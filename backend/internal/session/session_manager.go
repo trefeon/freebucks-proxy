@@ -33,10 +33,20 @@ type Manager struct {
 	// held, keeps them landing in the order the commits were made. Lock
 	// hierarchy: mu → persistMu; persistMu is released before mu is
 	// re-acquired, so no cycle is possible.
-	persistMu  sync.Mutex
-	state      *cachedState
-	refreshCh  chan struct{} // closed by the in-flight refresher when done
-	refreshing bool
+	persistMu sync.Mutex
+	// claimID is the CLI-parity purchase claim (cli:<uuid>) for this
+	// token (G4, session_claim.go): minted once per manager lifetime,
+	// re-POSTed on every admission, rotated only after an explicit
+	// upstream DELETE of the old row or a dead-claim terminal
+	// (superseded / purchase_claim_released). Guarded by mu, persisted
+	// through the store so a restart rejoins on the same claim.
+	// claimLoaded tracks whether the store was already consulted (a
+	// missing row must mint exactly once, not once per admission).
+	claimID     string
+	claimLoaded bool
+	state       *cachedState
+	refreshCh   chan struct{} // closed by the in-flight refresher when done
+	refreshing  bool
 	// refreshErr retains the last refresh's error under mu so waiters parked
 	// on that refresh surface it (after one state re-check) instead of each
 	// becoming the next refresher and re-running the failing upstream create.
@@ -84,9 +94,11 @@ type Manager struct {
 	// Nil means "always allowed" (legacy behavior). Evaluated under mu, so
 	// the callback MUST NOT block or take a pool lock.
 	reAdmitGate func() bool
-	// probeTTL (issue #60, SESSION_PROBE_CACHE_TTL default 15s) + lastAdmitted:
-	// the last successful upstream session response is reused to skip a
-	// redundant poll GET within the TTL.
+	// probeTTL + lastAdmitted are RETIRED (G6): the CLI polls unconditionally
+	// (~30s cadence owned by the caller) and the probe-cache skip served
+	// stale active rows, surfacing supersedes at chat time instead of poll
+	// time. SetAdmissionProbeTTL stays as a compat no-op (the pool still
+	// wires SESSION_PROBE_CACHE_TTL) but nothing reads these anymore.
 	probeTTL     time.Duration
 	lastAdmitted time.Time
 	// pollFailures counts consecutive transient poll GET failures; reset on

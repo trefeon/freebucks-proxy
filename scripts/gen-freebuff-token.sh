@@ -113,10 +113,6 @@ LOGIN_URL=$(echo "$CODE_RESP" | jq -r '.loginUrl // empty')
 FP_HASH=$(echo "$CODE_RESP" | jq -r '.fingerprintHash // empty')
 EXPIRES_AT=$(echo "$CODE_RESP" | jq -r '.expiresAt // empty')
 
-AUTH_CODE=$(printf '%s' "$LOGIN_URL" | sed -n 's/.*auth_code=\([^&]*\).*/\1/p')
-if [ -n "$AUTH_CODE" ]; then
-  LOGIN_URL="https://freebuff.com/onboard?auth_code=$AUTH_CODE"
-fi
 
 if [ -z "$LOGIN_URL" ]; then
   err "No loginUrl in response. Server may be down."

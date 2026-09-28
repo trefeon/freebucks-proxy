@@ -37,7 +37,7 @@ var dotenvKeys = map[string]bool{
 	"SESSION_PERSIST": true, "SESSION_STATE_FILE": true,
 	"HTTP2_UPSTREAM": true, "RUN_FINISH_QUEUE_SIZE": true,
 	"RUN_FINISH_INLINE_TIMEOUT": true, "RUNS_DRAIN_QUEUE_CAP": true,
-	"RUNS_DRAIN_TTL": true, "SESSION_RE_ADMIT_LEAD": true, "SESSION_PROBE_CACHE_TTL": true,
+	"RUNS_DRAIN_TTL": true, "SESSION_RE_ADMIT_LEAD": true,
 	"SESSION_TIMEZONE":            true,
 	"US_CONSISTENCY":              true,
 	"MODEL_UNAVAILABLE_CACHE_TTL": true, "QUEUE_DEPTH": true, "QUEUE_WAIT": true,

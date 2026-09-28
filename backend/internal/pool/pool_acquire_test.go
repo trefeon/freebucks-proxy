@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/registry"
+	"freebucks-proxy/backend/internal/session"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 func TestNewLengthMismatch(t *testing.T) {
@@ -30,6 +31,9 @@ func TestAcquirePrefersTokenWithLiveSession(t *testing.T) {
 	defer mock1.Close()
 	mock2 := testutil.NewMock() // token 2 (index 1): stays fresh
 	defer mock2.Close()
+	// Mint-per-turn: 1 first + 5 successive acquires burn 6 STARTs on the
+	// hot token, so the 3-id default mock would exhaust — extend it.
+	mock1.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004", "run-0005", "run-0006", "run-0007"}
 	p := newTestPool(t, mock1, mock2)
 
 	// First acquire lands on token 1 (round-robin start) and admits its
@@ -52,7 +56,7 @@ func TestAcquirePrefersTokenWithLiveSession(t *testing.T) {
 	// Successive acquires all land on token 1 (hot-session-first): its live
 	// session is reused and token 2 never gets a session admitted — the
 	// round-robin start alternates back to token 2, but the hot token wins.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		lease, err := p.Acquire(context.Background(), modelA)
 		if err != nil {
 			t.Fatal(err)
@@ -64,6 +68,9 @@ func TestAcquirePrefersTokenWithLiveSession(t *testing.T) {
 	}
 	if mock2.SessionCreates != 0 {
 		t.Errorf("token 2 session creates = %d, want 0 (never admitted)", mock2.SessionCreates)
+	}
+	if got := mock1.StartedRunsSnapshot(); len(got) != 6 {
+		t.Errorf("token 1 started runs = %d, want 6 (1 first + 5 successive, one START per turn)", len(got))
 	}
 	if got := mock2.StartedRunsSnapshot(); len(got) != 0 {
 		t.Errorf("token 2 started runs = %v, want none", got)
@@ -105,16 +112,17 @@ func TestFailoverOnAuthReject(t *testing.T) {
 	}
 	p.LeaseRelease(lease)
 
-	if len(bad.StartedRuns) != 0 {
-		t.Errorf("rejecting token started runs: %v", bad.StartedRuns)
+	if got := bad.StartedRunsSnapshot(); len(got) != 0 {
+		t.Errorf("rejecting token started runs: %v", got)
 	}
-	if len(good.StartedRuns) != 1 {
-		t.Errorf("healthy token started runs = %v, want 1", good.StartedRuns)
+	if got := good.StartedRunsSnapshot(); len(got) != 1 {
+		t.Errorf("healthy token started runs = %v, want 1", got)
 	}
 
 	// MASQ: a 401 writes no cooldown — a per-account credential refusal is
 	// re-tried live on every pass, then fails over to the healthy token.
-	for i := 0; i < 2; i++ {
+	// Mint-per-turn: every acquire burns one START on the serving token.
+	for i := range 2 {
 		lease, err := p.Acquire(context.Background(), modelA)
 		if err != nil {
 			t.Fatal(err)
@@ -124,8 +132,8 @@ func TestFailoverOnAuthReject(t *testing.T) {
 		}
 		p.LeaseRelease(lease)
 	}
-	if len(good.StartedRuns) != 1 {
-		t.Errorf("healthy token re-STARTed: %v", good.StartedRuns)
+	if got := good.StartedRunsSnapshot(); len(got) != 3 {
+		t.Errorf("healthy token started runs = %v, want 3 (one START per turn)", got)
 	}
 }
 

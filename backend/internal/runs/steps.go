@@ -59,7 +59,7 @@ type Run struct {
 	// StepCount is the run's 1-based per-chat-call step counter, stamped
 	// as codebuff_metadata["llm_step_number"] (issue #113, CLI parity:
 	// run-agent-step.ts increments per step). Atomic: chatAttempt
-	// increments it while the manager goroutines may rotate/finish the
+	// increments it while the manager goroutines may drain/finish the
 	// run, so the server reaches it without the manager mutex.
 	StepCount atomic.Int64
 
@@ -180,8 +180,8 @@ func (m *RunManager) cloneRun(run *Run) *Run {
 	return c
 }
 
-// persistRun writes the run into the session-state store (issue #40) so a
-// restart can resume it without re-START. Best-effort; the store write
+// persistRun records the active turn in the session-state store (issue #40)
+// so restart-time state keeps the latest run id. Best-effort; the store write
 // never fails the caller.
 func (m *RunManager) persistRun(run *Run) {
 	if m.store == nil || m.key == "" || run == nil {
@@ -204,9 +204,9 @@ func (m *RunManager) persistRun(run *Run) {
 // removeRun drops the run from the session-state store (issue #40). Records
 // are removed at FINISH DISPATCH — not only after the FINISH response —
 // because a run whose FINISH is in flight is already dead upstream: leaving
-// the record behind lets a restart-resume (or a rotate() store-resume)
-// resurrect a draining run whose chats upstream rejects. A run is only
-// resumable from the store while it is genuinely active.
+// the record behind lets a restart resurrect a draining run whose chats
+// upstream rejects. A run is only resumable from the store while it is
+// genuinely active.
 func (m *RunManager) removeRun(run *Run) {
 	if m.store == nil || m.key == "" || run == nil {
 		return
@@ -218,7 +218,7 @@ func (m *RunManager) removeRun(run *Run) {
 // cancelled mid-chat (issue #53, CLI DELETE-on-exit parity): when this was
 // the LAST in-flight request on the run, the run is dropped from the active
 // set and FINISHed through the bounded queue so upstream does not keep an
-// abandoned agent run alive until rotation. Concurrent requests on the same
+// abandoned agent run alive until its upstream expiry. Concurrent requests on the same
 // run keep it alive (inflight stays > 0). The decrement and the finish
 // decision happen under the manager mutex, so a racing Acquire can never
 // lease a run that is about to be finished. The abandoned run FINISHes as
@@ -251,10 +251,10 @@ func (m *RunManager) ReleaseAbandoned(run *Run) {
 	slog.Debug("runs: run abandoned", "run_id", run.RunID, "agent_id", run.AgentID, "agent", run.AgentID, "status", run.Status, "inflight", run.inflight)
 	// If it is still the current run, drop it from the active set so no
 	// new acquire reuses it, then FINISH it. Join the draining list BEFORE
-	// enqueueing (mirrors rotate): if the FINISH fails transiently,
+	// enqueueing (mirrors the mint path): if the FINISH fails transiently,
 	// Maintain re-drains it — without draining membership the run would be
 	// in no set and its cancelled FINISH would be lost forever, leaking
-	// the upstream agent run. A run that already rotated away is owned by
+	// the upstream agent run. A run that already drained away is owned by
 	// the draining queue.
 	if current, ok := m.runs[run.AgentID]; ok && current == run {
 		delete(m.runs, run.AgentID)
@@ -264,19 +264,9 @@ func (m *RunManager) ReleaseAbandoned(run *Run) {
 		return
 	}
 	m.mu.Unlock()
-	// Rotated already (or drained by FinishAllRuns): re-queue the FINISH
+	// Drained already (or drained by FinishAllRuns): re-queue the FINISH
 	// the draining queue skipped while inflight > 0 — Maintain is the only
 	// other re-enqueuer, and after a drain there may be no next tick.
 	// enqueueFinish dedupes against a job already in the queue.
 	m.enqueueFinish(run)
-}
-
-// resumedClientID keeps a resumed run's persisted client id, minting a fresh
-// one only for a run persisted before the field existed. Returning "" instead
-// would send no client_id at all, which is a shape the CLI never produces.
-func resumedClientID(persisted string) string {
-	if persisted != "" {
-		return persisted
-	}
-	return upstream.NewClientID()
 }

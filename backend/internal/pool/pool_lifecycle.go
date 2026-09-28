@@ -8,13 +8,14 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/binary"
 	"errors"
+	"log/slog"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/runs"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
-	"log/slog"
-	"time"
 )
 
 // maintainInterval is how often the background job rotates aged runs and
@@ -54,11 +55,13 @@ const (
 const retiredDrainGrace = 2 * time.Minute
 
 // maintainToken runs one token/entry's per-pass maintenance work (issue
-// #264): the cooldown/ban gate, runs.Maintain, the in-flight queued-session
-// EnsureSession, and the run Precreate when the queue advances. It is the
+// #264): the cooldown/ban gate, runs.Maintain, and the in-flight
+// queued-session EnsureSession. Per-turn mint STARTs exactly one run per
+// prompt, so there is nothing to pre-create (a pre-created run would be
+// drained by the next mint without ever serving a chat). It is the
 // shared body behind maintainTick's per-token loop so rotation and
 // queued-advance semantics stay in one place.
-func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.RunManager, reg *registry.Registry, cfg *config.Config, label any, logger *slog.Logger) {
+func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.RunManager, reg *registry.Registry, cfg *config.Config, label any, logger *slog.Logger, leased bool) {
 	// Same cooldown/ban gate as the poll loop: no queued-session
 	// EnsureSession, no rotation while cooling down — and the same live-ban
 	// skip so a hard-banned token stops Maintain/rotate traffic (its cooldown
@@ -72,21 +75,14 @@ func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.Run
 	// a chat is in flight so it cannot kick the active session
 	// (reference/freebucks-proxy-hengxin session-manager.js:37-49, 259-260).
 	// Active-session liveness polls run on the jittered poll schedule
-	// (sessionPollTick) instead.
-	if runsMgr.InflightCount() == 0 {
+	// (sessionPollTick) instead. Per-turn mint is unleased at the runs
+	// layer, so the caller passes the pool's outstanding-lease state.
+	if !leased {
 		snap := sess.Snapshot()
 		if snap.Status == "queued" {
 			mStart := time.Now()
 			if _, err := sess.EnsureSession(mCtx); err != nil {
 				logger.Debug("pool: maintain session not ready", "token", label, "model", snap.Model, "ms", time.Since(mStart).Milliseconds(), "err", err)
-			} else {
-				// Issue #90a: pre-create the run for the session's model
-				// agent so the first request on this session does not pay the
-				// START latency.
-				after := sess.Snapshot()
-				if agentID, err := reg.AgentForModel(after.Model); err == nil && agentID != "" {
-					_ = runsMgr.Precreate(mCtx, agentID)
-				}
 			}
 		}
 	}
@@ -300,8 +296,9 @@ func (p *Pool) maintainTick(ctx context.Context) {
 		for _, tok := range *toks {
 			// Skip tokens with outstanding leases: FINISHing this run
 			// would kill an in-flight chat; leave it for rotation once the
-			// lease drains.
-			if tok.runs.InflightCount() > 0 {
+			// lease drains. Per-turn mint is unleased at the runs layer,
+			// so the pool counts granted leases itself.
+			if tok.leases.Load() > 0 {
 				continue
 			}
 			// Thread the maintain ctx: Pool.Shutdown cancels it first, so a
@@ -320,8 +317,7 @@ func (p *Pool) maintainTick(ctx context.Context) {
 		// out since the last pass — clear it so the token rejoins the
 		// rotation/poll pool instead of staying excluded until an operator
 		// unlocks it.
-		p.clearLiftedQuarantine(tok)
-		maintainToken(ctx, tok.session, tok.runs, p.reg, cfg, i+1, p.logger)
+		maintainToken(ctx, tok.session, tok.runs, p.reg, cfg, i+1, p.logger, tok.leases.Load() > 0)
 	}
 	// Smart-probe pass (smart_probe.go): predicate-gated only — due
 	// tokens (dirty or reset-instant) dispatch to the stagger worker,
@@ -357,10 +353,12 @@ func (p *Pool) sessionPollTick(ctx context.Context) {
 			// Cooldown: no session poll (same rule as maintainTick).
 			continue
 		}
-		if tok.runs.InflightCount() > 0 {
+		if tok.leases.Load() > 0 {
 			// Mid-chat in-flight gate (same rule as maintainTick): a poll
 			// GET can kick the active session (428 waiting_room). Leave the
 			// schedule due; the next pass polls once the lease drains.
+			// Per-turn mint is unleased at the runs layer, so the pool
+			// counts granted leases itself.
 			continue
 		}
 		now := time.Now()

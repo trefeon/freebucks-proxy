@@ -105,8 +105,6 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return c.SessionStateFile, false
 	case "PIN_MODEL":
 		return formatPinModel(c.PinModel), false
-	case "SESSION_PROBE_CACHE_TTL":
-		return c.SessionProbeCacheTTL.String(), false
 	case "SESSION_RE_ADMIT_LEAD":
 		return c.SessionReAdmitLead.String(), false
 	case "SESSION_TIMEZONE":

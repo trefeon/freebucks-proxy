@@ -19,6 +19,11 @@ func TestStrictOrderDrainsAccountOneFirst(t *testing.T) {
 		t.Skip("short mode: pool spill lane excluded; run `go test ./backend/...` for the full tier")
 	}
 	mocks := []*testutil.MockUpstream{testutil.NewMock(), testutil.NewMock(), testutil.NewMock()}
+	// Mint-per-turn: 12 acquires (6 + 6 after reorder) burn 12 STARTs, 4 per
+	// mock — extend beyond the 3-id default.
+	for _, m := range mocks {
+		m.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004", "run-0005", "run-0006"}
+	}
 	for _, m := range mocks {
 		t.Cleanup(m.Close)
 	}

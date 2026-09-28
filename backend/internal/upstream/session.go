@@ -123,28 +123,45 @@ func (c *Client) CreateSession(ctx context.Context) (*SessionState, error) {
 }
 
 // CreateSessionForModel POSTs the dedicated admission route with the
-// requested model and wallet limit. Ordinary models use a client-minted
-// cli:<uuid> multi-session attempt ID; TierOffer models retain the upstream
-// legacy single-session identity. The POST carries NO body and therefore no
+// requested model and wallet limit, minting a fresh attempt identity.
+// It is CreateSessionForModelWithClaim with an empty claim; see it for the
+// full wire contract.
+func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*SessionState, error) {
+	return c.CreateSessionForModelWithClaim(ctx, model, "")
+}
+
+// CreateSessionForModelWithClaim POSTs the dedicated admission route with
+// the requested model and wallet limit, carrying the caller-held claimID
+// as x-freebuff-instance-id instead of minting a fresh cli:<uuid>. The
+// session manager owns the persisted per-token claim (persist/rotate/
+// retry); the wire only carries it. Ordinary models send the claim with
+// the multi-session attempt headers when it is cli:-prefixed (its suffix
+// as x-freebuff-desktop-attempt-id, mirroring freebuffSessionMetadata);
+// a non-cli: claim (e.g. a legacy hour) rides as a bare instance id with
+// no attempt headers. An empty claimID falls back to a fresh mint, and
+// TierOffer models retain the upstream legacy single-session identity
+// regardless of claim. The POST carries NO body and therefore no
 // Content-Type. It is NEVER retried at the transport level (vendor tip
 // 57943aa71, cli/src/utils/freebuff-session-api.ts:57-74): a POST network
 // failure leaves disposition unknown, and it never carries
 // x-freebuff-takeover-instance-id (see the Takeover note above — no
 // user-confirmed holder, never auto-takeover).
-func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*SessionState, error) {
+func (c *Client) CreateSessionForModelWithClaim(ctx context.Context, model, claimID string) (*SessionState, error) {
 	if c.mock != nil {
 		return c.mock.CreateSession(c.token, model)
 	}
 	attemptMode := !modelcat.HasTier(model, modelcat.TierOffer)
-	instanceID := ""
+	instanceID := strings.TrimSpace(claimID)
 	attemptID := ""
 	if attemptMode {
-		var err error
-		instanceID, err = generateCliInstanceID()
-		if err != nil {
-			return nil, fmt.Errorf("generate Freebuff session attempt ID: %w", err)
+		if instanceID == "" {
+			var err error
+			instanceID, err = generateCliInstanceID()
+			if err != nil {
+				return nil, fmt.Errorf("generate Freebuff session attempt ID: %w", err)
+			}
 		}
-		attemptID = instanceID[len(cliInstanceIDPrefix):]
+		attemptID, _ = sessionAttemptSuffix(instanceID)
 	}
 	req, err := c.newRequest(ctx, http.MethodPost, SessionAdmissionPath, nil)
 	if err != nil {
@@ -154,11 +171,13 @@ func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*Sess
 		req.Header.Set("x-freebuff-model", model)
 	}
 	req.Header.Set(WalletSpendLimitHeader, DefaultWalletSpendLimit)
-	if attemptMode {
+	if attemptMode && instanceID != "" {
 		req.Header.Set(sessionInstanceIDHeader, instanceID)
-		req.Header.Set(sessionMultiSessionHeader, "1")
-		req.Header.Set(sessionPurchaseContinuityHeader, "1")
-		req.Header.Set(sessionDesktopAttemptIDHeader, attemptID)
+		if attemptID != "" {
+			req.Header.Set(sessionMultiSessionHeader, "1")
+			req.Header.Set(sessionPurchaseContinuityHeader, "1")
+			req.Header.Set(sessionDesktopAttemptIDHeader, attemptID)
+		}
 	}
 	st, err := c.sessionCall(req)
 	if err == nil && attemptMode && st != nil && st.InstanceID == "" && st.Status == "active" {
@@ -204,6 +223,82 @@ func (c *Client) GetSessionWithOpts(ctx context.Context, instanceID string, comp
 		}
 	}
 	return c.sessionCall(req)
+}
+
+// pollActiveInterval is the GET cadence inside PollUntilActive: fast enough
+// to confirm a fresh admission inside the budget, slow enough not to hammer
+// the session route (the CLI's steady-state poll cadence is 30s;
+// use-freebuff-session.ts POLL_INTERVAL_ACTIVE_MS — this is the short
+// post-admission confirm, not the steady state).
+const pollActiveInterval = time.Second
+
+// defaultPollActiveBudget bounds PollUntilActive when the caller passes no
+// (or a non-positive) budget: long enough for admission to settle, short
+// enough to fail a wedged turn while the client is still listening.
+const defaultPollActiveBudget = 30 * time.Second
+
+// PollUntilActive GET-polls the session until it reads active or budget
+// runs out (CLI parity: the vendor turn is admit → GET-poll-until-active →
+// agent-runs START → N×chat on the same run_id → FINISH; the poll loop
+// lives in use-freebuff-session.ts, terminal states stop it via
+// nextDelayMs). It exists for the post-admission confirm before the first
+// START: the server slice calls it after CreateSessionForModel and only
+// starts the run on an active row.
+//
+// An active row returns immediately with a nil error. Any other settled
+// (non-queued) status returns immediately too — a queued row is the only
+// shape that can still become active without a fresh admission, so only
+// queued (and unparsed noise that never decoded into a state) keeps
+// polling. Context cancellation aborts at once; budget exhaustion returns
+// the last observed state (nil when no poll ever answered) alongside an
+// error wrapping context.DeadlineExceeded.
+func (c *Client) PollUntilActive(ctx context.Context, instanceID string, budget time.Duration) (*SessionState, error) {
+	if budget <= 0 {
+		budget = defaultPollActiveBudget
+	}
+	deadline := time.Now().Add(budget)
+	var last *SessionState
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			status := ""
+			if last != nil {
+				status = last.Status
+			}
+			return last, fmt.Errorf("upstream: session %s not active after %s (last status %q): %w", instanceID, budget, status, context.DeadlineExceeded)
+		}
+		pollCtx, cancel := context.WithTimeout(ctx, remaining)
+		st, err := c.GetSession(pollCtx, instanceID)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			// Unparsed noise (transport failure, 5xx without a session
+			// body): a parsed state would have returned above with a nil
+			// error, so there is nothing terminal to honor — keep polling
+			// while budget remains.
+		} else {
+			last = st
+			if st.Status == "active" {
+				return st, nil
+			}
+			if st.Status != "queued" {
+				return st, nil
+			}
+		}
+		wait := pollActiveInterval
+		if remaining < wait {
+			wait = remaining
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		}
+	}
 }
 
 // ProbeAccount validates the token with a zero-cost GET /api/v1/freebuff/session

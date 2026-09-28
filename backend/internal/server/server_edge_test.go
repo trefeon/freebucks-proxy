@@ -10,14 +10,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestChatOversizedBody413 pins the 32MiB body cap: a larger payload is
@@ -419,6 +420,9 @@ func TestMetricsEmptyPool(t *testing.T) {
 func TestAuthSchemeCaseInsensitive(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
+	// Mint-per-turn: 4 successful chats burn 4 STARTs — extend beyond the
+	// 3-id default (the 4 unauthorized probes never reach Acquire).
+	mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 	ts, _ := newTestServer(t, []string{"sk-test"}, mock)
 	chatURL := ts.URL + "/v1/chat/completions"
 

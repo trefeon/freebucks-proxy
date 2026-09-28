@@ -2,8 +2,9 @@
 package pool
 
 import (
-	"freebucks-proxy/backend/internal/upstream"
 	"time"
+
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // banView derives the snapshot ban view from a remembered runs ban
@@ -264,8 +265,6 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			PinnedModel:             pinModel[i],
 			PinSkips:                tok.pinSkips.Load(),
 			TransientRetries:        tok.client.TransientRetries(),
-			CapacityDeferredRetries: tok.client.CapacityDeferredRetries(),
-			WaitingRoomRetries:      tok.client.WaitingRoomRetries(),
 			FingerprintRotations:    tok.client.FingerprintRotations(),
 			RateLimitEvents:         tok.client.RateLimitEvents(),
 			ModelLocked:             tok.session.ModelLocked(),
@@ -288,12 +287,10 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 // counters summed across every fixed token's client, plus the per-token rows
 // (same shape as Snapshot).
 type PoolSnapshot struct {
-	TransientRetries        int64
-	CapacityDeferredRetries int64
-	WaitingRoomRetries      int64
-	FingerprintRotations    int64
-	RequestsServed          uint64
-	Tokens                  []TokenSnapshot
+	TransientRetries     int64
+	FingerprintRotations int64
+	RequestsServed       uint64
+	Tokens               []TokenSnapshot
 	// Quarantined is the count of fixed pooled tokens currently in
 	// terminal-quarantine (live bans). Surfaced so the operator can see at
 	// a glance how many accounts the pool has permanently stopped leasing.
@@ -306,8 +303,6 @@ func (p *Pool) PoolSnapshot() PoolSnapshot {
 	toks := p.roster.Load()
 	for _, tok := range *toks {
 		ps.TransientRetries += tok.client.TransientRetries()
-		ps.CapacityDeferredRetries += tok.client.CapacityDeferredRetries()
-		ps.WaitingRoomRetries += tok.client.WaitingRoomRetries()
 		ps.FingerprintRotations += tok.client.FingerprintRotations()
 		if tok.quarantine.Load() != nil {
 			ps.Quarantined++

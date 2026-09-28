@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/dashboard"
-	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +15,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/dashboard"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 const maxEnvSize = 64 << 10
@@ -384,7 +385,6 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"RUNS_DRAIN_QUEUE_CAP":        strconv.Itoa(cfg.RunsDrainQueueCap),
 		"RUNS_DRAIN_TTL":              cfg.RunsDrainTTL.String(),
 		"SESSION_RE_ADMIT_LEAD":       cfg.SessionReAdmitLead.String(),
-		"SESSION_PROBE_CACHE_TTL":     cfg.SessionProbeCacheTTL.String(),
 		"MODEL_UNAVAILABLE_CACHE_TTL": cfg.ModelUnavailableCacheTTL.String(),
 		"WEBHOOK_URL":                 boolWord(cfg.WebhookURL != ""),
 		"ADOPT_CLI_SESSION":           strconv.FormatBool(cfg.AdoptCLISession),

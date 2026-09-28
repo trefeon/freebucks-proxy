@@ -228,8 +228,8 @@ func TestFinishBodyMatchesLiveCapture(t *testing.T) {
 }
 
 // TestFinishPrefersRecordedStepsOverRequestCount pins that totalSteps comes
-// from the recorded steps (the real step count), not the request count: two
-// acquires (Requests=2) with one recorded step FINISHes totalSteps=1.
+// from the recorded steps (the real step count), not the request count: one
+// recorded step FINISHes totalSteps=1.
 func TestFinishPrefersRecordedStepsOverRequestCount(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -238,14 +238,6 @@ func TestFinishPrefersRecordedStepsOverRequestCount(t *testing.T) {
 	run, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
-	}
-	mgr.Release(run)
-	second, err := mgr.Acquire(context.Background(), agentA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second != run {
-		t.Fatal("acquires did not share one run")
 	}
 	mgr.Release(run)
 	if n := run.NextStepNumber(); n != 1 {
@@ -261,13 +253,12 @@ func TestFinishPrefersRecordedStepsOverRequestCount(t *testing.T) {
 	mgr.Shutdown(context.Background())
 }
 
-// TestStepCounterResetsOnRotation pins the counter scope: 1..N threads within
-// a run, and a rotated run starts again at 1 (no cross-run carryover).
-func TestStepCounterResetsOnRotation(t *testing.T) {
+// TestStepCounterResetsPerTurn pins the counter scope: 1..N threads within
+// a turn, and the next turn's run starts again at 1 (no cross-run carryover).
+func TestStepCounterResetsPerTurn(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const rotInt = 40 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
 	first, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
@@ -280,16 +271,16 @@ func TestStepCounterResetsOnRotation(t *testing.T) {
 	}
 	mgr.Release(first)
 
-	ageRun(t, mgr, agentA, 2*rotInt)
+	// Per-turn mint: the next turn is a new run, never a reuse.
 	second, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if second == first {
-		t.Fatal("rotation did not mint a new run")
+		t.Fatal("second turn reused the first run")
 	}
 	if got := second.NextStepNumber(); got != 1 {
-		t.Errorf("rotated run NextStepNumber = %d, want 1", got)
+		t.Errorf("second turn NextStepNumber = %d, want 1", got)
 	}
 	mgr.Release(second)
 	mgr.Shutdown(context.Background())

@@ -59,11 +59,10 @@ var (
 	ErrNoActiveSession = errors.New("upstream has no active session")
 	// ErrCapacityDeferred: the free tier deferred the request into its
 	// capacity queue ("your request will be retried automatically") —
-	// empirically common on deepseek-v4-flash. A transient, SAME-session
-	// condition: retried against the same lease/session under the
-	// TRANSIENT_RETRIES budget, never a token cooldown and never a session
-	// invalidation (reference/freebucks-proxy-hengxin proxy.js:652-668 —
-	// noCooldown same-session retry).
+	// empirically common on deepseek-v4-flash. Fail-fast (CLI parity:
+	// send-message.ts fails the turn instead of retrying in-request):
+	// the typed error surfaces immediately with its Retry-After, never a
+	// token cooldown and never a session invalidation.
 	ErrCapacityDeferred = errors.New("upstream free capacity deferred")
 	// ErrIpCapped: 429 ip_capped — too many DISTINCT users hold an active
 	// free session on the egress IP. Admission-only: existing sessions keep
@@ -397,12 +396,12 @@ func (e *CreditsError) Unwrap() error { return ErrCredits }
 
 // CapacityDeferredError is a free_mode_capacity_deferred response: the free
 // tier placed the request in its transient capacity queue and retries it
-// automatically. The client retries it in-place against the SAME lease and
-// session (up to TRANSIENT_RETRIES extra attempts) before surfacing it; it
-// is never a token cooldown and never a session invalidation. Unwrap yields
+// automatically. Fail-fast: the chat path surfaces it immediately with its
+// Retry-After (the caller honors it on the next turn); it is never a token
+// cooldown and never a session invalidation. Unwrap yields
 // a Retryable UpstreamError so errors.As finds it, but writeError has a
 // dedicated branch: it surfaces as 429 free_mode_capacity_deferred with
-// Retry-After once the client-side budget is exhausted (#105) — not a 503.
+// Retry-After — not a 503.
 type CapacityDeferredError struct {
 	Status     int
 	RetryAfter time.Duration
@@ -415,7 +414,7 @@ func (e *CapacityDeferredError) Error() string {
 
 // Is makes errors.Is(err, ErrCapacityDeferred) work even though Unwrap
 // yields a Retryable UpstreamError (so generic server paths surface 503
-// upstream_retryable once the client-side budget is exhausted).
+// upstream_retryable for the deferred turn).
 func (e *CapacityDeferredError) Is(target error) bool { return target == ErrCapacityDeferred }
 
 func (e *CapacityDeferredError) Unwrap() error {

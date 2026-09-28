@@ -9,9 +9,9 @@ package runs
 //     ever re-queued them, leaking the upstream run and losing its
 //     terminal status).
 //   - Once Shutdown begins, no new run may be STARTed: an in-flight
-//     request still in its acquire phase must not rotate a fresh run into
+//     request still in its acquire phase must not mint a fresh run into
 //     the cleared manager after the finish worker stopped (the run would
-//     never be FINISHed). rotate refuses with ErrShuttingDown and
+//     never be FINISHed). MintTurnRun refuses with ErrShuttingDown and
 //     discards (inline-FINISHing) a run whose upstream START completed
 //     after the drain began.
 
@@ -106,7 +106,7 @@ func TestFinishAllRunsDeferredRunCancelledOnAbandon(t *testing.T) {
 // TestAcquireAfterShutdownRefusesStart is the regression guard for the
 // acquire-after-shutdown gap: a request reaching the acquire phase after
 // Shutdown drained the manager must not START a fresh run — the finish
-// worker is stopped, so that run would never be FINISHed. rotate refuses
+// worker is stopped, so that run would never be FINISHed. MintTurnRun refuses
 // with ErrShuttingDown; nothing is tracked and no FINISH is attempted.
 func TestAcquireAfterShutdownRefusesStart(t *testing.T) {
 	mock := testutil.NewMock()
@@ -140,7 +140,7 @@ func TestAcquireAfterShutdownRefusesStart(t *testing.T) {
 }
 
 // raceServer is a minimal upstream that blocks the agent-runs START until
-// released and records FINISHes — used to hold a rotate's upstream StartRun
+// released and records FINISHes — used to hold a mint's upstream StartRun
 // in flight across Shutdown (the in-flight-acquire race).
 type raceServer struct {
 	srv           *httptest.Server
@@ -206,12 +206,12 @@ func (s *raceServer) finishSnapshot() []raceFinish {
 	return append([]raceFinish(nil), s.finishes...)
 }
 
-// TestRotateDiscardsRunStartedDuringShutdown pins the hard half of the fix: the
-// upstream START is already in flight when Shutdown begins. rotate must
+// TestMintDiscardsRunStartedDuringShutdown pins the hard half of the fix: the
+// upstream START is already in flight when Shutdown begins. MintTurnRun must
 // re-check the shutting-down flag after StartRun returns, discard the fresh
 // run (never track it), best-effort FINISH it inline so it does not leak
 // upstream, and surface ErrShuttingDown to the acquiring request.
-func TestRotateDiscardsRunStartedDuringShutdown(t *testing.T) {
+func TestMintDiscardsRunStartedDuringShutdown(t *testing.T) {
 	srv := newRaceServer(t)
 
 	client, err := upstream.New("tok", &config.Config{
@@ -233,7 +233,7 @@ func TestRotateDiscardsRunStartedDuringShutdown(t *testing.T) {
 		acquireDone <- err
 	}()
 
-	// The rotate's upstream START is in flight; shut the manager down
+	// The mint's upstream START is in flight; shut the manager down
 	// before it completes.
 	<-srv.startReceived
 	mgr.Shutdown(context.Background())
@@ -242,7 +242,7 @@ func TestRotateDiscardsRunStartedDuringShutdown(t *testing.T) {
 		t.Fatalf("ActiveRuns while START in flight = %d, want 0 (fresh run must not be tracked)", snap.ActiveRuns)
 	}
 
-	// Let the blocked START complete: rotate sees the shutdown flag,
+	// Let the blocked START complete: the mint sees the shutdown flag,
 	// discards the run, inline-FINISHes it, and fails the acquire.
 	close(srv.release)
 

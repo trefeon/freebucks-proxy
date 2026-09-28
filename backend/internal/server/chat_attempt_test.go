@@ -3,14 +3,15 @@ package server
 import (
 	"context"
 	"errors"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/runs"
-	"freebucks-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
 	"testing"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/runs"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 // fakeAttemptBackend adapts the chatBackend interface for tests: nil hooks
@@ -57,11 +58,12 @@ func (b *fakeAttemptBackend) CooldownIpCapped(l *pool.Lease, ice *upstream.IpCap
 func (b *fakeAttemptBackend) CooldownCountry(l *pool.Lease, cbe *upstream.CountryBlockedError) {
 	b.cooldownCountry(l, cbe)
 }
-func (b *fakeAttemptBackend) LeaseRelease(*pool.Lease)          {}
-func (b *fakeAttemptBackend) LeaseAbandon(*pool.Lease)          {}
-func (b *fakeAttemptBackend) MarkRunFailed(*pool.Lease)         {}
-func (b *fakeAttemptBackend) RecordRunStep(*pool.Lease, string) {}
-func (b *fakeAttemptBackend) RecordSpend(*pool.Lease, int64)    {}
+func (b *fakeAttemptBackend) LeaseRelease(*pool.Lease)               {}
+func (b *fakeAttemptBackend) LeaseAbandon(*pool.Lease)               {}
+func (b *fakeAttemptBackend) MarkRunFailed(*pool.Lease)              {}
+func (b *fakeAttemptBackend) RecordRunStep(*pool.Lease, string)      {}
+func (b *fakeAttemptBackend) RecordSpend(*pool.Lease, int64)         {}
+func (b *fakeAttemptBackend) FinishRun(context.Context, *pool.Lease) {}
 
 func TestChatAttemptTurnSpendTerminal(t *testing.T) {
 	// turn_spend_limit is terminal for the current request: a failed turn

@@ -246,11 +246,6 @@ var keyCatalog = []KeyDef{
 		Description: `Persist session state AND active agent runs to disk so a restart resumes them instead of re-creating (default true). Set via container environment.`,
 	},
 	{
-		Key: "SESSION_PROBE_CACHE_TTL", Group: GroupPool, Kind: "text", Hidden: true,
-		Default:     "15s",
-		Description: `Reuse the last successful quota probe (skip redundant upstream status GETs) within this window.`,
-	},
-	{
 		Key: "SESSION_RE_ADMIT_LEAD", Group: GroupPool, Kind: "text", Hidden: true,
 		Default:     "60s",
 		Description: `Re-admit a session pre-emptively when less than this remains. The rotation waits until the account's seat is idle (upstream keeps one session per account, so a fresh admission supersedes any turn still in flight); a request that finds the seat busy rides the old session through its grace drain, and the request that trips the re-admit is served by the fresh session.`,
@@ -417,7 +412,6 @@ var durationSettingKeys = map[string]bool{
 	"RUNS_DRAIN_TTL":              true,
 	"RUN_FINISH_INLINE_TIMEOUT":   true,
 	"SESSION_CALL_TIMEOUT":        true,
-	"SESSION_PROBE_CACHE_TTL":     true,
 	"SESSION_RE_ADMIT_LEAD":       true,
 	"SMART_PROBE_BACKOFF_MAX":     true,
 }

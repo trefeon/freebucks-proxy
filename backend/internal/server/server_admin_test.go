@@ -200,9 +200,10 @@ func TestAuth(t *testing.T) {
 	}
 
 	// The rejected requests must never have reached the pool/upstream; the
-	// two accepted chats share one session and one run (same model).
-	if mock.SessionCreates != 1 || len(mock.StartedRuns) != 1 {
-		t.Errorf("upstream contact = %d session creates / %d started runs, want 1/1 (auth gates before pool)",
+	// two accepted chats share one session and mint one run each
+	// (mint-per-turn: one START per prompt).
+	if mock.SessionCreates != 1 || len(mock.StartedRuns) != 2 {
+		t.Errorf("upstream contact = %d session creates / %d started runs, want 1/2 (auth gates before pool)",
 			mock.SessionCreates, len(mock.StartedRuns))
 	}
 }
@@ -231,6 +232,8 @@ func TestBearerCaseInsensitiveVariants(t *testing.T) {
 	t.Run("API auth accepts case variations", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
+		// Mint-per-turn: 4 chats burn 4 STARTs — extend beyond the 3-id default.
+		mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 		ts, _ := newTestServer(t, []string{"sk-test"}, mock)
 		chatURL := ts.URL + "/v1/chat/completions"
 
@@ -261,7 +264,6 @@ func TestBearerCaseInsensitiveVariants(t *testing.T) {
 			}
 		}
 	})
-
 }
 
 // TestTokenLockUnlock drives the lock/unlock lifecycle: locking a token

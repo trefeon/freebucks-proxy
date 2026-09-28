@@ -4,14 +4,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/session"
 	"log/slog"
 	"strings"
 	"time"
+
+	"freebucks-proxy/backend/internal/session"
 )
 
-// LeaseRelease decrements the leased run's inflight counter. Call when the
-// request completes or fails. Safe on nil leases.
+// releaseLeaseCount drops one outstanding lease from the entry's count,
+// saturating at zero like seatCounter.release (a double release must never
+// drive the in-flight gates negative and strand a retired drain).
+func releaseLeaseCount(entry *tokenEntry) {
+	for {
+		cur := entry.leases.Load()
+		if cur <= 0 {
+			return
+		}
+		if entry.leases.CompareAndSwap(cur, cur-1) {
+			return
+		}
+	}
+}
+
+// LeaseRelease releases a lease: the run's inflight (leased runs), the
+// live-turn slot, the seat, and the pool's outstanding-lease count used by
+// the in-flight gates. Call when the request completes or fails. Safe on
+// nil leases.
 func (p *Pool) LeaseRelease(lease *Lease) {
 	if lease == nil {
 		return
@@ -20,6 +38,12 @@ func (p *Pool) LeaseRelease(lease *Lease) {
 	// session admission must drop whatever happens below, including the run
 	// row being gone.
 	lease.releaseSeat()
+	// Outstanding-lease count (per-turn mint is unleased at the runs layer):
+	// drop it even when the run row is gone so the in-flight gates below
+	// observe the release.
+	if lease.entry != nil {
+		releaseLeaseCount(lease.entry)
+	}
 	if lease.Run == nil {
 		return
 	}
@@ -42,7 +66,7 @@ func (p *Pool) LeaseRelease(lease *Lease) {
 		p.retiredMu.Lock()
 		_, parked := p.retired[t.entry]
 		p.retiredMu.Unlock()
-		if parked && t.entry.runs.InflightCount() == 0 {
+		if parked && t.entry.leases.Load() <= 0 {
 			p.drainRemovedToken(t.entry)
 		}
 	}
@@ -62,6 +86,9 @@ func (p *Pool) LeaseAbandon(lease *Lease) {
 	// Seat accounting first (seat.go), mirroring LeaseRelease: a cancelled
 	// chat frees the seat even when the run row is gone.
 	lease.releaseSeat()
+	if lease.entry != nil {
+		releaseLeaseCount(lease.entry)
+	}
 	if lease.Run == nil {
 		return
 	}
@@ -106,6 +133,32 @@ func (p *Pool) MarkRunFailed(lease *Lease) {
 		return
 	}
 	t.runs.MarkFailed(lease.Run)
+}
+
+// FinishLeaseRun FINISHes the lease's turn run upstream at turn end
+// (server-owned turn lifecycle, CLI parity run-agent-step.ts:1237-1341):
+// success and terminal-failure turns FINISH explicitly instead of relying
+// on the next mint's async predecessor drain. The run's recorded steps and
+// terminal status (RecordRunStep/MarkRunFailed, issue #114) ride the FINISH
+// payload; on upstream failure the run is re-listed for a Maintain retry.
+//
+// Double-FINISH guard: only the still-current run is FINISHed — a concurrent
+// next-turn mint already drained (and owns the async FINISH of) a replaced
+// run, so a stale lease skips here and the drain path stays the sole
+// FINISHer. FinishRun drops the run, so a later mint finds nothing to drain.
+// Nil-safe (an acquire failure leaves no lease).
+func (p *Pool) FinishLeaseRun(ctx context.Context, lease *Lease) {
+	if lease == nil || lease.Run == nil {
+		return
+	}
+	t := lease.leaseTarget()
+	if t == nil {
+		return
+	}
+	if cur := t.runs.TurnRun(lease.AgentID); cur != lease.Run {
+		return
+	}
+	t.runs.FinishRun(ctx, lease.Run)
 }
 
 // RecordSpend adds tokens to the lease's backing token spend ledger (issue
@@ -233,7 +286,7 @@ func (p *Pool) RemoveLastToken() error {
 		return errors.New("pool: no tokens to remove")
 	}
 	last := removed
-	slip := last.runs.InflightCount() > 0
+	slip := last.leases.Load() > 0
 	p.retiredMu.Lock()
 	if p.retired == nil {
 		p.retired = make(map[*tokenEntry]time.Time)
@@ -261,7 +314,7 @@ func (p *Pool) RemoveTokenAt(idx int) error {
 	if !ok {
 		return errors.New("pool: token index out of range")
 	}
-	slip := target.runs.InflightCount() > 0
+	slip := target.leases.Load() > 0
 	p.retiredMu.Lock()
 	if p.retired == nil {
 		p.retired = make(map[*tokenEntry]time.Time)
@@ -446,15 +499,15 @@ func (p *Pool) Shutdown(ctx context.Context) {
 // or on the last release). Entries still carrying a lease stay until
 // LeaseRelease drains them.
 //
-// NOTE: pruneRetired only deletes entries with InflightCount==0 (no active
-// leases) and after the drain grace period. The drained sync.Once in
+// NOTE: pruneRetired only deletes entries with no outstanding leases and
+// after the drain grace period. The drained sync.Once in
 // drainRemovedToken guards against double-drain when LeaseRelease and
 // pruneRetired race on the same retired entry.
 func (p *Pool) pruneRetired() {
 	p.retiredMu.Lock()
 	defer p.retiredMu.Unlock()
 	for entry, swappedAt := range p.retired {
-		if entry.runs.InflightCount() == 0 && time.Since(swappedAt) > retiredDrainGrace {
+		if entry.leases.Load() <= 0 && time.Since(swappedAt) > retiredDrainGrace {
 			delete(p.retired, entry)
 		}
 	}

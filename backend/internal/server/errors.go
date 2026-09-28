@@ -290,16 +290,22 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 			retryAfter = 0
 		}
 	case errors.As(err, &sse):
-		// #119: 503 session_superseded — another instance took over the
-		// account. Return 503 + Retry-After (not 409) so 9router retries
-		// immediately instead of locking the model for 30s. The session is
-		// already invalidated in chatAttempt so the next request re-joins fresh.
-		status, code = http.StatusServiceUnavailable, "session_superseded"
+		// 409 session_superseded — another instance took over the account
+		// (or the purchase was refunded and the seat is gone): TERMINAL
+		// for this turn. Downstream stays 409 with NO Retry-After — a 503
+		// + Retry-After:1s invites harness retry storms against the
+		// superseding instance (and burns a daily session on rejoin), while
+		// the CLI stops polling permanently on superseded
+		// (use-freebuff-session.ts nextDelayMs returns null). Refund and
+		// takeover wordings share this arm: the gate match is error code +
+		// HTTP status, never message prose. The session is already
+		// invalidated in chatAttempt so the next turn re-joins fresh.
+		status, code = http.StatusConflict, "session_superseded"
 		message = sse.Body
 		if message == "" {
 			message = "session superseded"
 		}
-		retryAfter = 1 // retry in 1s
+		retryAfter = 0
 	case errors.As(err, &cde):
 		// #105 (server half): the client's capacity-deferred retry budget
 		// (TRANSIENT_RETRIES) is exhausted, so the free tier's transient
@@ -479,7 +485,6 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 	if model != "" {
 		attrs = append(attrs, "model", model)
 	}
-
 	if code == "rate_limited" || code == "session_superseded" {
 		// D6 dedupe: identical (token, code, window) logs fire on the 1st +
 		// every 50th; the counter always increments and the response is
@@ -493,7 +498,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 			return
 		}
 	}
-	// Routine 429 rate_limited (upstream pool refusal) and 503
+
+	// Routine 429 rate_limited (upstream pool refusal) and 409
 	// session_superseded (another instance holds the seat — terminal per
 	// FREEBUFF_GATE_CODES endsTheSession:true, not an operator-actionable
 	// fault) are expected churn: log at Info. Client-visible 5xx is a

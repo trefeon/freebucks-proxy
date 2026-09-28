@@ -74,6 +74,12 @@ func TestClientRateLimiterHTTP429(t *testing.T) {
 func TestClientRateLimiterDisabledByDefault(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
+	// Mint-per-turn: 10 chats burn 10 STARTs — extend beyond the 3-id default.
+	ids := make([]string, 10)
+	for i := range ids {
+		ids[i] = "run-rl-000" + string(rune('0'+i/10)) + string(rune('0'+i%10))
+	}
+	mock.RunIDs = ids
 
 	// Default config has RateLimitPerIP = 0 (disabled)
 	ts, _ := newTestServer(t, nil, mock)

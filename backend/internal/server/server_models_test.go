@@ -40,6 +40,14 @@ func (f *flakyFirstRT) arm()    { f.armed.Store(true) }
 func (f *flakyFirstRT) disarm() { f.armed.Store(false) }
 
 func (f *flakyFirstRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Agent-runs START/FINISH never retry (unknown disposition — a replayed
+	// START mints a duplicate run, a replayed FINISH double-reports steps),
+	// so flakiness must strike a retryable call. Skip those paths so the
+	// failure lands on the chat POST under mint-per-turn (every turn
+	// STARTs; the old lease-run reuse let the second turn skip START).
+	if strings.Contains(req.URL.Path, "/agent-runs") {
+		return f.base.RoundTrip(req)
+	}
 	f.mu.Lock()
 	shouldFail := f.armed.Load() && !f.failed
 	if shouldFail {
@@ -987,9 +995,10 @@ func TestMetricsTransientRetryCounters(t *testing.T) {
 	}
 	// Admission is warmed up disarmed: the CLI never re-POSTs admission
 	// after a transport failure (disposition unknown), so flakiness must
-	// strike a retryable call — arm only after the session is cached, and
-	// the armed failure then lands on agent-runs START during the second
-	// lease acquisition; TRANSIENT_RETRIES replays it.
+	// strike a retryable call — arm only after the session is cached. The
+	// transport skips agent-runs START/FINISH (never retried), so the armed
+	// failure lands on the second turn's chat POST; TRANSIENT_RETRIES
+	// replays it.
 	flaky := &flakyFirstRT{base: http.DefaultTransport}
 	flaky.disarm()
 	client.SetTransport(flaky)
@@ -1298,11 +1307,12 @@ func TestMetricsFamiliesContract(t *testing.T) {
 		"freebucks_proxy_quota_remaining":               "gauge",
 		"freebucks_proxy_session_remaining_seconds":     "gauge",
 		"freebucks_proxy_transient_retries_total":       "counter",
-		"freebucks_proxy_queue_retries_total":           "counter",
-		"freebucks_proxy_fingerprint_rotations_total":   "counter",
-		"freebucks_proxy_rate_limit_events_total":       "counter",
-		"freebucks_proxy_model_locked_total":            "counter",
-		"freebucks_proxy_pin_skips_total":               "counter",
+		// (Retired: freebucks_proxy_queue_retries_total was the always-0
+		// same-session queue split — dropped with the snapshot columns.)
+		"freebucks_proxy_fingerprint_rotations_total": "counter",
+		"freebucks_proxy_rate_limit_events_total":     "counter",
+		"freebucks_proxy_model_locked_total":          "counter",
+		"freebucks_proxy_pin_skips_total":             "counter",
 	}
 
 	// assertFamilies checks every expected family has a HELP and a TYPE

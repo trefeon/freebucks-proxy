@@ -74,12 +74,12 @@ func TestFinishRunFailureRetriesOnMaintain(t *testing.T) {
 }
 
 // TestFinishIfReadyFailureKeepsDraining covers the async drain-failure path:
-// when a rotated run's FINISH fails, finishIfReady resets the finishing flag
+// when a drained run's FINISH fails, finishIfReady resets the finishing flag
 // and leaves the run draining for the next Maintain pass to retry.
 func TestFinishIfReadyFailureKeepsDraining(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	mgr, _ := newTestManager(t, mock, 40*time.Millisecond)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
 	lease, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
@@ -87,18 +87,16 @@ func TestFinishIfReadyFailureKeepsDraining(t *testing.T) {
 	}
 	mgr.Release(lease)
 
-	// Age the run so Maintain rotates it (deterministic; no sleep).
-	mgr.mu.Lock()
-	mgr.runs[agentA].StartedAt = time.Now().Add(-time.Hour)
-	mgr.mu.Unlock()
-
-	// With the #91 context-pruner child traffic gone, no other FINISH can
-	// precede the rotated run's attempt: pre-set the failure so the async
-	// drain FINISH of run-0001 consumes it.
+	// The next turn drains the first (per-turn mint, no aging): pre-set the
+	// failure so the async drain FINISH of run-0001 consumes it.
 	mock.SetFinishFailures(1)
-	mgr.Maintain(context.Background())
+	second, err := mgr.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Release(second)
 
-	// The rotated run's async FINISH failed: wait for the attempt to hit
+	// The drained run's async FINISH failed: wait for the attempt to hit
 	// the mock, then assert it is not recorded and still draining.
 	eventually(t, "run-0001 FINISH attempt", func() bool {
 		return mock.FinishesStartedSnapshot() >= 1
@@ -175,17 +173,13 @@ func TestInflightCountActiveAndDraining(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Age the run so the next acquire rotates it into draining while the
-	// lease is still held.
-	mgr.mu.Lock()
-	mgr.runs[agentA].StartedAt = time.Now().Add(-time.Hour)
-	mgr.mu.Unlock()
+	// The next turn mints fresh, draining runA while its lease is still held.
 	runB, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runB.RunID == runA.RunID {
-		t.Fatalf("expected a rotation, got the same run %s", runA.RunID)
+		t.Fatalf("expected a fresh turn, got the same run %s", runA.RunID)
 	}
 
 	// runA is draining with its lease still held; runB is active with a
@@ -248,7 +242,7 @@ func TestReleaseAfterShutdownAndDoubleRelease(t *testing.T) {
 }
 
 // blockingStartRT holds the first agent-runs request (START) in flight until
-// its context is canceled, exposing the rotation's upstream call to
+// its context is canceled, exposing the mint's upstream call to
 // cancellation. Everything else delegates to base.
 type blockingStartRT struct {
 	base    http.RoundTripper
@@ -265,10 +259,10 @@ func (b *blockingStartRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	return b.base.RoundTrip(req)
 }
 
-// TestAcquireCancelledCtxMidRotation pins ctx cancellation during a run
-// START (mid-rotation): Acquire must abort with ctx.Err() and leave no run
+// TestMintTurnRunCancelledCtx pins ctx cancellation during a run START
+// (mid-mint): the mint must abort with ctx.Err() and leave no run
 // registered.
-func TestAcquireCancelledCtxMidRotation(t *testing.T) {
+func TestMintTurnRunCancelledCtx(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	client, err := upstream.New("tok", &config.Config{
@@ -411,74 +405,5 @@ func TestCooldownRateLimitClearsBanWindow(t *testing.T) {
 	}
 	if snap := mgr.Snapshot(); !snap.BannedUntil.IsZero() {
 		t.Errorf("BannedUntil = %v, want zero after rate-limit supersedes hard ban", snap.BannedUntil)
-	}
-}
-
-// TestRotateStoreResumeShutdownReleasesWaiters pins the single-flight
-// cleanup in rotate's store-resume branch: when Shutdown begins between the
-// leader's flight registration and its persisted-run resume check, the
-// leader returns ErrShuttingDown AND must close the flight channel and drop
-// its starting entry — otherwise every waiter parked on the flight blocks
-// until its own ctx dies (stalling graceful shutdown) instead of learning
-// the shutdown.
-func TestRotateStoreResumeShutdownReleasesWaiters(t *testing.T) {
-	mock := testutil.NewMock()
-	defer mock.Close()
-	store := session.NewStore(t.TempDir() + "/state.json")
-	mgr, _ := newTestManagerOpts(t, mock, Options{RotationInterval: time.Hour, Store: store})
-
-	// A resumable run in the store: fresh enough (within the rotation
-	// interval) that the leader takes the resume branch.
-	store.SaveRun(mgr.key, agentA, session.PersistedRun{
-		RunID:     "run-0001",
-		AgentID:   agentA,
-		StartedAt: time.Now().Add(-time.Minute),
-		Requests:  1,
-	})
-
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	mgr.testBeforeStoreResume = func() {
-		close(entered)
-		<-release
-		mgr.mu.Lock()
-		mgr.shuttingDown = true
-		mgr.mu.Unlock()
-	}
-
-	// Leader: registers the flight, parks in the hook, then hits the resume
-	// branch with shuttingDown set. The waiter below parks on the flight
-	// while the hook still holds the leader (its own first shuttingDown
-	// check sees false).
-	leaderErr := make(chan error, 1)
-	go func() {
-		err := mgr.rotate(context.Background(), agentA)
-		leaderErr <- err
-	}()
-	<-entered
-
-	waiterCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	waiterErr := make(chan error, 1)
-	go func() {
-		err := mgr.rotate(waiterCtx, agentA)
-		waiterErr <- err
-	}()
-
-	// Give the waiter a moment to park on the flight, then unblock the
-	// leader so Shutdown lands between the two checks.
-	time.Sleep(100 * time.Millisecond)
-	close(release)
-
-	if err := <-leaderErr; !errors.Is(err, ErrShuttingDown) {
-		t.Fatalf("leader rotate error = %v, want ErrShuttingDown", err)
-	}
-	select {
-	case err := <-waiterErr:
-		if !errors.Is(err, ErrShuttingDown) {
-			t.Fatalf("waiter rotate error = %v, want ErrShuttingDown", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("waiter still blocked after the leader returned: flight channel never closed")
 	}
 }

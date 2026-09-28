@@ -49,25 +49,6 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	testutil.WaitFor(t, 3*time.Second, cond, what)
 }
 
-// ageRun backdates the live run for agentID so its age exceeds minAge,
-// making the next Acquire/Maintain rotate it deterministically: the
-// production rotation checks compare time.Since(run.StartedAt) against the
-// injected rotationInterval (Acquire/Maintain in runs.go), so a backdated
-// StartedAt replaces fixed sleeps that raced that interval on loaded
-// machines. minAge is expressed relative to the test's injected rotation
-// interval (callers pass e.g. 2*rotInt).
-func ageRun(t *testing.T, m *RunManager, agentID string, minAge time.Duration) {
-	t.Helper()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	run := m.runs[agentID]
-	if run == nil {
-		t.Fatalf("ageRun: no live run for agent %q", agentID)
-		return
-	}
-	run.StartedAt = time.Now().Add(-minAge)
-}
-
 func finishedRun(mock *testutil.MockUpstream, runID string) (testutil.FinishedRun, bool) {
 	// Snapshot under the mock's lock: FINISH arrives from a background
 	// goroutine while the test polls (eventually), so raw field reads race.
@@ -79,40 +60,103 @@ func finishedRun(mock *testutil.MockUpstream, runID string) (testutil.FinishedRu
 	return testutil.FinishedRun{}, false
 }
 
-func TestRotationAtInterval(t *testing.T) {
+// TestPerTurnMintMintsFreshRun pins the CLI parity core (run-agent-step.ts:926-944:
+// one START per prompt): back-to-back turns NEVER share a run — every mint
+// STARTs fresh, and the superseded turn drains with an async FINISH. No aging
+// or rotation interval is involved: the 6h multiplexing is retired.
+func TestPerTurnMintMintsFreshRun(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const rotInt = 40 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
-	first, err := mgr.Acquire(context.Background(), agentA)
+	// Direct primitive: two MintTurnRun calls mint two upstream STARTs and
+	// return distinct run ids.
+	firstID, err := mgr.MintTurnRun(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.RunID != "run-0001" {
-		t.Fatalf("first run id = %q, want run-0001", first.RunID)
+	if firstID != "run-0001" {
+		t.Fatalf("first run id = %q, want run-0001", firstID)
 	}
-	if first.StartedAt.IsZero() {
-		t.Error("StartedAt not set")
+	if got := mgr.TurnRun(agentA); got == nil || got.RunID != firstID {
+		t.Fatalf("TurnRun = %+v, want the tracked first turn %q", got, firstID)
 	}
-	mgr.Release(first)
-
-	// Age the run past the rotation interval deterministically (the old
-	// 80ms sleep raced the 40ms interval), then acquire again: the old run
-	// must be rotated away and FINISHed asynchronously.
-	ageRun(t, mgr, agentA, 2*rotInt)
-	second, err := mgr.Acquire(context.Background(), agentA)
+	secondID, err := mgr.MintTurnRun(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.RunID != "run-0002" {
-		t.Fatalf("second run id = %q, want run-0002 (rotated)", second.RunID)
+	if secondID == "" || secondID == firstID {
+		t.Fatalf("second run id = %q, want a fresh run per turn (got %q)", secondID, firstID)
+	}
+	if got := mgr.TurnRun(agentA); got == nil || got.RunID != secondID {
+		t.Fatalf("TurnRun after second mint = %+v, want %q", got, secondID)
 	}
 
-	eventually(t, "FINISH of rotated run", func() bool {
+	// The superseded turn is FINISHed asynchronously with its request count.
+	eventually(t, "FINISH of superseded turn", func() bool {
 		f, ok := finishedRun(mock, "run-0001")
 		return ok && f.Status == "completed" && f.TotalSteps == 1
 	})
+
+	// The leased path mints fresh too: the next Acquire is its own turn.
+	third, err := mgr.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.RunID != "run-0003" {
+		t.Fatalf("third turn run id = %q, want run-0003", third.RunID)
+	}
+	if third.StartedAt.IsZero() {
+		t.Error("StartedAt not set")
+	}
+	mgr.Release(third)
+}
+
+// TestMintTurnRunContract pins the server slice's consumption API: MintTurnRun
+// returns the run id string, TurnRun exposes the tracked turn metadata (runID
+// + agentID + step count) for the server-owned FINISH, and both refuse on
+// cooldown/shutdown.
+func TestMintTurnRunContract(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mgr, _ := newTestManager(t, mock, time.Hour)
+
+	if got := mgr.TurnRun(agentA); got != nil {
+		t.Fatalf("TurnRun before any mint = %+v, want nil", got)
+	}
+	runID, err := mgr.MintTurnRun(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runID == "" {
+		t.Fatal("MintTurnRun returned an empty run id")
+	}
+	meta := mgr.TurnRun(agentA)
+	if meta == nil {
+		t.Fatal("TurnRun = nil right after mint, want the tracked turn")
+	}
+	if meta.RunID != runID || meta.AgentID != agentA {
+		t.Errorf("TurnRun = (%q, %q), want (%q, %q)", meta.RunID, meta.AgentID, runID, agentA)
+	}
+	if n := meta.StepCount.Load(); n != 0 {
+		t.Errorf("fresh turn StepCount = %d, want 0", n)
+	}
+
+	// Cooldown refuses the mint with no upstream contact.
+	mgr.Cooldown(time.Hour)
+	if _, err := mgr.MintTurnRun(context.Background(), agentA); err == nil {
+		t.Error("MintTurnRun during cooldown succeeded, want refusal")
+	}
+	if got := len(mock.StartedRunsSnapshot()); got != 1 {
+		t.Errorf("STARTs after refused mint = %d, want 1", got)
+	}
+	mgr.ClearCooldowns()
+
+	// Shutdown refuses the mint.
+	mgr.Shutdown(context.Background())
+	if _, err := mgr.MintTurnRun(context.Background(), agentA); !errors.Is(err, ErrShuttingDown) {
+		t.Errorf("MintTurnRun after Shutdown = %v, want ErrShuttingDown", err)
+	}
 }
 
 func TestFinishRunDropsFromActive(t *testing.T) {
@@ -273,32 +317,39 @@ func TestShutdownFinishesAllAndEndsSession(t *testing.T) {
 func TestMaintainDrainsOnlyWhenIdle(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const rotInt = 40 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
-	lease, err := mgr.Acquire(context.Background(), agentA)
+	// The first turn holds its lease; the second turn mints fresh (per-turn
+	// mint, no aging) and drains the first while its lease is still out.
+	first, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ageRun(t, mgr, agentA, 2*rotInt) // age the run deterministically
+	second, err := mgr.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.Release(second)
+	if second.RunID == first.RunID {
+		t.Fatalf("turns shared run %s, want a fresh run per turn", first.RunID)
+	}
 	mgr.Maintain(context.Background())
 
-	// The old run is draining but has an outstanding lease: the async
-	// finish goroutine must observe inflight > 0 and skip it. No exposed
-	// state signals "the worker ran and skipped", so this negative
-	// assertion is bounded by wall time: 400ms (4x the old 100ms) gives a
-	// buggy implementation that ignores the lease ample chance to FINISH.
+	// The drained turn has an outstanding lease: the async finish must
+	// observe inflight > 0 and skip it. No exposed state signals "the worker
+	// ran and skipped", so this negative assertion is bounded by wall time:
+	// 400ms gives a buggy implementation that ignores the lease ample chance
+	// to FINISH.
 	time.Sleep(400 * time.Millisecond)
-	if _, ok := finishedRun(mock, "run-0001"); ok {
+	if _, ok := finishedRun(mock, first.RunID); ok {
 		t.Fatal("draining run FINISHed while inflight > 0")
 	}
 
-	mgr.Release(lease)
+	mgr.Release(first)
 	mgr.Maintain(context.Background())
 
 	eventually(t, "FINISH of released draining run", func() bool {
-		f, ok := finishedRun(mock, "run-0001")
+		f, ok := finishedRun(mock, first.RunID)
 		return ok && f.Status == "completed" && f.TotalSteps == 1
 	})
 }
@@ -306,20 +357,16 @@ func TestMaintainDrainsOnlyWhenIdle(t *testing.T) {
 func TestMaintainSkipsDuringCooldown(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const rotInt = 40 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
-	// A live run aged past rotation would normally make Maintain rotate it
-	// (START) and a draining run would be FINISHed; with the token in
-	// cooldown neither may touch the upstream, and nothing may be logged
-	// (production observed a "maintain rotate failed ... token cooling
-	// down" error once per minute).
+	// With the token in cooldown no upstream call may happen: no START and
+	// no draining FINISH, and nothing may be logged (production observed a
+	// maintain error line once per minute).
 	run, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mgr.Release(run)
-	ageRun(t, mgr, agentA, 2*rotInt) // age the run past rotation deterministically
 
 	mgr.Cooldown(time.Hour)
 
@@ -370,20 +417,23 @@ func captureSlog() (restore func(), logged func() string) {
 	return func() { slog.SetDefault(prev) }, func() string { return buf.String() }
 }
 
-func TestPrewarmStartsAllAgentsOnce(t *testing.T) {
+// TestPrewarmIsNoop pins the per-turn-mint retirement of prewarming: Prewarm
+// STARTs nothing (a pre-created run would be drained by the next mint without
+// ever serving a chat), and the next Acquire mints the turn's run itself.
+func TestPrewarmIsNoop(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mgr, _ := newTestManager(t, mock, time.Hour)
 
 	mgr.Prewarm(context.Background(), []string{agentA, agentB})
-	if started := mock.StartedRunsSnapshot(); len(started) != 2 {
-		t.Fatalf("STARTs after prewarm = %d, want 2", len(started))
+	if started := mock.StartedRunsSnapshot(); len(started) != 0 {
+		t.Fatalf("STARTs after prewarm = %d, want 0 (per-turn mint, no pre-creation)", len(started))
 	}
 
-	// A second prewarm must not restart existing runs.
+	// A second prewarm is equally inert.
 	mgr.Prewarm(context.Background(), []string{agentA, agentB})
-	if started := mock.StartedRunsSnapshot(); len(started) != 2 {
-		t.Errorf("STARTs after second prewarm = %d, want still 2", len(started))
+	if started := mock.StartedRunsSnapshot(); len(started) != 0 {
+		t.Errorf("STARTs after second prewarm = %d, want still 0", len(started))
 	}
 
 	run, err := mgr.Acquire(context.Background(), agentA)
@@ -391,16 +441,17 @@ func TestPrewarmStartsAllAgentsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	if run.RunID != "run-0001" {
-		t.Errorf("prewarmed run id = %q, want run-0001 (agent-alpha)", run.RunID)
+		t.Errorf("turn run id = %q, want run-0001 (the first START belongs to the turn)", run.RunID)
 	}
+	mgr.Release(run)
 }
 
 func TestConcurrentAcquireRelease(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	// Concurrent cold starts can each trigger a START; make the id queue
-	// deep enough that the hammer never exhausts it.
-	ids := make([]string, 200)
+	// Per-turn mint: every Acquire is its own START, so the hammer needs one
+	// id per lease.
+	ids := make([]string, 400)
 	for i := range ids {
 		ids[i] = fmt.Sprintf("run-%04d", i)
 	}
@@ -411,6 +462,8 @@ func TestConcurrentAcquireRelease(t *testing.T) {
 	const perGoroutine = 40
 	var wg sync.WaitGroup
 	var failures atomicError
+	var mu sync.Mutex
+	seen := make(map[string]bool)
 	for g := 0; g < goroutines; g++ {
 		wg.Add(1)
 		go func(g int) {
@@ -425,6 +478,15 @@ func TestConcurrentAcquireRelease(t *testing.T) {
 					failures.set(err)
 					continue
 				}
+				mu.Lock()
+				if seen[run.RunID] {
+					mu.Unlock()
+					failures.set(fmt.Errorf("duplicate run id %s across turns", run.RunID))
+					mgr.Release(run)
+					continue
+				}
+				seen[run.RunID] = true
+				mu.Unlock()
 				mgr.Release(run)
 			}
 		}(g)
@@ -436,6 +498,9 @@ func TestConcurrentAcquireRelease(t *testing.T) {
 	}
 	if snap := mgr.Snapshot(); snap.Requests != goroutines*perGoroutine {
 		t.Errorf("snapshot requests = %d, want %d", snap.Requests, goroutines*perGoroutine)
+	}
+	if got := len(mock.StartedRunsSnapshot()); got != goroutines*perGoroutine {
+		t.Errorf("STARTs = %d, want %d (one START per turn)", got, goroutines*perGoroutine)
 	}
 }
 
@@ -628,10 +693,9 @@ func TestShutdownSkipsMidFinishRun(t *testing.T) {
 }
 
 // TestAcquireConcurrentFinishAllRuns hammers Acquire against a concurrent
-// idle FinishAllRuns, which used to surface a phantom "run missing after
-// rotation" failure whenever the run map was cleared mid-acquire. With the
-// re-validation loop every acquire either completes or fails with a real
-// error — never the cleared-map phantom.
+// idle FinishAllRuns: every Acquire mints its own turn through the shared
+// path, so a cleared run map is re-populated by the mint itself — each
+// acquire either completes or fails with a real error, never a phantom.
 func TestAcquireConcurrentFinishAllRuns(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -776,9 +840,17 @@ func TestCooldownDeadlineCeiling(t *testing.T) {
 	})
 }
 
-func TestSingleFlightRunAcquisition(t *testing.T) {
+// TestConcurrentMintTurnRunsAreDistinct pins the retired single-flight: with
+// per-turn mint there is no START coalescing — 20 concurrent turns mint 20
+// distinct runs.
+func TestConcurrentMintTurnRunsAreDistinct(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
+	ids := make([]string, 40)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("run-%04d", i)
+	}
+	mock.RunIDs = ids
 	mgr, _ := newTestManager(t, mock, time.Hour)
 
 	const concurrency = 20
@@ -797,6 +869,7 @@ func TestSingleFlightRunAcquisition(t *testing.T) {
 	}
 	wg.Wait()
 
+	seen := make(map[string]bool)
 	for i, err := range errs {
 		if err != nil {
 			t.Fatalf("goroutine %d failed: %v", i, err)
@@ -805,25 +878,25 @@ func TestSingleFlightRunAcquisition(t *testing.T) {
 			t.Fatalf("goroutine %d returned nil run", i)
 			return
 		}
-		if runs[i].RunID != "run-0001" {
-			t.Errorf("goroutine %d RunID = %q, want run-0001", i, runs[i].RunID)
+		if seen[runs[i].RunID] {
+			t.Errorf("goroutine %d RunID = %q, want a distinct run per turn (no coalescing)", i, runs[i].RunID)
 		}
+		seen[runs[i].RunID] = true
 		mgr.Release(runs[i])
 	}
 
-	started := mock.StartedRunsSnapshot()
-	if len(started) != 1 {
-		t.Fatalf("StartedRuns count = %d, want 1 (single-flight coalesced)", len(started))
+	if started := mock.StartedRunsSnapshot(); len(started) != concurrency {
+		t.Errorf("StartedRuns count = %d, want %d (one START per turn)", len(started), concurrency)
 	}
 }
 
-func TestSingleFlightRunRotation(t *testing.T) {
+// TestAcquireAlwaysMintsFresh pins that sequential Acquires never reuse: no
+// aging, no rotation interval — every turn mints.
+func TestAcquireAlwaysMintsFresh(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const rotInt = 50 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
-	// First acquire
 	r1, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
@@ -833,44 +906,23 @@ func TestSingleFlightRunRotation(t *testing.T) {
 	}
 	mgr.Release(r1)
 
-	// Age the run past the rotation interval deterministically (the old
-	// 70ms sleep raced the 50ms interval).
-	ageRun(t, mgr, agentA, 2*rotInt)
-
-	const concurrency = 20
-	var wg sync.WaitGroup
-	runs := make([]*Run, concurrency)
-	errs := make([]error, concurrency)
-
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			r, err := mgr.Acquire(context.Background(), agentA)
-			runs[idx] = r
-			errs[idx] = err
-		}(i)
+	r2, err := mgr.Acquire(context.Background(), agentA)
+	if err != nil {
+		t.Fatal(err)
 	}
-	wg.Wait()
-
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("goroutine %d failed: %v", i, err)
-		}
-		if runs[i] == nil {
-			t.Fatalf("goroutine %d returned nil run", i)
-			return
-		}
-		if runs[i].RunID != "run-0002" {
-			t.Errorf("goroutine %d RunID = %q, want run-0002", i, runs[i].RunID)
-		}
-		mgr.Release(runs[i])
+	if r2.RunID != "run-0002" {
+		t.Fatalf("second RunID = %q, want run-0002 (no reuse without aging)", r2.RunID)
 	}
+	mgr.Release(r2)
 
-	started := mock.StartedRunsSnapshot()
-	if len(started) != 2 {
-		t.Fatalf("StartedRuns count = %d, want 2 (initial + 1 coalesced rotation)", len(started))
+	if started := mock.StartedRunsSnapshot(); len(started) != 2 {
+		t.Fatalf("StartedRuns count = %d, want 2 (one START per turn)", len(started))
 	}
+	// The superseded first turn drains asynchronously.
+	eventually(t, "FINISH of superseded turn", func() bool {
+		_, ok := finishedRun(mock, "run-0001")
+		return ok
+	})
 }
 
 // ── Wave 1 issue tests (#80) ─────────────────────────────────────────────
@@ -878,6 +930,9 @@ func TestSingleFlightRunRotation(t *testing.T) {
 // TestTraceSessionIDMintedPerRun verifies #80: each run mints a crypto/rand
 // trace session id once and reuses it across the run's requests; a rotated
 // run gets a fresh one.
+// TestTraceSessionIDMintedPerRun verifies per-turn minting: each turn mints a
+// fresh crypto/rand trace session id AND client id, while the turn's own steps
+// share the run (llm_step_number 1..N on one run_id).
 func TestTraceSessionIDMintedPerRun(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -890,35 +945,31 @@ func TestTraceSessionIDMintedPerRun(t *testing.T) {
 	if run.TraceSessionID == "" {
 		t.Fatal("TraceSessionID empty, want minted UUID per run")
 	}
-	first := run.TraceSessionID
+	if run.ClientID == "" {
+		t.Fatal("ClientID empty, want minted id per run")
+	}
+	// Tool steps within the turn share the run: stamps 1, 2 on the same run.
+	if got := run.NextStepNumber(); got != 1 {
+		t.Fatalf("first stamp = %d, want 1", got)
+	}
+	if got := run.NextStepNumber(); got != 2 {
+		t.Fatalf("second stamp = %d, want 2", got)
+	}
+	firstTrace, firstClient := run.TraceSessionID, run.ClientID
 	mgr.Release(run)
 
-	// A second acquire of the same run (no rotation) reuses the same id.
+	// The next turn mints fresh ids — never reused across turns.
 	run2, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run2.TraceSessionID != first {
-		t.Errorf("TraceSessionID = %q after re-acquire, want %q (stable per run)", run2.TraceSessionID, first)
+	if run2.TraceSessionID == "" || run2.TraceSessionID == firstTrace {
+		t.Errorf("TraceSessionID = %q after mint, want a fresh id (was %q)", run2.TraceSessionID, firstTrace)
+	}
+	if run2.ClientID == "" || run2.ClientID == firstClient {
+		t.Errorf("ClientID = %q after mint, want a fresh id (was %q)", run2.ClientID, firstClient)
 	}
 	mgr.Release(run2)
-
-	// Force a rotation: age the current run past the rotation interval so
-	// the next acquire rotates it; a fresh run gets a fresh trace id.
-	mgr.mu.Lock()
-	mgr.runs[agentA].StartedAt = time.Now().Add(-2 * time.Hour)
-	mgr.mu.Unlock()
-	run3, err := mgr.Acquire(context.Background(), agentA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if run3.TraceSessionID == "" {
-		t.Fatal("TraceSessionID empty after rotation")
-	}
-	if run3.TraceSessionID == first {
-		t.Errorf("TraceSessionID = %q after rotation, want a fresh id", run3.TraceSessionID)
-	}
-	mgr.Release(run3)
 }
 
 // lockedBuffer is a mutex-guarded bytes.Buffer for captureSlogLocked: the
@@ -954,11 +1005,13 @@ func captureSlogLocked() (restore func(), logged func() string) {
 // TestRunStartedFinishedLogTraceSessionID verifies the run's
 // trace_session_id (the value threaded into codebuff_metadata) appears on
 // BOTH "runs: run started" and "runs: run finished" with the same value.
+// TestRunStartedFinishedLogTraceSessionID verifies the run's
+// trace_session_id (the value threaded into codebuff_metadata) appears on
+// BOTH "runs: run started" and "runs: run finished" with the same value.
 func TestRunStartedFinishedLogTraceSessionID(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const rotInt = 40 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
 	restore, logged := captureSlogLocked()
 	defer restore()
@@ -968,10 +1021,8 @@ func TestRunStartedFinishedLogTraceSessionID(t *testing.T) {
 		t.Fatal(err)
 	}
 	mgr.Release(first)
-	// Age the run past the rotation interval deterministically (the old
-	// 60ms sleep raced the 40ms interval): the next acquire rotates it
-	// away and FINISHes it asynchronously through the deferred queue.
-	ageRun(t, mgr, agentA, 2*rotInt)
+	// The next turn mints (per-turn mint, no aging): the first turn drains
+	// and FINISHes asynchronously through the deferred queue.
 	second, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
@@ -999,7 +1050,7 @@ func TestRunStartedFinishedLogTraceSessionID(t *testing.T) {
 	}
 }
 
-// ── Runs lifecycle telemetry ────────────────────────────────────────────
+// ── Runs lifecycle telemetry ───────────────────────────────────────────
 
 // TestRunFinishedLogCarriesLifecycleAttrs verifies that the "runs: run
 // finished" record carries duration_ms (run lifetime), steps (the run's
@@ -1009,8 +1060,7 @@ func TestRunFinishedLogCarriesLifecycleAttrs(t *testing.T) {
 	testutil.UnsetConfigEnv(t)
 	mock := testutil.NewMock()
 	defer mock.Close()
-	const rotInt = 40 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
 	restore, logged := captureSlogLocked()
 	defer restore()
@@ -1022,10 +1072,8 @@ func TestRunFinishedLogCarriesLifecycleAttrs(t *testing.T) {
 	mgr.RecordStep(first, "chatcmpl-1")
 	mgr.RecordStep(first, "chatcmpl-2")
 	mgr.Release(first)
-	// Age the run past the rotation interval deterministically (the old
-	// 60ms sleep raced the 40ms interval): the next acquire rotates it
-	// away and FINISHes it asynchronously through the deferred queue.
-	ageRun(t, mgr, agentA, 2*rotInt)
+	// The next turn mints (per-turn mint, no aging): the first turn drains
+	// and FINISHes asynchronously through the deferred queue.
 	second, err := mgr.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
@@ -1046,7 +1094,7 @@ func TestRunFinishedLogCarriesLifecycleAttrs(t *testing.T) {
 		t.Errorf("termination = %q, want finish (FINISH queue path)", m[4])
 	}
 	if m[2] != "2" {
-		t.Errorf("steps = %s, want 2 (recorded before rotation)", m[2])
+		t.Errorf("steps = %s, want 2 (recorded before the next mint)", m[2])
 	}
 	if m[3] != "completed" {
 		t.Errorf("status = %q, want completed (no failure or abandon on this run)", m[3])
@@ -1115,18 +1163,16 @@ func TestRunFinishedDropLogsTermination(t *testing.T) {
 	}
 }
 
-// TestRunResumedFromStoreLogsSource verifies the "runs: run resumed from
-// store" line carries the adopt-time source context: replaced=false on a
-// fresh adopt (no in-memory run for the agent) and replaced=true when the
-// adopt displaces a live in-memory run, plus the resumed run_id and its
-// trace_session_id so the next chat trace correlates.
-func TestRunResumedFromStoreLogsSource(t *testing.T) {
+// TestRestartMintsFreshRun pins the retired store-resume: a restart never
+// adopts the persisted run — the next turn mints fresh (per-turn mint, one
+// START per prompt). The persisted record is overwritten by the new mint.
+func TestRestartMintsFreshRun(t *testing.T) {
 	testutil.UnsetConfigEnv(t)
 	mock := testutil.NewMock()
 	defer mock.Close()
 	store := session.NewStore(t.TempDir() + "/state.json")
 
-	// First process: START a run (persisted).
+	// First process: START a turn (persisted).
 	mgr1, _ := newTestManagerOpts(t, mock, Options{RotationInterval: time.Hour, Store: store})
 	run, err := mgr1.Acquire(context.Background(), agentA)
 	if err != nil {
@@ -1135,42 +1181,23 @@ func TestRunResumedFromStoreLogsSource(t *testing.T) {
 	mgr1.Release(run)
 	mgr1.Shutdown(context.Background())
 
-	// Second process (restart) on the same store: adopt the persisted run
-	// with no in-memory twin, then age the twin and re-adopt to exercise
-	// the replaced=true arm (the store record stays fresh throughout).
+	// Second process (restart) on the same store: the next turn mints fresh
+	// instead of adopting the persisted run.
 	mgr2, _ := newTestManagerOpts(t, mock, Options{RotationInterval: time.Hour, Store: store})
-	restore, logged := captureSlogLocked()
-	defer restore()
-	adopted, err := mgr2.Acquire(context.Background(), agentA)
+	fresh, err := mgr2.Acquire(context.Background(), agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if adopted.RunID != run.RunID {
-		t.Fatalf("restart acquired run %s, want persisted %s", adopted.RunID, run.RunID)
+	if fresh.RunID == run.RunID {
+		t.Errorf("restart acquired persisted run %s, want a fresh mint (no adopt)", run.RunID)
 	}
-	mgr2.Release(adopted)
-	ageRun(t, mgr2, agentA, 2*time.Hour)
-	second, err := mgr2.Acquire(context.Background(), agentA)
-	if err != nil {
-		t.Fatal(err)
+	if fresh.TraceSessionID == run.TraceSessionID {
+		t.Errorf("restart reused persisted trace session id %q, want a fresh id", run.TraceSessionID)
 	}
-	mgr2.Release(second)
-
-	resumeRe := regexp.MustCompile(`runs: run resumed from store[^\n]*run_id=(run-[0-9]+)[^\n]*trace_session_id=([0-9a-f-]+)[^\n]*replaced=(true|false)`)
-	matches := resumeRe.FindAllStringSubmatch(logged(), -1)
-	if len(matches) != 2 {
-		t.Fatalf("want 2 run resumed lines (fresh adopt + replace adopt), got %d:\n%s", len(matches), logged())
-		return
+	if started := mock.StartedRunsSnapshot(); len(started) != 2 {
+		t.Errorf("STARTs after restart = %d, want 2 (fresh mint, no adopt)", len(started))
 	}
-	if matches[0][1] != run.RunID || matches[0][3] != "false" {
-		t.Errorf("fresh adopt = run_id %q replaced=%s, want %q replaced=false", matches[0][1], matches[0][3], run.RunID)
-	}
-	if matches[0][2] != run.TraceSessionID {
-		t.Errorf("fresh adopt trace_session_id = %q, want persisted %q", matches[0][2], run.TraceSessionID)
-	}
-	if matches[1][1] != run.RunID || matches[1][3] != "true" {
-		t.Errorf("replace adopt = run_id %q replaced=%s, want %q replaced=true", matches[1][1], matches[1][3], run.RunID)
-	}
+	mgr2.Release(fresh)
 	mgr2.Shutdown(context.Background())
 }
 
@@ -1217,46 +1244,32 @@ func TestReleaseAbandonedLogsCancelled(t *testing.T) {
 // TestShutdownAbandonWarnLogsFields verifies that the shutdown drain
 // abandoning WARN logs pending_jobs/runs/key instead of the whole manager
 // struct (a *RunManager dump would leak internal state to the log).
+// TestShutdownAbandonWarnLogsFields verifies that the shutdown drain
+// abandoning WARN logs pending_jobs/runs/key instead of the whole manager
+// struct (a *RunManager dump would leak internal state to the log).
 func TestShutdownAbandonWarnLogsFields(t *testing.T) {
 	testutil.UnsetConfigEnv(t)
 	mock := testutil.NewMock()
 	defer mock.Close()
 	mock.SetFinishDelay(250 * time.Millisecond)
-	// The rotation sequence STARTs four runs (two per agent); the default
-	// pool holds three ids.
+	// Four sequential turns (five ids staged); the default pool holds three.
 	mock.RunIDs = append([]string{"run-0001", "run-0002", "run-0003", "run-0004", "run-0005"}, mock.RunIDs...)
-	const rotInt = 40 * time.Millisecond
-	mgr, _ := newTestManager(t, mock, rotInt)
+	mgr, _ := newTestManager(t, mock, time.Hour)
 
-	// Rotate both agents so the worker is mid-FINISH (slow mock) with a
-	// second FINISH queued when Shutdown's deadline expires.
-	first, err := mgr.Acquire(context.Background(), agentA)
-	if err != nil {
-		t.Fatal(err)
+	// Each mint drains its predecessor, so after four turns the worker is
+	// mid-FINISH (slow mock) with more FINISHes queued when Shutdown's
+	// deadline expires.
+	for i := 0; i < 4; i++ {
+		r, err := mgr.Acquire(context.Background(), agentA)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mgr.Release(r)
 	}
-	mgr.Release(first)
-	ageRun(t, mgr, agentA, 2*rotInt)
-	second, err := mgr.Acquire(context.Background(), agentA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr.Release(second)
-	ageRun(t, mgr, agentA, 2*rotInt)
-	b1, err := mgr.Acquire(context.Background(), agentB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr.Release(b1)
-	ageRun(t, mgr, agentB, 2*rotInt)
-	b2, err := mgr.Acquire(context.Background(), agentB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr.Release(b2)
 
 	// The worker is mid-FINISH (250ms slow mock) when Shutdown abandons,
-	// so at least the second rotation's job must still be queued; the
-	// logged values must match what the queue/runs hold at that moment.
+	// so at least one finish job must still be queued; the logged values
+	// must match what the queue/runs hold at that moment.
 	mgr.mu.Lock()
 	wantPending := len(mgr.finishQueue)
 	wantRuns := len(mgr.runs)

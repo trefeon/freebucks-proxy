@@ -6,13 +6,14 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
 	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream"
 )
 
 func newTestSession(t *testing.T, mock *testutil.MockUpstream) *Manager {
@@ -301,13 +302,15 @@ func TestGraceWindowReAdmitQueuedRidesOldOnce(t *testing.T) {
 	}
 }
 
-// TestPollSkipsWithinProbeTTL pins issue #60(a): session poll GETs within
-// the admission probe cache TTL of a successful session response are
-// skipped; after the TTL the GET happens.
-func TestPollSkipsWithinProbeTTL(t *testing.T) {
+// TestPollIsUnconditional (G6) pins the probe-cache removal: the CLI polls
+// unconditionally on its ~30s cadence, so a Poll immediately after a
+// successful admission still issues the upstream GET — a superseded slot is
+// observed at poll time, never served stale until chat time.
+func TestPollIsUnconditional(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	m := newTestSession(t, mock)
+	// Even with a huge TTL configured, the setter is inert: the GET fires.
 	m.SetAdmissionProbeTTL(time.Hour)
 
 	if _, err := m.EnsureSession(context.Background()); err != nil {
@@ -317,29 +320,36 @@ func TestPollSkipsWithinProbeTTL(t *testing.T) {
 	if err := m.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if mock.SessionPolls != pollsAfterAdmit {
-		t.Errorf("poll within probe TTL issued a GET (polls %d → %d)", pollsAfterAdmit, mock.SessionPolls)
+	if mock.SessionPolls != pollsAfterAdmit+1 {
+		t.Errorf("poll immediately after admission issued %d GETs, want %d+1 (polls are unconditional)", mock.SessionPolls, pollsAfterAdmit)
+	}
+	// Back-to-back polls each issue a GET: no window is ever skipped.
+	if err := m.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if mock.SessionPolls != pollsAfterAdmit+2 {
+		t.Errorf("second poll issued %d GETs total, want %d+2", mock.SessionPolls, pollsAfterAdmit)
 	}
 }
 
-// TestPollAfterProbeTTLPolls pins the other side: once the TTL elapses, the
-// session poll GET fires.
-func TestPollAfterProbeTTLPolls(t *testing.T) {
+// TestPollObservesSupersededImmediately pins why the skip had to go: with
+// unconditional polling, a superseded slot is dropped at the first Poll
+// after the takeover instead of being served from the cache.
+func TestPollObservesSupersededImmediately(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	m := newTestSession(t, mock)
-	m.SetAdmissionProbeTTL(30 * time.Millisecond)
+	m.SetAdmissionProbeTTL(time.Hour)
 
 	if _, err := m.EnsureSession(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(80 * time.Millisecond) // age past the TTL
-	polls := mock.SessionPolls
+	mock.SessionMode = "superseded"
 	if err := m.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if mock.SessionPolls != polls+1 {
-		t.Errorf("poll after TTL = %d polls, want %d+1", mock.SessionPolls, polls)
+	if snap := m.Snapshot(); snap.Status != "" {
+		t.Errorf("status after superseded poll = %q, want empty (row dropped at poll time)", snap.Status)
 	}
 }
 

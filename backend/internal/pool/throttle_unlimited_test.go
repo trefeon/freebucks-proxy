@@ -8,11 +8,13 @@ package pool
 import (
 	"context"
 	"errors"
+	"fmt"
+	"testing"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/testutil"
 	"freebucks-proxy/backend/internal/upstream"
-	"testing"
-	"time"
 )
 
 // TestPooledBurstHasNoLocalRefusal proves a pooled burst far past every
@@ -22,6 +24,12 @@ import (
 // partway and fail this test.
 func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
 	mock := testutil.NewMock()
+	// Mint-per-turn: 50 acquires burn 50 STARTs — extend beyond the 3-id default.
+	ids := make([]string, 50)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("run-burst-%04d", i)
+	}
+	mock.RunIDs = ids
 	defer mock.Close()
 	p := newTestPoolCfg(t, func(c *config.Config) {
 		c.UpstreamBaseURL = mock.URL()
@@ -56,6 +64,8 @@ func TestPooledBurstHasNoLocalRefusal(t *testing.T) {
 // daily gate when unconfigured: the day bucket fills but no cap applies.
 func TestUnlimitedDefaultPerDayGate(t *testing.T) {
 	mock := testutil.NewMock()
+	// Mint-per-turn: 4 acquires burn 4 STARTs — extend beyond the 3-id default.
+	mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 	defer mock.Close()
 	p := newTestPool(t, mock)
 
@@ -82,6 +92,8 @@ func TestUnlimitedDefaultPerDayGate(t *testing.T) {
 // and no slot permit on the leases.
 func TestSlotCapUnlimitedSkipsGating(t *testing.T) {
 	mock := testutil.NewMock()
+	// Mint-per-turn: 4 acquires burn 4 STARTs — extend beyond the 3-id default.
+	mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 	defer mock.Close()
 	p := newSmartTestPool(t, func(c *config.Config) { c.SlotsPerAccount = 0 }, mock)
 	entry := smartEntry(p, 0)

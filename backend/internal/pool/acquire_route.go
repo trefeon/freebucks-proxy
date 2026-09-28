@@ -22,13 +22,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/notify"
 	"freebucks-proxy/backend/internal/phasetiming"
+	"freebucks-proxy/backend/internal/runs"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
-	"strings"
-	"time"
 )
 
 // tagRateLimitModel stamps the requested model on a WALK-LOCAL copy of a
@@ -753,6 +755,16 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 			// loop continues with no cooldown write.
 			p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1, "model", model, "err", err)
 		}
+		var uwr *upstream.WaitingRoomError
+		if errors.As(err, &uwr) {
+			// Same-claim retries exhausted (session G5): this lane already
+			// spent its admission budget (initial + admissionMaxRetries
+			// POSTs on one claim). Walking the pool would burn one more
+			// admission per token against the same saturated claim, so
+			// surface immediately instead of failing over.
+			routeSlot.Release()
+			return laneResult{outcome: laneFail, err: uwr}
+		}
 		var wr *session.WaitingRoomError
 		if errors.As(err, &wr) {
 			ws.waiting = append(ws.waiting, wr)
@@ -897,15 +909,27 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 		}
 	}
 
-	// Issue #90a: pre-create the run at session admission (best-effort)
-	// so the first chat on a freshly-admitted session does not pay the
-	// START latency. When a run already exists this is a cheap no-op;
-	// when the START fails here the Acquire below retries and surfaces
-	// the real error through the normal failover path.
-	_ = tok.runs.Precreate(ctx, effectiveAgentID)
+	// Per-turn mint (CLI parity run-agent-step.ts:926-944): every turn mints
+	// a FRESH runId — one START per prompt — and the turn's tool/llm steps
+	// all reuse that run_id. MintTurnRun tracks the run unleased
+	// (caller-owned FINISH via FinishLeaseRun); TurnRun supplies the *Run
+	// for the lease. The retired Precreate/Acquire alias path is gone.
+	// Concurrency: a racing next-turn mint may replace ours between the
+	// two calls — the lease then rides the latest current run (sharing
+	// beats failing; the slot ledger serializes lanes in production so
+	// this is a load-test-only path). Nil only when the manager dropped
+	// the mint under race (shutdown/maintain).
 	runStart := time.Now()
-	run, err := tok.runs.Acquire(ctx, effectiveAgentID)
+	_, mintErr := tok.runs.MintTurnRun(ctx, effectiveAgentID)
 	phasetiming.FromContext(ctx).Since(phasetiming.RunAcquireMS, runStart)
+	var run *runs.Run
+	if mintErr != nil {
+		err = mintErr
+	} else if tr := tok.runs.TurnRun(effectiveAgentID); tr != nil {
+		run = tr
+	} else {
+		err = fmt.Errorf("pool: turn run vanished after mint")
+	}
 	if err != nil {
 		c := p.classifyAndCooldown(tok.runs, err)
 		if c.authRejected {
@@ -913,6 +937,14 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 			// terminal quarantine: other accounts may still serve, so the
 			// loop continues with no cooldown write.
 			p.logger.Debug("pool: token auth rejected, continuing failover", "token", idx+1, "model", model, "err", err)
+		}
+		var uwr *upstream.WaitingRoomError
+		if errors.As(err, &uwr) {
+			// Same rule as the admission path: a saturated claim already
+			// spent its retry budget — surface instead of walking the pool
+			// and burning a START per token.
+			routeSlot.Release()
+			return laneResult{outcome: laneFail, err: uwr}
 		}
 		var wr *session.WaitingRoomError
 		if errors.As(err, &wr) {
@@ -1019,6 +1051,12 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 		routeSlot.Release()
 		return laneResult{outcome: laneNext}
 	}
+	// Outstanding-lease count for the in-flight gates (idle-FINISH skip,
+	// session-poll skip, removal/retired drains): per-turn mint is unleased
+	// at the runs layer, so the pool counts granted leases itself.
+	// Incremented here (the single grant point all walks funnel through),
+	// decremented on LeaseRelease/LeaseAbandon.
+	tok.leases.Add(1)
 	lease := &Lease{
 		Token: idx, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: instanceID,
 		entry: tok, routeSlot: routeSlot, QueueWait: ws.queueWait, AcquiredAt: time.Now(),

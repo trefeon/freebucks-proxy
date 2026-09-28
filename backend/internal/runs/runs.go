@@ -1,6 +1,7 @@
-// Package runs implements the per-agent FreeBuff agent-run lifecycle for a
-// single token: lazy START on first use, 6h rotation, FINISH drain, 30-min
-// auth cooldown, and a shutdown drain. Port of
+// Package runs implements the per-turn FreeBuff agent-run lifecycle for a
+// single token: one agent-runs START per prompt turn, per-run step counters
+// (llm_step_number 1..N within the turn), async FINISH drain, 30-min auth
+// cooldown, and a shutdown drain. Port of
 // reference/gateways/proxy-freebuff/lib/runs.js and
 // reference/gateways/freebuff-2api-lza6/run_manager.go (tokenPool half), adapted to
 // this project's layout: the
@@ -8,10 +9,16 @@
 // shutdown EndSession, and the pool — not this package — decides which token
 // serves a request.
 //
+// CLI parity (upstream/freebuff packages/agent-runtime/src/run-agent-step.ts:926-944):
+// every prompt mints a FRESH runId — one START per prompt — and the turn's
+// tool/llm steps all reuse that run_id with an incrementing llm_step_number.
+// The 6h run rotation/multiplexing (one run per agent reused across turns)
+// has no CLI counterpart and is retired: MintTurnRun always STARTs.
+//
 // Concurrency: all run bookkeeping is guarded by the manager mutex; no lock
-// is held across upstream calls. Rotation swaps the current run under the
-// lock and hands the old one to an async finishIfReady, so concurrent
-// acquires are race-safe.
+// is held across upstream calls. Minting swaps the current run under the
+// lock and hands the old one to the async FINISH queue, so concurrent
+// turns each get their own run, race-safe.
 package runs
 
 import (
@@ -30,12 +37,12 @@ import (
 // deadline (PRD §5: "10s force deadline").
 const shutdownTimeout = 10 * time.Second
 
-// ErrShuttingDown is returned by Acquire/Precreate/Prewarm (via rotate)
-// once Shutdown has begun: the manager has been (or is being) drained and
-// the deferred-finish worker is stopped, so a run STARTed now would never
-// be FINISHed. rotate re-checks the flag after its upstream StartRun
-// returns and discards/finishes the freshly started run inline instead of
-// tracking it.
+// ErrShuttingDown is returned by MintTurnRun (and the deprecated Acquire
+// alias) once Shutdown has begun: the manager has been (or is being)
+// drained and the deferred-finish worker is stopped, so a run STARTed now
+// would never be FINISHed. MintTurnRun re-checks the flag after its upstream
+// StartRun returns and discards/finishes the freshly started run inline
+// instead of tracking it.
 var ErrShuttingDown = errors.New("runs: manager shutting down; new run starts refused")
 
 // Defaults for the bounded deferred-FINISH queue (issue #90) and the
@@ -49,23 +56,21 @@ const (
 	defaultDrainTTL            = 10 * time.Minute
 )
 
-// Options configures a RunManager: the rotation interval, the bounded
-// deferred-FINISH worker queue bounds (#90/#55), and the optional
-// session-state store for run persistence across restarts (#40). Zero
-// values fall back to the package defaults.
+// Options configures a RunManager: the bounded deferred-FINISH worker queue
+// bounds (#90/#55) and the optional session-state store for run persistence
+// across restarts (#40). Zero values fall back to the package defaults.
+//
+// RotationInterval is RETIRED (per-turn mint has no CLI counterpart): kept
+// only so pool runOptions still compiles — the value is ignored.
+// TODO(port-runsapi): delete the field with the Acquire alias once the
+// server slice migrates pool to MintTurnRun.
 type Options struct {
-	RotationInterval    time.Duration
+	RotationInterval    time.Duration // Deprecated: ignored; per-turn mint always STARTs.
 	FinishQueueSize     int
 	InlineFinishTimeout time.Duration
 	DrainQueueCap       int
 	DrainTTL            time.Duration
 	Store               *session.Store
-}
-
-// runFlight coordinates single-flight coalescing for concurrent StartRun calls.
-type runFlight struct {
-	done chan struct{}
-	err  error
 }
 
 // RunSnapshot is a best-effort view of the manager state for healthz.
@@ -97,19 +102,18 @@ type RunSnapshot struct {
 type RunManager struct {
 	client           *upstream.Client
 	session          *session.Manager
-	rotationInterval time.Duration
+	rotationInterval time.Duration // Deprecated: ignored (per-turn mint); kept so pool runOptions compiles.
 
 	mu            sync.Mutex
-	runs          map[string]*Run       // agentID â†’ current run
-	starting      map[string]*runFlight // agentID â†’ in-flight start
-	draining      []*Run                // rotated runs awaiting FINISH
+	runs          map[string]*Run // agentID â†’ current run
+	draining      []*Run          // drained runs awaiting FINISH
 	cooldownUntil time.Time
 	// rateLimit is the last 429 rate-limit error applied to this token's
 	// cooldown. It is surfaced by RateLimitError() so exhausted tokens
 	// keep returning 429 + Retry-After instead of a generic 502 while the
 	// cooldown window is active.
 	rateLimit *upstream.RateLimitError
-	// banUntil is set when the account is banned; Acquire rejects with the
+	// banUntil is set when the account is banned; MintTurnRun refuses with the
 	// remembered ban error until the unban time.
 	banUntil time.Time
 	ban      *upstream.BanError
@@ -131,14 +135,14 @@ type RunManager struct {
 	// the next same-model request skips the dead lane contact-free until
 	// the window resets. Keyed by model id; lazy-expired on read.
 	modelLimits map[string]*modelLimitEntry
-	// totalRequests is the cumulative count of Acquire leases handed out.
-	// It is kept separate from the per-run counters because rotated runs
+	// totalRequests is the cumulative count of minted turns handed out.
+	// It is kept separate from the per-run counters because drained runs
 	// that get FINISHed leave the active+draining sets and would otherwise
 	// take their request counts out of Snapshot.
 	totalRequests int
 
-	// Deferred-FINISH queue (issue #90): rotated/drained runs, chat steps,
-	// and child-run creation are processed by one background worker per
+	// Deferred-FINISH queue (issue #90): drained runs are FINISHed by one
+	// background worker per manager;
 	// finishQueue is bounded (Options.FinishQueueSize); when it is
 	// full the caller runs the job inline bounded by inlineFinishTimeout.
 	// finishStop is closed once (finishOnce) by Shutdown; the worker drains
@@ -164,8 +168,8 @@ type RunManager struct {
 	// shuttingDown is set at the START of Shutdown, before the drain: no
 	// new run may be STARTed from that point on. An in-flight request
 	// still in its acquire phase when the drain begins would otherwise
-	// rotate a fresh run into the cleared manager after the finish worker
-	// stopped — that run would never be FINISHed. rotate consults it both
+	// mint a fresh run into the cleared manager after the finish worker
+	// stopped — that run would never be FINISHed. MintTurnRun consults it both
 	// before the upstream StartRun and after it returns. Guarded by mu.
 	shuttingDown bool
 	// drainQueueCap / drainTTL bound the draining list (issue #55).
@@ -177,24 +181,19 @@ type RunManager struct {
 	// (upstream.Client.TokenKey) mirroring the session store's key space.
 	store *session.Store
 	key   string
-	// testBeforeStoreResume, when set (tests only), runs right after the
-	// rotate leader registered its single-flight and before the persisted-
-	// run resume lookup — lets tests deterministically flip shuttingDown in
-	// the window between rotate's shutdown check and the resume branch.
-	testBeforeStoreResume func()
 }
 
-// NewRunManager builds the manager for one token. rotationInterval is how
-// long a run lives before it is rotated (config ROTATION_INTERVAL, default
-// 6h). The session manager is used only for Shutdown's EndSession.
+// NewRunManager builds the manager for one token. rotationInterval is
+// RETIRED (per-turn mint ignores it; kept only for compat) — pass any value.
+// The session manager is used only for Shutdown's EndSession.
 func NewRunManager(client *upstream.Client, session *session.Manager, rotationInterval time.Duration) *RunManager {
 	return NewRunManagerOpts(client, session, Options{RotationInterval: rotationInterval})
 }
 
-// NewRunManagerOpts builds the manager with full Options (rotation
-// interval plus the bounded finish queue and draining-list bounds from
-// issues #90/#55 and optional run persistence from #40). Zero option
-// values fall back to the package defaults.
+// NewRunManagerOpts builds the manager with full Options (the bounded finish
+// queue and draining-list bounds from issues #90/#55 and optional run
+// persistence from #40). Zero option values fall back to the package
+// defaults. Options.RotationInterval is ignored (retired 6h rotation).
 func NewRunManagerOpts(client *upstream.Client, session *session.Manager, opts Options) *RunManager {
 	queueSize := opts.FinishQueueSize
 	if queueSize < 1 {
@@ -217,7 +216,6 @@ func NewRunManagerOpts(client *upstream.Client, session *session.Manager, opts O
 		session:             session,
 		rotationInterval:    opts.RotationInterval,
 		runs:                make(map[string]*Run),
-		starting:            make(map[string]*runFlight),
 		finishQueue:         make(chan asyncJob, queueSize),
 		finishStop:          make(chan struct{}),
 		finishExited:        make(chan struct{}),
@@ -254,60 +252,123 @@ func (m *RunManager) KeptForPersistence() bool {
 	return m.keptForPersistence
 }
 
-// Acquire returns the current run for agentID, starting one on first use or
-// rotating when the current run has reached the rotation interval. The
-// rotated run is pushed to the draining list and FINISHed asynchronously.
-// The returned run has its inflight and Requests counters incremented;
-// callers must Release it when the request completes or fails.
-func (m *RunManager) Acquire(ctx context.Context, agentID string) (*Run, error) {
+// MintTurnRun mints a brand-new agent run for one CLI turn: every call POSTs
+// a fresh agent-runs START and returns its run id — one START per prompt
+// (upstream/freebuff packages/agent-runtime/src/run-agent-step.ts:926-944).
+// The turn's tool/llm steps all reuse that run id with an incrementing
+// llm_step_number; nothing re-STARTs mid-turn.
+//
+// The previous turn's run for agentID (if any) is pushed to the draining
+// list and FINISHed asynchronously, so back-to-back turns never leak an
+// upstream run. The minted run is tracked unleased (see TurnRun): the caller
+// owns its FINISH through the upstream sender — this package's drain paths
+// (Maintain/Shutdown/the next mint's safety net) only FINISH runs the caller
+// left behind.
+//
+// MintTurnRun refuses while the token cools down and after Shutdown begins
+// (ErrShuttingDown), like the old Acquire path.
+func (m *RunManager) MintTurnRun(ctx context.Context, agentID string) (string, error) {
+	run, err := m.startTurnRun(ctx, agentID, false)
+	if err != nil {
+		return "", err
+	}
+	return run.RunID, nil
+}
+
+// TurnRun returns the latest minted run for agentID (nil when none): the run
+// metadata the server needs to FINISH the turn through the upstream sender
+// (RunID + AgentID + the step count via StepCount/RecordStep). The returned
+// pointer is the manager's tracked run — read its fields and advance it only
+// through RunManager methods.
+func (m *RunManager) TurnRun(agentID string) *Run {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.runs[agentID]
+}
+
+// startTurnRun is the shared mint behind MintTurnRun and Acquire: gates, one
+// upstream StartRun, track-as-current (draining the predecessor), and persist.
+// leased leases the run to the caller (inflight 1, the Acquire contract); an
+// unleased mint stays at inflight 0 for a caller-owned lifecycle (the
+// MintTurnRun contract). The lease is taken in the same critical section as
+// the store, so a racing FinishAllRuns can only detach (and defer) the run —
+// never orphan the lease.
+func (m *RunManager) startTurnRun(ctx context.Context, agentID string, leased bool) (*Run, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	// The re-validation loop converges: an idle FinishAllRuns (or a
-	// concurrent Shutdown) may clear the run map between the initial read
-	// and the re-read below, which would otherwise surface a phantom
-	// "run missing after rotation" failure to the caller. Each pass either
-	// returns a lease or re-creates the current run under the manager
-	// mutex, so a cleared map is re-populated on the next iteration.
-	// FinishAllRuns clears at most once per idle stretch, so production
-	// converges in one retry; ctx cancellation bounds the loop.
-	for {
-		m.mu.Lock()
-		if now := time.Now(); now.Before(m.cooldownUntil) {
-			until := m.cooldownUntil
-			m.mu.Unlock()
-			return nil, fmt.Errorf("token cooling down until %s", until.Format(time.RFC3339))
-		}
-		run := m.runs[agentID]
-		needsRotate := run == nil || time.Since(run.StartedAt) >= m.rotationInterval
+	m.mu.Lock()
+	if m.shuttingDown {
 		m.mu.Unlock()
-
-		if needsRotate {
-			if err := m.rotate(ctx, agentID); err != nil {
-				return nil, err
-			}
-		}
-
-		m.mu.Lock()
-		// A concurrent acquire may have rotated again while we were
-		// starting; the lease must always point at the current run.
-		run = m.runs[agentID]
-		if run != nil {
-			run.inflight++
-			run.Requests++
-			m.totalRequests++
-			m.mu.Unlock()
-			return run, nil
-		}
-		m.mu.Unlock()
-
-		// The current run vanished mid-acquire (concurrent FinishAllRuns);
-		// loop and re-validate instead of failing the request.
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
+		return nil, ErrShuttingDown
 	}
+	if now := time.Now(); now.Before(m.cooldownUntil) {
+		until := m.cooldownUntil
+		m.mu.Unlock()
+		return nil, fmt.Errorf("token cooling down until %s", until.Format(time.RFC3339))
+	}
+	m.mu.Unlock()
+
+	runID, err := m.client.StartRun(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	if m.shuttingDown {
+		// Shutdown began while the upstream START was in flight: the
+		// manager was (or is being) drained and the finish worker is
+		// stopped, so tracking this fresh run would leave it never
+		// FINISHed. Discard it — best-effort FINISH it inline
+		// (bounded by the shutdown deadline) so the upstream agent run
+		// does not leak until its own expiry.
+		m.mu.Unlock()
+		m.finishInline(runID, agentID)
+		return nil, ErrShuttingDown
+	}
+	// Mint the trace session id before logging so the run-started line
+	// and every chat trace of this run share it.
+	traceSessionID := newTraceSessionID()
+	slog.Debug("runs: run started", "agent_id", agentID, "run_id", runID, "trace_session_id", traceSessionID)
+
+	inflight := 0
+	if leased {
+		inflight = 1
+	}
+	newRun := &Run{
+		AgentID:        agentID,
+		RunID:          runID,
+		StartedAt:      time.Now(),
+		TraceSessionID: traceSessionID,
+		// One client id for the whole turn (CLI: one promptId per prompt).
+		ClientID: upstream.NewClientID(),
+		inflight: inflight,
+		Requests: 1,
+	}
+	oldRun := m.runs[agentID]
+	m.runs[agentID] = newRun
+	m.totalRequests++
+	if oldRun != nil {
+		m.appendDrainingLocked(oldRun)
+	}
+	m.mu.Unlock()
+
+	m.persistRun(newRun)
+	if oldRun != nil {
+		m.enqueueFinish(oldRun)
+	}
+	return newRun, nil
+}
+
+// Acquire mints the turn's run: every call STARTs fresh through the shared
+// per-turn path — the 6h run reuse is retired (it has no CLI counterpart).
+//
+// TODO(port-runsapi): deprecated multiplex-era entry point, kept only
+// because pool (acquire_route.go) still calls it. The server slice migrates
+// pool to MintTurnRun and deletes this alias.
+func (m *RunManager) Acquire(ctx context.Context, agentID string) (*Run, error) {
+	return m.startTurnRun(ctx, agentID, true)
 }
 
 // Release decrements the inflight counter of a leased run. Safe on nil.
@@ -369,25 +430,21 @@ func (m *RunManager) Invalidate(agentID string) {
 	}
 }
 
-// Maintain rotates aged runs and FINISHes the draining list. Runs with
-// outstanding inflight leases or an in-flight FINISH are skipped. Best
-// effort: failures are logged, never returned (background job). While the
-// token is cooling down (auth rejection, rate limit, ban) the pass returns
-// immediately: no rotate attempts, no draining FINISH, no log — retrying
-// upstream work during a cooldown looks like abuse and would log the
-// "token cooling down" rotate failure once per maintain tick (observed in
-// production). The pool logs the skip.
-func (m *RunManager) Maintain(ctx context.Context) {
+// Maintain FINISHes the draining list. Runs with outstanding inflight leases
+// or an in-flight FINISH are skipped. Best effort: failures are logged,
+// never returned (background job). While the token is cooling down (auth
+// rejection, rate limit, ban) the pass returns immediately: no draining
+// FINISH, no log — retrying upstream work during a cooldown looks like abuse
+// (observed in production). The pool logs the skip.
+//
+// The 6h rotation is retired: per-turn minting always STARTs, so this pass
+// never STARTs anything — it only bounds the draining list and re-enqueues
+// deferred FINISHes (e.g. after a transient FINISH failure).
+func (m *RunManager) Maintain(_ context.Context) {
 	if !m.MaintenanceEligible() {
 		return
 	}
 	m.mu.Lock()
-	var toRotate []string
-	for agentID, run := range m.runs {
-		if time.Since(run.StartedAt) >= m.rotationInterval {
-			toRotate = append(toRotate, agentID)
-		}
-	}
 	// Bound the draining list before re-enqueuing its FINISHes: entries
 	// past the TTL or cap are force-dropped (issue #55) so a persistently
 	// failing FINISH cannot grow the list without bound.
@@ -395,11 +452,6 @@ func (m *RunManager) Maintain(ctx context.Context) {
 	draining := append([]*Run(nil), m.draining...)
 	m.mu.Unlock()
 
-	for _, agentID := range toRotate {
-		if err := m.rotate(ctx, agentID); err != nil {
-			slog.Debug("runs: maintain rotate failed", "agent_id", agentID, "err", err)
-		}
-	}
 	// Deferred-FINISH through the bounded queue (issue #90): the maintain
 	// tick never blocks on upstream FINISH calls; the worker (or the inline
 	// fallback) owns them. finishIfReady skips busy/finishing runs, so a
@@ -422,7 +474,7 @@ func (m *RunManager) Shutdown(ctx context.Context) {
 	// Refuse new run STARTs from this instant: an in-flight request
 	// still in its acquire phase when the drain begins must not start a
 	// fresh run after the manager is cleared — the finish worker is
-	// stopped, so that run would never be FINISHed. rotate re-checks the
+	// stopped, so that run would never be FINISHed. MintTurnRun re-checks the
 	// flag after its upstream StartRun returns and discards (inline-
 	// FINISHing) the fresh run instead of tracking it.
 	m.mu.Lock()
@@ -481,7 +533,7 @@ func (m *RunManager) Shutdown(ctx context.Context) {
 			// counter that must not be copied after first use.
 			snapshot = append(snapshot, m.cloneRun(run))
 		}
-		// Drained (rotated) runs are finished, never resumed: best-effort
+		// Drained runs are finished, never resumed: best-effort
 		// FINISH them NOW — the worker is stopped, so this is their last
 		// chance, and a stale store entry must not resurrect a finished
 		// run on the next boot.
@@ -572,194 +624,23 @@ func (m *RunManager) Snapshot() RunSnapshot {
 	return s
 }
 
-// Prewarm starts a run for every agent that does not already have a fresh
-// one, best-effort (per-agent errors are logged, never returned). Used at
-// pool boot so the first request does not pay the START latency.
-func (m *RunManager) Prewarm(ctx context.Context, agentIDs []string) {
-	for _, agentID := range agentIDs {
-		m.mu.Lock()
-		needs := m.runs[agentID] == nil
-		m.mu.Unlock()
-		if !needs {
-			continue
-		}
-		if err := m.rotate(ctx, agentID); err != nil {
-			slog.Debug("runs: prewarm failed", "agent_id", agentID, "err", err)
-		}
-	}
-}
+// Prewarm is a no-op kept for pool compatibility.
+//
+// TODO(port-runsapi): per-turn mint STARTs exactly one run per prompt, so a
+// pre-created run would be drained (and FINISHed) by the next mint without
+// ever serving a chat — pure waste. Worse, a boot fleet of live runs is the
+// ban-grade fanout shape upstream refuses with free_mode_run_fanout (pool
+// already stopped prewarming for this reason). Kept only because pool's
+// maintainToken still calls it; the server slice removes the call.
+func (m *RunManager) Prewarm(_ context.Context, _ []string) {}
 
-// rotate starts a fresh run for agentID, pushing the previous current run
-// (if any) onto the draining list and finishing it asynchronously. Single-flight
-// coalescing ensures concurrent callers for the same agent wait on a single
-// upstream StartRun call rather than launching duplicate requests.
-func (m *RunManager) rotate(ctx context.Context, agentID string) error {
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		m.mu.Lock()
-		if m.shuttingDown {
-			m.mu.Unlock()
-			return ErrShuttingDown
-		}
-		if now := time.Now(); now.Before(m.cooldownUntil) {
-			until := m.cooldownUntil
-			m.mu.Unlock()
-			return fmt.Errorf("token cooling down until %s", until.Format(time.RFC3339))
-		}
-		if run := m.runs[agentID]; run != nil && time.Since(run.StartedAt) < m.rotationInterval {
-			m.mu.Unlock()
-			return nil // a concurrent rotator already refreshed it
-		}
-		if flight, ok := m.starting[agentID]; ok {
-			ch := flight.done
-			m.mu.Unlock()
-			select {
-			case <-ch:
-				if flight.err != nil {
-					if (errors.Is(flight.err, context.Canceled) || errors.Is(flight.err, context.DeadlineExceeded)) && ctx.Err() == nil {
-						// Leader goroutine canceled/timed out, but this waiter's context is still active.
-						// Loop back to try becoming leader.
-						continue
-					}
-					return flight.err
-				}
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-
-		// We are the leader for starting this agent's run.
-		flight := &runFlight{done: make(chan struct{})}
-		if m.starting == nil {
-			m.starting = make(map[string]*runFlight)
-		}
-		m.starting[agentID] = flight
-		m.mu.Unlock()
-		if m.testBeforeStoreResume != nil {
-			m.testBeforeStoreResume()
-		}
-
-		// Issue #40: resume a persisted run instead of STARTing a fresh one
-		// when a restart left an active run behind. Only runs started within
-		// the rotation interval are adopted — a stale entry is dropped so
-		// the upstream's own rotation wins. #680 invariant: a run is only
-		// ever resumable from the store while it is genuinely active — its
-		// record dies at FINISH DISPATCH (see removeRun / finishIfReadyCtx),
-		// never after the FINISH response lands, so a draining run whose
-		// FINISH is still in flight can never be adopted here. Best-effort:
-		// the store read never fails the rotate.
-		if m.store != nil && m.key != "" {
-			if pr := m.store.LoadRun(m.key, agentID); pr != nil {
-				if pr.RunID != "" && time.Since(pr.StartedAt) < m.rotationInterval {
-					m.mu.Lock()
-					if m.shuttingDown {
-						// Shutdown won between the flight registration and
-						// the resume check: wake every waiter parked on our
-						// single-flight with the shutdown error instead of
-						// leaving the channel unclosed (a parked waiter would
-						// block until its own ctx dies and stall graceful
-						// shutdown).
-						flight.err = ErrShuttingDown
-						close(flight.done)
-						delete(m.starting, agentID)
-						m.mu.Unlock()
-						return ErrShuttingDown
-					}
-					oldRun := m.runs[agentID]
-					m.runs[agentID] = &Run{
-						AgentID:        agentID,
-						RunID:          pr.RunID,
-						StartedAt:      pr.StartedAt,
-						TraceSessionID: pr.TraceSessionID,
-						ClientID:       resumedClientID(pr.ClientID),
-						Requests:       pr.Requests,
-					}
-					flight.err = nil
-					close(flight.done)
-					delete(m.starting, agentID)
-					if oldRun != nil {
-						m.appendDrainingLocked(oldRun)
-					}
-					m.mu.Unlock()
-					if oldRun != nil {
-						m.enqueueFinish(oldRun)
-					}
-					slog.Debug("runs: run resumed from store", "agent_id", agentID, "agent", agentID, "run_id", pr.RunID, "trace_session_id", pr.TraceSessionID, "replaced", oldRun != nil)
-					return nil
-				}
-				m.store.RemoveRun(m.key, agentID)
-			}
-		}
-
-		runID, err := m.client.StartRun(ctx, agentID)
-
-		m.mu.Lock()
-		flight.err = err
-		close(flight.done)
-		delete(m.starting, agentID)
-
-		if err != nil {
-			m.mu.Unlock()
-			return err
-		}
-		if m.shuttingDown {
-			// Shutdown began while the upstream START was in flight: the
-			// manager was (or is being) drained and the finish worker is
-			// stopped, so tracking this fresh run would leave it never
-			// FINISHed. Discard it — best-effort FINISH it inline
-			// (bounded by the shutdown deadline) so the upstream agent run
-			// does not leak until its own rotation expiry.
-			m.mu.Unlock()
-			m.finishInline(runID, agentID)
-			return ErrShuttingDown
-		}
-		// Mint the trace session id before logging so the run-started line
-		// and every chat trace of this run share it.
-		traceSessionID := newTraceSessionID()
-		slog.Debug("runs: run started", "agent_id", agentID, "run_id", runID, "trace_session_id", traceSessionID)
-
-		newRun := &Run{
-			AgentID:        agentID,
-			RunID:          runID,
-			StartedAt:      time.Now(),
-			TraceSessionID: traceSessionID,
-			// One client id for the whole run (CLI: one promptId per prompt).
-			ClientID: upstream.NewClientID(),
-		}
-		oldRun := m.runs[agentID]
-		m.runs[agentID] = newRun
-		if oldRun != nil {
-			m.appendDrainingLocked(oldRun)
-		}
-		m.mu.Unlock()
-
-		m.persistRun(newRun)
-		if oldRun != nil {
-			m.enqueueFinish(oldRun)
-		}
-		return nil
-	}
-}
-
-// Precreate starts the run for agentID if none is fresh, without leasing it
-// (issue #90a): the pool calls it right after a session admission so the
-// first chat on a newly-admitted session does not pay the START latency.
-// Best-effort: the caller's Acquire surfaces any real failure through the
-// normal path.
-func (m *RunManager) Precreate(ctx context.Context, agentID string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	run := m.runs[agentID]
-	needs := run == nil || time.Since(run.StartedAt) >= m.rotationInterval
-	m.mu.Unlock()
-	if !needs {
-		return nil
-	}
-	return m.rotate(ctx, agentID)
+// Precreate is a no-op kept for pool compatibility: the turn's MintTurnRun
+// covers the START, so there is nothing to pre-create.
+//
+// TODO(port-runsapi): kept only because pool (acquire_route.go, maintainToken)
+// still calls it after session admission. Returns ctx.Err() (nil on a live
+// context) so the pool's best-effort `_ =` call sites behave. The server
+// slice removes the calls.
+func (m *RunManager) Precreate(ctx context.Context, _ string) error {
+	return ctx.Err()
 }

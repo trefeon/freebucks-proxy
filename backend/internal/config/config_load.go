@@ -128,7 +128,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.SessionReAdmitLead, "SESSION_RE_ADMIT_LEAD")
 	overrideString(&raw.SessionTimezone, "SESSION_TIMEZONE")
 	overrideBool(&raw.USConsistency, "US_CONSISTENCY")
-	overrideString(&raw.SessionProbeCacheTTL, "SESSION_PROBE_CACHE_TTL")
 	overrideString(&raw.ModelUnavailableCacheTTL, "MODEL_UNAVAILABLE_CACHE_TTL")
 	overrideString(&raw.WebhookURL, "WEBHOOK_URL")
 	overrideBool(&raw.AdoptCLISession, "ADOPT_CLI_SESSION")
@@ -184,7 +183,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 	// RUN_FINISH_INLINE_TIMEOUT / RUNS_DRAIN_TTL / SESSION_RE_ADMIT_LEAD /
-	// SESSION_PROBE_CACHE_TTL / MODEL_UNAVAILABLE_CACHE_TTL are zero-tolerant
+	// MODEL_UNAVAILABLE_CACHE_TTL are zero-tolerant
 	// durations: "" or "0" fall back to the documented default (a zero inline
 	// timeout would make the inline fallback useless; a zero re-admit lead
 	// would spin a re-admit on every request).
@@ -218,16 +217,8 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 			sessionReAdmitLead = 60 * time.Second
 		}
 	}
-	sessionProbeCacheTTL := 15 * time.Second
-	if v := strings.TrimSpace(raw.SessionProbeCacheTTL); v != "" {
-		sessionProbeCacheTTL, err = parseDuration(v, "SESSION_PROBE_CACHE_TTL")
-		if err != nil {
-			return Config{}, err
-		}
-		if sessionProbeCacheTTL <= 0 {
-			sessionProbeCacheTTL = 15 * time.Second
-		}
-	}
+	// (Retired: SESSION_PROBE_CACHE_TTL — the admission probe-cache skip is
+	// gone; polls are unconditional like the CLI.)
 	// MODEL_UNAVAILABLE_CACHE_TTL is zero-tolerant like the other session
 	// knobs: "" or "0" fall back to the documented 1h default.
 	modelUnavailableCacheTTL := time.Hour
@@ -416,7 +407,6 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		SessionTimezone:          strings.TrimSpace(raw.SessionTimezone),
 		USConsistency:            raw.USConsistency,
 		SessionReAdmitLead:       sessionReAdmitLead,
-		SessionProbeCacheTTL:     sessionProbeCacheTTL,
 		ModelUnavailableCacheTTL: modelUnavailableCacheTTL,
 		WebhookURL:               strings.TrimSpace(raw.WebhookURL),
 		SlotsPerAccount:          slotsPerAccount,
@@ -600,7 +590,6 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.SessionTimezone, get, "SESSION_TIMEZONE")
 	overrideBoolFrom(&raw.USConsistency, get, "US_CONSISTENCY")
 	overrideStringFrom(&raw.SessionReAdmitLead, get, "SESSION_RE_ADMIT_LEAD")
-	overrideStringFrom(&raw.SessionProbeCacheTTL, get, "SESSION_PROBE_CACHE_TTL")
 	overrideStringFrom(&raw.ModelUnavailableCacheTTL, get, "MODEL_UNAVAILABLE_CACHE_TTL")
 	overrideStringFrom(&raw.WebhookURL, get, "WEBHOOK_URL")
 	overrideBoolFrom(&raw.AdoptCLISession, get, "ADOPT_CLI_SESSION")

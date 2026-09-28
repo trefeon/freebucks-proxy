@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -57,6 +58,19 @@ func newTestPoolCfg(t *testing.T, mut func(*config.Config), mocks ...*testutil.M
 	clients := make([]*upstream.Client, 0, len(mocks))
 	sessions := make([]*session.Manager, 0, len(mocks))
 	for i, mock := range mocks {
+		// Mint-per-turn: every Acquire burns one START (one run per prompt),
+		// so multi-acquire tests exhaust the mock's 3-id default. Extend
+		// small ID lists to 200, preserving any test-set prefix (exact
+		// START-count pins still assert their counts; this only adds
+		// headroom so placement/failover assertions aren't masked by
+		// exhaustion failover).
+		if len(mock.RunIDs) < 200 {
+			ids := append([]string(nil), mock.RunIDs...)
+			for n := len(ids) + 1; len(ids) < 200; n++ {
+				ids = append(ids, fmt.Sprintf("run-%04d", n))
+			}
+			mock.RunIDs = ids
+		}
 		cfg.AuthTokens[i] = fmt.Sprintf("tok-%d", i)
 		clientCfg := *cfg
 		clientCfg.UpstreamBaseURL = mock.URL()
@@ -145,6 +159,13 @@ func (f *flakyFirstRT) arm()    { f.armed.Store(true) }
 func (f *flakyFirstRT) disarm() { f.armed.Store(false) }
 
 func (f *flakyFirstRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Agent-runs START/FINISH never retry (unknown disposition), so the
+	// failure must land on a retryable call. Skip those paths so the armed
+	// failure lands on the chat POST under mint-per-turn (every Acquire
+	// STARTs; the old lease-run reuse let later acquires skip START).
+	if strings.Contains(req.URL.Path, "/agent-runs") {
+		return f.base.RoundTrip(req)
+	}
 	f.mu.Lock()
 	shouldFail := f.armed.Load() && !f.failed
 	if shouldFail {

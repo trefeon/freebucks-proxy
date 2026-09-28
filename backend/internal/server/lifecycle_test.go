@@ -27,13 +27,14 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/modelcat"
-	"freebucks-proxy/backend/internal/testutil"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/modelcat"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // lifecycleToken is a valid-shaped cb_ FreeBuff token (the config validator
@@ -64,6 +65,9 @@ func setExportLine(t *testing.T, export, line string) string {
 func TestLifecycleFullJourney(t *testing.T) {
 	mock := testutil.NewMock()
 	t.Cleanup(mock.Close)
+	// Mint-per-turn: the journey serves several chats (one START per turn) —
+	// extend beyond the 3-id default.
+	mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004", "run-0005", "run-0006", "run-0007", "run-0008"}
 	mock.ChatBody = testutil.SSEEvent(chunk("chatcmpl-lc", 1,
 		`"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]`)) +
 		testutil.SSEEvent(chunk("chatcmpl-lc", 1,

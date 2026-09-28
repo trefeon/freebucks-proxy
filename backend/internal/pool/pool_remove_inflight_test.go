@@ -2,14 +2,16 @@ package pool
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/testutil"
 	"testing"
+
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestRemoveTokenSeamlessUnderInflight proves that RemoveTokenAt and
 // RemoveLastToken succeed immediately even while requests are in flight
-// (InflightCount > 0), parking the retired token in p.retired until the
-// lease releases and drains cleanly.
+// (outstanding pool leases > 0), parking the retired token in p.retired
+// until the lease releases and drains cleanly. Per-turn mint is unleased at
+// the runs layer, so the pool counts granted leases itself.
 func TestRemoveTokenSeamlessUnderInflight(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -29,9 +31,9 @@ func TestRemoveTokenSeamlessUnderInflight(t *testing.T) {
 		t.Fatal("lease nil or missing entry")
 	}
 
-	// Verify that inflight count is active on the leased token.
-	if got := lease.entry.runs.InflightCount(); got <= 0 {
-		t.Fatalf("InflightCount = %d, want > 0 while holding lease", got)
+	// Verify that the pool counts the held lease on the leased token.
+	if got := lease.entry.leases.Load(); got <= 0 {
+		t.Fatalf("leases = %d, want > 0 while holding lease", got)
 	}
 
 	// Remove a token at middle index while in flight: MUST succeed immediately without "active requests in flight"!
@@ -52,7 +54,7 @@ func TestRemoveTokenSeamlessUnderInflight(t *testing.T) {
 
 	// Releasing the held lease must succeed cleanly without panicking.
 	p.LeaseRelease(lease)
-	if got := lease.entry.runs.InflightCount(); got != 0 {
-		t.Errorf("InflightCount after release = %d, want 0", got)
+	if got := lease.entry.leases.Load(); got != 0 {
+		t.Errorf("leases after release = %d, want 0", got)
 	}
 }

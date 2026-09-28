@@ -5,11 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/server"
-	"freebucks-proxy/backend/internal/store"
-	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +13,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/config"
+	"freebucks-proxy/backend/internal/pool"
+	"freebucks-proxy/backend/internal/server"
+	"freebucks-proxy/backend/internal/store"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // modelA must map to an agent with EXCLUSIVE ownership in the registry
@@ -606,11 +607,12 @@ func TestClientCancelBeforeFirstByteAbandonsRun(t *testing.T) {
 }
 
 // TestChatClientIDStableAcrossRun is the wiring guard for the
-// free_mode_run_fanout fix: two chat requests served by the same lease/run
-// must carry the SAME codebuff_metadata.client_id, because the CLI mints it
-// once per prompt and repeats it on every LLM step (run.ts:722/822,
-// llm.ts:117). A fresh draw per call made one run_id fan out across N client
-// ids, which upstream refuses.
+// free_mode_run_fanout fix: the turn's run_id and client_id travel together
+// (MintTurnRun per turn, TurnRun for the lease). The CLI mints client_id
+// once per prompt (run.ts:722/822, llm.ts:117) and repeats it on every LLM
+// step of that turn; a fresh draw per call fanned one run_id across N client
+// ids, which upstream refuses. Per-turn mint gives every turn a FRESH run_id
+// with its own client_id — two turns never share a run.
 func TestChatClientIDStableAcrossRun(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
@@ -642,14 +644,17 @@ func TestChatClientIDStableAcrossRun(t *testing.T) {
 	}
 	id1, run1 := meta(recorded[0])
 	id2, run2 := meta(recorded[1])
-	if run1 != run2 {
-		t.Fatalf("run_id = %q then %q; this test needs both calls on one run", run1, run2)
+	if run1 == run2 {
+		t.Fatalf("run_id = %q twice; mint-per-turn wants a fresh run per turn", run1)
 	}
 	if !regexp.MustCompile(`^[a-z0-9]{13}$`).MatchString(id1) {
 		t.Errorf("client_id = %q, want 13-char base36", id1)
 	}
-	if id1 != id2 {
-		t.Errorf("client_id = %q then %q on run %q, want one id per run (fanout shape otherwise)", id1, id2, run1)
+	if !regexp.MustCompile(`^[a-z0-9]{13}$`).MatchString(id2) {
+		t.Errorf("client_id = %q, want 13-char base36", id2)
+	}
+	if id1 == id2 {
+		t.Errorf("client_id = %q twice across turns %q/%q, want one id per turn (fresh promptId per prompt)", id1, run1, run2)
 	}
 }
 

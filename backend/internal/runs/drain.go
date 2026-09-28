@@ -15,7 +15,7 @@ import (
 )
 
 // asyncJobKind discriminates the deferred-side-effect jobs carried by the
-// bounded finish queue (issue #90): FINISH a rotated/drained run. Chat-step
+// bounded finish queue (issue #90): FINISH a drained run. Chat-step
 // recording used to be a second kind (#91) but is now a synchronous
 // in-memory append (issue #114: steps are batched and sent WITH FINISH —
 // the CLI has no /steps endpoint). The context-pruner child-run job (#91)
@@ -92,7 +92,7 @@ func (m *RunManager) FinishRun(ctx context.Context, run *Run) {
 	}
 	m.drop(run)
 	// Same invariant as finishIfReadyCtx: the persisted record dies at
-	// FINISH DISPATCH, before the upstream call, so a concurrent rotate()
+	// FINISH DISPATCH, before the upstream call, so a concurrent mint
 	// or restart can never re-adopt a run whose FINISH is in flight.
 	m.removeRun(run)
 	status, steps, totalSteps := m.finishPayload(run)
@@ -110,7 +110,7 @@ func (m *RunManager) FinishRun(ctx context.Context, run *Run) {
 }
 
 // enqueueFinish submits a deferred FINISH for run through the bounded queue
-// (issue #90). Runs already queued are skipped (rotate and Maintain both
+// (issue #90). Runs already queued are skipped (mint and Maintain both
 // enqueue draining runs; without the dedupe a failed attempt would be
 // FINISHed twice upstream once the finishing flag resets).
 func (m *RunManager) enqueueFinish(run *Run) {
@@ -161,7 +161,7 @@ func (m *RunManager) startFinishWorker() {
 	})
 }
 
-// finishLoop is the deferred-job worker: FINISH rotated/drained runs,
+// finishLoop is the deferred-job worker: FINISH drained runs,
 // best-effort.
 func (m *RunManager) finishLoop() {
 	defer m.finishWg.Done()
@@ -258,7 +258,7 @@ func logRunFinished(run *Run, steps int, termination string) {
 
 // appendDrainingLocked adds run to the draining list unless it is already
 // present, stamping drainedAt (the TTL start, issue #55) and bounding the
-// list. Caller holds m.mu. Shared by rotate, ReleaseAbandoned,
+// list. Caller holds m.mu. Shared by startTurnRun, ReleaseAbandoned,
 // FinishAllRuns, and FinishRun's failure path so a run is never tracked
 // twice — a duplicate draining entry would be FINISHed twice upstream once
 // the finishing flag resets.
@@ -339,11 +339,11 @@ func (m *RunManager) finishIfReadyCtx(ctx context.Context, run *Run) {
 
 	// A draining run must NEVER be resumable: the persisted record dies
 	// the moment the FINISH is DISPATCHED, not when the FINISH response
-	// lands. rotate()'s store-resume branch would otherwise adopt a run
+	// lands. A mint would otherwise track a run
 	// whose FINISH is still in flight — upstream then rejects every chat
 	// on it (400 "runId Not Running") and the client sees a 502 with no
 	// retry (observed live 2026-09-21T07:05:05Z: abandoned run 87c3a9c3
-	// was re-adopted 117ms later by the next request's rotate()).
+	// was re-adopted 117ms later by the next request's mint()).
 	m.removeRun(run)
 
 	status, steps, totalSteps := m.finishPayload(run)
@@ -375,7 +375,7 @@ func (m *RunManager) finishIfReadyCtx(ctx context.Context, run *Run) {
 }
 
 // finishInline best-effort FINISHes a run that was never tracked by the
-// manager: rotate discards a fresh run whose upstream START completed
+// manager: MintTurnRun discards a fresh run whose upstream START completed
 // after Shutdown began. The finish worker is stopped by then, so the
 // FINISH runs here, bounded by the shutdown deadline — never the caller's
 // request ctx, which may already be cancelled. The payload defaults mirror

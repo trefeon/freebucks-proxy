@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream/login"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/testutil"
+	"freebucks-proxy/backend/internal/upstream/login"
 )
 
 // --- #103 / free_mode_run_fanout: client_id is PER RUN ----------------------
@@ -350,8 +351,9 @@ func TestInjectEnvelopeMetadataParityAndAnthropicProvider(t *testing.T) {
 // every codebuff_metadata contract key (run_id == START runId, per-run
 // client_id, trace_session_id, cli:<uuid> instance, multi_session '1',
 // surface cli, llm_step_number String(n), cost_mode), provider deny, forced
-// stream, repo_snapshot absent (proxy has no repo access — never fabricated),
-// and the reasoning conditional (DeepSeek turn sent "max", GLM turn omitted).
+// stream, repo_snapshot absent unless the caller supplies one (the proxy
+// never fabricates it — TestInjectEnvelopeRepoSnapshot pins the verbatim
+// path), and the reasoning conditional (DeepSeek turn sent "max", GLM turn omitted).
 func TestInjectEnvelopeLiveCaptureParity(t *testing.T) {
 	body := `{"model":"z-ai/glm-5.3-flash",` +
 		`"messages":[{"role":"system","content":"Buffy prompt"},{"role":"user","content":[{"type":"text","text":"hello"}]}],` +
@@ -1288,4 +1290,179 @@ func TestStartCLILoginSurfacesLoginUrlVerbatim(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInjectEnvelopeAgentModeCostMode pins the per-mode cost_mode mapping
+// (upstream/freebuff cli/src/utils/constants.ts:182-187,
+// AGENT_MODE_TO_COST_MODE with IS_FREEBUFF=true; use-send-message.ts:749
+// `costMode: AGENT_MODE_TO_COST_MODE[agentMode]`): LITE=free,
+// DEFAULT/PLAN=normal, MAX=max. Empty or unknown modes fall back to the
+// client's configured cost mode.
+func TestInjectEnvelopeAgentModeCostMode(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		agentMode string
+		cfgMode   string
+		want      string
+		wantSurf  bool // surface == "cli" expected
+	}{
+		{"LITE sends free", "LITE", "", "free", true},
+		{"LITE overrides configured empty", "LITE", "free", "free", true},
+		{"DEFAULT sends normal", "DEFAULT", "free", "normal", false},
+		{"PLAN sends normal", "PLAN", "free", "normal", false},
+		{"MAX sends max", "MAX", "free", "max", false},
+		{"lowercase mode accepted", "lite", "free", "free", true},
+		{"empty mode falls back to config", "", "free", "free", true},
+		{"unknown mode falls back to config", " TURBO ", "free", "free", true},
+		{"empty mode and empty config omits", "", "", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := injectEnvelope([]byte(`{"model":"m"}`), tc.cfgMode, ChatOptions{RunID: "r", AgentMode: tc.agentMode})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sent map[string]any
+			if err := json.Unmarshal(out, &sent); err != nil {
+				t.Fatal(err)
+			}
+			md := sent["codebuff_metadata"].(map[string]any)
+			got, present := md["cost_mode"]
+			if tc.want == "" {
+				if present {
+					t.Errorf("cost_mode = %v, want absent", got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Errorf("cost_mode = %v, want %q (mode %q)", got, tc.want, tc.agentMode)
+			}
+			if surf, ok := md["surface"]; tc.wantSurf {
+				if surf != "cli" {
+					t.Errorf("surface = %v, want cli (free mode implies the cli surface)", surf)
+				}
+			} else if ok {
+				t.Errorf("surface = %v, want absent (only free mode stamps it)", surf)
+			}
+		})
+	}
+}
+
+// TestInjectEnvelopeRepoSnapshot pins the repo_snapshot contract
+// (upstream/freebuff sdk/src/run.ts:1002-1046: the CLI sends
+// JSON.stringify(repoSnapshot), the REPO_SNAPSHOT_FIELDS aggregate
+// projection — counts and bounded enums, never paths/patches/branches).
+// A caller-supplied JSON snapshot rides verbatim; nothing is fabricated
+// when absent, and a client-smuggled repo_snapshot inside a raw body or
+// ExtraCodebuffMetadata is dropped as reserved.
+func TestInjectEnvelopeRepoSnapshot(t *testing.T) {
+	const snap = `{"gitAvailable":true,"fileCount":914,"testFileCount":383}`
+	t.Run("supplied snapshot rides verbatim", func(t *testing.T) {
+		out, err := injectEnvelope([]byte(`{"model":"m"}`), "free", ChatOptions{RunID: "r", RepoSnapshot: snap})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent map[string]any
+		if err := json.Unmarshal(out, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if got := sent["codebuff_metadata"].(map[string]any)["repo_snapshot"]; got != snap {
+			t.Errorf("repo_snapshot = %v, want verbatim %q", got, snap)
+		}
+	})
+	t.Run("absent when not supplied", func(t *testing.T) {
+		out, err := injectEnvelope([]byte(`{"model":"m"}`), "free", ChatOptions{RunID: "r"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent map[string]any
+		if err := json.Unmarshal(out, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if _, present := sent["codebuff_metadata"].(map[string]any)["repo_snapshot"]; present {
+			t.Error("repo_snapshot present without a caller snapshot: the proxy must never fabricate it")
+		}
+	})
+	t.Run("raw and extra snapshots are dropped as reserved", func(t *testing.T) {
+		out, err := injectEnvelope(
+			[]byte(`{"model":"m","codebuff_metadata":{"repo_snapshot":"forged"}}`),
+			"free",
+			ChatOptions{RunID: "r", ExtraCodebuffMetadata: map[string]string{"repo_snapshot": "extra_forged"}},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent map[string]any
+		if err := json.Unmarshal(out, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if _, present := sent["codebuff_metadata"].(map[string]any)["repo_snapshot"]; present {
+			t.Error("smuggled repo_snapshot survived: reserved keys must come from ChatOptions only")
+		}
+	})
+}
+
+// TestInjectEnvelopeToolsetInjection pins the coding-agent toolset rule:
+// a request that declared NO tools gets the canonical CLI declarations (the
+// free-tier traffic gate reads a tool-less chat as a non-coding client), and a
+// request that DID declare tools keeps them byte-for-byte — the convert layer's
+// ordered rename/dedupe pass owns those names, and appending tools the client
+// never offered would let the model emit calls the client cannot execute.
+// tool_choice is never fabricated in either direction.
+func TestInjectEnvelopeToolsetInjection(t *testing.T) {
+	canonical := defaultCliTools()
+	wantNames := make([]string, 0, len(canonical))
+	for _, def := range canonical {
+		wantNames = append(wantNames, def.(map[string]any)["function"].(map[string]any)["name"].(string))
+	}
+
+	t.Run("empty toolset gets the canonical declarations", func(t *testing.T) {
+		out, err := injectEnvelope([]byte(`{"model":"m"}`), "free", ChatOptions{RunID: "r"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent map[string]any
+		if err := json.Unmarshal(out, &sent); err != nil {
+			t.Fatal(err)
+		}
+		tools, ok := sent["tools"].([]any)
+		if !ok || len(tools) != len(wantNames) {
+			t.Fatalf("tools = %v, want the %d canonical declarations", sent["tools"], len(wantNames))
+		}
+		for i, def := range tools {
+			name := def.(map[string]any)["function"].(map[string]any)["name"].(string)
+			if name != wantNames[i] {
+				t.Errorf("tool[%d] = %q, want %q", i, name, wantNames[i])
+			}
+		}
+		if _, present := sent["tool_choice"]; present {
+			t.Error("tool_choice fabricated for a request that sent none")
+		}
+	})
+
+	t.Run("declared toolset is forwarded untouched", func(t *testing.T) {
+		body := `{"model":"m","tool_choice":"required","tools":[` +
+			`{"type":"function","function":{"name":"bash","description":"Run a command","parameters":{"type":"object"}}},` +
+			`{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
+		out, err := injectEnvelope([]byte(body), "free", ChatOptions{RunID: "r"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent map[string]any
+		if err := json.Unmarshal(out, &sent); err != nil {
+			t.Fatal(err)
+		}
+		tools, ok := sent["tools"].([]any)
+		if !ok || len(tools) != 2 {
+			t.Fatalf("tools = %v, want the client's own 2 declarations (never appended to)", sent["tools"])
+		}
+		for i, want := range []string{"bash", "read_file"} {
+			name := tools[i].(map[string]any)["function"].(map[string]any)["name"].(string)
+			if name != want {
+				t.Errorf("tool[%d] = %q, want the client's %q preserved", i, name, want)
+			}
+		}
+		if sent["tool_choice"] != "required" {
+			t.Errorf("tool_choice = %v, want the client's own %q", sent["tool_choice"], "required")
+		}
+	})
 }

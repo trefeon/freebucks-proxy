@@ -66,8 +66,8 @@ func systemCacheMarker(body []byte) bool {
 // traceChat records a structured "chat trace" entry for the dashboard
 // traces page (the page filters the shared log ring by msg == "chat trace").
 // phases carries the per-request latency phases (#89); the map is ordered
-// deterministically for stable log output. st carries the retry-once
-// attempt history (nil-safe: a refusal before any chat attempt passes a
+// deterministically for stable log output. st carries the single-attempt
+// history (nil-safe: a refusal before any chat attempt passes a
 // zero state).
 func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, errClass string, phases map[string]int64, st *chatTraceState) {
 	attrs := []any{"model", model, "status", status, "ms", ms}
@@ -238,17 +238,14 @@ func chatDoneAttrs(reqID, model, agent string, stream bool, ms int64, chunks, by
 
 // chatTraceState accumulates the per-request attempt history for the chat
 // trace line: how many upstream chat attempts fired, the HTTP statuses
-// observed per attempt (success = 200), whether chatCore's run-invalid
-// rotate-and-retry-once fired, and the re-acquire wait before that retry
-// (backoffMs stays 0 — the retry needs no sleep: the dead run was already
-// invalidated, so the re-acquire starts fresh immediately). Created in
+// observed per attempt (success = 200), and whether an in-request retry
+// fired (retried/backoffMs — always unset under single-attempt fail-fast:
+// gate refusals surface immediately, never a re-acquire). Created in
 // chatCore (which owns the req_id): attempts/statuses are filled by
-// chatAttempt, retried by chatCore's retry branch. Only errors carrying an
-// upstream HTTP status append to statuses (sentinel-classified refusals
-// such as run-invalid record none), so len(statuses) can lag attempts: a
-// run-invalid rotate-and-retry-once that recovers renders attempts=2 with
-// statuses_seen="200", and one that fails twice renders attempts=2 with no
-// statuses_seen at all.
+// chatAttempt. Only errors carrying an upstream HTTP status append to
+// statuses (sentinel-classified refusals such as run-invalid record none),
+// so len(statuses) can lag attempts: a run-invalid turn renders attempts=1
+// with no statuses_seen at all.
 type chatTraceState struct {
 	reqID           string
 	clientRequestID string

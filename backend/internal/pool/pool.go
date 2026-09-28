@@ -23,17 +23,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"freebucks-proxy/backend/internal/config"
 	"freebucks-proxy/backend/internal/notify"
 	"freebucks-proxy/backend/internal/registry"
 	"freebucks-proxy/backend/internal/runs"
 	"freebucks-proxy/backend/internal/session"
 	"freebucks-proxy/backend/internal/upstream"
-	"io"
-	"log/slog"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 // usageWindow is the rolling window of per-token successful chat history:
@@ -214,13 +215,10 @@ type TokenSnapshot struct {
 	// TransientRetries / FingerprintRotations are this token's upstream
 	// client counters (TRANSIENT_RETRIES): retried transport failures and
 	// pinned TLS fingerprint swaps. Surfaced per-token in /metrics.
-	// CapacityDeferredRetries / WaitingRoomRetries are the same-session
-	// transient-queue retries served under the same budget, split out so
-	// the operator can tell transport blips from upstream queues.
-	TransientRetries        int64
-	CapacityDeferredRetries int64
-	WaitingRoomRetries      int64
-	FingerprintRotations    int64
+	// (Retired: CapacityDeferredRetries / WaitingRoomRetries were the
+	// fail-fast port's always-0 same-session queue retries — dropped.)
+	TransientRetries     int64
+	FingerprintRotations int64
 	// RateLimitEvents is this token's upstream rate-limit classification
 	// ledger, keyed by upstream body code (rate_limited, ip_capped,
 	// spend_limited, insufficient_quota, limit_burst_rate,
@@ -473,7 +471,14 @@ type tokenEntry struct {
 	// (PIN_MODEL): requests for models the slot is not pinned to.
 	// Surfaced per-token in snapshots, cards, and metrics.
 	pinSkips atomic.Int64
-
+	// leases counts granted leases not yet released/abandoned (per-turn
+	// mint is unleased at the runs layer — MintTurnRun tracks caller-owned
+	// runs with inflight 0 — so the pool tracks its own outstanding-lease
+	// count for the in-flight gates below that used runs.InflightCount:
+	// idle-FINISH skip, session-poll skip, queued-advance skip, and the
+	// removal/retired drains. Incremented on grant, decremented on
+	// LeaseRelease/LeaseAbandon (saturating, like seatCounter).
+	leases atomic.Int64
 	// quarantine, when non-nil, marks this fixed pooled token permanently
 	// ineligible for leasing: its account reached a terminal state (a live
 	// ban) that the pool must never revive — no re-admission attempts, no
@@ -687,7 +692,6 @@ func New(cfg *config.Config, clients []*upstream.Client, sessions []*session.Man
 		}
 		sess := sessions[i]
 		sess.SetReAdmitLead(cfg.SessionReAdmitLead)
-		sess.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		sess.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 		entry := &tokenEntry{
 			session: sess,
@@ -753,13 +757,13 @@ func (p *Pool) applyLocality(c *upstream.Client) {
 func (p *Pool) SetConfig(cfg *config.Config) {
 	p.cfg.Store(cfg)
 
-	// Runtime-adjustable knobs: the session re-admit lead / probe cache TTL
-	// (#99/#60) follow config reloads.
+	// Runtime-adjustable knobs: the session re-admit lead (#99) follows
+	// config reloads. (Retired: SESSION_PROBE_CACHE_TTL — the admission
+	// probe-cache skip is gone; polls are unconditional like the CLI.)
 	toks := p.roster.Load()
 	for _, tok := range *toks {
 		tok.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 		tok.session.SetReAdmitGate(tok.seat.idle)
-		tok.session.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 		tok.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 	}
 	// AUTH_TOKENS slot reconciliation. A quarantine is bound to the exact
@@ -863,7 +867,7 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 		}
 		p.retiredMu.Unlock()
 		for _, c := range changes {
-			if c.old.runs.InflightCount() == 0 {
+			if c.old.leases.Load() <= 0 {
 				p.drainRemovedToken(c.old)
 			}
 		}
@@ -908,7 +912,6 @@ func (p *Pool) buildTokenEntry(idx int, token string) (*tokenEntry, error) {
 	p.applyLocality(client)
 	sess := session.NewManagerWithStore(client, p.store)
 	sess.SetReAdmitLead(cfg.SessionReAdmitLead)
-	sess.SetAdmissionProbeTTL(cfg.SessionProbeCacheTTL)
 	sess.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
 	entry := &tokenEntry{
 		session: sess,

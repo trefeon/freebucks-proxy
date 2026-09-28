@@ -1223,6 +1223,13 @@ func TestChatRetriesRealDialFailure(t *testing.T) {
 // dial-layer profile capture must show chrome126 then safari18.
 func TestRetryRotatesFingerprintAtDialLayer(t *testing.T) {
 	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Drain the request body before responding. The CLI envelope now
+		// carries the canonical toolset (~44 KB) on tool-less requests, and a
+		// handler that replies without reading the body makes net/http close
+		// the connection while the client is still writing — a write-side
+		// "connection reset by peer" that has nothing to do with the rotation
+		// this test pins.
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, testutil.SSEEvent(`{"id":"x","object":"chat.completion.chunk","choices":[]}`))
 	}))
@@ -1289,71 +1296,67 @@ func TestRetryRotatesFingerprintAtDialLayer(t *testing.T) {
 	}
 }
 
-// TestChatCompletionsRetriesCapacityDeferredSameSession verifies #75: a
-// free_mode_capacity_deferred 429 is retried IN PLACE against the same
-// lease/session (byte-identical body, same instance id) up to the
-// TRANSIENT_RETRIES budget, and surfaces the typed retryable error once the
-// budget is exhausted.
-func TestChatCompletionsRetriesCapacityDeferredSameSession(t *testing.T) {
+// TestChatCompletionsFailsFastOnCapacityDeferred: a free_mode_capacity_deferred
+// 429 surfaces the typed retryable error in exactly one upstream attempt —
+// even with TRANSIENT_RETRIES budget left. The CLI never retries a refused
+// turn in-request (the AI-SDK retry the old comment cited belongs to the
+// vendor's own stack, not the proxy wire); same-session re-POSTs amplified
+// into burn and bans.
+func TestChatCompletionsFailsFastOnCapacityDeferred(t *testing.T) {
 	body := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
 	deferred := `{"error":{"code":"free_mode_capacity_deferred","message":"Free mode is at capacity; your request will be retried automatically"}}`
 
-	t.Run("retries same session then succeeds", func(t *testing.T) {
+	t.Run("deferred surfaces typed retryable error in one attempt", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
 		var calls atomic.Int32
 		mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
-			if calls.Add(1) == 1 {
-				w.Header().Set("Content-Type", "application/json")
-				// #105: a short retry-after — the client must sleep it (floor
-				// 10s) before re-POSTing, not retry immediately.
-				w.Header().Set("Retry-After", "1")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = io.WriteString(w, deferred)
-				return
-			}
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.WriteHeader(200)
-			_, _ = io.WriteString(w, testutil.SSEEvent(`{"id":"x","object":"chat.completion.chunk","choices":[]}`))
+			calls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, deferred)
 		}
-		client, err := New("tok-a", testConfig(mock.URL(), func(c *config.Config) { c.TransientRetries = 1 }))
+		// Generous transport budget on purpose: classified gate errors
+		// must not consume it.
+		client, err := New("tok-a", testConfig(mock.URL(), func(c *config.Config) { c.TransientRetries = 2 }))
 		if err != nil {
 			t.Fatal(err)
 		}
-		start := time.Now()
-		rc, err := client.ChatCompletions(context.Background(), ChatOptions{Model: "m", RunID: "r", SessionInstanceID: "inst-1"}, body)
-		if err != nil {
-			t.Fatalf("ChatCompletions after capacity-deferred retry: %v", err)
+		_, err = client.ChatCompletions(context.Background(), ChatOptions{Model: "m", RunID: "r", SessionInstanceID: "inst-1"}, body)
+		if !errors.Is(err, ErrCapacityDeferred) {
+			t.Fatalf("err = %v, want ErrCapacityDeferred", err)
 		}
-		_ = rc.Close()
-		// The retry-after (1s) must have been honored before the retry POST.
-		if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
-			t.Errorf("capacity-deferred retry elapsed %v, want >= the 1s Retry-After sleep (#105)", elapsed)
+		if !isCapacityDeferred(err) {
+			t.Errorf("isCapacityDeferred(err) = false, want true (distinct from the waiting-room shape)")
 		}
-
-		if got := calls.Load(); got != 2 {
-			t.Errorf("upstream chat calls = %d, want 2 (original + same-session retry)", got)
+		var cde *CapacityDeferredError
+		if !errors.As(err, &cde) {
+			t.Fatalf("err = %v, want *CapacityDeferredError", err)
 		}
-		if got := client.CapacityDeferredRetries(); got != 1 {
-			t.Errorf("CapacityDeferredRetries = %d, want 1", got)
+		var ue *UpstreamError
+		if !errors.As(err, &ue) || !ue.Retryable {
+			t.Errorf("err = %v, want unwrap to Retryable UpstreamError", err)
 		}
-		if len(mock.RecordedChatHeaders) != 2 {
-			t.Fatalf("recorded %d chat requests, want 2", len(mock.RecordedChatHeaders))
+		if cde.RetryAfter != time.Second {
+			t.Errorf("RetryAfter = %v, want 1s (carried for the caller, not slept in-request)", cde.RetryAfter)
 		}
-		// Same session on the retry: the instance id rides in the body
-		// metadata, not the chat headers (#106).
-		if got := mock.RecordedChatHeaders[1].Get("x-freebuff-instance-id"); got != "" {
-			t.Errorf("retry x-freebuff-instance-id = %q, want absent (chat headers carry no instance id)", got)
+		if got := calls.Load(); got != 1 {
+			t.Errorf("upstream chat calls = %d, want 1 (no same-session retry)", got)
+		}
+		// Same session on the single attempt: the instance id rides in the
+		// body metadata, not the chat headers (#106).
+		if got := mock.RecordedChatHeaders[0].Get("x-freebuff-instance-id"); got != "" {
+			t.Errorf("x-freebuff-instance-id = %q, want absent (chat headers carry no instance id)", got)
 		}
 		if !strings.Contains(mock.RecordedChatBodies[0], `"freebuff_instance_id":"inst-1"`) {
 			t.Error("chat body missing freebuff_instance_id in codebuff_metadata")
 		}
-		if mock.RecordedChatBodies[0] != mock.RecordedChatBodies[1] {
-			t.Error("retried body differs from original (must be byte-identical)")
-		}
 	})
 
-	t.Run("budget exhausted surfaces typed retryable error", func(t *testing.T) {
+	t.Run("sequential gate errors each cost one attempt", func(t *testing.T) {
+		// Fail-fast has no per-request budget to reset: two sequential
+		// refusals cost exactly two upstream hits and no retries.
 		mock2 := testutil.NewMock()
 		defer mock2.Close()
 		var calls2 atomic.Int32
@@ -1368,84 +1371,14 @@ func TestChatCompletionsRetriesCapacityDeferredSameSession(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = client2.ChatCompletions(context.Background(), ChatOptions{Model: "m", RunID: "r"}, body)
-		if !errors.Is(err, ErrCapacityDeferred) {
-			t.Fatalf("err = %v, want ErrCapacityDeferred", err)
-		}
-		var cde *CapacityDeferredError
-		if !errors.As(err, &cde) {
-			t.Fatalf("err = %v, want *CapacityDeferredError", err)
-		}
-		var ue *UpstreamError
-		if !errors.As(err, &ue) || !ue.Retryable {
-			t.Errorf("err = %v, want unwrap to Retryable UpstreamError", err)
+		for i := range 2 {
+			_, err = client2.ChatCompletions(context.Background(), ChatOptions{Model: "m", RunID: "r"}, body)
+			if !errors.Is(err, ErrCapacityDeferred) {
+				t.Fatalf("request %d err = %v, want ErrCapacityDeferred", i+1, err)
+			}
 		}
 		if got := calls2.Load(); got != 2 {
-			t.Errorf("upstream chat calls = %d, want 2 (original + 1 budgeted retry)", got)
-		}
-		if got := client2.CapacityDeferredRetries(); got != 1 {
-			t.Errorf("CapacityDeferredRetries = %d, want 1", got)
-		}
-	})
-
-	t.Run("zero budget never retries", func(t *testing.T) {
-		mock3 := testutil.NewMock()
-		defer mock3.Close()
-		var calls3 atomic.Int32
-		mock3.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
-			calls3.Add(1)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = io.WriteString(w, deferred)
-		}
-		client3, err := New("tok-c", testConfig(mock3.URL(), func(c *config.Config) { c.TransientRetries = 0 }))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = client3.ChatCompletions(context.Background(), ChatOptions{Model: "m", RunID: "r"}, body)
-		if !errors.Is(err, ErrCapacityDeferred) {
-			t.Fatalf("err = %v, want ErrCapacityDeferred", err)
-		}
-		if got := calls3.Load(); got != 1 {
-			t.Errorf("upstream chat calls = %d, want 1 (retries disabled)", got)
-		}
-	})
-
-	t.Run("budget resets per request", func(t *testing.T) {
-		// Regression: the capacity-deferred budget must be
-		// per-request, not client-lifetime. Two sequential requests on the
-		// SAME client must each get their own TRANSIENT_RETRIES budget.
-		mock4 := testutil.NewMock()
-		defer mock4.Close()
-		var calls4 atomic.Int32
-		mock4.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
-			if calls4.Add(1)%2 == 1 { // first call of each request: deferred
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("Retry-After", "1")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = io.WriteString(w, deferred)
-				return
-			}
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.WriteHeader(200)
-			_, _ = io.WriteString(w, testutil.SSEEvent(`{"id":"x","object":"chat.completion.chunk","choices":[]}`))
-		}
-		client4, err := New("tok-d", testConfig(mock4.URL(), func(c *config.Config) { c.TransientRetries = 1 }))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for i := 0; i < 2; i++ {
-			rc, err := client4.ChatCompletions(context.Background(), ChatOptions{Model: "m", RunID: "r"}, body)
-			if err != nil {
-				t.Fatalf("request %d after capacity-deferred retry: %v", i+1, err)
-			}
-			_ = rc.Close()
-		}
-		if got := calls4.Load(); got != 4 {
-			t.Errorf("upstream chat calls = %d, want 4 (2 requests x 2 calls: original + retry each)", got)
-		}
-		if got := client4.CapacityDeferredRetries(); got != 2 {
-			t.Errorf("CapacityDeferredRetries = %d, want 2 (one retry per request)", got)
+			t.Errorf("upstream chat calls = %d, want 2 (one attempt per refused turn)", got)
 		}
 	})
 }

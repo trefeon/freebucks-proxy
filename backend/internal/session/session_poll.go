@@ -19,10 +19,11 @@ import (
 	"freebucks-proxy/backend/internal/upstream"
 )
 
-// SetAdmissionProbeTTL configures the admission probe cache TTL (issue #60):
-// session poll GETs within d of the last successful session response are
-// skipped. d <= 0 disables. Wired by the pool from SESSION_PROBE_CACHE_TTL;
-// safe to call at runtime.
+// SetAdmissionProbeTTL is a RETIRED compat no-op (G6): the CLI polls
+// unconditionally, so the admission probe-cache skip is gone and nothing
+// reads the TTL. Kept (still storing the value) because the pool wires
+// SESSION_PROBE_CACHE_TTL through it — removing the method would break
+// that call site, which this slice must not touch.
 func (m *Manager) SetAdmissionProbeTTL(d time.Duration) {
 	m.mu.Lock()
 	m.probeTTL = d
@@ -381,14 +382,9 @@ func (m *Manager) Poll(ctx context.Context) error {
 		m.mu.Unlock()
 		return nil
 	}
-	// Issue #60: admission probe caching — within the probe TTL of the last
-	// successful session response the cached state is authoritative, so the
-	// poll GET is redundant; skip it (less upstream traffic, fewer chances
-	// to trip the one-client-at-a-time gate).
-	if m.probeTTL > 0 && !m.lastAdmitted.IsZero() && time.Since(m.lastAdmitted) < m.probeTTL {
-		m.mu.Unlock()
-		return nil
-	}
+	// G6: polls are unconditional, like the CLI's ~30s compact poll. (The
+	// retired SESSION_PROBE_CACHE_TTL skip served stale active rows here,
+	// surfacing supersedes at chat time instead of poll time.)
 	instanceID := m.state.instanceID
 	// polledModel joins every poll-path line below to the session's model:
 	// the poll GET carries only the instance id, so without this snapshot
@@ -444,11 +440,11 @@ func (m *Manager) Poll(ctx context.Context) error {
 		return err
 	}
 	m.mu.Lock()
-	// A successful GET confirms the cached state: refresh the probe window
-	// and reset the transient-failure count (transport is healthy; any
-	// status mapping below is a typed refusal, not a poll failure).
+	// A successful GET confirms the cached state: reset the
+	// transient-failure count (transport is healthy; any status mapping
+	// below is a typed refusal, not a poll failure). (G6: no probe-window
+	// refresh — polls are unconditional.)
 	m.pollFailures = 0
-	m.lastAdmitted = time.Now()
 	// Refund-pending replay holder: a refund receipt can land on a compact
 	// poll GET between polls (the ended body carries freebucksRefund /
 	// freebucksRefundPending exactly like a DELETE receipt — the parse is
@@ -502,6 +498,14 @@ func (m *Manager) Poll(ctx context.Context) error {
 		if dropped {
 			m.recordInvalidation(tableReason(st.Status))
 			slog.Warn("session ended during poll", "reason", tableReason(st.Status), "status", st.Status, "instance_id", instanceID, "model", polledModel)
+		}
+		// A superseded row is terminally taken over: the claim that held
+		// it is dead, so the next admission rejoins on a fresh claim
+		// (G4). Polling stops here regardless (no re-admit on this path —
+		// the CLI's nextDelayMs null), and "none" keeps its claim: the
+		// row is simply gone, not taken over.
+		if dropped && st.Status == "superseded" {
+			m.rotateClaim(reasonSuperseded)
 		}
 		return nil
 	}
@@ -725,6 +729,12 @@ func pollRetryAfter(err error) time.Duration {
 	var uwr *upstream.WaitingRoomError
 	if errors.As(err, &uwr) {
 		return uwr.RetryAfter
+	}
+	// G5: the capacity queue's Retry-After floors the same-claim admission
+	// backoff the same way the waiting-room window does.
+	var cde *upstream.CapacityDeferredError
+	if errors.As(err, &cde) {
+		return cde.RetryAfter
 	}
 	return 0
 }

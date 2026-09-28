@@ -26,6 +26,11 @@ type chatBackend interface {
 	MarkRunFailed(lease *pool.Lease)
 	RecordRunStep(lease *pool.Lease, messageID string)
 	RecordSpend(lease *pool.Lease, tokens int64)
+	// FinishRun FINISHes the turn's run upstream at turn end (server-owned
+	// turn lifecycle): success and terminal-failure turns FINISH explicitly.
+	// The pool guards against the manager predecessor drain (stale leases
+	// skip), so a turn is never FINISHed twice. Nil-safe.
+	FinishRun(ctx context.Context, lease *pool.Lease)
 }
 
 // pooledBackend adapts the pool's fixed-token methods. The lease carries the
@@ -62,20 +67,27 @@ func (b pooledBackend) RecordRunStep(lease *pool.Lease, mid string) {
 	b.p.RecordRunStep(lease, mid)
 }
 func (b pooledBackend) RecordSpend(lease *pool.Lease, tokens int64) { b.p.RecordSpend(lease, tokens) }
+func (b pooledBackend) FinishRun(ctx context.Context, lease *pool.Lease) {
+	b.p.FinishLeaseRun(ctx, lease)
+}
 
 // chatAttempt runs one chat through the leased token and surfaces the
 // result: on success the returned body reader and final lease belong to the
-// caller (close the body and release the lease via LeaseRelease). Refusals
-// never retry in-request — the error returns for writeError after releasing
-// the lease, with cache invalidation for dead sessions/runs (invalid,
-// expired, superseded, 428-required) and a ban cooldown+quarantine for
-// terminal bans so the account stops serving. The one exception: an
-// ErrRunInvalid refusal is retried ONCE by chatCore, which calls this again
-// with a fresh acquire after the dead run was invalidated here — see
-// chatCore's rotate-and-retry-once. The acquire/chat/invalidate/
-// cooldown hooks are behind the chatBackend interface. 429 quota,
-// ip_capped and country blocks surface with no cooldown write: admission
-// owns those refusals, not the chat path.
+// caller (close the body, FINISH the turn via FinishRun, then release the
+// lease via LeaseRelease). The lease's run is the turn's MintTurnRun run
+// (TurnRun for the lease): the ChatOptions run_id, the llm_step_number
+// stamp, and the recorded step all reuse that one run_id across the turn's
+// tool steps — nothing re-STARTs mid-turn. Refusals never retry in-request
+// — the error returns for writeError after FINISHing the turn as failed
+// (run-invalid excepted: the run is dead upstream, so Invalidate drops it
+// without FINISH) and releasing the lease, with cache invalidation for dead
+// sessions/runs and a ban cooldown+quarantine for terminal bans so the
+// account stops serving. chatCore calls this exactly once per turn: a dead
+// run is invalidated here so the NEXT turn's acquire mints fresh, and the
+// poll resyncs after a gate refusal. The acquire/chat/invalidate/cooldown
+// hooks are behind the chatBackend interface. 429 quota, ip_capped and
+// country blocks surface with no cooldown write: admission owns those
+// refusals, not the chat path.
 func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byte, st *chatTraceState, backend chatBackend) (io.ReadCloser, *pool.Lease, error) {
 	lease, err := backend.Acquire(ctx, model)
 	if err != nil {
@@ -124,9 +136,9 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		// Issue #113: stamp the run's 1-based per-chat step counter so
 		// codebuff_metadata["llm_step_number"] matches the CLI (each chat
 		// call is one agent step; run-agent-step.ts increments per step).
-		// One increment per chatAttempt: the counter belongs to the leased
-		// run, so chatCore's run-invalid retry (which re-acquires a FRESH
-		// run) stamps that new run's own first step.
+		// One increment per chatAttempt: the counter belongs to the turn's
+		// MintTurnRun run (TurnRun for the lease), and the turn runs a single
+		// attempt — the next turn mints (and stamps) its own run.
 		StepNumber: int(lease.Run.NextStepNumber()),
 	}
 
@@ -176,14 +188,29 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		}
 		st.failedInstanceID = lease.SessionInstanceID
 	}
+	// failTurn records the terminal failure and FINISHes the turn's run
+	// (server-owned turn lifecycle, CLI parity): the FINISH reports failed
+	// instead of completed. Skipped when the client already went away (ctx
+	// cancelled) — the release path's Abandon owns the async cancelled
+	// FINISH there. Run-invalid is excluded by its branch (the run is dead
+	// upstream; Invalidate drops it without FINISH).
+	failTurn := func() {
+		if ctx.Err() != nil {
+			return
+		}
+		backend.MarkRunFailed(lease)
+		backend.FinishRun(ctx, lease)
+	}
 	switch {
 	case errors.Is(err, upstream.ErrModelIPLimited):
 		// The egress IP is limited for the requested model. The session
 		// stays bound to its admitted model — NOT invalidated. Surface
 		// with no unfit mark and no retry.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrSessionInvalid):
+		failTurn()
 		release()
 		backend.InvalidateSession(lease)
 		return nil, nil, err
@@ -191,19 +218,22 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		// #116: 428 waiting_room_required is session-ENDING (the seat is
 		// gone mid-chat). Drop the cached session so the NEXT request
 		// re-admits fresh, and surface.
+		failTurn()
 		release()
 		backend.InvalidateSession(lease)
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrWaitingRoom):
 		// waiting_room_queued is a transient admit race
-		// (endsTheSession:false): the cached session is fine. Release
-		// with no invalidation and surface.
+		// (endsTheSession:false): the cached session is fine. FINISH the
+		// turn as failed and surface.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrSessionLimitReached):
 		// 409 session_limit_reached (endsTheSession:false): the account is
-		// over budget but this session's row is fine. Release with no
-		// invalidation and surface.
+		// over budget but this session's row is fine. FINISH the turn as
+		// failed and surface.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrSessionSuperseded):
@@ -211,6 +241,7 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		// another instance took over the account. Drop the cached session
 		// (reason "superseded") so the NEXT request re-admits fresh, and
 		// surface. NEVER retry on the dead instance.
+		failTurn()
 		release()
 		backend.InvalidateSessionSuperseded(lease)
 		return nil, nil, err
@@ -218,6 +249,7 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		// turn_spend_limit killed THIS turn (per-turn spend ceiling).
 		// TERMINAL for the current request: surface immediately with no
 		// cooldown and no re-acquire.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrRunInvalid):
@@ -226,6 +258,7 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrAuthRejected):
 		// No cooldown write: the account simply failed to serve.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrBanned):
@@ -234,40 +267,49 @@ func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byt
 		if errors.As(err, &be) {
 			backend.CooldownBan(lease, be)
 		}
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrRateLimited):
 		// Turn-time 429: surface with no cooldown write and no failover.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrIpCapped):
 		// Admission-only signal surfacing mid-chat: no cooldown write.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrCountryBlocked):
 		// No cooldown write: surface.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrFreeModeUnavailable):
 		// Terminal region/egress refusal: surface with no cooldown
 		// write and no failover-spin.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrProviderUsage):
 		// Shared provider account needs a refill — the token itself is
 		// healthy: no cooldown write, surface.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrConsentRequired), errors.Is(err, upstream.ErrFirstTabChanged):
 		// Terminal admission refusals surfacing mid-chat: surface with
 		// no cooldown write and no retry.
+		failTurn()
 		release()
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrCredits):
 		// #117: 402 is NEVER retried.
+		failTurn()
 		release()
 		return nil, nil, err
 	default:
+		failTurn()
 		release()
 		return nil, nil, err
 	}

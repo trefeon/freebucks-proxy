@@ -279,9 +279,9 @@ func TestPoolSnapshotTransientRetryCounters(t *testing.T) {
 	}
 	// Admission is warmed up disarmed: the CLI never re-POSTs admission
 	// after a transport failure (disposition unknown), so flakiness must
-	// strike a retryable call — arm only after the session is cached, and
-	// the armed failure then lands on agent-runs START during the second
-	// lease acquisition; TRANSIENT_RETRIES replays it.
+	// strike a retryable call — arm only after the session is cached. The
+	// transport skips agent-runs START/FINISH (never retried), so the armed
+	// failure lands on the chat POST below; TRANSIENT_RETRIES replays it.
 	flaky := &flakyFirstRT{base: http.DefaultTransport}
 	flaky.disarm()
 	client.SetTransport(flaky)

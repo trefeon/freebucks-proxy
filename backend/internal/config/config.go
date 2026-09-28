@@ -122,10 +122,8 @@ type Config struct {
 	// rides its grace drain, and the request that trips the trigger is
 	// served by the fresh instance. 0 disables.
 	SessionReAdmitLead time.Duration
-	// SessionProbeCacheTTL is how long the last successful session state is
-	// reused before a fresh upstream poll (issue #60, SESSION_PROBE_CACHE_TTL
-	// default 15s): session poll GETs within the TTL are skipped.
-	SessionProbeCacheTTL time.Duration
+	// (Retired: SESSION_PROBE_CACHE_TTL — the admission probe-cache skip is
+	// gone; polls are unconditional like the CLI.)
 	// ModelUnavailableCacheTTL is how long a model_unavailable admission
 	// refusal is remembered per model (issue #158,
 	// MODEL_UNAVAILABLE_CACHE_TTL default 1h): off-window models

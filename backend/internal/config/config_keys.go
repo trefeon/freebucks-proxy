@@ -57,7 +57,6 @@ type rawConfig struct {
 	RunsDrainTTL             string          `json:"RUNS_DRAIN_TTL"`
 	SessionTimezone          string          `json:"SESSION_TIMEZONE"`
 	SessionReAdmitLead       string          `json:"SESSION_RE_ADMIT_LEAD"`
-	SessionProbeCacheTTL     string          `json:"SESSION_PROBE_CACHE_TTL"`
 	ModelUnavailableCacheTTL string          `json:"MODEL_UNAVAILABLE_CACHE_TTL"`
 	WebhookURL               string          `json:"WEBHOOK_URL"`
 	AdoptCLISession          bool            `json:"ADOPT_CLI_SESSION"`

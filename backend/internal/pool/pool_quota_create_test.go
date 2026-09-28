@@ -6,9 +6,10 @@ package pool
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/testutil"
 	"testing"
 	"time"
+
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // futureReset is a ResetAt ~1h out for quota fixtures.
@@ -316,8 +317,9 @@ func TestPrecreateAtAdmissionStartsRun(t *testing.T) {
 	defer mock.Close()
 	p := newTestPool(t, mock)
 
-	// First Acquire admits the session AND pre-creates the run; the lease
-	// then rides it. The mock must see exactly one START for the agent.
+	// First Acquire admits the session AND mints the turn's run
+	// (MintTurnRun, one START per prompt); the lease then rides it. The
+	// mock must see exactly one START for the agent.
 	lease, err := p.Acquire(context.Background(), modelA)
 	if err != nil {
 		t.Fatal(err)

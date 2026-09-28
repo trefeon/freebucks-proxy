@@ -660,6 +660,8 @@ func TestOmpMiMoSimulation(t *testing.T) {
 	t.Run("OpenAI_NonStreaming", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
+		// Mint-per-turn: 4 turns burn 4 STARTs — extend beyond the 3-id default.
+		mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 
 		handler := newOmpMimoMockHandler(t, mock, "call_omp_ns")
 		mock.ChatHandler = handler.ServeHTTP
@@ -867,6 +869,8 @@ func TestOmpMiMoSimulation(t *testing.T) {
 	t.Run("OpenAI_Streaming", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
+		// Mint-per-turn: 4 turns burn 4 STARTs — extend beyond the 3-id default.
+		mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 
 		handler := newOmpMimoMockHandler(t, mock, "call_omp_stream")
 		mock.ChatHandler = handler.ServeHTTP
@@ -1072,6 +1076,8 @@ func TestOmpMiMoSimulation(t *testing.T) {
 	t.Run("Anthropic_NonStreaming", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
+		// Mint-per-turn: 4 turns burn 4 STARTs — extend beyond the 3-id default.
+		mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 
 		handler := newOmpMimoMockHandler(t, mock, "toolu_omp_ant_ns")
 		mock.ChatHandler = handler.ServeHTTP
@@ -1305,6 +1311,8 @@ func TestOmpMiMoSimulation(t *testing.T) {
 	t.Run("Anthropic_Streaming", func(t *testing.T) {
 		mock := testutil.NewMock()
 		defer mock.Close()
+		// Mint-per-turn: 4 turns burn 4 STARTs — extend beyond the 3-id default.
+		mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
 
 		handler := newOmpMimoMockHandler(t, mock, "toolu_omp_ant_stream")
 		mock.ChatHandler = handler.ServeHTTP

@@ -5,26 +5,25 @@ package server_test
 // returns), and the client-visible 5xx path must log at ERROR.
 
 import (
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"sync/atomic"
 	"testing"
+
+	"freebucks-proxy/backend/internal/logring"
+	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestChatTraceErrorCarriesFailedRunAttribution pins the error-trace
-// attribution: both chat attempts refuse with the incident shape
-// (2026-09-21T07:05:05Z 400 runId Not Running) and the retry is exhausted, so
-// no success path is involved — the "chat trace" error line must still carry
+// attribution: the single chat attempt refuses with the incident shape
+// (2026-09-21T07:05:05Z 400 runId Not Running) and fails fast, so no
+// success path is involved — the "chat trace" error line must still carry
 // the failed run's run_id + trace_session_id + attempts, matching the ok path
 // field-for-field.
 func TestChatTraceErrorCarriesFailedRunAttribution(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
-	// Two distinct run ids: the first attempt's dead run is invalidated, so
-	// the retry STARTs a second run; both refuse, exhausting the retry.
-	mock.RunIDs = []string{"run-0001", "run-0002"}
+	mock.RunIDs = []string{"run-0001"}
 
 	var chatCalls atomic.Int32
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -38,26 +37,25 @@ func TestChatTraceErrorCarriesFailedRunAttribution(t *testing.T) {
 
 	resp, _ := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
 	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502 (exhausted run-invalid retry surfaces upstream_unavailable)", resp.StatusCode)
+		t.Fatalf("status = %d, want 502 (run-invalid turn fails fast as upstream_unavailable)", resp.StatusCode)
 	}
-	if got := chatCalls.Load(); got != 2 {
-		t.Fatalf("upstream chat calls = %d, want exactly 2 (failed attempt + one retry)", got)
+	if got := chatCalls.Load(); got != 1 {
+		t.Fatalf("upstream chat calls = %d, want exactly 1 (single attempt, no retry)", got)
 	}
 
 	var trace logring.Entry
-	eventually(t, "error chat trace with attempts=2", func() bool {
+	eventually(t, "error chat trace with attempts=1", func() bool {
 		for _, e := range ring.Recent(400) {
-			if e.Message == "chat trace" && entryField(e, "status") == "error" && entryField(e, "attempts") == "2" {
+			if e.Message == "chat trace" && entryField(e, "status") == "error" && entryField(e, "attempts") == "1" {
 				trace = e
 				return true
 			}
 		}
 		return false
 	})
-	// Last attempt wins: the trace names the run that served (and failed)
-	// the final attempt, not the first attempt's invalidated run.
-	if got := entryField(trace, "run_id"); got != "run-0002" {
-		t.Errorf("trace run_id = %q, want the last failed attempt's run run-0002", got)
+	// The trace names the run that served (and failed) the single attempt.
+	if got := entryField(trace, "run_id"); got != "run-0001" {
+		t.Errorf("trace run_id = %q, want the failed attempt's run run-0001", got)
 	}
 	if got := entryField(trace, "trace_session_id"); got == "" {
 		t.Error("trace trace_session_id empty, want the failed run's session id")
@@ -65,11 +63,13 @@ func TestChatTraceErrorCarriesFailedRunAttribution(t *testing.T) {
 	if got := entryField(trace, "error"); got == "" {
 		t.Error("trace error class empty, want the failure bucket")
 	}
-	if got, want := entryField(trace, "retried"), "true"; got != want {
-		t.Errorf("trace retried = %q, want %q (the run-invalid retry fired)", got, want)
+	// Single-attempt fail-fast: no retry ever fires, so the trace carries
+	// no retried marker.
+	if got := entryField(trace, "retried"); got != "" {
+		t.Errorf("trace retried = %q, want empty (no in-request retry exists)", got)
 	}
 	// Sentinel-classified refusals (run-invalid) carry no upstream HTTP
-	// status, so neither attempt appends to statuses: attempts=2 with no
+	// status, so the attempt appends none: attempts=1 with no
 	// statuses_seen is the correct render, not a gap.
 	if got := entryField(trace, "statuses_seen"); got != "" {
 		t.Errorf("trace statuses_seen = %q, want empty (run-invalid records no per-attempt status)", got)

@@ -45,12 +45,13 @@ export const STRATEGY_KEYS = [
 export const POOL_CONTROLS_KEYS = ["RATE_LIMIT_PER_IP"] as const;
 
 // Catalog-hidden, editor-less pool keys: the session/cache knobs the Pool
-// page's removed "Custom advanced" card used to edit. The catalog flags all
-// six `hidden`, so the Settings page's Hidden keys disclosure is their one
+// page's removed "Custom advanced" card used to edit. The catalog flags them
+// all `hidden`, so the Settings page's Hidden keys disclosure is their one
 // home, read-only; every settings surface must render zero editors for them.
+// (SESSION_PROBE_CACHE_TTL was retired with the admission probe-cache skip —
+// it is no longer a catalog key, so it must not be asserted here.)
 export const HIDDEN_READONLY_KEYS = [
   "MODEL_UNAVAILABLE_CACHE_TTL",
-  "SESSION_PROBE_CACHE_TTL",
   "SESSION_RE_ADMIT_LEAD",
   "WAITING_ROOM_CHAIN",
   "SESSION_PERSIST",

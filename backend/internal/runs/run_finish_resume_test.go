@@ -4,7 +4,7 @@ package runs
 // when the FINISH is DISPATCHED, not when the FINISH response lands. Live
 // 2026-09-21T07:05:05Z: request 8d76a5bb's abandoned run 87c3a9c3 had its
 // FINISH dispatched (client had gone away), and 117ms later the next
-// request's rotate() adopted the still-persisted record, so upstream
+// request's mint adopted the still-persisted record, so upstream
 // answered its chats 400 "runId Not Running" → client-visible 502.
 
 import (

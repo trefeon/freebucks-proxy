@@ -2,50 +2,23 @@ package server
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"freebucks-proxy/backend/internal/convert"
 	"freebucks-proxy/backend/internal/phasetiming"
 	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/upstream"
 )
-
-// isRefundSuperseded reports whether err is a 409 session_superseded whose
-// upstream wording describes a REFUNDED purchase ("purchase was refunded.
-// Start a new session") rather than a takeover ("another CLI took over",
-// "took over", "takeover"). A refund means no competitor holds the seat
-// and no charge landed, so a single fresh rejoin is safe; takeovers stay
-// terminal per #159. Both markers must hold: a takeover message that
-// merely mentions refunds must not rejoin.
-func isRefundSuperseded(err error) bool {
-	var sse *upstream.SessionSupersededError
-	if !errors.As(err, &sse) {
-		return false
-	}
-	lower := strings.ToLower(sse.Body)
-	if !strings.Contains(lower, "refund") {
-		return false
-	}
-	for _, takeover := range []string{"took over", "takeover", "taken over"} {
-		if strings.Contains(lower, takeover) {
-			return false
-		}
-	}
-	return true
-}
 
 // --- Shared completion engine (protocol-neutral) ---
 //
 // The acquire→upstream→relay core every completion surface runs on:
-// chatCore (lease acquisition, the ErrRunInvalid
-// rotate-and-retry-once, phase timing, endpoint log lines), chatAttempt
-// (one acquire→chat attempt with session/run invalidation and token
-// cooldowns on refusal), and the plain SSE plumbing every relay shares
-// (relayReadLoop, lineChunk, keepaliveInterval). Protocol policy does NOT
+// chatCore (lease acquisition, single-attempt fail-fast, phase timing,
+// endpoint log lines), chatAttempt (one acquire→chat attempt with
+// session/run invalidation and token cooldowns on refusal), and the plain
+// SSE plumbing every relay shares (relayReadLoop, lineChunk,
+// keepaliveInterval). Protocol policy does NOT
 // live here — each surface's handler, wire translation, stream relay and
 // error envelope live in its own file:
 //
@@ -88,9 +61,10 @@ func (b *timedBackend) Acquire(ctx context.Context, model string) (*pool.Lease, 
 // handleChat is the OpenAI chat-completions entry point: sanitize the
 // chatCore is the shared acquire→relay core for every completion-style
 // endpoint (chat completions, Responses, Anthropic messages): acquire a
-// token lease, call upstream with
-// retry-once recovery, then relay the forced stream to the client through
-// relay. kind names the endpoint in request/done log lines.
+// token lease, run ONE upstream attempt with fail-fast surface (gate
+// refusals invalidate and return immediately — never a re-acquire, rejoin,
+// or second attempt in-request), then relay the forced stream to the client
+// through relay. kind names the endpoint in request/done log lines.
 func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, stream bool, normalized []byte, toolMap convert.ToolMapper, reasoningEffort, kind string, relay relayFunc) {
 	// Issue #140: the tool-name tolerance map. toolMap is the SAME mapper the
 	// handler normalized with (NormalizeRequestMapped) — never a rebuild from
@@ -165,28 +139,12 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	var err error
 	be := &timedBackend{chatBackend: pooledBackend{p: s.pool}, phases: phases}
 	up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
-	if err != nil && ctx.Err() == nil && errors.Is(err, upstream.ErrRunInvalid) {
-		// The lease's agent run is gone upstream (e.g. a resumed run whose FINISH
-		// raced this request: live 2026-09-21T07:05:05Z, upstream 400 runId Not
-		// Running surfaced as a bare 502). chatAttempt already Invalidated the run
-		// (in-memory + persisted record removed), so the re-acquire below cannot
-		// re-adopt it: rotate-and-retry-once, the sentinel's documented contract
-		// (upstream/errors.go).
-		st.retried = true
-		up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
-	}
-	if err != nil && ctx.Err() == nil && isRefundSuperseded(err) {
-		// Live 2026-09-28: a waiting-room 503 consumed the purchase hold and
-		// the same-request retry met 409 "purchase was refunded. Start a new
-		// session to try again." No competitor holds the seat (fresh
-		// accounts, refund = no charge) — upstream explicitly instructs a
-		// fresh session, so rejoin once. Takeover-worded 409s ("another CLI
-		// took over") stay terminal per #159: rejoining those burns a daily
-		// session against the superseding instance. chatAttempt already
-		// dropped the dead row, so the re-acquire below admits fresh.
-		st.retried = true
-		up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
-	}
+	// Fail-fast: gate refusals (waiting-room, capacity, superseded,
+	// run-refusal) never retry in-request — the turn fails, the poll
+	// resyncs. chatAttempt already invalidated the dead session/run row,
+	// so the NEXT turn re-admits fresh. A second attempt here would burn a
+	// daily session against a superseding instance (takeover ping-pong,
+	// #159) or re-trip a breaker the client must back off from.
 	if err != nil {
 		// Acquire-time rate limit (pool returned nil lease): attribute the
 		// binding token + limited set onto the trace line. Post-acquire
@@ -266,12 +224,22 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	// Issue #114: record the completed chat as a run step — steps are
 	// batched in memory and sent WITH FINISH (the CLI has no /steps
 	// endpoint). The response message id is not extracted from the stream;
-	// the CLI step schema allows a null messageId.
+	// the CLI step schema allows a null messageId. The step and the FINISH
+	// below reuse the turn's run_id (MintTurnRun per turn, TurnRun for the
+	// lease): tool/llm steps never re-START mid-turn.
 	be.RecordRunStep(lease, "")
 	// Issue #122: feed the per-token spend ledger once per successful chat
 	// completion with the usage total observed by the relay (0 when the
 	// upstream stream carried none — RecordSpend ignores non-positive).
 	be.RecordSpend(lease, stats.usageTokens)
+	// Server-owned turn FINISH (CLI parity): the turn's run FINISHes here
+	// with its recorded step, on success as completed. Skipped when the
+	// client already went away — the release path's Abandon owns the async
+	// cancelled FINISH there. The pool guards against the manager
+	// predecessor drain, so the turn is never FINISHed twice.
+	if r.Context().Err() == nil {
+		be.FinishRun(ctx, lease)
+	}
 	// Usage log: persist the same completion's token split into the
 	// dashboard ring (unconditional — zero-usage completions still count
 	// as requests with OK=false; nil-dash safe).
