@@ -19,11 +19,11 @@ package server_test
 //     fail the Anthropic turn with 400 invalid_tool_arguments.
 
 import (
+	"encoding/json"
+	"freebucks-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"testing"
-
-	"freebucks-proxy/backend/internal/testutil"
 )
 
 // TestStrictTools_LooseHermesTerminalPasses pins the loose Hermes path:
@@ -52,9 +52,9 @@ func TestStrictTools_LooseHermesTerminalPasses(t *testing.T) {
 	if !strings.Contains(recorded, `"run_terminal_command"`) {
 		t.Errorf("upstream body missing renamed loose tool: %s", truncate(recorded, 300))
 	}
-	if strings.Contains(recorded, "strict") {
-		t.Errorf("loose tool gained a strict marker upstream: %s", truncate(recorded, 300))
-	}
+	// Scoped per-tool: the CLI floor ships native strict flags on OTHER
+	// declarations, so only the renamed loose tool itself is checked.
+	looseWireToolStrict(t, recorded, "run_terminal_command")
 }
 
 // TestStrictTools_LooseOpenClawBashPasses pins the loose OpenClaw path on
@@ -82,9 +82,8 @@ func TestStrictTools_LooseOpenClawBashPasses(t *testing.T) {
 	if !strings.Contains(recorded, `"run_terminal_command"`) {
 		t.Errorf("upstream body missing renamed loose tool: %s", truncate(recorded, 300))
 	}
-	if strings.Contains(recorded, "strict") {
-		t.Errorf("loose tool gained a strict marker upstream: %s", truncate(recorded, 300))
-	}
+	// Scoped per-tool (see Hermes test above).
+	looseWireToolStrict(t, recorded, "run_terminal_command")
 }
 
 // TestStrictTools_LooseBadJSONArgsFallback pins the legacy {} fallback: a
@@ -423,4 +422,35 @@ func TestStrictTools_ChatTopLevelStrictCloser(t *testing.T) {
 	if mock.RequestsSnapshot() != 0 {
 		t.Errorf("upstream requests = %d, want 0 (rejected before pool)", mock.RequestsSnapshot())
 	}
+}
+
+// looseWireToolStrict finds the wire tool with the given function name in a
+// recorded upstream chat body and fails if that declaration (or its wrapper)
+// carries any strict marker. Scoped per-tool on purpose: the CLI tool floor
+// (topUpCliTools) legitimately ships native strict flags on OTHER
+// declarations, so a whole-body substring check would false-positive on the
+// floor instead of testing the loose tool's own translation.
+func looseWireToolStrict(t *testing.T, recorded, wireName string) {
+	t.Helper()
+	var wire map[string]any
+	if err := json.Unmarshal([]byte(recorded), &wire); err != nil {
+		t.Fatalf("upstream body is not JSON: %v", err)
+	}
+	tools, _ := wire["tools"].([]any)
+	for _, tr := range tools {
+		m, _ := tr.(map[string]any)
+		fn, _ := m["function"].(map[string]any)
+		name, _ := fn["name"].(string)
+		if name != wireName {
+			continue
+		}
+		if _, has := fn["strict"]; has {
+			t.Errorf("loose tool %q gained function.strict upstream", wireName)
+		}
+		if _, has := m["strict"]; has {
+			t.Errorf("loose tool %q gained top-level strict upstream", wireName)
+		}
+		return
+	}
+	t.Errorf("upstream body missing wire tool %q", wireName)
 }

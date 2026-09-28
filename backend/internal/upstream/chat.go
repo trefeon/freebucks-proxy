@@ -428,27 +428,15 @@ func ensureCliSystemMarker(payload map[string]any, agentID string, model ...stri
 	payload["messages"] = newMsgs
 }
 
-// ensureCliTools guarantees a coding-agent toolset on the wire for requests
-// that carry none: a plain chat request (curl, an IDE probe, a harness that
-// does not declare tools) otherwise reaches upstream with tools absent, which
-// the free-tier traffic gate reads as a non-coding client. Those requests get
-// the canonical CLI declarations.
-//
-// A request that DID declare tools is left exactly as the convert layer built
-// it: the ordered name-translation pass owns those declarations (rename +
-// dedupe + restore ownership — docs/decisions/tool-name-translation.md), the
-// model fills arguments per the schema the client declared, and appending
-// tools the client never offered would let the model emit calls the client
-// cannot execute.
-//
-// tool_choice is never fabricated: a client that sent none keeps none (the
-// OpenAI default is auto), and inventing one rewrites an envelope the client
-// deliberately shaped (TestConformanceGooseNoToolChoiceUsageTail).
+// ensureCliTools enforces the free-tier traffic-gate tool floor on the wire
+// (topUpCliTools in clitools.go): a request that carried no tools gets the
+// full canonical 16 declarations, and a request that DID declare tools keeps
+// them verbatim while missing officials are topped up. tool_choice is never
+// fabricated: a client that sent none keeps none (the OpenAI default is
+// auto), and inventing one rewrites an envelope the client deliberately
+// shaped (TestConformanceGooseNoToolChoiceUsageTail).
 func ensureCliTools(payload map[string]any) {
-	rawTools, ok := payload["tools"].([]any)
-	if !ok || len(rawTools) == 0 {
-		payload["tools"] = defaultCliTools()
-	}
+	topUpCliTools(payload)
 }
 
 // injectEnvelope merges the CLI fingerprint into the request body without

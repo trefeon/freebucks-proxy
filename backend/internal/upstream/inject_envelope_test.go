@@ -1401,13 +1401,13 @@ func TestInjectEnvelopeRepoSnapshot(t *testing.T) {
 	})
 }
 
-// TestInjectEnvelopeToolsetInjection pins the coding-agent toolset rule:
+// TestInjectEnvelopeToolsetInjection pins the coding-agent toolset floor:
 // a request that declared NO tools gets the canonical CLI declarations (the
-// free-tier traffic gate reads a tool-less chat as a non-coding client), and a
-// request that DID declare tools keeps them byte-for-byte — the convert layer's
-// ordered rename/dedupe pass owns those names, and appending tools the client
-// never offered would let the model emit calls the client cannot execute.
-// tool_choice is never fabricated in either direction.
+// free-tier traffic gate reads a tool-less chat as a non-coding client), and
+// a request that DID declare tools keeps every one of its declarations
+// verbatim while missing officials are topped up (client-mapped tools win on
+// wire-name collision — never duplicated). tool_choice is never fabricated
+// in either direction.
 func TestInjectEnvelopeToolsetInjection(t *testing.T) {
 	canonical := defaultCliTools()
 	wantNames := make([]string, 0, len(canonical))
@@ -1439,7 +1439,7 @@ func TestInjectEnvelopeToolsetInjection(t *testing.T) {
 		}
 	})
 
-	t.Run("declared toolset is forwarded untouched", func(t *testing.T) {
+	t.Run("declared toolset is preserved and topped up", func(t *testing.T) {
 		body := `{"model":"m","tool_choice":"required","tools":[` +
 			`{"type":"function","function":{"name":"bash","description":"Run a command","parameters":{"type":"object"}}},` +
 			`{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
@@ -1452,13 +1452,32 @@ func TestInjectEnvelopeToolsetInjection(t *testing.T) {
 			t.Fatal(err)
 		}
 		tools, ok := sent["tools"].([]any)
-		if !ok || len(tools) != 2 {
-			t.Fatalf("tools = %v, want the client's own 2 declarations (never appended to)", sent["tools"])
+		if !ok {
+			t.Fatalf("tools = %v, want the client declarations plus the official floor", sent["tools"])
 		}
+		// Client declarations ride first and verbatim (name mapping happens
+		// in the convert layer, so unmapped client names never collide here),
+		// followed by the 16 official floor definitions.
 		for i, want := range []string{"bash", "read_file"} {
 			name := tools[i].(map[string]any)["function"].(map[string]any)["name"].(string)
 			if name != want {
-				t.Errorf("tool[%d] = %q, want the client's %q preserved", i, name, want)
+				t.Errorf("tool[%d] = %q, want the client's %q preserved first", i, name, want)
+			}
+		}
+		if len(tools) != 2+len(canonical) {
+			t.Fatalf("len(tools) = %d, want 2 client declarations + %d floor definitions", len(tools), len(canonical))
+		}
+		seen := map[string]bool{}
+		for _, def := range tools {
+			name := def.(map[string]any)["function"].(map[string]any)["name"].(string)
+			if seen[name] {
+				t.Errorf("duplicate wire tool %q", name)
+			}
+			seen[name] = true
+		}
+		for _, want := range wantNames {
+			if !seen[want] {
+				t.Errorf("floor tool %q missing from the wire set", want)
 			}
 		}
 		if sent["tool_choice"] != "required" {
