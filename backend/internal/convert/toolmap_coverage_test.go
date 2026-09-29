@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -335,14 +336,21 @@ func TestComprehensiveToolClassification(t *testing.T) {
 					t.Errorf("RestoreName(%q) = %q, want identity %q", got, restored, rc.tool)
 				}
 			case classPassthru:
-				if isForeignHarness(rc.tool) {
-					want := "mcp__" + rc.tool
-					if got != want {
-						t.Fatalf("normalized foreign tool name = %q, want virtualized %q", got, want)
-					}
-				} else {
+				// Policy 2026-09-30: unknown custom names never ride verbatim —
+				// the wire carries official signature names, client mcp__/mcp_*
+				// names, or mcp__ virtuals only.
+				switch {
+				case officialTools[rc.tool] || strings.Contains(rc.tool, "__"):
 					if got != rc.tool {
 						t.Fatalf("normalized tool name = %q, want %q unchanged (class %s)", got, rc.tool, rc.class)
+					}
+				case strings.HasPrefix(strings.ToLower(rc.tool), "mcp_") || strings.EqualFold(rc.tool, "mcp"):
+					if got != rc.tool {
+						t.Fatalf("normalized tool name = %q, want %q unchanged (client mcp_* name)", got, rc.tool)
+					}
+				default:
+					if want := wireVirtualName(rc.tool); got != want {
+						t.Fatalf("normalized tool name = %q, want virtualized %q (class %s)", got, want, rc.class)
 					}
 				}
 				if restored := mapper.RestoreName(got); restored != rc.tool {

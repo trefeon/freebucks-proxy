@@ -149,7 +149,7 @@ func TestConformancePiChatToolLoop(t *testing.T) {
 	if n := len(mock.RecordedChatBodiesSnapshot()); n != 1 {
 		t.Errorf("upstream chat calls after turn 1 = %d, want 1", n)
 	}
-	for _, want := range []string{`"role":"system"`, `"run_shell"`, `"tool_choice":"auto"`} {
+	for _, want := range []string{`"role":"system"`, `"mcp__run_shell"`, `"tool_choice":"auto"`} {
 		if !mock.BodyContains(want) {
 			t.Errorf("turn 1 upstream body missing %s", want)
 		}

@@ -509,7 +509,7 @@ func TestReplayQwenChatSse(t *testing.T) {
 	}
 
 	recorded := mock.RecordedChatBodies[0]
-	for _, want := range []string{`"stream_options":{"include_usage":true}`, `"run_shell"`} {
+	for _, want := range []string{`"stream_options":{"include_usage":true}`, `"mcp__run_shell"`} {
 		if !strings.Contains(recorded, want) {
 			t.Errorf("upstream body missing %s: %s", want, recorded)
 		}

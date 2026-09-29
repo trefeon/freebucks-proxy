@@ -220,8 +220,8 @@ func TestConformanceKilocodeAnthropicWire(t *testing.T) {
 	if !mock.BodyContains(`"reasoning_effort":"high"`) {
 		t.Error("upstream body missing reasoning_effort (want clamped high)")
 	}
-	if !mock.BodyContains(`"kilo_shell"`) {
-		t.Error("upstream body missing the wrapped tool")
+	if !mock.BodyContains(`"mcp__kilo_shell"`) {
+		t.Error("upstream body missing the wrapped tool (virtualized mcp__kilo_shell)")
 	}
 	if mock.BodyContains("cache_control") {
 		t.Error("cache_control leaked into the upstream chat body (no prompt-cache marker upstream)")

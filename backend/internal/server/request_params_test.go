@@ -106,8 +106,8 @@ func TestChatFunctionToolsAccepted(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
-	if !mock.BodyContains(`"get_weather"`) {
-		t.Errorf("upstream body missing function tool: %s", truncate(mock.LastChatBody(), 300))
+	if !mock.BodyContains(`"mcp__get_weather"`) {
+		t.Errorf("upstream body missing virtualized function tool: %s", truncate(mock.LastChatBody(), 300))
 	}
 }
 
@@ -327,8 +327,8 @@ func TestAnthropicServerToolsRejected(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
-	if !mock.BodyContains(`"get_weather"`) {
-		t.Errorf("upstream body missing function tool: %s", truncate(mock.LastChatBody(), 300))
+	if !mock.BodyContains(`"mcp__get_weather"`) {
+		t.Errorf("upstream body missing virtualized function tool: %s", truncate(mock.LastChatBody(), 300))
 	}
 }
 

@@ -274,11 +274,11 @@ func TestResponsesToolCallNonStream(t *testing.T) {
 		t.Errorf("call_id = %q, want upstream call_abc", fc.CallID)
 	}
 	// The upstream body must carry the wrapped function tool + translated
-	// tool_choice.
-	if !mock.BodyContains(`"type":"function"`) || !mock.BodyContains(`"get_weather"`) {
+	// tool_choice — the custom name virtualized to mcp__ (policy 2026-09-30).
+	if !mock.BodyContains(`"type":"function"`) || !mock.BodyContains(`"mcp__get_weather"`) {
 		t.Error("upstream body missing function-wrapped tool")
 	}
-	if !mock.BodyContains(`"tool_choice"`) || !mock.BodyContains(`"name":"get_weather"`) {
+	if !mock.BodyContains(`"tool_choice"`) || !mock.BodyContains(`"name":"mcp__get_weather"`) {
 		t.Error("upstream body missing translated tool_choice")
 	}
 }
@@ -516,11 +516,12 @@ func TestMessagesToolUseRoundTrip(t *testing.T) {
 	if tu.ID != "toolu_01" {
 		t.Errorf("tool_use id = %q, want toolu_01 preserved", tu.ID)
 	}
-	// Upstream body: function-wrapped tool + translated tool_choice.
-	if !mock.BodyContains(`"type":"function"`) || !mock.BodyContains(`"get_weather"`) {
+	// Upstream body: function-wrapped tool + translated tool_choice (the
+	// custom name virtualized to mcp__, policy 2026-09-30).
+	if !mock.BodyContains(`"type":"function"`) || !mock.BodyContains(`"mcp__get_weather"`) {
 		t.Error("upstream body missing wrapped tool")
 	}
-	if !mock.BodyContains(`"tool_choice"`) || !mock.BodyContains(`"name":"get_weather"`) {
+	if !mock.BodyContains(`"tool_choice"`) || !mock.BodyContains(`"name":"mcp__get_weather"`) {
 		t.Error("upstream body missing translated tool_choice")
 	}
 }

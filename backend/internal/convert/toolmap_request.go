@@ -333,12 +333,21 @@ func resolveUpstreamTool(origName string, params map[string]any) string {
 
 	// Check exact case in ForeignHarnessToolNames (e.g. PascalCase "Task", "Agent",
 	// "AskUserQuestion" from Claude Code, or "browser_exec" from OpenClaw).
-	// Lowercase agentic tools like OMP's "task" are not in ForeignHarnessToolNames.
 	if ForeignHarnessToolNames[origName] || strings.HasPrefix(lower, "cron") {
 		return wireVirtualName(origName)
 	}
 
-	return origName
+	// Unknown-but-legal custom names virtualize too (policy 2026-09-30): the
+	// free-tier gate flags toolsets carrying names outside the CLI vocabulary.
+	// Live 2026-09-29: OMP's eval/task/wait/learn/manage_skill rode the wire
+	// verbatim (7 bare names beside the official 16) and every request 503'd
+	// "The model is temporarily unavailable"; the retry churn banned the
+	// account. mcp_*-prefixed names are the client-MCP convention (Gemini
+	// extension tools) and stay verbatim like client-declared mcp__ names.
+	if lower == "mcp" || strings.HasPrefix(lower, "mcp_") {
+		return origName
+	}
+	return wireVirtualName(origName)
 }
 
 // MsgCount is the client message count retained by NewToolMapper (0 when the

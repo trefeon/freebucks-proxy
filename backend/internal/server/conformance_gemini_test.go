@@ -86,9 +86,9 @@ func TestConformanceGeminiToolNames(t *testing.T) {
 			t.Errorf("upstream body still carries client name %s: %s", gone, truncate(recorded, 600))
 		}
 	}
-	for _, want := range []string{`"name":"mcp_github_list_issues"`, `"name":"discovered_tool_mycommand"`} {
+	for _, want := range []string{`"name":"mcp_github_list_issues"`, `"name":"mcp__discovered_tool_mycommand"`} {
 		if !strings.Contains(recorded, want) {
-			t.Errorf("upstream body missing verbatim tool %s: %s", want, truncate(recorded, 600))
+			t.Errorf("upstream body missing tool %s: %s", want, truncate(recorded, 600))
 		}
 	}
 

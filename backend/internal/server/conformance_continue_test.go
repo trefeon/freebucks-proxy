@@ -110,13 +110,14 @@ func TestConformanceContinueDualAuthIncludeUsage(t *testing.T) {
 
 	// Upstream record: stream_options survives the whitelist
 	// (internal/convert/convert.go upstreamKeys), and the Continue tool shape
-	// round-trips. json.Marshal sorts object keys, so assert the parameters
-	// sub-keys individually rather than a whole-object substring.
+	// round-trips virtualized (mcp__execute_shell). json.Marshal sorts object
+	// keys, so assert the parameters sub-keys individually rather than a
+	// whole-object substring.
 	recorded := mock.RecordedChatBodies[0]
 	for _, want := range []string{
 		`"stream_options":{"include_usage":true}`,
 		`"type":"function"`,
-		`"name":"execute_shell"`,
+		`"name":"mcp__execute_shell"`,
 		`"strict":false`,
 		`"type":"object"`,
 	} {

@@ -155,18 +155,18 @@ func TestTranslateMatrixRequestLeg(t *testing.T) {
 		}
 	})
 
-	t.Run("03 custom test_tool verbatim plus pin", func(t *testing.T) {
+	t.Run("03 custom test_tool virtualized plus pin", func(t *testing.T) {
 		wire, mapper := matrixWire(t, matrixChatBody([]any{matrixFuncTool("test_tool")}, nil))
 		names := matrixWireNames(t, wire)
 		assertWireSane(t, names)
-		if names[0] != "test_tool" {
-			t.Fatalf("wire tools = %q, want client tool first", names)
+		if names[0] != "mcp__test_tool" {
+			t.Fatalf("wire tools = %q, want client tool virtualized to mcp__test_tool first", names)
 		}
 		if len(names) <= 1 {
 			t.Fatalf("wire tools = %q, want first-party pin appended", names)
 		}
-		if got := mapper.RestoreName("test_tool"); got != "test_tool" {
-			t.Fatalf("RestoreName(test_tool) = %q, want identity", got)
+		if got := mapper.RestoreName("mcp__test_tool"); got != "test_tool" {
+			t.Fatalf("RestoreName(mcp__test_tool) = %q, want test_tool", got)
 		}
 	})
 
@@ -205,13 +205,13 @@ func TestTranslateMatrixRequestLeg(t *testing.T) {
 		}
 	})
 
-	t.Run("09 tool_choice pinned custom verbatim", func(t *testing.T) {
+	t.Run("09 tool_choice pinned custom rewritten to virtual", func(t *testing.T) {
 		wire, _ := matrixWire(t, matrixChatBody([]any{matrixFuncTool("get_weather")}, map[string]any{
 			"tool_choice": map[string]any{"type": "function", "function": map[string]any{"name": "get_weather"}},
 		}))
 		fn, ok := wire["tool_choice"].(map[string]any)["function"].(map[string]any)
-		if !ok || fn["name"] != "get_weather" {
-			t.Fatalf("tool_choice = %v, want get_weather verbatim", wire["tool_choice"])
+		if !ok || fn["name"] != "mcp__get_weather" {
+			t.Fatalf("tool_choice = %v, want mcp__get_weather (pin follows the wire name)", wire["tool_choice"])
 		}
 	})
 

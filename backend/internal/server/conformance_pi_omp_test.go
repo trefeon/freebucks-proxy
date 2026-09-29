@@ -163,15 +163,16 @@ func TestConformancePiPowershellWindowsTurn(t *testing.T) {
 	}
 }
 
-// TestConformanceOmpUnmappedLoopToolsPassthrough replays an OMP turn carrying
+// TestConformanceOmpUnmappedLoopToolsVirtualized replays an OMP turn carrying
 // the first-class loop tools that have NO official signature equivalent
 // (ask/task/hub/eval/lsp/browser/computer/github/ast_grep/ast_edit/
 // checkpoint/rewind/security_scan/memory_edit/learn/manage_skill/debug/
 // inspect_image) plus the mapped todo and the official web_search. The
-// unmapped names must round-trip VERBATIM (never renamed to a wrong target,
-// never dropped), the mapped todo renamed, and end_turn still injected so
-// the foreign_toolset gate never fires.
-func TestConformanceOmpUnmappedLoopToolsPassthrough(t *testing.T) {
+// unmapped names must round-trip VIRTUALIZED (mcp__<name>, never verbatim on
+// the wire — the free-tier gate flags foreign vocabulary; live 2026-09-29 the
+// verbatim names 503'd every OMP request), the mapped todo renamed, and
+// end_turn still injected.
+func TestConformanceOmpUnmappedLoopToolsVirtualized(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
 	}
@@ -180,9 +181,9 @@ func TestConformanceOmpUnmappedLoopToolsPassthrough(t *testing.T) {
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		// Model calls the unmapped ask tool by its own name.
+		// Model calls the unmapped ask tool under its virtual wire name.
 		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-omp", 1,
-			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_ask1","type":"function","function":{"name":"ask","arguments":"{\"question\":\"ok?\"}"}}]},"index":0}]`)))
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_ask1","type":"function","function":{"name":"mcp__ask","arguments":"{\"question\":\"ok?\"}"}}]},"index":0}]`)))
 		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-omp", 1,
 			`"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}`)))
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
@@ -199,16 +200,22 @@ func TestConformanceOmpUnmappedLoopToolsPassthrough(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 300))
 	}
 	recorded := mock.RecordedChatBodies[0]
-	for _, keep := range []string{"ask", "task", "hub", "eval", "lsp", "ast_grep", "security_scan", "web_search"} {
-		if !strings.Contains(recorded, `"name":"`+keep+`"`) {
-			t.Errorf("upstream body missing verbatim tool %q: %s", keep, recorded)
+	for _, keep := range []string{"ask", "task", "hub", "eval", "lsp", "ast_grep", "security_scan"} {
+		if !strings.Contains(recorded, `"name":"mcp__`+keep+`"`) {
+			t.Errorf("upstream body missing virtualized tool mcp__%q: %s", keep, recorded)
 		}
+		if strings.Contains(recorded, `"name":"`+keep+`"`) {
+			t.Errorf("upstream body carries foreign name %q verbatim: %s", keep, recorded)
+		}
+	}
+	if !strings.Contains(recorded, `"name":"web_search"`) {
+		t.Error("upstream body missing official web_search")
 	}
 	if !strings.Contains(recorded, `"name":"write_todos"`) {
 		t.Error("upstream body missing renamed todo → write_todos")
 	}
 	if !strings.Contains(recorded, "end_turn") {
-		t.Error("upstream body missing injected end_turn (foreign_toolset gate would downgrade)")
+		t.Error("upstream body missing injected end_turn")
 	}
 	frames, done := collectOpenAIFrames(t, string(data))
 	if !done {

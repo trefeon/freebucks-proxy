@@ -39,8 +39,11 @@ func TestToolMapperRequestRename(t *testing.T) {
 	if _, ok := names["run_terminal_command"]; !ok {
 		t.Errorf("bash not renamed to run_terminal_command")
 	}
-	if _, ok := names["my_custom_tool"]; !ok {
-		t.Error("unmapped custom tool was altered")
+	if _, ok := names["mcp__my_custom_tool"]; !ok {
+		t.Errorf("unmapped custom tool not virtualized: tools = %v", payload["tools"])
+	}
+	if _, ok := names["my_custom_tool"]; ok {
+		t.Error("custom tool name rode the wire verbatim (policy: mcp__ virtuals only)")
 	}
 	if _, ok := names["read_file"]; ok {
 		t.Error("original client name still present after rename")
