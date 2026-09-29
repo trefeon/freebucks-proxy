@@ -2,13 +2,12 @@ package server
 
 import (
 	"context"
-	"io"
-	"net/http"
-	"time"
-
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/phasetiming"
 	"freebuff-proxy/backend/internal/pool"
+	"io"
+	"net/http"
+	"time"
 )
 
 // --- Shared completion engine (protocol-neutral) ---
@@ -138,13 +137,15 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 	// hooks (issue #255); the timing wrapper records the acquire phase.
 	var err error
 	be := &timedBackend{chatBackend: pooledBackend{p: s.pool}, phases: phases}
-	up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
-	// Fail-fast: gate refusals (waiting-room, capacity, superseded,
-	// run-refusal) never retry in-request — the turn fails, the poll
-	// resyncs. chatAttempt already invalidated the dead session/run row,
-	// so the NEXT turn re-admits fresh. A second attempt here would burn a
-	// daily session against a superseding instance (takeover ping-pong,
-	// #159) or re-trip a breaker the client must back off from.
+	up, lease, err = s.chatAttempt(ctx, model, normalized, st, be, cfg.ChatAutoRetry)
+	// Fail-fast by default: gate refusals (waiting-room, capacity,
+	// superseded, run-refusal) never retry in-request — the turn fails, the
+	// poll resyncs. chatAttempt already invalidated the dead session/run
+	// row, so the NEXT turn re-admits fresh. A second attempt here would
+	// burn a daily session against a superseding instance (takeover
+	// ping-pong, #159) or re-trip a breaker the client must back off from.
+	// CHAT_AUTO_RETRY opts in to bounded in-request retries of the
+	// transient shapes only (short-window 429, run-invalid, waiting-room).
 	if err != nil {
 		// Acquire-time rate limit (pool returned nil lease): attribute the
 		// binding token + limited set onto the trace line. Post-acquire

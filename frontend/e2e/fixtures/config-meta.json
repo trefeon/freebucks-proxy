@@ -67,14 +67,7 @@
     "key": "HTTP_READ_TIMEOUT",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "60s",
-      "90s",
-      "120s",
-      "180s",
-      "300s",
-      "0"
-    ],
+    "enum": ["60s", "90s", "120s", "180s", "300s", "0"],
     "default": "60s",
     "restart_only": true,
     "secret": false,
@@ -118,10 +111,7 @@
     "key": "LOG_FORMAT",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "text",
-      "json"
-    ],
+    "enum": ["text", "json"],
     "default": "text",
     "restart_only": true,
     "secret": false,
@@ -132,13 +122,7 @@
     "key": "LOG_LEVEL",
     "group": "general",
     "kind": "select",
-    "enum": [
-      "debug",
-      "info",
-      "warn",
-      "error",
-      "trace"
-    ],
+    "enum": ["debug", "info", "warn", "error", "trace"],
     "default": "debug",
     "restart_only": true,
     "secret": false,
@@ -439,6 +423,17 @@
     "description": "Add {\"type\":\"ephemeral\"} cache_control to the stable context prefix on DeepSeek requests (prompt-cache cost reduction; default on). Set CACHE_CONTROL_INJECTION=false to disable."
   },
   {
+    "key": "CHAT_AUTO_RETRY",
+    "group": "upstream",
+    "kind": "bool",
+    "default": "false",
+    "restart_only": true,
+    "secret": false,
+    "essential": false,
+    "hidden": true,
+    "description": "Retry transient chat refusals in-request until 200 so clients never see them: short-window 429s (honored window, never beyond 90s), run-invalid (fresh run), waiting-room queue (never beyond 30s); bounded to 3 retries within 120s total; terminal refusals (400/401/ban/consent/credits) always surface immediately."
+  },
+  {
     "key": "COMPRESS_PROMPT",
     "group": "upstream",
     "kind": "bool",
@@ -452,9 +447,7 @@
     "key": "COST_MODE",
     "group": "upstream",
     "kind": "select",
-    "enum": [
-      "free"
-    ],
+    "enum": ["free"],
     "default": "free",
     "restart_only": true,
     "secret": false,

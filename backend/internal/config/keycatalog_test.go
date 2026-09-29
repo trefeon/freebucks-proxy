@@ -33,7 +33,7 @@ var dotenvKeys = map[string]bool{
 
 	"IDLE_ROTATION_TIMEOUT": true, "SAFE_MODE": true,
 	"MODELS_HIDE_UNAVAILABLE": true, "MODELS_ALLOW": true, "CORS_ALLOWED_ORIGIN": true,
-	"REQUEST_JITTER": true, "CLI_VERSION": true, "PIN_MODEL": true, "TRANSIENT_RETRIES": true,
+	"REQUEST_JITTER": true, "CLI_VERSION": true, "PIN_MODEL": true, "TRANSIENT_RETRIES": true, "CHAT_AUTO_RETRY": true,
 	"SESSION_PERSIST": true, "SESSION_STATE_FILE": true,
 	"HTTP2_UPSTREAM": true, "RUN_FINISH_QUEUE_SIZE": true,
 	"RUN_FINISH_INLINE_TIMEOUT": true, "RUNS_DRAIN_QUEUE_CAP": true,

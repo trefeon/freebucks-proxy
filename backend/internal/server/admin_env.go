@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"net"
 	"net/http"
@@ -15,10 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/dashboard"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 const maxEnvSize = 64 << 10
@@ -239,6 +238,7 @@ var restartOnlyConfigKeys = []string{
 	"COST_MODE",
 	"TLS_FINGERPRINT",
 	"TRANSIENT_RETRIES",
+	"CHAT_AUTO_RETRY",
 	"HTTP2_UPSTREAM",
 	"DEBUG_DUMP",
 	"ACTING_USER_ID",
@@ -375,6 +375,7 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"REQUEST_JITTER":              cfg.RequestJitter.String(),
 		"CLI_VERSION":                 cfg.CLIVersion,
 		"TRANSIENT_RETRIES":           strconv.Itoa(cfg.TransientRetries),
+		"CHAT_AUTO_RETRY":             strconv.FormatBool(cfg.ChatAutoRetry),
 		"SESSION_PERSIST":             strconv.FormatBool(cfg.SessionPersist),
 		"SESSION_STATE_FILE":          cfg.SessionStateFile,
 		"SESSION_TIMEZONE":            cfg.SessionTimezone,

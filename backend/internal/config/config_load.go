@@ -118,6 +118,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.RequestJitter, "REQUEST_JITTER")
 	overrideString(&raw.CLIVersion, "CLI_VERSION")
 	overrideInt(&raw.TransientRetries, "TRANSIENT_RETRIES")
+	overrideBool(&raw.ChatAutoRetry, "CHAT_AUTO_RETRY")
 	overrideBool(&raw.SessionPersist, "SESSION_PERSIST")
 	overrideString(&raw.SessionStateFile, "SESSION_STATE_FILE")
 	overrideBool(&raw.HTTP2Upstream, "HTTP2_UPSTREAM")
@@ -398,6 +399,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		RequestJitter:            requestJitter,
 		CLIVersion:               strings.TrimSpace(raw.CLIVersion),
 		TransientRetries:         transientRetries,
+		ChatAutoRetry:            raw.ChatAutoRetry,
 		SessionPersist:           raw.SessionPersist,
 		SessionStateFile:         strings.TrimSpace(raw.SessionStateFile),
 		RunFinishQueueSize:       runFinishQueueSize,
@@ -580,6 +582,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.RequestJitter, get, "REQUEST_JITTER")
 	overrideStringFrom(&raw.CLIVersion, get, "CLI_VERSION")
 	overrideIntFrom(&raw.TransientRetries, get, "TRANSIENT_RETRIES")
+	overrideBoolFrom(&raw.ChatAutoRetry, get, "CHAT_AUTO_RETRY")
 	overrideBoolFrom(&raw.SessionPersist, get, "SESSION_PERSIST")
 	overrideStringFrom(&raw.SessionStateFile, get, "SESSION_STATE_FILE")
 	overrideBoolFrom(&raw.HTTP2Upstream, get, "HTTP2_UPSTREAM")

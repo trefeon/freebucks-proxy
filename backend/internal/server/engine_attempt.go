@@ -3,14 +3,58 @@ package server
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"net/http"
+	"time"
 )
+
+// chatAutoRetry bounds for CHAT_AUTO_RETRY (opt-in in-request retry so
+// transient refusals resolve to 200 instead of interrupting clients):
+// at most 3 retries within 120s total; a 429 is honored only when upstream
+// names a window of 90s or less (30m sliding-window refusals surface, never
+// waited out); waiting-room queue waits never exceed 30s; run-invalid
+// retries immediately against a fresh run.
+const (
+	chatAutoRetryMax     = 3
+	chatAutoRetryBudget  = 120 * time.Second
+	chatAutoRetryRateCap = 90 * time.Second
+	chatAutoRetryWaitCap = 30 * time.Second
+	chatAutoRetryWaitDef = 10 * time.Second
+)
+
+// autoRetryWait reports how long to wait before re-attempting a refused
+// chat, or false when the refusal is terminal and must surface. Only the
+// three transient shapes retry: short-window 429s, run-invalid (fresh run,
+// no wait), and waiting-room queue holds. Everything else — 400s, 401,
+// bans, consent, credits, superseded, session-ending 428 — is terminal.
+func autoRetryWait(err error) (time.Duration, bool) {
+	var rle *upstream.RateLimitError
+	if errors.As(err, &rle) {
+		if rle.RetryAfter <= 0 || rle.RetryAfter > chatAutoRetryRateCap {
+			return 0, false
+		}
+		return rle.RetryAfter, true
+	}
+	if errors.Is(err, upstream.ErrRunInvalid) {
+		return 0, true
+	}
+	var wre *upstream.WaitingRoomError
+	if errors.As(err, &wre) {
+		wait := wre.RetryAfter
+		if wait <= 0 {
+			wait = chatAutoRetryWaitDef
+		}
+		if wait > chatAutoRetryWaitCap {
+			return 0, false
+		}
+		return wait, true
+	}
+	return 0, false
+}
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the
 // single-attempt chat path needs (issue #255).
@@ -71,24 +115,64 @@ func (b pooledBackend) FinishRun(ctx context.Context, lease *pool.Lease) {
 	b.p.FinishLeaseRun(ctx, lease)
 }
 
-// chatAttempt runs one chat through the leased token and surfaces the
+// chatAttempt runs one chat through the pool with opt-in auto-retry
+// (CHAT_AUTO_RETRY): transient refusals re-attempt in-request until 200 so
+// clients never see them, bounded to chatAutoRetryMax retries within
+// chatAutoRetryBudget; terminal refusals surface on the first attempt.
+// Retries happen before any response byte is written, so streaming and
+// non-streaming callers share the shield. When the knob is off this is
+// exactly one chatAttemptOnce pass (fail-fast, as pinned).
+func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byte, st *chatTraceState, backend chatBackend, autoRetry bool) (io.ReadCloser, *pool.Lease, error) {
+	if !autoRetry {
+		return s.chatAttemptOnce(ctx, model, normalized, st, backend)
+	}
+	deadline := time.Now().Add(chatAutoRetryBudget)
+	var up io.ReadCloser
+	var lease *pool.Lease
+	var err error
+	for n := 0; ; n++ {
+		up, lease, err = s.chatAttemptOnce(ctx, model, normalized, st, backend)
+		if err == nil {
+			return up, lease, nil
+		}
+		wait, ok := autoRetryWait(err)
+		if !ok || n >= chatAutoRetryMax || ctx.Err() != nil {
+			return nil, nil, err
+		}
+		if wait > 0 {
+			st.retried = true
+			st.backoffMs += wait.Milliseconds()
+			timer := time.NewTimer(wait)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, nil, err
+			case <-timer.C:
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, nil, err
+		}
+	}
+}
+
+// chatAttemptOnce runs one chat through the leased token and surfaces the
 // result: on success the returned body reader and final lease belong to the
 // caller (close the body, FINISH the turn via FinishRun, then release the
 // lease via LeaseRelease). The lease's run is the turn's MintTurnRun run
 // (TurnRun for the lease): the ChatOptions run_id, the llm_step_number
 // stamp, and the recorded step all reuse that one run_id across the turn's
 // tool steps — nothing re-STARTs mid-turn. Refusals never retry in-request
-// — the error returns for writeError after FINISHing the turn as failed
+// here — the error returns for writeError after FINISHing the turn as failed
 // (run-invalid excepted: the run is dead upstream, so Invalidate drops it
 // without FINISH) and releasing the lease, with cache invalidation for dead
 // sessions/runs and a ban cooldown+quarantine for terminal bans so the
-// account stops serving. chatCore calls this exactly once per turn: a dead
-// run is invalidated here so the NEXT turn's acquire mints fresh, and the
-// poll resyncs after a gate refusal. The acquire/chat/invalidate/cooldown
-// hooks are behind the chatBackend interface. 429 quota, ip_capped and
-// country blocks surface with no cooldown write: admission owns those
-// refusals, not the chat path.
-func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byte, st *chatTraceState, backend chatBackend) (io.ReadCloser, *pool.Lease, error) {
+// account stops serving. The auto-retry wrapper above re-invokes this for
+// transient refusals; a dead run is invalidated here so the retry's acquire
+// mints fresh. The acquire/chat/invalidate/cooldown hooks are behind the
+// chatBackend interface. 429 quota, ip_capped and country blocks surface
+// with no cooldown write: admission owns those refusals, not the chat path.
+func (s *Server) chatAttemptOnce(ctx context.Context, model string, normalized []byte, st *chatTraceState, backend chatBackend) (io.ReadCloser, *pool.Lease, error) {
 	lease, err := backend.Acquire(ctx, model)
 	if err != nil {
 		return nil, nil, err

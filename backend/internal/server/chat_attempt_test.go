@@ -3,15 +3,14 @@ package server
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
-	"net/http"
-	"testing"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"log/slog"
+	"net/http"
+	"testing"
 )
 
 // fakeAttemptBackend adapts the chatBackend interface for tests: nil hooks
@@ -92,7 +91,7 @@ func TestChatAttemptTurnSpendTerminal(t *testing.T) {
 		},
 	}
 
-	_, _, err := s.chatAttempt(context.Background(), "deepseek/deepseek-v4-flash", []byte(`{}`), &chatTraceState{reqID: "req-ts"}, backend)
+	_, _, err := s.chatAttempt(context.Background(), "deepseek/deepseek-v4-flash", []byte(`{}`), &chatTraceState{reqID: "req-ts"}, backend, false)
 	if !errors.Is(err, upstream.ErrTurnSpendLimited) {
 		t.Fatalf("expected ErrTurnSpendLimited, got: %v", err)
 	}

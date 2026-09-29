@@ -48,6 +48,7 @@ type rawConfig struct {
 	RequestJitter            string          `json:"REQUEST_JITTER"`
 	CLIVersion               string          `json:"CLI_VERSION"`
 	TransientRetries         *int            `json:"TRANSIENT_RETRIES"`
+	ChatAutoRetry            bool            `json:"CHAT_AUTO_RETRY"`
 	SessionPersist           bool            `json:"SESSION_PERSIST"`
 	SessionStateFile         string          `json:"SESSION_STATE_FILE"`
 	HTTP2Upstream            bool            `json:"HTTP2_UPSTREAM"`

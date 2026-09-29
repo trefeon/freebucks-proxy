@@ -95,6 +95,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.ModelsHideUnavailable), false
 	case "TRANSIENT_RETRIES":
 		return strconv.Itoa(c.TransientRetries), false
+	case "CHAT_AUTO_RETRY":
+		return strconv.FormatBool(c.ChatAutoRetry), false
 	case "DASHBOARD_ENABLED":
 		return strconv.FormatBool(c.DashboardEnabled), false
 	case "DASHBOARD_REQUIRE_LOGIN":

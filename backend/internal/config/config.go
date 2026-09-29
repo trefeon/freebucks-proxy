@@ -81,6 +81,7 @@ type Config struct {
 	// model). Parsed at Load; malformed values reject the config.
 	PinModel         map[int]string
 	TransientRetries int    // max additional attempts after a transient failure: transport on a fresh connection, transient upstream queues in place same-session (0 = disabled; default 3)
+	ChatAutoRetry    bool   // retry transient chat refusals in-request until 200: short-window 429s (honored, never >90s), run-invalid (fresh run), waiting-room (never >30s); bounded to 3 retries / 120s total; terminal refusals (400/401/ban/consent/credits) always surface immediately (default false)
 	SessionPersist   bool   // true = persist session state to disk so restart resumes unexpired sessions (SESSION_PERSIST)
 	SessionStateFile string // path to the session state file (SESSION_STATE_FILE; default .freebuff-session-state.json)
 	// SessionTimezone is the IANA zone the gateway declares on session reads

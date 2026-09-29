@@ -283,6 +283,11 @@ var keyCatalog = []KeyDef{
 		Description: `Add {"type":"ephemeral"} cache_control to the stable context prefix on DeepSeek requests (prompt-cache cost reduction; default on). Set CACHE_CONTROL_INJECTION=false to disable.`,
 	},
 	{
+		Key: "CHAT_AUTO_RETRY", Group: GroupUpstream, Kind: "bool", RestartOnly: true, Hidden: true,
+		Default:     "false",
+		Description: `Retry transient chat refusals in-request until 200 so clients never see them: short-window 429s (honored window, never beyond 90s), run-invalid (fresh run), waiting-room queue (never beyond 30s); bounded to 3 retries within 120s total; terminal refusals (400/401/ban/consent/credits) always surface immediately.`,
+	},
+	{
 		Key: "COMPRESS_PROMPT", Group: GroupUpstream, Kind: "bool",
 		Default:     "false",
 		Description: `Apply optional prompt & context compression: middle user/assistant turns beyond the trailing budget are dropped and summarized by one marker (default off).`,
