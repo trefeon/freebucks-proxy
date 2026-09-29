@@ -44,7 +44,9 @@ def poll():
     with open(STATE_PATH) as f:
         st = json.load(f)
     url = ("https://freebuff.com/api/auth/cli/status?" + urllib.parse.urlencode(st))
+    print(f"polling {url[:60]}... (60 attempts, 5s apart)", flush=True)
     for attempt in range(1, 61):
+        print(f"[{attempt}/60] waiting for approval...", flush=True)
         time.sleep(5)
         req = urllib.request.Request(url, headers={"User-Agent": UA})
         try:
