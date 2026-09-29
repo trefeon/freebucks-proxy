@@ -12,12 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // SetReAdmitLead configures the pre-emptive re-admit lead (issue #99): when
@@ -388,6 +387,25 @@ func (m *Manager) recordInvalidation(reason string) {
 		"burned_slots", burned)
 }
 
+// adoptHolderSeat rejoins the purchase-capacity holder named by a 409
+// refusal: a session GET on CurrentInstanceID verifies it is still live,
+// and a live active row is returned for the caller to adopt. Returns
+// (nil, nil) when the holder is gone or unusable — the caller then falls
+// back to surfacing the 409.
+func (m *Manager) adoptHolderSeat(ctx context.Context, st *upstream.SessionState, targetModel string) (*upstream.SessionState, error) {
+	if st == nil || st.CurrentInstanceID == "" {
+		return nil, nil
+	}
+	holder, err := m.client.GetSession(ctx, st.CurrentInstanceID)
+	if err != nil {
+		return nil, nil
+	}
+	if holder == nil || holder.Status != "active" {
+		return nil, nil
+	}
+	return holder, nil
+}
+
 // releaseHeldSlotForTarget ends the cached session when it is bound to a
 // different model than the target the refresh will admit (session redesign):
 // a live switch must DELETE the old slot before POSTing the new one,
@@ -670,8 +688,8 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			}
 			return statusError(status, st)
 		case "banned", "country_blocked", "rate_limited", "ip_capped", "spend_limited", "session_model_mismatch", "limited_ip",
-			"consent_required", string(upstream.WireCodePurchaseInUse), string(upstream.WireCodePurchaseCapacity),
-			"first_tab_discount_changed", string(upstream.WireCodePremiumSlotTaken):
+			"consent_required", string(upstream.WireCodePurchaseInUse), string(upstream.WireCodePremiumSlotTaken),
+			"first_tab_discount_changed":
 			// The remaining terminal admission refusals (vendor af898dc,
 			// 6cd8970 first-tab re-quote, and premium-slot concurrency):
 			// the wallet consent demand, the Desktop purchase-flow failures,
@@ -680,6 +698,38 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			// them with no retry and no cooldown.
 			m.noteAdmissionStatus(status, st)
 			return statusError(status, st)
+		case string(upstream.WireCodePurchaseCapacity):
+			// Free-tier slotLimit:1 concurrency gate (live 2026-09-29): the
+			// 1-hour purchase seat is held by CurrentInstanceID until its
+			// expiry. Adopt the holder when it is still live: rejoin on it
+			// with the SAME claim (zero new spend — the seat is already
+			// billed) instead of surfacing a 409 to the caller.
+			m.noteAdmissionStatus(status, st)
+			if st.CurrentInstanceID == "" {
+				return statusError(status, st)
+			}
+			holder, herr := m.adoptHolderSeat(ctx, st, targetModel)
+			if herr != nil {
+				return herr
+			}
+			if holder == nil {
+				return statusError(status, st)
+			}
+			m.mu.Lock()
+			m.commit(&cachedState{
+				status:             "active",
+				instanceID:         holder.InstanceID,
+				model:              holder.Model,
+				expiresAt:          holder.ExpiresAt,
+				gracePeriodEndsAt:  graceEndFromState(holder.ExpiresAt, holder.GracePeriodEndsAt),
+				countryCode:        holder.CountryCode,
+				countryBlockReason: holder.CountryBlockReason,
+				limit:              holder.Limit,
+			})
+			m.mu.Unlock()
+			m.client.ClearAdmissionTerminal()
+			slog.Debug("session adopted purchase-capacity holder", "instance_id", holder.InstanceID, "model", holder.Model, "expires_at", holder.ExpiresAt.Format(time.RFC3339))
+			return nil
 		case "model_locked":
 			// Previous session is locked to a different model.
 			// Release the old slot and retry with the desired model. The

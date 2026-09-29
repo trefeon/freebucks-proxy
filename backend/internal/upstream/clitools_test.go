@@ -2,10 +2,9 @@ package upstream
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/convert"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/convert"
 )
 
 // expectedCliToolNames is the exact 16-tool official set captured from the
@@ -202,12 +201,11 @@ func TestCliSystemMarkerFullBase3Head(t *testing.T) {
 	})
 }
 
-// TestCliToolsFloorTopsUpMappedClientTools pins the production flow: the
-// convert layer maps the client's bash onto run_terminal_command (and appends
-// its end_turn/decide signature tools), then the envelope floor tops up the
-// remaining 15 officials — every official present, no dupes — while the
-// mapper restores official names to the client's own (mapped names restore
-// to the client name, floor-only names pass through).
+// TestCliToolsPassthrough pins the production flow: the convert layer maps
+// the client's bash onto run_terminal_command (plus its end_turn/decide
+// signature tools), then the envelope passes the mapped set through
+// verbatim — live 2026-09-29 proved the gate wants coherence (mapped-only
+// => 200) and rejects the 16-tool floor top-up (+floor => 503).
 func TestCliToolsFloorTopsUpMappedClientTools(t *testing.T) {
 	clientBody := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],` +
 		`"tools":[{"type":"function","function":{"name":"bash","description":"Run a command","parameters":{"type":"object"}}}],` +
@@ -235,17 +233,8 @@ func TestCliToolsFloorTopsUpMappedClientTools(t *testing.T) {
 	}
 	names := wireToolNames(t, sent)
 	assertNoDupes(t, names)
-	if len(names) != len(expectedCliToolNames)+2 {
-		t.Fatalf("wire tools = %v, want the 16 officials plus the convert end_turn/decide injections", names)
-	}
-	seen := map[string]bool{}
-	for _, n := range names {
-		seen[n] = true
-	}
-	for _, want := range expectedCliToolNames {
-		if !seen[want] {
-			t.Errorf("floor tool %q missing from the wire set", want)
-		}
+	if len(names) != 3 || names[0] != "run_terminal_command" || names[1] != "end_turn" || names[2] != "decide" {
+		t.Fatalf("wire tools = %v, want mapped set passed through verbatim", names)
 	}
 	if sent["tool_choice"] != "auto" {
 		t.Errorf("tool_choice = %v, want the client's own %q", sent["tool_choice"], "auto")
@@ -253,9 +242,6 @@ func TestCliToolsFloorTopsUpMappedClientTools(t *testing.T) {
 
 	if got := mapper.RestoreName("run_terminal_command"); got != "bash" {
 		t.Errorf("RestoreName(run_terminal_command) = %q, want bash", got)
-	}
-	if got := mapper.RestoreName("list_directory"); got != "list_directory" {
-		t.Errorf("RestoreName(list_directory) = %q, want identity (floor-only names pass through)", got)
 	}
 }
 

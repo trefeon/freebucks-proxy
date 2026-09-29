@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream/login"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream/login"
 )
 
 // --- #103 / free_mode_run_fanout: client_id is PER RUN ----------------------
@@ -1439,7 +1438,7 @@ func TestInjectEnvelopeToolsetInjection(t *testing.T) {
 		}
 	})
 
-	t.Run("declared toolset is preserved and topped up", func(t *testing.T) {
+	t.Run("declared toolset passes through verbatim", func(t *testing.T) {
 		body := `{"model":"m","tool_choice":"required","tools":[` +
 			`{"type":"function","function":{"name":"bash","description":"Run a command","parameters":{"type":"object"}}},` +
 			`{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
@@ -1453,31 +1452,17 @@ func TestInjectEnvelopeToolsetInjection(t *testing.T) {
 		}
 		tools, ok := sent["tools"].([]any)
 		if !ok {
-			t.Fatalf("tools = %v, want the client declarations plus the official floor", sent["tools"])
+			t.Fatalf("tools = %v, want the client declarations verbatim", sent["tools"])
 		}
-		// Client declarations ride first and verbatim (name mapping happens
-		// in the convert layer, so unmapped client names never collide here),
-		// followed by the 16 official floor definitions.
+		// Client declarations ride verbatim, in order, no floor top-up
+		// (live 2026-09-29: mapped-only => 200, +floor => 503).
+		if len(tools) != 2 {
+			t.Fatalf("len(tools) = %d, want exactly the 2 client declarations", len(tools))
+		}
 		for i, want := range []string{"bash", "read_file"} {
 			name := tools[i].(map[string]any)["function"].(map[string]any)["name"].(string)
 			if name != want {
-				t.Errorf("tool[%d] = %q, want the client's %q preserved first", i, name, want)
-			}
-		}
-		if len(tools) != 2+len(canonical) {
-			t.Fatalf("len(tools) = %d, want 2 client declarations + %d floor definitions", len(tools), len(canonical))
-		}
-		seen := map[string]bool{}
-		for _, def := range tools {
-			name := def.(map[string]any)["function"].(map[string]any)["name"].(string)
-			if seen[name] {
-				t.Errorf("duplicate wire tool %q", name)
-			}
-			seen[name] = true
-		}
-		for _, want := range wantNames {
-			if !seen[want] {
-				t.Errorf("floor tool %q missing from the wire set", want)
+				t.Errorf("tool[%d] = %q, want the client's %q preserved", i, name, want)
 			}
 		}
 		if sent["tool_choice"] != "required" {

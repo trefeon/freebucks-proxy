@@ -24,20 +24,7 @@ func topUpCliTools(payload map[string]any) {
 		payload["tools"] = defaultCliTools()
 		return
 	}
-	present := make(map[string]bool, len(rawTools))
-	for _, t := range rawTools {
-		if name := wireFunctionName(t); name != "" {
-			present[name] = true
-		}
-	}
-	for _, def := range defaultCliTools() {
-		name := wireFunctionName(def)
-		if name == "" || present[name] {
-			continue
-		}
-		rawTools = append(rawTools, def)
-		present[name] = true
-	}
+	payload["tools"] = rawTools
 	payload["tools"] = rawTools
 }
 
