@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/phasetiming"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/phasetiming"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/store"
 )
 
 // stampOpenAISystemCacheMarker stamps {"type":"ephemeral"} cache_control on

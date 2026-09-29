@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/convert"
 	"net/http"
 	"net/http/httptest"
 	"strings"

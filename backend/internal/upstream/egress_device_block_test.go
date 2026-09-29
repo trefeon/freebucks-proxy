@@ -17,7 +17,7 @@ import (
 	// LoadLocation on every test host (Windows ships no system zoneinfo).
 	_ "time/tzdata"
 
-	"freebucks-proxy/backend/internal/wirefacts"
+	"freebuff-proxy/backend/internal/wirefacts"
 )
 
 // TestEgressDeviceBlockMatrix pins the device-block derivation matrix:

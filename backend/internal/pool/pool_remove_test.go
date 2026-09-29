@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // newTestPool seeds one fixed token (the mock's default credential), so all

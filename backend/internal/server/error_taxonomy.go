@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // openAIErrorType maps an internal error code to the OpenAI error `type`

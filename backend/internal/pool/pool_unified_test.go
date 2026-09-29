@@ -23,7 +23,7 @@ package pool
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"

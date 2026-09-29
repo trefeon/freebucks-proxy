@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/session"
 )
 
 // releaseLeaseCount drops one outstanding lease from the entry's count,

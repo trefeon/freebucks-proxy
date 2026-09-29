@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebucks-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"

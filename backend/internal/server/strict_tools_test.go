@@ -20,7 +20,7 @@ package server_test
 
 import (
 	"encoding/json"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"testing"

@@ -1,9 +1,9 @@
 package dashboard
 
 import (
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/store"
 	"io"
 	"log/slog"
 	"path/filepath"

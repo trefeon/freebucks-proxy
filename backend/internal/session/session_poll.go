@@ -11,12 +11,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // SetAdmissionProbeTTL is a RETIRED compat no-op (G6): the CLI polls
@@ -322,7 +321,6 @@ func (m *Manager) pollPersisted(ctx context.Context, requestedModel string) (*up
 		m.store.Remove(m.key, cs.instanceID)
 		return nil, nil
 	}
-
 	st, err := m.client.GetSession(ctx, cs.instanceID)
 	if err != nil {
 		// 428 waiting_room_required is session-ENDING (endsTheSession:true

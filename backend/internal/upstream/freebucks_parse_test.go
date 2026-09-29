@@ -2,7 +2,7 @@ package upstream
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"slices"
 	"testing"

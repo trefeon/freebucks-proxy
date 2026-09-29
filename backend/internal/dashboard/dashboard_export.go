@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 	"strings"
 )
 

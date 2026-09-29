@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/convert"
 )
 
 // expectedCliToolNames is the exact 16-tool official set captured from the

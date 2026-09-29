@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // futureReset is a ResetAt ~1h out for quota fixtures.

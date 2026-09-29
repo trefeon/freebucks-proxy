@@ -16,9 +16,9 @@ package server
 
 import (
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/dashboard"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/store"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"

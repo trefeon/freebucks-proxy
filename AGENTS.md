@@ -1,4 +1,4 @@
-# AGENTS.md — freebucks-proxy operating guide
+# AGENTS.md — freebuff-proxy operating guide
 
 Machine-readable rules for agents working in this repo. Human overview lives in
 `README.md`; visual grammar in `DESIGN.md`; architecture decisions in
@@ -8,10 +8,10 @@ Machine-readable rules for agents working in this repo. Human overview lives in
 ## 1. Identity
 
 - Go 1.26 (`go.mod`) gateway for the upstream wire protocol. OpenAI-compatible surfaces
-  (`/v1/chat/completions`, `/v1/models` — see `backend/cmd/freebucks-proxy/e2e_test.go`,
+  (`/v1/chat/completions`, `/v1/models` — see `backend/cmd/freebuff-proxy/e2e_test.go`,
   `backend/internal/cli/cli_serve.go`) plus an Anthropic translation layer
   (`backend/internal/server/anthropic*.go`).
-- Svelte 5 dashboard (`frontend/`, `freebucks-proxy-dashboard`) embedded via
+- Svelte 5 dashboard (`frontend/`, `freebuff-proxy-dashboard`) embedded via
   `go:embed` (`backend/internal/dashboard/assets_embed.go`) and served at `/admin`.
   Health probe: `GET /healthz` → 200.
 - Modes (`backend/internal/config/config.go:HybridBridgeMode/EffectiveMode`):
@@ -119,7 +119,7 @@ dotenv → static → live → SSE hash → store refresh.
 1. Feature branch off `origin/main` in a `/tmp` worktree (never the shared
    checkout — it carries uncommitted user work) → PR → exact required-check
    contexts green (`analyze`, `dependency-review`, `frontend`, `golangci`,
-   `test` — audit via `gh api repos/trefeon/freebucks-proxy/branches/main/protection
+   `test` — audit via `gh api repos/trefeon/freebuff-proxy/branches/main/protection
    --jq .required_status_checks.contexts`; CI jobs `test`+`frontend`, lint job
    `golangci`, CodeQL job `analyze`, `dependency-review` job) → squash merge,
    then **always return to `main` and delete merged branches**. Never claim
@@ -137,7 +137,7 @@ dotenv → static → live → SSE hash → store refresh.
 3. Never stage/commit unless asked. Never commit secrets, `reference/`, or devdocs.
    The dev trail (internal plans, machine-local overrides, protection/ruleset
    snapshots, pre-rewrite history bundle) lives in the **private sibling repo
-   `trefeon/freebucks-proxy-dev`** — put dev-only artifacts there, never here.
+   `trefeon/freebuff-proxy-dev`** — put dev-only artifacts there, never here.
 4. No local docker. Preview on a review host from a `/tmp` worktree (never the shared
    checkout — it carries uncommitted user work):
    `docker build --network=host` + compose up, then `GET /healthz` → 200.

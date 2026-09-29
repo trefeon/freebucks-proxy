@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // storeVersion guards the legacy on-disk format; a stale file is ignored

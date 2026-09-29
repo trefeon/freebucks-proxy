@@ -1,4 +1,4 @@
-module freebucks-proxy
+module freebuff-proxy
 
 go 1.26.6
 

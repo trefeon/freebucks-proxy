@@ -7,7 +7,7 @@ package pool
 import (
 	"strings"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // isQuotaExhaustedError reports whether rle represents a session quota exhaustion

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/store"
 )
 
 // overlayWritePost is the loopback-authenticated JSON POST helper for the

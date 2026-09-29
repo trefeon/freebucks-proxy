@@ -1,7 +1,7 @@
 package server
 
 import (
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/store"
 	"log/slog"
 	"sync"
 	"sync/atomic"

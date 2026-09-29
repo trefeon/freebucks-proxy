@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/clicreds"
+	"freebuff-proxy/backend/internal/clicreds"
 )
 
 // envKeys lists every environment variable the package reads. Tests clear

@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"freebucks-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/dashboard"
 	"io/fs"
 	"math"
 	"net/http"

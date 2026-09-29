@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"freebucks-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/dashboard"
 )
 
 // TestAdminRoutesAllRegister pins the admin route table to the mux: every

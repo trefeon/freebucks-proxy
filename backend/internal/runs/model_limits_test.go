@@ -1,7 +1,7 @@
 package runs
 
 import (
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 	"testing"
 	"time"
 )

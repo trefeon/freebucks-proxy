@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 )
 
 // cfgSnapshotKey carries the per-request *config.Config snapshot through

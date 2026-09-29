@@ -15,8 +15,8 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/convert"
-	"freebucks-proxy/backend/internal/phasetiming"
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"sort"

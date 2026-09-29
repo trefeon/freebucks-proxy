@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 )
 
 // TestProbeAccountBanMatchesClassify pins issue #306: ProbeAccount's ban

@@ -30,8 +30,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"freebucks-proxy/backend/internal/dashboard"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/store"
 )
 
 const maxPageStateBytes = 64 << 10

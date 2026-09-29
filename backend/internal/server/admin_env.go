@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/dashboard"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 const maxEnvSize = 64 << 10

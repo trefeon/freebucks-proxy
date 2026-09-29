@@ -10,7 +10,7 @@ COPY . .
 # `git describe --tags`); the .git dir is excluded from the build context
 # so it cannot be derived here. Matches GoReleaser's -X main.version.
 ARG VERSION=dev
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/freebucks-proxy ./backend/cmd/freebucks-proxy
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/freebuff-proxy ./backend/cmd/freebuff-proxy
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata \
@@ -19,8 +19,8 @@ RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /app/data /app/dump /app/logs \
     && chown -R app:app /app
 WORKDIR /app
-COPY --from=build /out/freebucks-proxy /usr/local/bin/freebucks-proxy
+COPY --from=build /out/freebuff-proxy /usr/local/bin/freebuff-proxy
 USER app
 EXPOSE 3457
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s CMD wget -qO- http://127.0.0.1:3457/healthz || exit 1
-ENTRYPOINT ["/usr/local/bin/freebucks-proxy"]
+ENTRYPOINT ["/usr/local/bin/freebuff-proxy"]

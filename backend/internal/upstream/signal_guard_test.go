@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/wirefacts"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/wirefacts"
 )
 
 // recordedReq captures one outbound request's method, path, body and headers

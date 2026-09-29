@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 )
 
 // configEnvKeys is every environment variable backend/internal/config reads,

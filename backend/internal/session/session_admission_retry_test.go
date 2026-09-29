@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // zeroAdmissionBackoff runs the G5 retry loop with no real 20s stalls.

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestUnentitledPoolTokenGlmRefusalWithoutFallback verifies that a LIVE

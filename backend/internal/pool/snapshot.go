@@ -4,7 +4,7 @@ package pool
 import (
 	"time"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // banView derives the snapshot ban view from a remembered runs ban

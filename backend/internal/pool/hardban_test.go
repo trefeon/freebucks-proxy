@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestAcquireSkipsHardBannedTokenBeforeUpstream pins the pool-level

@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
-	"freebucks-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/pool"
 	"strings"
 	"testing"
 )

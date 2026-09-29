@@ -9,7 +9,7 @@ package session
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"sync/atomic"
 	"testing"

@@ -1,7 +1,7 @@
 package server
 
 import (
-	"freebucks-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/dashboard"
 	"net/http"
 	"net/http/httptest"
 	"testing"

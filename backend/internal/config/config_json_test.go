@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/clicreds"
+	"freebuff-proxy/backend/internal/clicreds"
 )
 
 func TestLoadFromFile(t *testing.T) {

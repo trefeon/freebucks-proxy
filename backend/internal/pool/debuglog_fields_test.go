@@ -3,7 +3,7 @@ package pool
 import (
 	"bytes"
 	"context"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"log/slog"
 	"strings"
 	"testing"

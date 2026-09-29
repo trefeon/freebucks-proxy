@@ -20,7 +20,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // --- frame-level SSE helpers -------------------------------------------------

@@ -8,7 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 	"io"
 	"log/slog"
 	"math"

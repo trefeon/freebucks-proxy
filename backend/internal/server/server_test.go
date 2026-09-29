@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/server"
-	"freebucks-proxy/backend/internal/store"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/server"
+	"freebuff-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // modelA must map to an agent with EXCLUSIVE ownership in the registry

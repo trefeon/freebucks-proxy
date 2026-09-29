@@ -23,9 +23,9 @@ import (
 
 	"golang.org/x/net/http2"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/stealth"
-	"freebucks-proxy/backend/internal/wirefacts"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/stealth"
+	"freebuff-proxy/backend/internal/wirefacts"
 )
 
 // Client speaks the codebuff.com wire protocol for a single token.

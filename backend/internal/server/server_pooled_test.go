@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/testutil"
 	"strings"
 )
 

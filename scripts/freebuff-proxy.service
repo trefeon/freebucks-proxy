@@ -1,0 +1,41 @@
+# freebuff-proxy systemd unit — run the bridge as a dedicated service user on
+# the same host as 9router (see docs/9router-integration.md §1).
+#
+# One-time provisioning (Ubuntu/Debian):
+#   sudo useradd --system --home-dir /var/lib/freebuff-proxy --shell /usr/sbin/nologin freebuff-proxy
+#   sudo mkdir -p /etc/freebuff-proxy
+#   sudo install -m 640 -o root -g freebuff-proxy .env /etc/freebuff-proxy/env
+#   sudo install -m 0755 freebuff-proxy /usr/local/bin/freebuff-proxy
+#
+# StateDirectory=freebuff-proxy auto-creates /var/lib/freebuff-proxy owned by
+# the service user at start. The app auto-loads .env from the working
+# directory, and the dashboard persists .env edits there (ReadWritePaths).
+#
+# Install:
+#   sudo cp scripts/freebuff-proxy.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now freebuff-proxy
+
+[Unit]
+Description=FreeBuff Proxy Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=freebuff-proxy
+Group=freebuff-proxy
+WorkingDirectory=/var/lib/freebuff-proxy
+StateDirectory=freebuff-proxy
+EnvironmentFile=/etc/freebuff-proxy/env
+ExecStart=/usr/local/bin/freebuff-proxy
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+# Dashboard .env writes live in the working dir; self-update swaps the binary
+# in place. Keep exactly these two trees writable despite ProtectSystem=strict.
+ReadWritePaths=/var/lib/freebuff-proxy /usr/local/bin
+
+[Install]
+WantedBy=multi-user.target

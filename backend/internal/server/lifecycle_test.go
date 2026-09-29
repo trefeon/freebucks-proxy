@@ -32,9 +32,9 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/modelcat"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // lifecycleToken is a valid-shaped cb_ FreeBuff token (the config validator

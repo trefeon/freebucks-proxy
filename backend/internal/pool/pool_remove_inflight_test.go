@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestRemoveTokenSeamlessUnderInflight proves that RemoveTokenAt and

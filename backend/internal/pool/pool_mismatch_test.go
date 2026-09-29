@@ -2,8 +2,8 @@ package pool
 
 import (
 	"encoding/json"
-	"freebucks-proxy/backend/internal/notify"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"

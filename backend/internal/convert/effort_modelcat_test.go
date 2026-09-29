@@ -3,7 +3,7 @@ package convert
 import (
 	"testing"
 
-	"freebucks-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/modelcat"
 )
 
 // The convert-side effort helpers must delegate to modelcat rather than

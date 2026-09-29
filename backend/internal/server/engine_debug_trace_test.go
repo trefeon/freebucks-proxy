@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestChatTraceErrorCarriesFailedRunAttribution pins the error-trace

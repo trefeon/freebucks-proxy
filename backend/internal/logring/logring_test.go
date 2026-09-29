@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode"
 
-	"freebucks-proxy/backend/internal/telemetry"
+	"freebuff-proxy/backend/internal/telemetry"
 )
 
 // discarding is a sink that accepts everything and keeps nothing.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live pooled smoke test for the freebucks-proxy gateway (stdlib only).
+"""Live pooled smoke test for the freebuff-proxy gateway (stdlib only).
 
 Exercises the real backend end to end through a client API key:
   healthz pool slots -> auth gate (bogus/no-auth must 401, no upstream cost)

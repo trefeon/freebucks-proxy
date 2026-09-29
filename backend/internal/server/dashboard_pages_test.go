@@ -2,17 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/updatecheck"
+	"freebuff-proxy/backend/internal/upstream"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/updatecheck"
-	"freebucks-proxy/backend/internal/upstream"
 )
 
 // --- Open Dashboard Auth Optional -------------------------------------------
@@ -80,7 +79,7 @@ func TestPlaygroundPageRenders(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	page := rec.Body.String()
-	if !strings.Contains(page, "freebucks-proxy") && !strings.Contains(page, "admin") {
+	if !strings.Contains(page, "freebuff-proxy") && !strings.Contains(page, "admin") {
 		t.Error("playground page missing SPA content")
 	}
 }

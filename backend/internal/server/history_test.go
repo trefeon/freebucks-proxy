@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/store"
 )
 
 // WithHistory threads the store into the embedded dashboard and Close

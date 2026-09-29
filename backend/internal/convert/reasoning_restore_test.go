@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/reasoningcache"
+	"freebuff-proxy/backend/internal/reasoningcache"
 )
 
 // Regression for the review's P2-5 wire path (devdocs/review-2026-08-31.md):

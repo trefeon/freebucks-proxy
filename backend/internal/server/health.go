@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/telemetry"
+	"freebuff-proxy/backend/internal/telemetry"
 )
 
 // handleHealthz reports uptime, model count, the per-token snapshot, the

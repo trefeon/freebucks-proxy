@@ -2,8 +2,8 @@ package pool
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"path/filepath"

@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/dashboard"
 	"time"
 )
 

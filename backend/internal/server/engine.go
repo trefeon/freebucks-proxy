@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"freebucks-proxy/backend/internal/convert"
-	"freebucks-proxy/backend/internal/phasetiming"
-	"freebucks-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
+	"freebuff-proxy/backend/internal/pool"
 )
 
 // --- Shared completion engine (protocol-neutral) ---

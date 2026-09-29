@@ -9,8 +9,8 @@ package runs
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
 	"testing"
 	"time"
 )

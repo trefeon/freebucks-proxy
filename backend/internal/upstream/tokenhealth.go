@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 )
 
 // TokenHealthState is one row's upstream account state. BANNED and INVALID

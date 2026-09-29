@@ -1,8 +1,8 @@
 package pool
 
 import (
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 	"testing"
 	"time"
 )

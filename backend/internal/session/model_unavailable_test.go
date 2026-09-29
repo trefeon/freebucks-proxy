@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // unavailableMock returns a mock whose session create 409s with

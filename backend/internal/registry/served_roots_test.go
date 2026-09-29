@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/modelcat"
 )
 
 // TestServedModelsRouteToBase3FreeRoots pins the live-capture pattern

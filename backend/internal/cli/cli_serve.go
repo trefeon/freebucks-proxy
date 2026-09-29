@@ -1,4 +1,4 @@
-// Package cli implements the freebucks-proxy serve mode (the default when no
+// Package cli implements the freebuff-proxy serve mode (the default when no
 // subcommand flag is set): config loading, log construction, registry,
 // pool/session wiring, the HTTP server, and graceful drain on shutdown.
 package cli
@@ -19,21 +19,21 @@ import (
 	// minimal images (alpine:3.20 has no /usr/share/zoneinfo) and Windows
 	// hosts without the timezone registry entries. Without this, Pacific
 	// resets fall back to a month-based approximation.
-	"freebucks-proxy/backend/internal/cli/port"
-	"freebucks-proxy/backend/internal/clicreds"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/egress"
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/notify"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/server"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/telemetry"
-	"freebucks-proxy/backend/internal/updatecheck"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/cli/port"
+	"freebuff-proxy/backend/internal/clicreds"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/egress"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/server"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/telemetry"
+	"freebuff-proxy/backend/internal/updatecheck"
+	"freebuff-proxy/backend/internal/upstream"
 
-	history "freebucks-proxy/backend/internal/store"
+	history "freebuff-proxy/backend/internal/store"
 )
 
 // Serve runs the default serve mode: load config, construct the logger,
@@ -56,22 +56,22 @@ func Serve(configPath string, verbose bool, version string) int {
 	{
 		dbPath := history.DBPathFromEnv()
 		if st, ms, err := history.OpenWithStatus(dbPath); err != nil {
-			fmt.Fprintln(os.Stderr, "freebucks-proxy: settings store unavailable; running live-only:", err)
+			fmt.Fprintln(os.Stderr, "freebuff-proxy: settings store unavailable; running live-only:", err)
 		} else {
 			histStore = st
 			bootMigrate = ms
 			if rows, err := st.ListSettings(); err != nil {
-				fmt.Fprintln(os.Stderr, "freebucks-proxy: settings overlay unreadable; running on file/env:", err)
+				fmt.Fprintln(os.Stderr, "freebuff-proxy: settings overlay unreadable; running on file/env:", err)
 			} else if ov := config.OverlayFromRows(rows); len(ov) > 0 {
 				bootOverlay = ov
-				fmt.Fprintln(os.Stderr, "freebucks-proxy: applying", len(ov), "DB setting override(s)")
+				fmt.Fprintln(os.Stderr, "freebuff-proxy: applying", len(ov), "DB setting override(s)")
 			}
 		}
 	}
 
 	cfg, err := config.LoadOpts(configPath, config.LoadOptions{DiscoverCLIToken: clicreds.DiscoverToken, Overlay: bootOverlay})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "freebucks-proxy: invalid config:", err)
+		fmt.Fprintln(os.Stderr, "freebuff-proxy: invalid config:", err)
 		holdForExitIfConsole()
 		return 1
 	}
@@ -92,7 +92,7 @@ func Serve(configPath string, verbose bool, version string) int {
 	// The proxy reads the resolved .env (issue #39): ./.env in the working
 	// directory wins; otherwise the platform config dir is tried
 	// ($XDG_CONFIG_HOME / %APPDATA% / ~/Library/Application Support, under
-	// freebucks-proxy/). Log the absolute path used, and warn when a .env
+	// freebuff-proxy/). Log the absolute path used, and warn when a .env
 	// sitting next to the executable is silently ignored — that is the
 	// usual reason config "seems to vanish" under a non-interactive
 	// launcher (Task Scheduler, shortcuts, services).
@@ -484,7 +484,7 @@ func Serve(configPath string, verbose bool, version string) int {
 	}
 
 	// Startup summary -- token values are never logged, only counts.
-	logger.Info("freebucks-proxy starting",
+	logger.Info("freebuff-proxy starting",
 		"version", version,
 		"listen_addr", cfg.ListenAddr,
 		"upstream", cfg.UpstreamBaseURL,
@@ -525,7 +525,7 @@ func Serve(configPath string, verbose bool, version string) int {
 	if stderrIsCharDevice() {
 		mode := fmt.Sprintf("pooled (%d tokens)", len(cfg.AuthTokens))
 		fmt.Fprintf(os.Stderr, "\n"+
-			"  freebucks-proxy %s is running!\n"+
+			"  freebuff-proxy %s is running!\n"+
 			"\n"+
 			"  API endpoint:  http://%s/v1\n"+
 			"  Health check:  http://%s/healthz\n"+

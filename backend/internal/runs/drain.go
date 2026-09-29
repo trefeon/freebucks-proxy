@@ -9,7 +9,7 @@ package runs
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"time"
 )

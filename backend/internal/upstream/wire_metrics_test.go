@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // entryFields returns the Fields of the newest entry whose message matches,

@@ -29,12 +29,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/notify"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/runs"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/runs"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // usageWindow is the rolling window of per-token successful chat history:

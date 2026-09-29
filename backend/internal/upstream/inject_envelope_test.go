@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream/login"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream/login"
 )
 
 // --- #103 / free_mode_run_fanout: client_id is PER RUN ----------------------

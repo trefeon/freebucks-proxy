@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"freebucks-proxy/backend/internal/modelcat"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/registry"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // ModelUnavailableMessage formats the rejection error message for

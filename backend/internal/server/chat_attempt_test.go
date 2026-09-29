@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/pool"
-	"freebucks-proxy/backend/internal/runs"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/runs"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // fakeAttemptBackend adapts the chatBackend interface for tests: nil hooks

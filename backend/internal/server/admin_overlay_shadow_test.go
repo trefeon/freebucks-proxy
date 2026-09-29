@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/store"
 )
 
 // attachShadowStore threads a temp settings store into a server built without

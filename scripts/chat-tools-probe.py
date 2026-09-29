@@ -8,7 +8,7 @@ Direct-mode (upstream) legs live in scripts/free-tier-gate-probe.py.
 
 Setup (keys stay in the environment, never in files or output):
   export FP_API_KEY=<proxy client key>
-  # proxy running, e.g. ./freebucks-proxy serve (default base below)
+  # proxy running, e.g. ./freebuff-proxy serve (default base below)
   scripts/chat-tools-probe.py --model deepseek/deepseek-v4-flash
 
 What METHOD means here (proxy-side observable chain):

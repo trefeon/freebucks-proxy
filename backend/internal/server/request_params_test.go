@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestAnthropic_MaxTokensDefaultEndToEnd drives the full /v1/messages

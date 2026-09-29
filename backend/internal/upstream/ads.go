@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"freebucks-proxy/backend/internal/wirefacts"
+	"freebuff-proxy/backend/internal/wirefacts"
 )
 
 // freebuffCliUA is the ads-API request User-Agent, mirroring the installed

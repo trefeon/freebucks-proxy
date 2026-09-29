@@ -25,12 +25,12 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/notify"
-	"freebucks-proxy/backend/internal/phasetiming"
-	"freebucks-proxy/backend/internal/runs"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/phasetiming"
+	"freebuff-proxy/backend/internal/runs"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // tagRateLimitModel stamps the requested model on a WALK-LOCAL copy of a

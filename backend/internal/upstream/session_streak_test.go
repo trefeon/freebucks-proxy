@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 )
 
 // TestGetStreakDecodesFreebucksDailyBonus pins the wire field the

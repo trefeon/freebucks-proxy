@@ -18,8 +18,8 @@ package dashboard
 
 import (
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
 )
 
 // AdminAPIQuery is one documented query parameter.

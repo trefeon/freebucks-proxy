@@ -20,7 +20,7 @@ package server_test
 //     mcp__execute and not mcp__bash.
 
 import (
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"

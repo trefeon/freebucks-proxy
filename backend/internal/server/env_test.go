@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestMain strips ambient freebucks-proxy config env vars (AUTH_TOKENS,

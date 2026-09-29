@@ -3,7 +3,7 @@ package pool
 import (
 	"testing"
 
-	"freebucks-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/modelcat"
 )
 
 // TestIsPremiumModel pins the shared premium-pool identity (ADR-0027 keeps

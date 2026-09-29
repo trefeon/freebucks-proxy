@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // keepalivePingsOf counts the "\n\n"-terminated ": keepalive" comment frames

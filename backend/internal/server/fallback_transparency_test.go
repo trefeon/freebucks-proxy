@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // chunkModel renders one OpenAI-style SSE chat chunk with a custom model id

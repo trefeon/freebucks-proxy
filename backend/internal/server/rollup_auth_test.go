@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 )
 
 func rollupRemoteReq(method, path string) *http.Request {

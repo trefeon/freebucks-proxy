@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/stealth"
-	"freebucks-proxy/backend/internal/telemetry"
+	"freebuff-proxy/backend/internal/stealth"
+	"freebuff-proxy/backend/internal/telemetry"
 )
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body []byte) (*http.Request, error) {

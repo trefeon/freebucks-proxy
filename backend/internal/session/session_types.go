@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // SessionSnapshot is a lock-free best-effort view of the cached session

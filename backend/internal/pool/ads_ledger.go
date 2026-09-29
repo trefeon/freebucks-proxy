@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // Ad surfaces and legs, matching the wire surfaces the proxy mirrors.

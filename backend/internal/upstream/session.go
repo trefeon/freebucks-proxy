@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/modelcat"
 )
 
 // Session wire vocabulary shared with the upstream CLI and desktop clients

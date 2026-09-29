@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestChatRunInvalidFailsFastSingleAttempt pins the fail-fast rule for

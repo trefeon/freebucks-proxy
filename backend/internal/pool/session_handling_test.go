@@ -5,7 +5,7 @@ package pool
 import (
 	"context"
 	"fmt"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"sync"

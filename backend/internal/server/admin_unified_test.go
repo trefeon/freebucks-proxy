@@ -5,8 +5,8 @@ package server
 // password mutations (overlay + sync mem swap + WAL spill).
 
 import (
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"os"

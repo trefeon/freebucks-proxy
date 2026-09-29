@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // Manager owns the cached session state for one token.

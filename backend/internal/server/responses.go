@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"freebucks-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/convert"
 )
 
 // randCounter backs randHexString's crypto/rand failure fallback.

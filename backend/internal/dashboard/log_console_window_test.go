@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/store"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/store"
 )
 
 // logWindowDashboard builds a dashboard over a fresh history store with the

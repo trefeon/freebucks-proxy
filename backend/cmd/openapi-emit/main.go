@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"freebucks-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/dashboard"
 )
 
 type manifestRow struct {

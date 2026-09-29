@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 
-	history "freebucks-proxy/backend/internal/store"
+	history "freebuff-proxy/backend/internal/store"
 
 	_ "modernc.org/sqlite"
 )

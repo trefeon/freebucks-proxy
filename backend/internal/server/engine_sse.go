@@ -7,7 +7,7 @@ package server
 import (
 	"bufio"
 	"context"
-	"freebucks-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/convert"
 	"io"
 	"time"
 )

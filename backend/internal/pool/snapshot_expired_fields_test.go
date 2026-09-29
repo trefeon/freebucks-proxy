@@ -1,7 +1,7 @@
 package pool
 
 import (
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 	"testing"
 	"time"
 )

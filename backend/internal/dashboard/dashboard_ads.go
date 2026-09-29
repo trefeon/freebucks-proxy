@@ -9,7 +9,7 @@ package dashboard
 // cannot leak through these endpoints.
 
 import (
-	"freebucks-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/pool"
 	"net/http"
 	"strconv"
 )

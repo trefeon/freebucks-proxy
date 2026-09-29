@@ -2,9 +2,9 @@ package pool
 
 import (
 	"context"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
 	"sync"
 	"testing"
 	"time"

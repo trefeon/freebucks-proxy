@@ -1,7 +1,7 @@
 package pool
 
 import (
-	"freebucks-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/session"
 )
 
 // mergeCompactSessionSnapshot delegates to session.MergeCompactSnapshot,

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // continueToolUseBlock returns the first tool_use content_block's index, name,

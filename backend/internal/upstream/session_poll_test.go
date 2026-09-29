@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestPollUntilActiveConfirmsAdmission: the post-admission confirm

@@ -17,8 +17,8 @@ import (
 	"sync"
 	"testing"
 
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestChatOversizedBody413 pins the 32MiB body cap: a larger payload is

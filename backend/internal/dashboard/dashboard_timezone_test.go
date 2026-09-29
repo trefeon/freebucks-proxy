@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestFreebucksWindowResetAtUTC pins the server-truth time contract: every

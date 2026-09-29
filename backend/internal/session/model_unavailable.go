@@ -1,8 +1,8 @@
 package session
 
 import (
-	"freebucks-proxy/backend/internal/telemetry"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/telemetry"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"time"
 )

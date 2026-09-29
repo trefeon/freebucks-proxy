@@ -5,7 +5,7 @@
 #   scripts/collect-debug.sh [--container NAME] [--since DURATION]
 #                            [--out DIR] [--base URL]
 #
-#   --container  docker container to read (default: freebucks-proxy)
+#   --container  docker container to read (default: freebuff-proxy)
 #   --since      docker logs window (default: 24h, docker --since syntax)
 #   --out        bundle directory (default: ./debug-YYYYMMDD-HHMMSS)
 #   --base       dashboard base URL (default: http://127.0.0.1:3457)
@@ -25,7 +25,7 @@
 
 set -eu
 
-CONTAINER="freebucks-proxy"
+CONTAINER="freebuff-proxy"
 SINCE="24h"
 OUT="./debug-$(date +%Y%m%d-%H%M%S)"
 BASE="http://127.0.0.1:3457"

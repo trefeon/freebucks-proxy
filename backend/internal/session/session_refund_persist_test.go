@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestRefundSurvivesReload pins the P0 spend-correctness gap: a parked

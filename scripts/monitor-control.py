@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-monitor-control.py — freebucks-proxy control-logic monitoring & verification tool.
+monitor-control.py — freebuff-proxy control-logic monitoring & verification tool.
 
-Probes and verifies the entire control plane of freebucks-proxy:
+Probes and verifies the entire control plane of freebuff-proxy:
 1. Pool Topology & Health (/healthz): token roster, active runs, cooldowns, quarantine.
 2. Strategy & Queue Posture (pool.conf): MASQ / Drain / Balance, slot ledger parameters.
 3. Model Catalog & Pricing (/v1/models): served models, availability, access tiers.
@@ -625,7 +625,7 @@ def main():
         or os.environ.get("FREEBUFF_HOST")
         or "http://127.0.0.1:3457"
     )
-    parser = argparse.ArgumentParser(description="freebucks-proxy control-logic monitoring tool")
+    parser = argparse.ArgumentParser(description="freebuff-proxy control-logic monitoring tool")
     parser.add_argument("--url", default=default_url)
     parser.add_argument("--key-file", default=os.environ.get("MONITOR_KEY_FILE", "api-keys.local"))
     parser.add_argument("--key", default="")

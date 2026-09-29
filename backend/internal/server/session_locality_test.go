@@ -2,11 +2,11 @@ package server_test
 
 import (
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/egress"
-	"freebucks-proxy/backend/internal/server"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/egress"
+	"freebuff-proxy/backend/internal/server"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"

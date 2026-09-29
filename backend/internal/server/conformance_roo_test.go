@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 func TestConformanceRooStrictSchemaPreserved(t *testing.T) {

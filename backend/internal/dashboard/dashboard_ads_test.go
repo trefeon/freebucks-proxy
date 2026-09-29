@@ -5,9 +5,9 @@ package dashboard_test
 
 import (
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/dashboard"
-	"freebucks-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/dashboard"
+	"freebuff-proxy/backend/internal/pool"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"

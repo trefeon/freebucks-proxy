@@ -3,8 +3,8 @@ package server_test
 import (
 	"context"
 	"encoding/json"
-	"freebucks-proxy/backend/internal/config"
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"testing"

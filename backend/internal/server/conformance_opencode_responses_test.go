@@ -36,7 +36,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // ocResponsesBody builds the opencode-shaped /v1/responses request body:

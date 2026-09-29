@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/logring"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestRelayReviewFixUnclosedXMLFinishToolCalls pins P2-6: an XML tool call

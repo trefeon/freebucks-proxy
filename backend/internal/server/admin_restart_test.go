@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/config"
 )
 
 func TestAdminRestart(t *testing.T) {

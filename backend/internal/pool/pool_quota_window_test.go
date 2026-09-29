@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/notify"
-	"freebucks-proxy/backend/internal/session"
-	"freebucks-proxy/backend/internal/testutil"
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/notify"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestTemporaryBanQuarantineLiftsAfterResumesAt pins the lift-aware

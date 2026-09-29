@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // adoptionManager wires a manager with CLI adoption enabled. ownerFile is

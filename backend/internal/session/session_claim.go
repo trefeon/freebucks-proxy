@@ -31,7 +31,7 @@ import (
 	"net/http"
 	"time"
 
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // claimPrefix marks a manager-minted purchase claim, matching the CLI's

@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // codexTurnBody builds the Turn-1 codex request: a single user input_text

@@ -7,7 +7,7 @@ package runs
 // upstream RetryAfter through to the caller with no cooldown write.
 
 import (
-	"freebucks-proxy/backend/internal/upstream"
+	"freebuff-proxy/backend/internal/upstream"
 	"time"
 )
 

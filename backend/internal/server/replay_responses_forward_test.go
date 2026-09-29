@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"freebucks-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // TestReplayResponsesForwardReasoning covers the reasoning_content gap: an
