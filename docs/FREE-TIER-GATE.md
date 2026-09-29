@@ -48,75 +48,79 @@ Base: `https://freebuff.com`. Unauthenticated UA:
 
 ## 3. Per-turn free chain (codebuff.com leg)
 
-Base: `https://codebuff.com` (307 on POST re-POSTs to `www` preserving
-`Authorization`; 301 on GET goes to `www`).
+Base: `https://codebuff.com` (POSTs 307-redirect to `www` preserving `Authorization`; GETs 301-redirect to `www`).
 
-1. Streak `GET /api/v1/freebuff/streak` (optional, 200 for free tokens).
-2. Ads `POST /api/v1/ads` body `waiting_room`, UA `Freebuff-CLI/<ver>`.
-3. Session admission `POST /api/v1/freebuff/session/admission` with **no
-   body** and headers: `Authorization: Bearer <authToken>`,
-   `x-freebuff-model`, `x-freebuff-wallet-spend-limit: 0`,
-   `x-freebuff-instance-id: cli:<uuid>`, `x-freebuff-multi-session: 1`,
-   `x-freebuff-purchase-continuity: 1`,
-   `x-freebuff-desktop-attempt-id: <uuid-suffix>`, `x-fb-timezone`,
-   `x-freebuff-first-tab-discount: 0`. Admission **bills the hour** (prices
-   e.g. `z-ai/glm-5.3-flash` 5, `deepseek/deepseek-v4-flash` 15; balance
-   `25->20` observed). Code: `backend/internal/upstream/session.go`.
-4. Agent-runs `START`: `POST` `{action: START, agentId: base3-free-<slug>,
-   ancestorRunIds: []}` + `x-freebuff-acting-user-id` => `{runId}`.
-5. Chat `POST /api/v1/chat/completions` (ai-sdk UA
-   `ai-sdk/openai-compatible/0.0.0-test/codebuff
-   ai-sdk/provider-utils/3.0.25 runtime/browser`, envelope per §4).
-   Code: `backend/internal/upstream/chat.go` (`injectEnvelope`).
-6. Agent-runs `FINISH`, then session `DELETE`: `/session/attempt` for
-   attempt ids else `/session` (same instance headers) =>
-   `{status: ended, freebucksRefund}`.
+1. **Reachability / Pre-flight**:
+   - `GET /api/v1/freebuff/session` (Authoritative free-tier endpoint, returns status `none` or `active`, Freebucks balance, daily allowance, model prices, and `planRequiredModelIds`).
+   - `GET /api/v1/freebuff/streak` (Returns daily streak, todayUsed flag, bonus credits).
+   - `GET /api/v1/me?fields=id,email,banned,created_at` (User profile info; `id` is the acting user ID).
+2. **Session Admission (Billed per hour)**:
+   - `POST /api/v1/freebuff/session/admission` with **NO body** and headers:
+     - `Authorization: Bearer <authToken>`
+     - `User-Agent: Bun/1.3.14`
+     - `x-freebuff-model: <model-id>`
+     - `x-freebuff-wallet-spend-limit: 0`
+     - `x-freebuff-instance-id: cli:<uuid>`
+     - `x-freebuff-multi-session: 1`
+     - `x-freebuff-purchase-continuity: 1`
+     - `x-freebuff-desktop-attempt-id: <uuid-suffix>`
+     - `x-fb-timezone: <IANA-timezone>` (e.g. `Asia/Jakarta`)
+     - `x-freebuff-first-tab-discount: 0`
+   - **Purchase Seat**: Charged once at admission (e.g. 5 Freebucks for GLM/Solar Mini, 15 for DeepSeek, 0 for Space Bunny).
+   - **1-Hour Window**: Session remains active for 3600s (`remainingMs: 3600000`). Within this hour, re-admission using the same `holderInstanceId` costs **0 additional Freebucks**.
+3. **Model Availability & Tiers**:
+   - **Free models (Limited Tier)**: `z-ai/glm-5.3-flash` (5), `upstage/solar-mini4` (5), `crof/kimi-k3-eco` (5), `mimo/mimo-v2.5` (10), `upstage/solar-pro4` (10), `deepseek/deepseek-v4-flash` (15 peak / 10 off-peak), `stealth/space-bunny-alpha` (0).
+   - **Paid-only models (`planRequiredModelIds`)**: `openai/gpt-6-luna`, `mimo/mimo-v2.6-pro`, `google/gemini-3.8-flash`, `meta/muse-spark-1.3-contributor`.
+4. **Agent-runs START**:
+   - `POST /api/v1/agent-runs` with body `{"action": "START", "agentId": "base3-free-<model-slug>", "ancestorRunIds": []}`
+   - Header `x-freebuff-acting-user-id: <user.id>` + `Authorization: Bearer <authToken>`.
+   - Returns `{"runId": "<uuid>"}`.
+5. **Chat Completion**:
+   - `POST /api/v1/chat/completions` with ai-sdk UA (`ai-sdk/openai-compatible/0.0.0-test/codebuff ai-sdk/provider-utils/3.0.25 runtime/browser`).
+   - Must carry full CLI envelope per §4 below.
+   - Streams delta reasoning (`reasoning_content`) and text content (`content`), or emits tool calls.
+6. **Agent-runs FINISH**:
+   - `POST /api/v1/agent-runs` with body `{"action": "FINISH", "runId": "<runId>", "status": "completed", "totalSteps": 1, "directCredits": 0, "totalCredits": 0, "steps": []}`.
+7. **Session DELETE**:
+   - `DELETE /api/v1/freebuff/session` with `x-freebuff-instance-id: cli:<uuid>`. Returns `{"status": "ended", "freebucksRefund": 0}`.
+   - Note: Concurrency slot remains bound to the purchased model until the 1-hour expiry time (`expiresAt`).
 
 ## 4. Chat envelope gate (the 503 root cause)
 
-Upstream returns **503 `The model is temporarily unavailable`** when the
-chat body lacks the official CLI shape. Passing shape:
+Upstream returns **503 `The model is temporarily unavailable. Please try again later.`** when the chat body lacks the official CLI shape.
 
-- **Base3 system prompt**: `agents/base3.ts` `createBase3CliRoot`
-  (`You are Buffy, the coding agent behind Codebuff...` + 6 convention
-  bullets). A short 46-char marker alone **fails**.
-- **16 official tools**: `read_files`, `str_replace`, `write_file`,
-  `run_terminal_command`, `code_search`, `glob`, `list_directory`,
-  `write_todos`, `web_search`, `read_url`, `ask_user`,
-  `suggest_followups`, `gravity_index`, `render_ui`, `skill` plus
-  `report_project_profile` (per `flows.log` line 176).
-- `tool_choice: auto`, `codebuff_metadata` with `{run_id,
-  trace_session_id, client_id` (13-char base36)`, freebuff_instance_id
-  (cli:<uuid>), freebuff_multi_session: 1, surface: cli, cost_mode: free,
-  llm_step_number: String(n)`}` (+ optional `repo_snapshot` — proven NOT
-  required 2026-09-29, see matrix),
-  `provider: {data_collection: deny}`, `stream: true`, and the Bun UA on
-  non-chat legs.
-- Verified matrix: short-prompt + tools + snapshot = **503**;
-  full-captured-176-body + fresh ids = **200** (math `25*4=100`,
-  `15+15=30`, python `reverse_string`); standard-base3-prompt + tools +
-  snapshot = **200**. Isolation 2026-09-29 (one variable at a time):
-  full base3 head + 16 full-schema tools with NO snapshot = **200**
-  (twice) — `repo_snapshot` is NOT load-bearing; prompt completeness +
-  schema richness are. Correction of the earlier confounded read.
+Passing shape requirements:
+
+1. **Base3 system prompt**: Must include the canonical base3 coding agent instructions head from `agents/base3.ts` (the 6 standard convention bullets + dynamic date line). A stub 46-char marker alone **fails with 503**.
+2. **Official tools array**: Must include canonical tool definitions with full schemas (`read_files`, `str_replace`, `write_file`, `run_terminal_command`, `code_search`, `glob`, `list_directory`, `write_todos`, `web_search`, `read_url`, `ask_user`, `suggest_followups`, `gravity_index`, `render_ui`, `skill`, `report_project_profile`). Minimal skeletons without schemas fail with 503.
+3. **Codebuff metadata**: Must include:
+   - `run_id`: matching `agent-runs` START `runId`
+   - `trace_session_id`: UUID
+   - `client_id`: 13-character base36 string
+   - `freebuff_instance_id`: matching admitted `instanceId` (`cli:<uuid>`)
+   - `freebuff_multi_session`: `"1"`
+   - `surface`: `"cli"`
+   - `cost_mode`: `"free"`
+   - `llm_step_number`: String (e.g. `"1"`)
+4. **Provider configuration**: `{"data_collection": "deny"}`.
+5. **Streaming**: `stream: true`.
 
 ## 5. Concurrency: slotLimit 1 (slot-bound)
 
-- A second admission while one session is active returns **409
-  `purchase_capacity`** with `{currentInstanceId,
-  desktopPurchases: [{model, expiresAt, holderInstanceId}],
-  desktopRefunds, desktopSessionCounts: {premium: 1, nextExpiryAt}}`.
-- You **must DELETE the holder** before admitting another model.
-- Observed: GLM session `cli:<uuid>` held to `17:11:59Z`; a DeepSeek admit
-  409'd against it; `DELETE` returned `{status: ended, freebucksRefund: 0}`.
+- In limited access tier, concurrency is strictly **`slotLimit: 1`**.
+- When a model session is admitted, a 1-hour purchase seat (`desktopPurchases`) is locked to that model until `expiresAt`.
+- Requesting admission for a *different* model during that hour returns **409 `purchase_capacity`** with the holder instance ID and expiry timestamp.
+- Re-admitting the *same* purchased model with its `holderInstanceId` costs **0 Freebucks** and cleanly resumes the seat.
 
 ## 6. Proxy troubleshooting map
+
 | Proxy symptom | Meaning | Action |
 |---|---|---|
-| 502 `upstream_unavailable` + `upstream auth rejected 401 Invalid API key` on admission | Proxy sent a stale/expired token | Check `AUTH_TOKENS` / discovered `credentials.json`, **not** a gate bug |
-| 503 `waiting_room_queued` wrapping upstream 503 `model temporarily unavailable` | Envelope gate tripped (§4) | Compare proxy chat body vs §4 shape: full base3 head (not stub), 16 fully-schematized tools (skeletons fail), `codebuff_metadata` keys (`repo_snapshot` NOT required) |
-| 409 `purchase_capacity` | Slot held (§5) | Release the holder (`DELETE`) first |
-| Upstream 428 `waiting_room_required` | Seat gone mid-chat | Re-admit |
+| 502 `upstream_unavailable` + `upstream auth rejected 401 Invalid API key` on admission | Proxy sent a stale/expired token | Run `scripts/device-login.py start|poll` or `scripts/gen-freebuff-token.sh` to get a fresh token. |
+| 503 `waiting_room_queued` wrapping upstream 503 `model temporarily unavailable` | Envelope gate tripped (§4) | Check: system-prompt full base3 head, canonical tool schemas, metadata keys present. |
+| 409 `purchase_capacity` | Slot held by another model purchase (§5) | Wait until `nextExpiryAt` or continue using the currently purchased model seat. |
+| Upstream 428 `waiting_room_required` | Session expired or waiting room required | Call session admission to admit or re-admit the session. |
+
 
 For exact request shapes use `scripts/free-tier-gate-probe.py` modes (dry-run default; `--spend` for the admission leg) — no inline curl here.
 
