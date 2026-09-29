@@ -431,7 +431,7 @@
     "secret": false,
     "essential": false,
     "hidden": true,
-    "description": "Retry transient chat refusals in-request until 200 so clients never see them: short-window 429s (honored window, never beyond 90s), run-invalid (fresh run), waiting-room queue (never beyond 30s); bounded to 3 retries within 120s total; terminal refusals (400/401/ban/consent/credits) always surface immediately."
+    "description": "Retry transient chat refusals in-request until 200 so clients never see them: short-window 429s (honored window, never beyond 90s), run-invalid (fresh run), waiting-room queue (never beyond 30s), refunded-purchase 409 session_superseded (fresh re-admit, no wait; takeover 409s stay terminal); bounded to 3 retries within 120s total; terminal refusals (400/401/ban/consent/credits) always surface immediately."
   },
   {
     "key": "COMPRESS_PROMPT",

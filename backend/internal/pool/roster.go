@@ -1,10 +1,11 @@
 package pool
 
 import (
-	"freebuff-proxy/backend/internal/upstream"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // tokenRoster owns the fixed-token entry list plus its per-token ledger
@@ -222,6 +223,7 @@ func (r *tokenRoster) recordChat(token int) {
 	now := time.Now()
 	cur[token].ledger.recordChat(now)
 	cur[token].noteServed(now)
+	cur[token].resetQueueStrikes()
 }
 
 // recordChatEntry appends one successful upstream chat for a lease's backing
@@ -240,6 +242,7 @@ func (r *tokenRoster) recordChatEntry(entry *tokenEntry) {
 	entry.ledger.recordChat(now)
 	entry.ledger.recordDayRequestInZone(now, zone)
 	entry.noteServed(now)
+	entry.resetQueueStrikes()
 }
 
 // dayRequestCount returns the entry at token's successful-request count in

@@ -514,6 +514,15 @@ type tokenEntry struct {
 	// marker before the walk builds its state, so the walk map alone cannot
 	// carry the signal.
 	quarantineLiftedAt atomic.Int64
+	// queueStrikes / queueInstance track consecutive waiting_room_queued
+	// chat refusals against one session instance: a row that polls active
+	// yet refuses every chat is wedged upstream (live 2026-09-29: token 2
+	// deepseek row active-on-poll, 7 straight 503s), and reusing it forever
+	// never resolves. Lock-free (server chat path writes, success funnels
+	// reset); a concurrent-turn miscount costs at most one spare admission,
+	// bounded by the strike threshold.
+	queueStrikes  atomic.Int64
+	queueInstance atomic.Pointer[string]
 }
 
 func (e *tokenEntry) Email() string {
@@ -530,6 +539,37 @@ func (e *tokenEntry) noteServed(now time.Time) {
 	e.lastOKAt.Store(now.UnixNano())
 }
 
+// stuckQueueThreshold is how many consecutive waiting_room_queued chat
+// refusals against one session instance mark its row as wedged upstream:
+// the row polls active yet refuses every chat, so reusing it never
+// resolves and the cached session must be dropped for a fresh admission.
+// Three strikes means the fourth attempt (in-request under CHAT_AUTO_RETRY,
+// otherwise the client's next retry) rides a new row.
+const stuckQueueThreshold = 3
+
+// NoteWaitingRoomQueue records one waiting_room_queued chat refusal against
+// the lease's session instance and reports whether the row is now stuck
+// (stuckQueueThreshold consecutive strikes on the same instance). A new
+// instance resets the count; a nil entry or empty instance never counts.
+// Success paths reset via resetQueueStrikes in the recordChat funnels.
+func (l *Lease) NoteWaitingRoomQueue() bool {
+	if l == nil || l.entry == nil || l.SessionInstanceID == "" {
+		return false
+	}
+	e := l.entry
+	if prev := e.queueInstance.Load(); prev == nil || *prev != l.SessionInstanceID {
+		inst := l.SessionInstanceID
+		e.queueInstance.Store(&inst)
+		e.queueStrikes.Store(1)
+		return false
+	}
+	return e.queueStrikes.Add(1) >= stuckQueueThreshold
+}
+
+// resetQueueStrikes clears the wedged-row strike count after a served chat.
+func (e *tokenEntry) resetQueueStrikes() {
+	e.queueStrikes.Store(0)
+}
 func (e *tokenEntry) SetEmail(email string) {
 	if email != "" {
 		e.email.Store(&email)

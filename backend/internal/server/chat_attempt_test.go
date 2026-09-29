@@ -3,14 +3,15 @@ package server
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/runs"
-	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
 	"testing"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/runs"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // fakeAttemptBackend adapts the chatBackend interface for tests: nil hooks
@@ -41,6 +42,7 @@ func (b *fakeAttemptBackend) Chat(ctx context.Context, l *pool.Lease, opts upstr
 }
 func (b *fakeAttemptBackend) InvalidateSession(l *pool.Lease)           { b.invalidate(l) }
 func (b *fakeAttemptBackend) InvalidateSessionSuperseded(l *pool.Lease) { b.supersede(l) }
+func (b *fakeAttemptBackend) InvalidateSessionStuckQueue(l *pool.Lease) {}
 func (b *fakeAttemptBackend) InvalidateRun(l *pool.Lease, agentID string) {
 	b.invalidateRun(l, agentID)
 }

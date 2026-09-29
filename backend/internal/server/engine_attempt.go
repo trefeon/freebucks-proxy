@@ -3,13 +3,15 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
-	"io"
-	"net/http"
-	"time"
 )
 
 // chatAutoRetry bounds for CHAT_AUTO_RETRY (opt-in in-request retry so
@@ -27,10 +29,15 @@ const (
 )
 
 // autoRetryWait reports how long to wait before re-attempting a refused
-// chat, or false when the refusal is terminal and must surface. Only the
-// three transient shapes retry: short-window 429s, run-invalid (fresh run,
-// no wait), and waiting-room queue holds. Everything else — 400s, 401,
-// bans, consent, credits, superseded, session-ending 428 — is terminal.
+// chat, or false when the refusal is terminal and must surface. The
+// transient shapes retry: short-window 429s, run-invalid (fresh run, no
+// wait), and waiting-room queue holds. A refunded-purchase 409
+// session_superseded ("purchase was refunded...", e.g. after a waiting-room
+// 503 consumed the hold) also retries with no wait: no competing instance
+// holds the seat, so the already-invalidated session re-admits fresh on the
+// next attempt. A takeover 409 (no refund wording) stays terminal — stealing
+// the seat back risks ping-pong with the live holder. Everything else —
+// 400s, 401, bans, consent, credits, session-ending 428 — is terminal.
 func autoRetryWait(err error) (time.Duration, bool) {
 	var rle *upstream.RateLimitError
 	if errors.As(err, &rle) {
@@ -53,6 +60,15 @@ func autoRetryWait(err error) (time.Duration, bool) {
 		}
 		return wait, true
 	}
+	var sse *upstream.SessionSupersededError
+	if errors.As(err, &sse) {
+		// Refund wording only: "This model purchase was refunded. Start a
+		// new session to try again." No holder to fight, safe to rejoin.
+		if strings.Contains(strings.ToLower(sse.Body), "refund") {
+			return 0, true
+		}
+		return 0, false
+	}
 	return 0, false
 }
 
@@ -63,6 +79,7 @@ type chatBackend interface {
 	Chat(ctx context.Context, lease *pool.Lease, opts upstream.ChatOptions, body []byte) (io.ReadCloser, error)
 	InvalidateSession(lease *pool.Lease)
 	InvalidateSessionSuperseded(lease *pool.Lease)
+	InvalidateSessionStuckQueue(lease *pool.Lease)
 	InvalidateRun(lease *pool.Lease, agentID string)
 	CooldownBan(lease *pool.Lease, be *upstream.BanError)
 	LeaseRelease(lease *pool.Lease)
@@ -95,6 +112,10 @@ func (b pooledBackend) InvalidateSession(lease *pool.Lease) {
 
 func (b pooledBackend) InvalidateSessionSuperseded(lease *pool.Lease) {
 	b.p.InvalidateLeaseSessionWithReason(lease, session.ReasonSuperseded, http.StatusConflict)
+}
+
+func (b pooledBackend) InvalidateSessionStuckQueue(lease *pool.Lease) {
+	b.p.InvalidateLeaseSessionStuckQueue(lease)
 }
 
 func (b pooledBackend) InvalidateRun(lease *pool.Lease, agentID string) {
@@ -308,10 +329,21 @@ func (s *Server) chatAttemptOnce(ctx context.Context, model string, normalized [
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrWaitingRoom):
 		// waiting_room_queued is a transient admit race
-		// (endsTheSession:false): the cached session is fine. FINISH the
-		// turn as failed and surface.
+		// (endsTheSession:false): the cached session is normally fine, so
+		// FINISH the turn as failed and surface. EXCEPTION: a row that
+		// strikes out (stuckQueueThreshold consecutive queues on one
+		// instance) is wedged upstream — it polls active yet refuses every
+		// chat — so drop the cached session for a fresh admission instead
+		// of reusing the dead row forever. The 503 still surfaces for this
+		// turn; the recovery lands on the retry (in-request under
+		// CHAT_AUTO_RETRY, otherwise the client's next attempt).
 		failTurn()
 		release()
+		if lease.NoteWaitingRoomQueue() {
+			s.logger.Info("server: dropping stuck queued session for fresh admission",
+				"token", lease.Token+1, "instance", lease.SessionInstanceID)
+			backend.InvalidateSessionStuckQueue(lease)
+		}
 		return nil, nil, err
 	case errors.Is(err, upstream.ErrSessionLimitReached):
 		// 409 session_limit_reached (endsTheSession:false): the account is

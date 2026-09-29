@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -237,9 +238,10 @@ func (p *Pool) InvalidateLeaseSessionWithReason(lease *Lease, reason string, sta
 	if lease == nil || lease.entry == nil {
 		return
 	}
-	// MASQ precious (precious.go): see InvalidateSessionWithReason —
-	// superseded still drops.
-	if reason != session.ReasonSuperseded && p.keepSession(lease.entry) {
+	// MASQ precious (precious.go): see InvalidateSessionWithReason — a
+	// superseded or proven-wedged row still drops (a dead row protects
+	// nothing), everything else keeps a live precious session.
+	if reason != session.ReasonSuperseded && reason != session.ReasonStuckQueue && p.keepSession(lease.entry) {
 		// Swap-safe attribution (see InvalidateLeaseSession): the lease's
 		// own entry resolves the live display index, never the
 		// snapshot-time Token.
@@ -253,6 +255,15 @@ func (p *Pool) InvalidateLeaseSessionWithReason(lease *Lease, reason string, sta
 		return
 	}
 	lease.entry.session.InvalidateInstanceWithReason(lease.SessionInstanceID, reason, status)
+}
+
+// InvalidateLeaseSessionStuckQueue drops the lease's session row after
+// consecutive waiting_room_queued refusals proved it wedged upstream
+// (server chat path, via Lease.NoteWaitingRoomQueue). Reason-tagged
+// stuck_queue so the keep bypass, storm tally, and logs never confuse it
+// with a takeover: no holder exists to fight.
+func (p *Pool) InvalidateLeaseSessionStuckQueue(lease *Lease) {
+	p.InvalidateLeaseSessionWithReason(lease, session.ReasonStuckQueue, http.StatusServiceUnavailable)
 }
 
 // InvalidateLeaseRun drops the current run of the lease's own entry for

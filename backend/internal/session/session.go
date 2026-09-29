@@ -13,10 +13,11 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"time"
+
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 const (
@@ -79,11 +80,19 @@ const (
 	reason409        = "409"
 	reasonPoll       = "poll"
 	reasonStore      = "store"
+	reasonStuckQueue = "stuck_queue"
 
 	// ReasonSuperseded is the terminal-event reason for a session another
 	// instance took over (session_superseded, endsTheSession:true); exported
 	// so the chat recovery path feeds the re-admit storm detector.
 	ReasonSuperseded = reasonSuperseded
+
+	// ReasonStuckQueue names a session row dropped after consecutive
+	// waiting_room_queued chat refusals proved it wedged upstream (it polls
+	// active yet refuses every chat). Like a takeover it bypasses the
+	// precious-session keep — a dead row protects nothing — but it names
+	// no holder, so the storm tally never counts it as a takeover.
+	ReasonStuckQueue = reasonStuckQueue
 
 	// Re-admit storm detector: more than stormThreshold terminal
 	// session events within stormWindow is a session re-admit storm — each

@@ -1,13 +1,14 @@
 package server_test
 
 import (
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // A short-window 429 resolves to 200 in-request: the client never sees it.
@@ -159,5 +160,102 @@ func TestChatAutoRetryTerminalNoRetry(t *testing.T) {
 	}
 	if got := chatCalls.Load(); got != 1 {
 		t.Errorf("upstream chat calls = %d, want 1 (no retry on terminal 400)", got)
+	}
+}
+
+// A refunded-purchase 409 rejoins fresh in-request: the live 2026-09-28
+// shape ("This model purchase was refunded. Start a new session to try
+// again." after a waiting-room 503 consumed the hold) holds no competing
+// instance, so the invalidated session re-admits and the turn resolves 200.
+func TestChatAutoRetryRefundedSupersededRejoins(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	var chatCalls atomic.Int32
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		if chatCalls.Add(1) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = io.WriteString(w, `{"error":"session_superseded","message":"This model purchase was refunded. Start a new session to try again."}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("chatcmpl-retry-refund", 1,
+			`"choices":[{"index":0,"delta":{"content":"recovered"},"finish_reason":"stop"}]`)))
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	ts, _ := newTestServerCfg(t, nil, func(cfg *config.Config) { cfg.ChatAutoRetry = true }, mock)
+
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (refund rejoined in-request): %s", resp.StatusCode, data)
+	}
+	if !strings.Contains(string(data), "recovered") {
+		t.Errorf("body missing recovered content: %s", data)
+	}
+	if got := chatCalls.Load(); got != 2 {
+		t.Errorf("upstream chat calls = %d, want 2 (refund + fresh rejoin)", got)
+	}
+	if got := mock.SessionCreatesSnapshot(); got != 2 {
+		t.Errorf("session creates = %d, want 2 (dead row dropped, fresh admit)", got)
+	}
+}
+
+// A takeover 409 never rejoins, even with the knob on: stealing the seat
+// back risks ping-pong with the live holder.
+func TestChatAutoRetryTakeoverSupersededTerminal(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	var chatCalls atomic.Int32
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		chatCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"session_superseded","message":"another CLI took over"}`)
+	}
+	ts, _ := newTestServerCfg(t, nil, func(cfg *config.Config) { cfg.ChatAutoRetry = true }, mock)
+
+	resp, _ := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (takeover never rejoins)", resp.StatusCode)
+	}
+	if got := chatCalls.Load(); got != 1 {
+		t.Errorf("upstream chat calls = %d, want 1 (no rejoin against the holder)", got)
+	}
+}
+
+// A stuck queued row resolves in-request: three queue refusals drop the
+func TestChatAutoRetryStuckQueueRejoins(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+	// Three queued turns plus the fresh-admission proof need four runs.
+	mock.RunIDs = []string{"run-0001", "run-0002", "run-0003", "run-0004"}
+	var chatCalls atomic.Int32
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		if chatCalls.Add(1) <= 3 {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("chatcmpl-retry-stuck", 1,
+			`"choices":[{"index":0,"delta":{"content":"recovered"},"finish_reason":"stop"}]`)))
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	ts, _ := newTestServerCfg(t, nil, func(cfg *config.Config) { cfg.ChatAutoRetry = true }, mock)
+
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (stuck row re-admitted in-request): %s", resp.StatusCode, data)
+	}
+	if !strings.Contains(string(data), "recovered") {
+		t.Errorf("body missing recovered content: %s", data)
+	}
+	if got := chatCalls.Load(); got != 4 {
+		t.Errorf("upstream chat calls = %d, want 4 (3 queues + fresh rejoin)", got)
+	}
+	if got := mock.SessionCreatesSnapshot(); got != 2 {
+		t.Errorf("session creates = %d, want 2 (wedged row dropped, fresh admit)", got)
 	}
 }
