@@ -464,7 +464,7 @@ func (c *Client) parseSessionResponse(req *http.Request, resp *http.Response, bo
 				Code:                    raw.Referral.Code,
 				ReferrerName:            raw.Referral.ReferrerName,
 				QualifiedCount:          raw.Referral.QualifiedCount,
-				WeeklySessionsRemaining: raw.Referral.WeeklySessionsRemaining,
+				WeeklySessionsRemaining: int(raw.Referral.WeeklySessionsRemaining),
 				GithubLinked:            raw.Referral.GithubLinked,
 			}
 			if ref.ResetAt, err = parseFlexTime(raw.Referral.ResetAt); err != nil {

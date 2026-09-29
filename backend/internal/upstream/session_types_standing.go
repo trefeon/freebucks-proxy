@@ -51,13 +51,15 @@ type StandingNextStep struct {
 
 // rawReferral mirrors the session response's "referral" block
 // (FreebuffReferralInfo in reference/common/src/types/freebuff-session.ts).
+// weeklySessionsRemaining arrives fractional on the wire (e.g. 3.7) and is
+// truncated to whole sessions at parse: the proxy counts complete sessions.
 type rawReferral struct {
-	Code                    string `json:"code"`
-	ReferrerName            string `json:"referrerName"`
-	QualifiedCount          int    `json:"qualifiedCount"`
-	WeeklySessionsRemaining int    `json:"weeklySessionsRemaining"`
-	ResetAt                 any    `json:"resetAt"`
-	GithubLinked            bool   `json:"githubLinked"`
+	Code                    string  `json:"code"`
+	ReferrerName            string  `json:"referrerName"`
+	QualifiedCount          int     `json:"qualifiedCount"`
+	WeeklySessionsRemaining float64 `json:"weeklySessionsRemaining"`
+	ResetAt                 any     `json:"resetAt"`
+	GithubLinked            bool    `json:"githubLinked"`
 }
 
 // rawStanding mirrors the session response's "standing" block (issue #96).
