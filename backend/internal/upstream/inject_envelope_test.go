@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream/login"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream/login"
 )
 
 // --- #103 / free_mode_run_fanout: client_id is PER RUN ----------------------
@@ -1438,7 +1439,7 @@ func TestInjectEnvelopeToolsetInjection(t *testing.T) {
 		}
 	})
 
-	t.Run("declared toolset passes through verbatim", func(t *testing.T) {
+	t.Run("declared toolset topped up with floor", func(t *testing.T) {
 		body := `{"model":"m","tool_choice":"required","tools":[` +
 			`{"type":"function","function":{"name":"bash","description":"Run a command","parameters":{"type":"object"}}},` +
 			`{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
@@ -1452,17 +1453,34 @@ func TestInjectEnvelopeToolsetInjection(t *testing.T) {
 		}
 		tools, ok := sent["tools"].([]any)
 		if !ok {
-			t.Fatalf("tools = %v, want the client declarations verbatim", sent["tools"])
+			t.Fatalf("tools = %v, want array", sent["tools"])
 		}
-		// Client declarations ride verbatim, in order, no floor top-up
-		// (live 2026-09-29: mapped-only => 200, +floor => 503).
-		if len(tools) != 2 {
-			t.Fatalf("len(tools) = %d, want exactly the 2 client declarations", len(tools))
+		// Client declarations first, in order; then 16 floor tools appended
+		// (bash and read_file don't collide with the official 16 names).
+		if len(tools) != 18 {
+			t.Fatalf("len(tools) = %d, want 18 (2 client + 16 floor)", len(tools))
 		}
 		for i, want := range []string{"bash", "read_file"} {
 			name := tools[i].(map[string]any)["function"].(map[string]any)["name"].(string)
 			if name != want {
 				t.Errorf("tool[%d] = %q, want the client's %q preserved", i, name, want)
+			}
+		}
+		// All 16 official names present in the floor portion.
+		nameSet := map[string]bool{}
+		for _, td := range tools {
+			if m, ok := td.(map[string]any); ok {
+				if fn, ok := m["function"].(map[string]any); ok {
+					if n, ok := fn["name"].(string); ok {
+						nameSet[n] = true
+					}
+				}
+			}
+		}
+		for _, official := range canonical {
+			ofn := official.(map[string]any)["function"].(map[string]any)["name"].(string)
+			if !nameSet[ofn] {
+				t.Errorf("official tool %q missing from topped-up wire", ofn)
 			}
 		}
 		if sent["tool_choice"] != "required" {

@@ -18,12 +18,11 @@ package server_test
 
 import (
 	"encoding/json"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // codexTurnBody builds the Turn-1 codex request: a single user input_text
@@ -419,6 +418,10 @@ func TestConformanceCodexFunctionCallRoundTrip(t *testing.T) {
 	// clientToOfficial["bash"] = "run_terminal_command"): the upstream sees
 	// the official signature name so it executes the call, and the
 	// response relays restore "bash" (asserted in the turn test).
+	// The convert layer tags the description with "(client tool: bash)" for
+	// model selection, but the upstream envelope (topUpCliTools) MUST strip
+	// it: live 2026-09-29 proved the free-tier gate 503-rejects descriptions
+	// carrying foreign client hints.
 	var toolsUp []any
 	if tv, ok := up["tools"].([]any); ok {
 		toolsUp = tv
@@ -429,8 +432,8 @@ func TestConformanceCodexFunctionCallRoundTrip(t *testing.T) {
 		wrapped, _ := tm["function"].(map[string]any)
 		if name, _ := wrapped["name"].(string); name == "run_terminal_command" {
 			foundOfficial = true
-			if desc, _ := wrapped["description"].(string); !strings.Contains(desc, "(client tool: bash)") {
-				t.Errorf("renamed tool description = %q, want it to carry the client tool name for model selection", desc)
+			if desc, _ := wrapped["description"].(string); strings.Contains(desc, "(client tool:") {
+				t.Errorf("renamed tool description = %q, want the (client tool:) hint stripped for the upstream gate", desc)
 			}
 		}
 	}
