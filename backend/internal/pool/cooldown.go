@@ -339,9 +339,25 @@ func (p *Pool) quarantineToken(tok *tokenEntry, reason string, err error) {
 		}
 	}
 	if tok.quarantine.CompareAndSwap(nil, rec) {
-		attrs := []any{"token_label", tokenEntryLabel(tok), "state", reason, "reason", rec.detail}
+		// Ban forensics: upstream never states a cause (the 403 body is
+		// just {"status":"banned"}), so attach the entry's own history —
+		// served count, last success, consecutive poll failures, and the
+		// account email when known. "served 800, last OK 2h ago" vs
+		// "served 0, never OK" separates a mid-life ban from a dead arrival.
+		lastOK := "never"
+		if ns := tok.lastOKAt.Load(); ns > 0 {
+			lastOK = time.Unix(0, ns).UTC().Format(time.RFC3339)
+		}
+		attrs := []any{
+			"token_label", tokenEntryLabel(tok), "state", reason, "reason", rec.detail,
+			"served_total", tok.servedTotal.Load(), "last_ok", lastOK,
+			"poll_failures", tok.pollFailures.Load(),
+		}
 		if li := p.indexOfEntry(tok); li >= 0 {
 			attrs = append([]any{"token", li + 1}, attrs...)
+		}
+		if email := tok.Email(); email != "" {
+			attrs = append(attrs, "email", email)
 		}
 		p.logger.Warn("pool: token quarantined (terminal account state)", attrs...)
 	}

@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // TestFixedTokenBannedQuarantined pins the terminal-ban quarantine (anti-ban
@@ -258,5 +257,38 @@ func TestQuarantineClearedByUnlockToken(t *testing.T) {
 	}
 	if p.Snapshot()[0].Quarantined {
 		t.Error("UnlockToken did not clear the quarantine")
+	}
+}
+
+// TestQuarantineLogCarriesServedHistory pins the ban forensics: upstream
+// never states a cause (the 403 body is just {"status":"banned"}), so the
+// quarantine warn must carry the entry's own history — served count, last
+// success, and account email — separating a mid-life ban from a dead arrival.
+func TestQuarantineLogCarriesServedHistory(t *testing.T) {
+	mock := testutil.NewMock()
+	defer mock.Close()
+
+	var buf bytes.Buffer
+	p := newTestPool(t, mock)
+	p.logger = slog.New(slog.NewTextHandler(&buf, nil))
+
+	// The token serves twice, then the account dies upstream.
+	p.recordChat(0)
+	p.recordChat(0)
+	toks := *p.roster.Load()
+	toks[0].SetEmail("op@example.com")
+	mock.Ban = true
+
+	if _, err := p.Acquire(context.Background(), modelA); !errors.Is(err, upstream.ErrBanned) {
+		t.Fatalf("want ErrBanned, got %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"served_total=2", "last_ok=", "email=op@example.com", "poll_failures="} {
+		if !strings.Contains(out, want) {
+			t.Errorf("quarantine log missing %q (log=%q)", want, out)
+		}
+	}
+	if strings.Contains(out, "last_ok=never") {
+		t.Errorf("last_ok = never after 2 served chats (log=%q)", out)
 	}
 }

@@ -8,14 +8,13 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/binary"
 	"errors"
-	"log/slog"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"log/slog"
+	"time"
 )
 
 // maintainInterval is how often the background job rotates aged runs and
@@ -366,11 +365,11 @@ func (p *Pool) sessionPollTick(ctx context.Context) {
 			continue
 		}
 		pollStart := time.Now()
-		failures, delay, err := pollSession(ctx, tok.session, cfg, tok.pollFailures)
+		failures, delay, err := pollSession(ctx, tok.session, cfg, int(tok.pollFailures.Load()))
 		if err != nil {
 			p.logger.Debug("pool: session poll failed", "token", i+1, "ms", time.Since(pollStart).Milliseconds(), "err", err, "retry_in", delay)
 		}
-		tok.pollFailures = failures
+		tok.pollFailures.Store(int64(failures))
 		tok.nextPollAt = now.Add(delay)
 	}
 }

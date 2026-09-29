@@ -23,18 +23,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/notify"
 	"freebuff-proxy/backend/internal/registry"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // usageWindow is the rolling window of per-token successful chat history:
@@ -439,11 +438,19 @@ type tokenEntry struct {
 	// Session-liveness poll schedule: nextPollAt is when the next
 	// compact poll is due (zero = due on the next sessionPollTick pass);
 	// pollFailures counts consecutive poll failures for the 20s→300s backoff.
-	// Touched only by the maintain goroutine (sessionPollTick), so no lock is
-	// needed — AddToken entries are appended to a fresh slice the poll loop
-	// has not loaded yet.
+	// Atomic: the maintain goroutine writes it, the quarantine log reads it.
+	// Touched only by the maintain goroutine (sessionPollTick) otherwise, so
+	// no lock is needed — AddToken entries are appended to a fresh slice the
+	// poll loop has not loaded yet.
 	nextPollAt   time.Time
-	pollFailures int
+	pollFailures atomic.Int64
+	// servedTotal / lastOKAt are the entry's lifetime successful-chat count
+	// and last-success instant (unix nanos, 0 = never served): lock-free
+	// history for the quarantine log, so a ban carries its "served N, last
+	// OK at T" context. Written on the recordChat funnels (roster lock
+	// held), read anywhere.
+	servedTotal atomic.Int64
+	lastOKAt    atomic.Int64
 
 	// drained ensures FinishAllRuns + EndSession runs at most once for a
 	// retired entry. drainRemovedToken is called from both LeaseRelease
@@ -514,6 +521,13 @@ func (e *tokenEntry) Email() string {
 		return *p
 	}
 	return ""
+}
+
+// noteServed records one successful upstream chat in the entry's lock-free
+// served history (servedTotal/lastOKAt), feeding the quarantine log.
+func (e *tokenEntry) noteServed(now time.Time) {
+	e.servedTotal.Add(1)
+	e.lastOKAt.Store(now.UnixNano())
 }
 
 func (e *tokenEntry) SetEmail(email string) {

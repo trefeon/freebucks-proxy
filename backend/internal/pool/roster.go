@@ -219,7 +219,9 @@ func (r *tokenRoster) recordChat(token int) {
 	if token < 0 || token >= len(cur) {
 		return
 	}
-	cur[token].ledger.recordChat(time.Now())
+	now := time.Now()
+	cur[token].ledger.recordChat(now)
+	cur[token].noteServed(now)
 }
 
 // recordChatEntry appends one successful upstream chat for a lease's backing
@@ -237,6 +239,7 @@ func (r *tokenRoster) recordChatEntry(entry *tokenEntry) {
 	now := time.Now()
 	entry.ledger.recordChat(now)
 	entry.ledger.recordDayRequestInZone(now, zone)
+	entry.noteServed(now)
 }
 
 // dayRequestCount returns the entry at token's successful-request count in
