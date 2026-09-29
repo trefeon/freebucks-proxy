@@ -115,7 +115,10 @@ REGISTRY_FILES=(
 # breaking the registry parity test. The drift workflow still flags them; a
 # human applies the change (every Phase 1+ fix in issue #140 used to live
 # here: freebuff-standing.ts (renamed from freebuff-trust.ts), foreign-client-signals.ts, prompt-agent-stream.ts,
-# tools/constants.ts for cb_easp).
+# tools/constants.ts for cb_easp). The tail of the list covers the free-tier
+# gate inputs the proxy must mirror exactly: agents/base3.ts + constants
+# (the required system head) and the canonical tool definitions behind the
+# 16-tool wire floor (any move = re-capture + marker port).
 WIRE_FILES=(
 	common/src/constants/freebuff-cost-mode.ts
 	common/src/constants/freebuff-standing.ts
@@ -130,6 +133,29 @@ WIRE_FILES=(
 	packages/agent-runtime/src/run-agent-step.ts
 	packages/agent-runtime/src/run-programmatic-step.ts
 	common/src/tools/constants.ts
+	agents/base3.ts
+	agents/constants.ts
+	common/src/tools/list.ts
+	common/src/tools/compile-tool-definitions.ts
+	common/src/tools/params/tool/ask-user.ts
+	common/src/tools/params/tool/code-search.ts
+	common/src/tools/params/tool/end-turn.ts
+	common/src/tools/params/tool/find-files.ts
+	common/src/tools/params/tool/glob.ts
+	common/src/tools/params/tool/gravity-index.ts
+	common/src/tools/params/tool/list-directory.ts
+	common/src/tools/params/tool/read-files.ts
+	common/src/tools/params/tool/read-url.ts
+	common/src/tools/params/tool/render-ui.ts
+	common/src/tools/params/tool/report-project-profile.ts
+	common/src/tools/params/tool/run-terminal-command.ts
+	common/src/tools/params/tool/skill.ts
+	common/src/tools/params/tool/str-replace.ts
+	common/src/tools/params/tool/suggest-followups.ts
+	common/src/tools/params/tool/web-search.ts
+	common/src/tools/params/tool/write-file.ts
+	common/src/tools/params/tool/write-todos.ts
+	packages/llm-providers/src/openai-compatible/chat/openai-compatible-prepare-tools.ts
 )
 # NOTE: common/src/constants/foreign-client-signals.ts was REMOVED from this
 # list (deleted upstream at 0ae8779d2; snapshots + wiregen input removed in

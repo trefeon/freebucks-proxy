@@ -13,9 +13,9 @@
 # FUNCTIONAL files (plus every `untracked[]` entry), it resolves which
 # repo-side files reference the export and emits `impact[]` entries
 # {file, export, change, kind, confidence, consumers[]}:
-#   kind        MODEL | PRICE | WIRE | OTHER (same name heuristic as
-#               drift-exact.sh label_of) | NOTICE (notice-copy exports) |
-#               UNTRACKED (new-file discovery rows)
+#   kind        MODEL | PRICE | WIRE | PROMPT | TOOLS | OTHER (same name
+#               heuristic as drift-exact.sh label_of) | NOTICE (notice-copy
+#               exports) | UNTRACKED (new-file discovery rows)
 #   change      added | removed | changed | modified (raw drift status word)
 #   consumers[] repo-relative files referencing the export (capped, see
 #               CONSUMER_CAP), or ["unresolved"] when nothing references it —
@@ -71,7 +71,7 @@ kind_of_name() {
 	case "$2" in
 	*MODEL_ID* | *MODELS* | *MODEL_IDS* | *AGENT* | *ENTITLEMENT* | *REWARD* | *PAUSED* | *SUPPORTED* | *LIMITED*) printf 'MODEL' ;;
 	*PRICE* | *CAP* | *SPEND* | *CEILING* | *POOL* | *STIPEND* | *COST*) printf 'PRICE' ;;
-	*) [[ "$1" == "wire" ]] && printf 'WIRE' || printf 'OTHER' ;;
+	*) [[ "$1" == "wire" ]] && printf 'WIRE' || { [[ "$1" == "prompt" ]] && printf 'PROMPT' || { [[ "$1" == "tools" ]] && printf 'TOOLS' || printf 'OTHER'; }; } ;;
 	esac
 }
 
@@ -136,7 +136,10 @@ map_row() {
 			[[ -z "$h" ]] && continue
 			if is_source "$h"; then conf="direct"; break; fi
 		done <<<"$hits"
-		capped="$(printf '%s\n' "$hits" | head -$CONSUMER_CAP)"
+		# awk (not head): head closes the pipe early, SIGPIPE kills printf
+		# under pipefail exactly when hits exceed the cap — the common case
+		# for widely-referenced tool/prompt exports.
+		capped="$(printf '%s\n' "$hits" | awk -v n="$CONSUMER_CAP" 'NR<=n')"
 		local n total
 		n="$(printf '%s\n' "$hits" | grep -c . || true)"
 		total="$n"
@@ -149,7 +152,7 @@ map_row() {
 	if [[ "$conf" == "unresolved" ]]; then
 		ANNOUNCE+=("$kind $file ~$export ($change) -> unresolved")
 	else
-		ANNOUNCE+=("$kind $file ~$export ($change) -> $(printf '%s' "$hits" | head -$CONSUMER_CAP | paste -sd', ' -)$extra ($conf)")
+		ANNOUNCE+=("$kind $file ~$export ($change) -> $(printf '%s' "$hits" | awk -v n="$CONSUMER_CAP" 'NR<=n' | paste -sd', ' -)$extra ($conf)")
 	fi
 }
 

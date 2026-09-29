@@ -97,6 +97,39 @@ OLD_SHA="$(resolve "$OLD_REF")"
 NEW_SHA="$(resolve "$NEW_REF")"
 
 # ---- watch sets (mirror check-upstream.sh groups) ----
+# PROMPT_FILES: the init-prompt sources behind the proxy's CLI envelope
+# (cliSystemMarkerBase3Instructions + per-model agent ids). Any FUNCTIONAL
+# row here means the gate's required system head moved: port the marker.
+PROMPT_FILES=(
+	agents/base3.ts
+	agents/constants.ts
+)
+# TOOLS_FILES: the canonical tool definitions behind the proxy's 16-tool
+# wire floor (testdata/cli-tools.json, byte-captured). Any FUNCTIONAL row
+# here means a tool name/schema/description moved: re-capture the floor.
+TOOLS_FILES=(
+	common/src/tools/list.ts
+	common/src/tools/compile-tool-definitions.ts
+	common/src/tools/params/tool/ask-user.ts
+	common/src/tools/params/tool/code-search.ts
+	common/src/tools/params/tool/end-turn.ts
+	common/src/tools/params/tool/find-files.ts
+	common/src/tools/params/tool/glob.ts
+	common/src/tools/params/tool/gravity-index.ts
+	common/src/tools/params/tool/list-directory.ts
+	common/src/tools/params/tool/read-files.ts
+	common/src/tools/params/tool/read-url.ts
+	common/src/tools/params/tool/render-ui.ts
+	common/src/tools/params/tool/report-project-profile.ts
+	common/src/tools/params/tool/run-terminal-command.ts
+	common/src/tools/params/tool/skill.ts
+	common/src/tools/params/tool/str-replace.ts
+	common/src/tools/params/tool/suggest-followups.ts
+	common/src/tools/params/tool/web-search.ts
+	common/src/tools/params/tool/write-file.ts
+	common/src/tools/params/tool/write-todos.ts
+	packages/llm-providers/src/openai-compatible/chat/openai-compatible-prepare-tools.ts
+)
 REGISTRY_FILES=(
 	free-agents.ts
 	freebuff-model-ids.ts
@@ -130,6 +163,12 @@ group_of() {
 	for f in "${REGISTRY_FILES[@]}"; do
 		[[ "$p" == "common/src/constants/$f" ]] && { printf 'registry'; return; }
 	done
+	for f in "${PROMPT_FILES[@]}"; do
+		[[ "$p" == "$f" ]] && { printf 'prompt'; return; }
+	done
+	for f in "${TOOLS_FILES[@]}"; do
+		[[ "$p" == "$f" ]] && { printf 'tools'; return; }
+	done
 	for f in "${WIRE_FILES[@]}"; do
 		[[ "$p" == "$f" ]] && { printf 'wire'; return; }
 	done
@@ -138,9 +177,11 @@ group_of() {
 
 # Source trees whose non-noise churn must surface even when no fixed watch
 # list names the file. Covers every WIRE_FILES/REGISTRY_FILES directory plus
-# sdk (new surface, no pinned files yet). Anything outside these trees
-# (repo docs, evals, infra) stays out of scope and is skipped as before.
+# agents (init-prompt sources) and sdk (new surface, no pinned files yet).
+# Anything outside these trees (repo docs, evals, infra) stays out of scope
+# and is skipped as before.
 WATCH_TREES=(
+	agents
 	cli/src
 	common/src
 	packages
@@ -272,11 +313,11 @@ label_of() {
 	case "$2" in
 	*MODEL_ID* | *MODELS* | *MODEL_IDS* | *AGENT* | *ENTITLEMENT* | *REWARD* | *PAUSED* | *SUPPORTED* | *LIMITED*) printf 'MODEL' ;;
 	*PRICE* | *CAP* | *SPEND* | *CEILING* | *POOL* | *STIPEND* | *COST*) printf 'PRICE' ;;
-	*) [[ "$1" == "wire" ]] && printf 'WIRE' || printf 'OTHER' ;;
+	*) [[ "$1" == "wire" ]] && printf 'WIRE' || printf '%s' "$(tr '[:lower:]' '[:upper:]' <<<"$1")" ;;
 	esac
 }
 
-TMP="$(TMPDIR=/tmp mktemp -d)"
+TMP="$(mktemp -d "$REPO_ROOT/.drift-tmp.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "drift-exact: $OLD_SHA -> $NEW_SHA"
@@ -390,7 +431,7 @@ else
 		if ((${#changed_c[@]} > 8)); then ANNOUNCE+=("DOC $path: ${#changed_c[@]} comment-only blocks"); else for b in ${changed_c[@]+"${changed_c[@]}"}; do ANNOUNCE+=("DOC $path: ~$b (comment-only)"); done; fi
 		hunk_lines="$(printf '%s' "$hunks" | wc -l)"
 		if ((hunk_lines > HUNK_CAP)); then
-			hunks="$(printf '%s' "$hunks" | head -$HUNK_CAP)"$'\n…(hunks truncated at '"$HUNK_CAP"' lines)'
+			hunks="$(printf '%s' "$hunks" | awk -v n="$HUNK_CAP" 'NR<=n')"$'\n…(hunks truncated at '"$HUNK_CAP"' lines)'
 		fi
 		FILES_JSON+=("$(jq -n --arg path "$path" --arg group "$group" --arg status "$fstatus" \
 			--argjson added "$(printf '%s\n' ${added[@]+"${added[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
@@ -405,15 +446,17 @@ fi
 
 action="false"
 ((functional_files > 0)) && action="true"
+printf '%s\n' ${FILES_JSON[@]+"${FILES_JSON[@]}"} | jq -s . >"$TMP/files.json"
+printf '%s\n' ${IGNORED[@]+"${IGNORED[@]}"} | jq -R . | jq -s 'map(select(length > 0))' >"$TMP/ignored.json"
+printf '%s\n' ${ANNOUNCE[@]+"${ANNOUNCE[@]}"} | jq -R . | jq -s 'map(select(length > 0))' >"$TMP/announce.json"
+printf '%s\n' ${UNTRACKED[@]+"${UNTRACKED[@]}"} | jq -R 'split("\t") | select(length == 2) | {status: .[0], path: .[1]} | select(.path | length > 0)' | jq -s . >"$TMP/untracked.json"
 jq -n --arg old "$OLD_SHA" --arg new "$NEW_SHA" \
-	--argjson files "$(printf '%s\n' ${FILES_JSON[@]+"${FILES_JSON[@]}"} | jq -s .)" \
-	--argjson ignored "$(printf '%s\n' ${IGNORED[@]+"${IGNORED[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
-	--argjson announce "$(printf '%s\n' ${ANNOUNCE[@]+"${ANNOUNCE[@]}"} | jq -R . | jq -s 'map(select(length > 0))')" \
-	--argjson untracked "$(printf '%s\n' ${UNTRACKED[@]+"${UNTRACKED[@]}"} | jq -R 'split("\t") | select(length == 2) | {status: .[0], path: .[1]} | select(.path | length > 0)' | jq -s .)" \
+	--slurpfile files "$TMP/files.json" --slurpfile ignored "$TMP/ignored.json" \
+	--slurpfile announce "$TMP/announce.json" --slurpfile untracked "$TMP/untracked.json" \
 	--argjson functional_files "$functional_files" --argjson comment_files "$comment_files" \
 	--argjson notice_files "$notice_files" --argjson action_needed "$action" \
-	'{old_sha:$old,new_sha:$new,checked_at:(now|todate),files:$files,ignored_paths:$ignored,untracked:$untracked,announce:$announce,
-    summary:{functional_files:$functional_files,comment_only_files:$comment_files,notice_only_files:$notice_files,untracked_files:($untracked|length),action_needed:$action_needed}}' >"$EXACT_REPORT"
+	'{old_sha:$old,new_sha:$new,checked_at:(now|todate),files:$files[0],ignored_paths:$ignored[0],untracked:$untracked[0],announce:$announce[0],
+    summary:{functional_files:$functional_files,comment_only_files:$comment_files,notice_only_files:$notice_files,untracked_files:($untracked[0]|length),action_needed:$action_needed}}' >"$EXACT_REPORT"
 
 echo "report: $EXACT_REPORT"
 echo "functional_files=$functional_files comment_only_files=$comment_files notice_only_files=$notice_files untracked_files=$(jq -r '.summary.untracked_files' "$EXACT_REPORT") action_needed=$action"

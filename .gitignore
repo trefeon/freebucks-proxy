@@ -43,6 +43,7 @@ tmp/
 .playwright-mcp/
 /.drift-report.json
 /.exact-drift.json
+/.drift-tmp.*
 .ruff_cache/
 
 # ── build outputs (Go binaries) ──
