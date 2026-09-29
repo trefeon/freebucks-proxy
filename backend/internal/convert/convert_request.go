@@ -174,6 +174,10 @@ func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options)
 		return out, ToolMapper{}, nil //nolint:NormalizeRequest already validated; unreachable in practice
 	}
 	mapper.ToUpstream(payload)
+	// Foreign-definition substitution: entries renamed onto CLI wire names
+	// carry the canonical CLI description + parameters, so the gate sees
+	// CLI definitions, never foreign schemas under renamed names.
+	SubstituteCanonicalDefinitions(payload)
 	mapper.RenameRequestToolChoice(payload)
 	renamed, merr := json.Marshal(payload)
 	if merr != nil {

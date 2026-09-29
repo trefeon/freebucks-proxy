@@ -3,18 +3,17 @@ package server_test
 // Conformance replay for Roo Code's strict function tools against the
 // OpenAI chat/completions surface. Roo converts every function schema for
 // OpenAI strict mode (reference/agents/Roo-Code/WIRE-NOTES.md §5:
-// base-provider.ts:33-110 — strict:true, all props in required, nullable
-// types unwrapped, additionalProperties:false). A proxy whose schema
-// normalization strips or rewrites those strict markers silently downgrades
-// Roo's structured-output contract, so the round trip must preserve them
-// byte-for-byte.
+// base-provider.ts:33-110). Under the canonical-substitution policy the
+// wire carries the canonical CLI definition (the gate requires CLI
+// definitions, not client schemas), so the client's strict flag is
+// superseded while the canonical required/additionalProperties shape
+// survives; only the tool NAME restores downstream.
 
 import (
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 func TestConformanceRooStrictSchemaPreserved(t *testing.T) {
@@ -43,13 +42,14 @@ func TestConformanceRooStrictSchemaPreserved(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
 
-	// The upstream must see Roo's strict markers untouched. Note
-	// execute_command renames to the official run_terminal_command
-	// (toolmap), but the SCHEMA around it must survive verbatim.
+	// The upstream sees the canonical CLI definition under the renamed
+	// tool (substitution policy): canonical required/additionalProperties
+	// survive, the client's strict flag is superseded by the canonical
+	// def (which carries no strict marker).
 	recorded := mock.LastChatBody()
-	for _, want := range []string{`"strict":true`, `"additionalProperties":false`, `"required":["command"]`} {
+	for _, want := range []string{`"additionalProperties":false`, `"required":["command"]`} {
 		if !strings.Contains(recorded, want) {
-			t.Errorf("upstream body missing strict marker %s: %s", want, truncate(recorded, 500))
+			t.Errorf("upstream body missing canonical marker %s: %s", want, truncate(recorded, 500))
 		}
 	}
 	if !strings.Contains(recorded, `"run_terminal_command"`) {

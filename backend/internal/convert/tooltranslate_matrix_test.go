@@ -222,7 +222,7 @@ func TestTranslateMatrixRequestLeg(t *testing.T) {
 		}
 	})
 
-	t.Run("11 strict true preserved and restores", func(t *testing.T) {
+	t.Run("11 strict tool substituted with canonical def and restores", func(t *testing.T) {
 		tool := matrixFuncTool("bash")
 		tool["function"].(map[string]any)["strict"] = true
 		wire, mapper := matrixWire(t, matrixChatBody([]any{tool}, nil))
@@ -233,8 +233,10 @@ func TestTranslateMatrixRequestLeg(t *testing.T) {
 		}
 		raw := wire["tools"].([]any)
 		fn := raw[0].(map[string]any)["function"].(map[string]any)
-		if strict, _ := fn["strict"].(bool); !strict {
-			t.Fatalf("strict flag dropped on the wire for %v", fn["name"])
+		params, _ := fn["parameters"].(map[string]any)
+		props, _ := params["properties"].(map[string]any)
+		if _, ok := props["process_type"]; !ok {
+			t.Fatalf("substituted def not canonical for %v", fn["name"])
 		}
 		if got := mapper.RestoreName("run_terminal_command"); got != "bash" {
 			t.Fatalf("RestoreName = %q, want bash", got)

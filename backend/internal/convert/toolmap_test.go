@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-// TestToolMapperRequestRename pins the request-side rename (#140): mapped
-// client names become official signature names on the wire; schemas pass
-// through untouched; unmapped and already-official names are unchanged.
+// TestToolMapperRequestRename pins the request-side rename (#140) plus the
+// canonical substitution: mapped client names become official signature
+// names carrying the canonical CLI definitions; unmapped and
+// already-official names are unchanged.
 func TestToolMapperRequestRename(t *testing.T) {
 	body := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[
 		{"type":"function","function":{"name":"read_file","description":"Read a file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}},
@@ -49,12 +50,13 @@ func TestToolMapperRequestRename(t *testing.T) {
 		t.Error("original client name still present after rename")
 	}
 
-	// Schema passes through untouched (the model fills args per this shape).
+	// Substituted entries carry the canonical CLI definition: the model
+	// fills args per the CLI shape, and only the name restores downstream.
 	rf := names["read_files"]
 	params := rf["parameters"].(map[string]any)
 	reqd := params["required"].([]any)
-	if len(reqd) != 1 || reqd[0] != "path" {
-		t.Errorf("client schema mutated: required = %v", reqd)
+	if len(reqd) != 1 || reqd[0] != "paths" {
+		t.Errorf("schema not canonical: required = %v", reqd)
 	}
 
 	// tool_choice follows the rename.
