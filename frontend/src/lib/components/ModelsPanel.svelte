@@ -37,15 +37,18 @@
       return map;
     })(),
   );
+  // Visible rows: only served models (live-verified 2026-09-29: the served
+  // set is exactly the usable set; unserved rows — withdrawn, paid-plan,
+  // trial — 400/429 upstream and are hidden, not greyed).
   const orderedModels = $derived(
     data == null || Object.keys(meteredPrices).length === 0
-      ? (data?.models ?? [])
+      ? (data?.models ?? []).filter((m) => m.served !== false)
       : sortModelsByPrice(
           data.models.map((m) => m.id),
           { prices: meteredPrices },
         )
           .map((id) => data.models.find((m) => m.id === id))
-          .filter(Boolean),
+          .filter((m) => m && m.served !== false),
   );
   let data = $state(null);
   let live = $state(null);
@@ -185,9 +188,8 @@
     };
   });
   onMount(load);
-
   const servedCount = $derived(
-    data ? data.models.filter((m) => modelState(m) === "served").length : 0,
+    orderedModels.filter((m) => modelState(m) === "served").length,
   );
 </script>
 
@@ -208,7 +210,7 @@
       <Button variant="secondary" onclick={load}>{$tr("Retry")}</Button>
     </div>
   </div>
-{:else if data && data.models.length === 0}
+{:else if data && orderedModels.length === 0}
   <EmptyState
     title={$tr("No models registered")}
     description={$tr(
@@ -218,7 +220,7 @@
 {:else if data}
   <Stat
     label={$tr("Served Models")}
-    value={`${servedCount} of ${data.models.length}`}
+    value={`${servedCount} of ${orderedModels.length}`}
     hint={$tr("{count} registered · {agents} agents", {
       count: data.count,
       agents: data.agents,

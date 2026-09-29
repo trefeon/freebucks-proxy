@@ -209,22 +209,17 @@ test.describe("real-world data", () => {
     await expect(page.getByText("Smart & Fast").first()).toBeVisible();
     await expect(page.getByText("0 Freebucks/hr").first()).toBeVisible();
     await expect(page.getByText("20 Freebucks/hr").first()).toBeVisible();
-    await expect(page.getByText("Referral grant").first()).toBeVisible();
-    await expect(page.getByText("Referral only").first()).toBeVisible();
+    await expect(page.getByText("Referral grant")).toHaveCount(0);
+    await expect(page.getByText("Referral only")).toHaveCount(0);
     await expect(page.getByText("paid plan").first()).toBeVisible();
-    await expect(page.getByText("limited trial").first()).toBeVisible();
-    // Served stat tells the truth about 17 rows: 7 served; GPT-5.6 Luna
-    // and Solar Pro 4 stay listed as recognized rows their sessions
-    // still drain on.
-    await expect(page.getByText("7 of 17")).toBeVisible();
+    await expect(page.getByText("limited trial")).toHaveCount(0);
+    // Served stat counts only usable rows: 7 served of the 17-row catalog
+    // (live-verified 2026-09-29: served == usable).
+    await expect(page.getByText("7 of 7")).toBeVisible();
     await expect(page.getByText("17 registered · 50 agents")).toBeVisible();
-    // Five withdrawn rows name their replacement in both renderings.
-    await expect(page.getByTestId("model-withdrawn")).toHaveCount(10);
-    // The offer row shows the live campaign counts in both renderings.
-    await expect(page.getByTestId("model-offer")).toHaveCount(2);
-    await expect(page.getByTestId("model-offer").first()).toContainText(
-      "3 of 10 sessions left",
-    );
+    // No withdrawn rows, no offer row: unserved rows never render.
+    await expect(page.getByTestId("model-withdrawn")).toHaveCount(0);
+    await expect(page.getByTestId("model-offer")).toHaveCount(0);
     // No "referral" badge renders anywhere on the tab.
     await expect(page.getByText("referral", { exact: true })).toHaveCount(0);
     await expect(page.getByText("low/high/max").first()).toBeVisible();
