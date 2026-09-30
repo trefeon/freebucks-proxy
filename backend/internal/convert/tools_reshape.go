@@ -24,7 +24,7 @@ func (m ToolMapper) ReshapeArgsFor(wireName, args string) (string, bool) {
 	if !m.floorOnly {
 		return "", false
 	}
-	rule, ok := reshapeRules[wireName]
+	rule, ok := reshapeRules[resolveReshapeRule(wireName)]
 	if !ok {
 		return "", false
 	}
@@ -51,8 +51,33 @@ func (m ToolMapper) HasReshapeRule(wireName string) bool {
 	if !m.floorOnly {
 		return false
 	}
-	_, ok := reshapeRules[wireName]
+	_, ok := reshapeRules[resolveReshapeRule(wireName)]
 	return ok
+}
+
+// ompClientToWire covers the mapped OMP names the model emits from prompt
+// vocabulary instead of the wire schema (live 2026-09-30: a turn called
+// "read" with CLI-shaped {paths} though the wire only showed read_files).
+// Their calls restore by identity, but the args still need the wire rule.
+var ompClientToWire = map[string]string{
+	"bash":  "run_terminal_command",
+	"read":  "read_files",
+	"edit":  "str_replace",
+	"write": "write_file",
+	"grep":  "code_search",
+	"todo":  "write_todos",
+}
+
+// resolveReshapeRule maps a response call name to its reshape rule: the
+// wire name first, then the OMP client name the model may emit instead.
+func resolveReshapeRule(name string) string {
+	if _, ok := reshapeRules[name]; ok {
+		return name
+	}
+	if wire, ok := ompClientToWire[name]; ok {
+		return wire
+	}
+	return name
 }
 
 // ReshapeMessageCalls rewrites CLI-shaped arguments to OMP shape in place

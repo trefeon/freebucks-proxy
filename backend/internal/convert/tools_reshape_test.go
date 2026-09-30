@@ -75,6 +75,32 @@ func TestReshapeArgsTable(t *testing.T) {
 	}
 }
 
+func TestReshapeClientNames(t *testing.T) {
+	m := ToolMapper{floorOnly: true}
+	// OMP-vocabulary names the model emits instead of the wire schema
+	// (live 2026-09-30: turn called "read" with CLI-shaped {paths}):
+	// restore is identity, but the args still need the wire rule.
+	for _, tc := range [][3]string{
+		{"read", `{"paths":["a.go"]}`, "path"},
+		{"bash", `{"command":"ls"}`, "command"},
+		{"edit", `{"path":"f","replacements":[{"oldString":"a","newString":"b"}]}`, "old_string"},
+	} {
+		got, ok := m.ReshapeArgsFor(tc[0], tc[1])
+		if !ok {
+			t.Errorf("ReshapeArgsFor(%q) = not-ok, want client-name rule", tc[0])
+			continue
+		}
+		var gotM map[string]any
+		if err := json.Unmarshal([]byte(got), &gotM); err != nil {
+			t.Errorf("ReshapeArgsFor(%q) invalid JSON: %v", tc[0], err)
+			continue
+		}
+		if _, ok := gotM[tc[2]]; !ok {
+			t.Errorf("ReshapeArgsFor(%q) = %s, want key %q", tc[0], got, tc[2])
+		}
+	}
+}
+
 func TestReshapeArgsPassthrough(t *testing.T) {
 	m := ToolMapper{floorOnly: true}
 	if _, ok := m.ReshapeArgsFor("gravity_index", `{"a":1}`); ok {
