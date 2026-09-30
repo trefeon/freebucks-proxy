@@ -1,5 +1,11 @@
 # Comprehensive Free-Tier Adaptation & Remake Plan
 
+> **Status as of 2026-09-30 — this plan is NOT pending work:**
+> - **Phase 1 (gateway invariants): IMPLEMENTED.**
+> - **Phase 2: SUPERSEDED** by floor-only + bidirectional reshape (PRs #34/#35/#36, fallback routes #38/#39 + OMP-vocabulary reshape) — the verify-mapping approach described below is replaced, not pending.
+> - **Phase 3 (dashboard): IMPLEMENTED.**
+> - **Phase 4 (auth wizard): IMPLEMENTED.**
+>
 Detailed architectural specification and implementation roadmap for adapting the **freebucks-proxy** Go gateway backend and Svelte 5 frontend dashboard to upstream Freebuff free-tier wire protocol requirements.
 
 ---
@@ -24,13 +30,13 @@ From live empirical verification against upstream (`codebuff.com` / `freebuff.co
    - Attempting to admit a *different* model while another model's 1-hour seat is active returns **HTTP 409 `purchase_capacity`** identifying the current holder instance ID and expiry time.
    - Calling `DELETE /api/v1/freebuff/session` ends the active session (`status: ended`), but upstream holds the model purchase lock until the 1-hour timestamp expires.
 
-4. **Chat Completion Envelope Gate**:
+4. **Chat Completion Envelope Gate (2026-09-30 truth: gate keys on tool DEFINITIONS ONLY):**
    - Upstream enforces a fingerprint check on `POST /api/v1/chat/completions`. Omitting the official coding agent structure returns **HTTP 503 `The model is temporarily unavailable. Please try again later.`**
    - Requirements to pass:
-     - Canonical base3 Buffy system prompt head (6 convention bullets + dynamic date).
      - Canonical 16 tools with full schemas (`read_files`, `str_replace`, `write_file`, `run_terminal_command`, `code_search`, `glob`, `list_directory`, `write_todos`, `web_search`, `read_url`, `ask_user`, `suggest_followups`, `gravity_index`, `render_ui`, `skill`, `report_project_profile`).
      - `codebuff_metadata` containing `run_id`, `trace_session_id`, `client_id` (13-char base36), `freebuff_instance_id`, `surface: "cli"`, `cost_mode: "free"`, `llm_step_number`.
      - `provider: {"data_collection": "deny"}` and `stream: true`.
+   - ~~Canonical base3 Buffy system prompt head (6 convention bullets + dynamic date)~~ — STRUCK 2026-09-30: system prompt content exonerated by live bisect (OMP tool defs + neutral system → 503; official tool defs + full 77KB OMP system → 200).
 
 5. **Model Catalog Segregation**:
    - Upstream advertises `planRequiredModelIds` in every session response: `openai/gpt-6-luna`, `mimo/mimo-v2.6-pro`, `google/gemini-3.8-flash`, `meta/muse-spark-1.3-contributor`.
@@ -40,12 +46,12 @@ From live empirical verification against upstream (`codebuff.com` / `freebuff.co
 
 ## 2. Backend Gateway Remake (`backend/internal/`)
 
-### B1. Upstream Envelope Floor (`backend/internal/upstream/`)
+### B1. Upstream Envelope Floor (`backend/internal/upstream/`) — 2026-09-30 truth, implemented
 - **`chat.go` (`injectEnvelope`)**:
   - Automatically guarantee the canonical base3 instructions head (`cliSystemMarkerBase3Instructions`) with dynamic `time.Now()` date format.
   - Apply `topUpCliTools` (`clitools.go`) using the canonical fixture (`testdata/cli-tools.json`) so the wire tools array always contains the 16 official declarations with full schemas.
-  - Client-declared tools mapped via `convert` (`run_terminal_command <- bash`, `read_files <- read`, `str_replace <- edit`, `write_todos <- todo`) take precedence and win on collision.
-  - Injected tools (such as `end_turn` and `decide`) must not duplicate or displace canonical tool declarations.
+  - OMP-family: floor-only — canonical floor defs REPLACE client-declared colliding defs; client-declared tools do NOT win on collision (`convert/tools_floor.go`, `convert_request.go:182-187`, `upstream/clitools.go:28-30`).
+  - `decide` never rides (stripped by `topUpCliTools`); `end_turn` rides as the pin. Injected tools must not duplicate or displace canonical tool declarations.
 
 ### B2. 1-Hour Seat Persistence & Concurrency Management (`backend/internal/session/` & `backend/internal/pool/`)
 - **Seat Persistence (`session_manager.go` / `store.go`)**:
@@ -130,7 +136,7 @@ From live empirical verification against upstream (`codebuff.com` / `freebuff.co
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ Phase 1: Gateway Core Invariants (Backend)                  │
+│ Phase 1: Gateway Core Invariants (Backend) — IMPLEMENTED     │
 │ - Canonical 16-tool floor fixture & full base3 prompt head   │
 │ - Fix CheckTokenHealth (/api/v1/me 401 bypass)               │
 │ - 1-hour purchase seat persistence & 0-cost resumption      │
@@ -139,15 +145,16 @@ From live empirical verification against upstream (`codebuff.com` / `freebuff.co
                                │
                                ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ Phase 2: Foreign Client Tool Normalization (Backend)         │
-│ - Verify OMP/OpenCode tool name mapping & restoration       │
-│ - Non-colliding signature injection (end_turn / decide)      │
-│ - Multi-turn agentic tool loop integration tests             │
+│ Phase 2: Foreign Client Tool Normalization — SUPERSEDED      │
+│ Replaced by floor-only + bidirectional reshape (#34/#35/#36, │
+│ fallback routes #38/#39 + OMP-vocabulary reshape). The       │
+│ verify-mapping plan below (tool mapping check, end_turn /    │
+│ decide injection, loop tests) is NOT pending work.           │
 └──────────────────────────────┬───────────────────────────────┘
                                │
                                ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ Phase 3: Dashboard Freebucks & Seat Monitoring (Frontend)   │
+│ Phase 3: Dashboard Freebucks & Seat Monitoring — IMPLEMENTED │
 │ - Freebucks balance meter & local timezone reset timer       │
 │ - Active 1-hour seat card with countdown and release button  │
 │ - Model pricing catalog with Freebucks/hr badges             │
@@ -156,7 +163,7 @@ From live empirical verification against upstream (`codebuff.com` / `freebuff.co
                                │
                                ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ Phase 4: Device Auth Wizard & Production Hardening           │
+│ Phase 4: Device Auth Wizard & Production Hardening — DONE    │
 │ - In-dashboard device code login wizard with live polling    │
 │ - End-to-end verification with tests/free-tier/run_all.py    │
 │ - Production deployment and health verification              │

@@ -6,7 +6,12 @@ upstream CLI.
 The proxy renames foreign tool names to the official signature equivalents
 on the upstream wire and restores the client's own names on every response
 path; parameters are forwarded untouched after structural normalization —
-only names are rewritten.
+only names are rewritten. This rename-only rule holds for NON-OMP clients.
+OMP/pi-family requests are different: their tool defs are floor-only REPLACED
+with the 16 canonical CLI defs + end_turn pin
+(`backend/internal/convert/tools_floor.go`, hooked at
+`convert_request.go:182-187`), and response args are reshaped to OMP shape
+(`backend/internal/convert/tools_reshape.go`). Zero foreign riders reach the wire.
 
 ## Global rules
 
@@ -17,7 +22,7 @@ only names are rewritten.
 - Model field: any served model id.
 - Never forward vendor env names upstream (`ANTHROPIC_BASE_URL`,
   `KIMI_CODE_BASE_URL`, …) — they are harness-side config only.
-- `tools` keeps client defs with structural schema normalization (`backend/internal/convert/schemacache_store.go:normalizeToolSchemas`); missing `end_turn`/`decide` sentinels are appended, never duplicated (`schemacache_endturn.go:injectEndTurnTool`, foreign_toolset gate). An empty `tools:[]` is the client's own choice, not a gateway rule. (A client that trims its tool list must still carry the matching tool history, or its turn has no tools to answer with.)
+- `tools`: non-OMP clients keep their defs with structural schema normalization (`backend/internal/convert/schemacache_store.go:normalizeToolSchemas`); missing `end_turn` sentinel is appended, never duplicated (`schemacache_endturn.go:injectEndTurnTool`). `decide` is stripped before egress (`backend/internal/upstream/clitools.go:28-30`). The gate keys on tool DEFINITIONS, not a foreign_toolset flag (live bisect 2026-09-30) — the foreign_toolset framing is superseded. OMP/pi-family defs are floor-only replaced (16 canonical CLI defs + end_turn pin). An empty `tools:[]` is the client's own choice except for OMP-family, where the floor forces the 16 defs. (A client that trims its tool list must still carry the matching tool history, or its turn has no tools to answer with.)
 - Responses API: preserve strict item order
   `message(s) → function_call(s) → function_call_output(s)` and inject
   `reasoning_text` per thinking turn (opencode-go strict gateway).

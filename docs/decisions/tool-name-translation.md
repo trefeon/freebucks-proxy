@@ -98,3 +98,46 @@ to the EXACT client name (case preserved) through `RestoreName` and both
   ownership, both orders.
 - Every one of these was proven RED before its fix (production hunks stashed);
   a regression test that never failed pins nothing.
+
+## Amendment 2026-09-30 — OMP/pi-family floor path, gate correction
+
+Status: accepted · 2026-09-30 · amends (does not rewrite) the above; live
+image `rel` (post-`82d896bb`; PRs #34/#35/#36 floor+restore, #38/#39
+fallback routes + OMP-vocabulary reshape). Pins: vendor `0.0.204` /
+UpstreamSHA `775383b3` (`scripts/vendor-version.txt`,
+`backend/internal/wirefacts/wirefacts_gen.go:7`).
+
+1. **The tools-keyed foreign gate is a historical mirror.** The "Why this
+   exists" paragraph above cites `foreign_toolset`, `foreign_tool_names`
+   and the sticky `third_party_client` cap via
+   `wirefacts/testdata/wire/common/src/constants/foreign-client-signals.ts`.
+   Upstream has since deleted that file; the live detector is the
+   edge-stamped CF-Worker, which is tools-blind
+   (`backend/internal/convert/cf_worker_signals.go`). The LIVE chat 503 gate
+   keys on tool DEFINITIONS ONLY (bisect 2026-09-30: OMP tool names on a
+   neutral system prompt still 503; all-16-official tools under the full
+   77KB OMP system prompt still 200). System prompt content is exonerated.
+   Envelope extras (`store`, `stream_options`, `max_completion_tokens`,
+   `reasoning_effort`) are deliberate contracted passthroughs for real
+   client fleets + spend metering, not gate material.
+2. **Correction to the "No argument or schema translation" non-goal
+   (L20-22): names-only holds for other clients only.** For OMP/pi-family,
+   detected by an intent-`i` schema prop OR 2+ of
+   {`eval`, `learn`, `manage_skill`, `context_notes`}, schemas ARE
+   substituted: the wire carries exactly the 16 canonical CLI tool defs +
+   the `end_turn` pin (`backend/internal/convert/tools_floor.go`,
+   `backend/internal/convert/convert_request.go:182-187`,
+   `backend/internal/upstream/clitools.go:28-30`; upstream `topUp` drops
+   `decide`). Zero foreign riders. On the response leg, client names are
+   restored AND CLI args are reshaped to OMP shape (`bash`/`read`/`edit`/
+   `write`/`grep`/`glob`/todo-phase-form/`web_search`, plus fallbacks
+   `ask_user`→`ask`, `read_url`→`read`, `list_directory`→`read`,
+   `skill`→read-skill-URI; OMP-vocabulary emission reshaped likewise).
+3. **OMP floor-only path + dropped tools (degraded loop by design).**
+   OMP-only tools with no CLI equivalent (`eval`, `task`, `learn`,
+   `manage_skill`, …) never ride the wire — they are dropped, not
+   virtualized, so a model turn that needs one cannot dispatch it and the
+   agentic loop degrades client-side. Unrouted first-party emissions
+   (`suggest_followups`, `gravity_index`, `render_ui`,
+   `report_project_profile`) likewise fail client-side. Floor, not mapping,
+   is what keeps the OMP gate green.

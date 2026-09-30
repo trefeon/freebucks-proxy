@@ -28,6 +28,10 @@ Each hop names the code that owns it.
    and legalizes grammar (`^[A-Za-z0-9_-]{1,64}$`). One request gets one
    `ToolMapper`; never rebuild it from the body on the way back.
    Rules and invariants: [tool-name-translation](decisions/tool-name-translation.md).
+   OMP-family exception: OMP/pi-family tool defs are REPLACED floor-only
+   (exactly the 16 canonical CLI defs + `end_turn` pin — zero `mcp__`
+   riders on the wire, not virtualized); client surface still restores
+   OMP names on the way back.
 3. **Pool admission + run START (live + code).** `chatCore`
    (`backend/internal/server/engine.go`) acquires a session slot, then
    the upstream leg runs admission (`backend/internal/upstream/session.go`)
@@ -37,12 +41,14 @@ Each hop names the code that owns it.
 4. **Upstream chat with CLI envelope (live + code).**
    `POST /api/v1/chat/completions` with the ai-sdk UA and the envelope
    stamped by `injectEnvelope` (`backend/internal/upstream/chat.go`):
-  full base3 Buffy system prompt + 16 official tools (full schemas — the
-  load-bearing pair) + `tool_choice:
-  auto` + `codebuff_metadata` (run/client/trace ids, `llm_step_number`,
-  `cost_mode: free`; `repo_snapshot` optional, proven NOT required
-  2026-09-29) + `provider: {data_collection:
-  deny}` + `stream: true`. Gate shape: [FREE-TIER-GATE](FREE-TIER-GATE.md) §4.
+   16 official tools with FULL schemas (the load-bearing part — only
+   tool definitions gate the 503, system content exonerated by the
+   2026-09-30 live bisect: OMP-tools+neutral-system 503 vs
+   official-tools+full-77KB-OMP-system 200) + `tool_choice:
+   auto` + `codebuff_metadata` (run/client/trace ids, `llm_step_number`,
+   `cost_mode: free`; `repo_snapshot` optional, proven NOT required
+   2026-09-29) + `provider: {data_collection:
+   deny}` + `stream: true`. Gate shape: [FREE-TIER-GATE](FREE-TIER-GATE.md) §4.
    Bare→`www` 307 preserves `Authorization`; chat UA is the ai-sdk
    string, every other leg sends `Bun/1.3.14`.
 5. **Upstream SSE tool deltas (live).** `text/event-stream` chunks shaped
@@ -52,11 +58,13 @@ Each hop names the code that owns it.
    transcript: each step appends `assistant{tool_calls} + role:tool`
    pairs and bumps `llm_step_number` 1→2→3 — the 3-POST loop in
    [LIVE-CAPTURE](LIVE-CAPTURE.md) (`list_directory` → `read_files`).
-6. **Proxy relay + restore (code).** Streaming (`relayStream`,
+6. **Proxy relay + restore + reshape (code).** Streaming (`relayStream`,
    `backend/internal/server/openai_stream.go`) and non-streaming
    (`relayJSON`) accumulate deltas, then `ToolMapper.FromUpstreamChunk`
    / `RestoreName` renames official/wire names back to the EXACT client
-   names before writing. Client sees
+   names before writing — and for OMP-family turns the relay also
+   reshapes CLI args to OMP shape (`backend/internal/convert/tools_reshape.go`,
+   not names-only). Client sees
    `choices[].message.tool_calls[]` with CLIENT names and
    `finish_reason: tool_calls`, followed by the message replay. Same
    mapper threads through `/v1/messages` and `/v1/responses` surfaces.
@@ -117,31 +125,32 @@ expected; a `response.completed`-style ending is noted as an anomaly).
 | Signal | Meaning | Action |
 |---|---|---|
 | 502 `auth-rejected` on admission | Proxy sent a stale/expired upstream token | Rotate `AUTH_TOKENS` / discovered credentials, not a gate bug |
-| 503 `model-unavailable` on chat | Envelope gate tripped | Checklist ([FREE-TIER-GATE](FREE-TIER-GATE.md) §4): base3 prompt full head (not stub), 16 tools with FULL schemas (skeletons fail), `codebuff_metadata` keys, `stream: true`, ai-sdk UA (`repo_snapshot` NOT required) |
+| 503 `model-unavailable` on chat | Envelope gate tripped (tool definitions only — system content exonerated 2026-09-30) | Checklist ([FREE-TIER-GATE](FREE-TIER-GATE.md) §4): 16 tools with FULL schemas (skeletons fail), `codebuff_metadata` keys, `stream: true`, ai-sdk UA (`repo_snapshot` NOT required) |
 | 409 `purchase_capacity` | Slot held (`slotLimit 1`) | `DELETE` the holder first; never force a second admission |
 | 428 seat gone mid-chat | `waiting_room_required` | Re-admit, then retry the turn |
 | restore-LEAK (official/`mcp__*` name reaches client) | Response mapper rebuilt or wrong surface | See P1: one mapper per request, threaded via `relayStats.toolMap` |
 | Empty `tool_calls` + `stop` | Model declined the call | Prompt not forceful (`Call it now... no text reply`) or tool schema uninviting; not a relay bug |
 
-## 4. Backend fix plan (plan only, no implementation here)
+## 4. Backend fix plan — LANDED (live proof 2026-09-30)
 
-- **P0 — Envelope completeness on every tool turn** (`backend/internal/upstream/chat.go`, `injectEnvelope`; floor: `backend/internal/upstream/clitools.go`, fixture `testdata/cli-tools.json` — landed, pending verification).
-  Stamp the full base3 head + 16-tool floor with FULL schemas even when
-  the client turn is tool-less or carries foreign tools (normalization
-  must not shrink the envelope below the §4 gate). `repo_snapshot`
-  deliberately NOT stamped (proven unnecessary 2026-09-29).
-  Acceptance: `chat-tools-probe --model <each served model>` prints
+- **P0 — Envelope completeness on every tool turn — LANDED via PR #34 (virtualize) / #35 (substitute) / #36 (floor-only+reshape)** (`backend/internal/upstream/chat.go`, `injectEnvelope`; floor: `backend/internal/convert/tools_floor.go`, reshape: `backend/internal/convert/tools_reshape.go` — live proof 2026-09-30).
+  OMP-family turns ride floor-only (16 canonical CLI defs + `end_turn`
+  pin, zero `mcp__` riders) with FULL schemas on every tool turn, even
+  when the client turn is tool-less or carries foreign tools.
+  `repo_snapshot` deliberately NOT stamped (proven unnecessary 2026-09-29).
+  Proof: `chat-tools-probe --model <each served model>` prints
   `chat: 200` instead of 503. Risk: each probe turn admits a session
   and bills Freebucks — keep probes `--spend-gated`, one turn per
   model, nightly only.
-- **P1 — Convert round-trip audit on all surfaces** (`backend/internal/convert/` + relay files `openai_stream.go`, `anthropic_stream.go`, `responses_stream.go`, `engine.go`).
-  Walk chat/responses/anthropic request+relay paths for rebuilt mappers
-  and virtualized `mcp__*` leaks (the #685 class). Acceptance: restore
+- **P1 — Convert round-trip audit on all surfaces — LANDED via PRs #34/#35/#36 (floor-only+reshape)** (`backend/internal/convert/` + relay files `openai_stream.go`, `anthropic_stream.go`, `responses_stream.go`, `engine.go` — live proof 2026-09-30).
+  Request paths substitute OMP-family defs floor-only and relay paths
+  reshape CLI args back to OMP shape; no rebuilt mappers, no
+  virtualized `mcp__*` leaks on OMP turns (the #685 class). Acceptance: restore
   matrix `1/1 OK`, zero `LEAK` rows, on all three surfaces.
   Risk: none wire-side (read-only audit + probe turns only).
 - **P2 — Gate-aware errors** (`backend/internal/server/errors.go`, `backend/internal/server/error_taxonomy.go`).
   Map an upstream 503-envelope refusal to proxy 503 plus a hint naming
-  the missing envelope part (prompt/tools/snapshot per the §4
+  the missing envelope part (tools/metadata per the §4
   checklist) instead of a bare passthrough. Acceptance: forced 503 shows
   `hint: <missing-part>` in the probe report. Risk: error text must not
   leak tokens/ids — shapes only.

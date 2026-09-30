@@ -120,11 +120,11 @@ The following are the most recently read files according to the OS atime. This i
 </recently_read_file_paths_most_recent_first>"""
 
 GATE_CHECKLIST = (
-    "gate checklist (docs/CLI-WIRE-TRACE.md section 4): base3 system prompt "
-    "block at messages[0] + Current date line; all 16 official tool defs; "
-    "repo_snapshot {gitAvailable,fileCount}; cost_mode free; 13-char "
-    "client_id; x-freebuff-acting-user-id = token's own id; ai-sdk chat UA; "
-    "stream true; provider data_collection deny"
+    "gate checklist (docs/FREE-TIER-GATE.md section 4): all 16 official "
+    "tool defs with full schemas (system prompt content exonerated "
+    "2026-09-30); repo_snapshot {gitAvailable,fileCount}; cost_mode free; "
+    "13-char client_id; x-freebuff-acting-user-id = token's own id; "
+    "ai-sdk chat UA; stream true; provider data_collection deny"
 )
 
 

@@ -12,9 +12,11 @@ Setup (keys stay in the environment, never in files or output):
   scripts/chat-tools-probe.py --model deepseek/deepseek-v4-flash
 
 What METHOD means here (proxy-side observable chain):
-  client OpenAI tools[] -> proxy convert rename (backend/internal/convert,
-  see docs/decisions/tool-name-translation.md) -> upstream chat/completions
-  tool_calls deltas -> proxy restore -> client tool_calls (client names).
+  client OpenAI tools[] -> proxy convert (rename for mapped clients;
+  floor-only canonical replacement + arg reshape for OMP/pi-family, see
+  docs/OMP-TRANSLATION.md and docs/decisions/tool-name-translation.md)
+  -> upstream chat/completions tool_calls deltas -> proxy restore (+ reshape)
+  -> client tool_calls (client names, OMP-shaped args).
   This probe can only see the two ends: the offered tool names it sends and
   the called names the proxy returns (finish_reason tool_calls vs stop,
   choices[0].message.tool_calls[]). A called name equal to the offered name

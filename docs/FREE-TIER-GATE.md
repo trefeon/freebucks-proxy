@@ -1,4 +1,4 @@
-# Free-Tier Gate (verified live 2026-09-28/29)
+# Free-Tier Gate (verified live 2026-09-28/29/30)
 
 How to tell a **proxy bug** apart from an **upstream refusal** on the free
 tier. All findings below were verified live against the real freebuff.com /
@@ -88,12 +88,14 @@ Base: `https://codebuff.com` (POSTs 307-redirect to `www` preserving `Authorizat
 ## 4. Chat envelope gate (the 503 root cause)
 
 Upstream returns **503 `The model is temporarily unavailable. Please try again later.`** when the chat body lacks the official CLI shape.
+The gate keys on **tool DEFINITIONS ONLY** — system prompt content is
+exonerated by the 2026-09-30 live bisect (OMP-tools+neutral-system 503 vs
+official-tools+full-77KB-OMP-system 200).
 
 Passing shape requirements:
 
-1. **Base3 system prompt**: Must include the canonical base3 coding agent instructions head from `agents/base3.ts` (the 6 standard convention bullets + dynamic date line). A stub 46-char marker alone **fails with 503**.
-2. **Official tools array**: Must include canonical tool definitions with full schemas (`read_files`, `str_replace`, `write_file`, `run_terminal_command`, `code_search`, `glob`, `list_directory`, `write_todos`, `web_search`, `read_url`, `ask_user`, `suggest_followups`, `gravity_index`, `render_ui`, `skill`, `report_project_profile`). Minimal skeletons without schemas fail with 503.
-3. **Codebuff metadata**: Must include:
+1. **Official tools array**: Must include the 16 canonical CLI tool definitions with FULL schemas (`read_files`, `str_replace`, `write_file`, `run_terminal_command`, `code_search`, `glob`, `list_directory`, `write_todos`, `web_search`, `read_url`, `ask_user`, `suggest_followups`, `gravity_index`, `render_ui`, `skill`, `report_project_profile`) + `end_turn` pin (upstream topUp drops `decide`). Minimal skeletons without schemas fail with 503. Historical note (2026-09-28/29): a stub 46-char system marker alone failed with 503, but the 2026-09-30 bisect proved the load-bearing variable was the tool definitions, not the system head — do not treat the system head as a requirement.
+2. **Codebuff metadata**: Must include:
    - `run_id`: matching `agent-runs` START `runId`
    - `trace_session_id`: UUID
    - `client_id`: 13-character base36 string
@@ -102,8 +104,10 @@ Passing shape requirements:
    - `surface`: `"cli"`
    - `cost_mode`: `"free"`
    - `llm_step_number`: String (e.g. `"1"`)
-4. **Provider configuration**: `{"data_collection": "deny"}`.
-5. **Streaming**: `stream: true`.
+3. **Provider configuration**: `{"data_collection": "deny"}`.
+4. **Streaming**: `stream: true`.
+
+OMP-family note: OMP/pi-family requests ride floor-only (16 canonical + `end_turn`) with response reshape — see `backend/internal/convert/tools_floor.go`, `backend/internal/convert/tools_reshape.go`.
 
 ## 5. Concurrency: slotLimit 1 (slot-bound)
 
@@ -117,7 +121,7 @@ Passing shape requirements:
 | Proxy symptom | Meaning | Action |
 |---|---|---|
 | 502 `upstream_unavailable` + `upstream auth rejected 401 Invalid API key` on admission | Proxy sent a stale/expired token | Run `scripts/device-login.py start|poll` or `scripts/gen-freebuff-token.sh` to get a fresh token. |
-| 503 `waiting_room_queued` wrapping upstream 503 `model temporarily unavailable` | Envelope gate tripped (§4) | Check: system-prompt full base3 head, canonical tool schemas, metadata keys present. |
+| 503 `waiting_room_queued` wrapping upstream 503 `model temporarily unavailable` | Envelope gate tripped (§4 — tool definitions only, per 2026-09-30 bisect) | Check: canonical 16-tool schemas with FULL schemas + `end_turn` pin, metadata keys present. |
 | 409 `purchase_capacity` | Slot held by another model purchase (§5) | Wait until `nextExpiryAt` or continue using the currently purchased model seat. |
 | Upstream 428 `waiting_room_required` | Session expired or waiting room required | Call session admission to admit or re-admit the session. |
 
@@ -148,6 +152,8 @@ For exact request shapes use `scripts/free-tier-gate-probe.py` modes (dry-run de
 
 ## Links
 
+- Translation: [OMP-TRANSLATION](OMP-TRANSLATION.md) (OMP/pi-family
+  floor-only wire + response reshape — the layer that satisfies this gate)
 - Capture method: [LIVE-CAPTURE](LIVE-CAPTURE.md),
   [MITM-CAPTURE](MITM-CAPTURE.md), [CLI-WIRE-TRACE](CLI-WIRE-TRACE.md)
 - Upstream surface: [UPSTREAM-CLI](UPSTREAM-CLI.md),

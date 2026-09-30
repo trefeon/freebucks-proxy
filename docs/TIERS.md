@@ -1,6 +1,6 @@
 # Tiers — full vs limited accounts, and what the proxy spoofs per tier
 
-Vendor tip `57943aa71`. Two different "tiers" exist: account tier
+Vendor `0.0.204` / UpstreamSHA `775383b3` (`scripts/vendor-version.txt`, `backend/internal/wirefacts/wirefacts_gen.go:7`). Two different "tiers" exist: account tier
 (`accessTier: full|limited`, decided server-side by egress IP) and model
 tiers (served rows). This doc covers both + the proxy handling.
 

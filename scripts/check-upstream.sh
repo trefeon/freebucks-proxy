@@ -116,9 +116,10 @@ REGISTRY_FILES=(
 # human applies the change (every Phase 1+ fix in issue #140 used to live
 # here: freebuff-standing.ts (renamed from freebuff-trust.ts), foreign-client-signals.ts, prompt-agent-stream.ts,
 # tools/constants.ts for cb_easp). The tail of the list covers the free-tier
-# gate inputs the proxy must mirror exactly: agents/base3.ts + constants
-# (the required system head) and the canonical tool definitions behind the
-# 16-tool wire floor (any move = re-capture + marker port).
+# gate inputs the proxy must mirror exactly: the canonical tool definitions
+# behind the 16-tool wire floor (any move = re-capture + marker port).
+# System prompt content is NOT a gate input (exonerated live 2026-09-30);
+# agents/base3.ts stays watched for the marker the proxy prepends.
 WIRE_FILES=(
 	common/src/constants/freebuff-cost-mode.ts
 	common/src/constants/freebuff-standing.ts

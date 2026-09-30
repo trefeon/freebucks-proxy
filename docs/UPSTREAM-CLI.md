@@ -9,14 +9,15 @@ and users driving the CLI through the gateway.
   written, and the tree the citations corrected there were verified
   against. Previous audit pins: `2b165f749` (npm `0.0.180`, §14) and
   before it `e2b911eca` (= npm `0.0.178`).
-- **Vendor tip at this revision**: `40c75256f` (npm `0.0.188`) — the clone's
-  `origin/main` and the new recorded pin, 28 sync commits past `c2d2958b`
-  (`0.0.185`). The catalog work in that span is the Solar swap (Pro 4 retired
+- **Vendor tip at this revision**: `775383b3` (npm `0.0.204`) — the recorded
+  pin (`snapshots.json:2-3`, `scripts/vendor-version.txt:1`). The catalog work
+  in that span is the Solar swap (Pro 4 retired
   with the first live `supersededBy` notice since 2026-08-21 → Mini 4
   unmetered + Space Bunny Alpha experimental, 2026-09-23) plus the GPT-6 Luna
   rename completing (tier disclaimer, tier-change notice) and the
-  `complete_compaction` anti-ban signal in the agent loop. §14.8 describes the
-  batch; §14.6/§14.7 still describe the two earlier batches.
+  `complete_compaction` anti-ban signal in the agent loop. §14.8 describes that
+  batch; §14.9–§14.11 describe the batches since (§14.10–§14.11: no wire
+  delta, pins stay `0.0.204` / `775383b3`).
 - **Which tree a cite points at**: §9 was re-verified at the tip (`40c75256f`)
   and its line numbers are that tree's; every other `path:line` here is the
   audit pin's (`8ed5d3e5e`). The two trees' numbering has moved
@@ -24,13 +25,14 @@ and users driving the CLI through the gateway.
   insertions scattered through it — so re-read a cite in that file or in
   `common/src/constants/free-agents.ts` by symbol, not by number.
 - **Recorded wiregen pin**: `backend/internal/wirefacts/testdata/wire/snapshots.json:2-3`
-  records `upstream_sha 40c75256f…` with `vendor_version 0.0.188`, and
-  `scripts/vendor-version.txt:1` reads `0.0.188`. That manifest's
+  records `upstream_sha 775383b3…` with `vendor_version 0.0.204`, and
+  `scripts/vendor-version.txt:1` reads `0.0.204`. That manifest's
   `cli/src/components/freebuff-model-selector.tsx` hash
-  (`snapshots.json:30-31`, `cd5d2ab9…`) matches the tip's `cd5d2ab9…` — the
-  selector is a wire-tracked file (`scripts/check-upstream.sh:126`) — so the
-  drift §14.6–§14.8 recorded is closed at the pin, and the pin is the vendor
-  tip (`origin/main` has nothing past it at this writing).
+  (`snapshots.json:28-29`, `90f9462e…`) is the re-pinned value at this
+  commit — the selector is a wire-tracked file
+  (`scripts/check-upstream.sh:126`) — so the drift §14.6–§14.9 recorded is
+  closed at the pin, and the later vendor deltas (§14.10–§14.11) were
+  classified no-wire-delta against it.
   The vendor clone *path* lives in `scripts/check-upstream.sh` (`:90-98`); that
   script holds no pin — its ref defaults to the floating `main` (`:81`) and a
   full-SHA ref is only *gated* against `snapshots.json` (`:229-244`).
@@ -1092,26 +1094,28 @@ are load-bearing for wire parity.
 
 | CLI area | Proxy implementation | Parity verdicts |
 |---|---|---|
-| Session wire: POST/GET/DELETE, model/instance/tz/first-tab headers, compact response | `backend/internal/upstream/session.go`, `session_parse.go`, `client*.go` | `CLI-Limitations.md` rows 12, 13, 19 |
-| Error taxonomy (statuses/codes → envelopes) | `backend/internal/upstream/classify.go`, `backend/internal/server/errors.go` + `error_taxonomy.go` | `CLI-Limitations.md` rows 11, 13, 20-24 |
-| Country/banned/ip_capped/waiting-room/spend gates | `classify.go` + `errors.go` (status passthrough) | rows 1-3, 13, 14, 23 |
-| Freebucks meter (prices map, refund, reset) | `session_parse.go` freebucks block; wire `prices` is the only cost source | rows 9, 27 |
+| Session wire: POST/GET/DELETE, model/instance/tz/first-tab headers, compact response | `backend/internal/upstream/session.go`, `session_parse.go`, `client*.go` | `docs/FREE-TIER-GATE.md` §3 |
+| Error taxonomy (statuses/codes → envelopes) | `backend/internal/upstream/classify.go`, `backend/internal/server/errors.go` + `error_taxonomy.go` | `docs/FREE-TIER-GATE.md` §6 |
+| Country/banned/ip_capped/waiting-room/spend gates | `classify.go` + `errors.go` (status passthrough) | `docs/FREE-TIER-GATE.md` §4 |
+| Freebucks meter (prices map, refund, reset) | `session_parse.go` freebucks block; wire `prices` is the only cost source | `docs/FREE-TIER-GATE.md` §7 |
 | Model registry rows (catalog, paused/retired, served ids) | `backend/internal/modelcat`, `backend/internal/registry`, pins in `backend/internal/wirefacts/testdata/wire/snapshots.json` | tracked by `scripts/check-upstream.sh` + drift PRs |
 | Reasoning effort reporting | `convert_request.go` / chat path writes `codebuff_metadata.freebuff_reasoning_effort` | see §9 for the CLI-side ladders |
-| Tool-name translation | proxy-side only (`backend/internal/convert/toolmap_request.go`); the CLI never sees foreign harness names | `docs/UNIVERSAL-CLIENTS.md` |
-| Takeover / superseded | proxy surfaces `503 session_superseded` and rejoins in-request ONLY on refund wording (`engine.go` `isRefundSuperseded`; takeover-worded stays terminal) | row 5 (`GAP-P1` narrowed 2026-09-28); §6 for the CLI side |
-| Credential files (`~/.config/manicode/credentials.json`) | read path `backend/internal/cli/clicreds.go`; write path deliberately not ported | rows 16, 17, W3 |
+| Tool-name translation | proxy-side only (`backend/internal/convert/toolmap_request.go`, floor `backend/internal/convert/tools_floor.go` — wire carries the 16 canonical CLI defs + end_turn only); the CLI never sees foreign harness names; response restores client names + reshapes CLI args | `docs/UNIVERSAL-CLIENTS.md`, `docs/CHAT-TOOLS-PROBE.md` §1 |
+| Takeover / superseded | proxy surfaces `503 session_superseded` and rejoins in-request ONLY on refund wording (`engine.go` `isRefundSuperseded`; takeover-worded stays terminal) | `docs/UPSTREAM-PORT-QUEUE.md` P8; §6 for the CLI side |
+| Credential files (`~/.config/manicode/credentials.json`) | read path `backend/internal/cli/clicreds.go`; write path deliberately not ported | `docs/UPSTREAM-PORT-QUEUE.md` P7 (setup-UX verdict) |
 
 Notes:
 
-- The port audit (`CLI-Limitations.md`) is written against the `0.0.178`
-  (`e2b911eca`) pin; §14 lists which of its audited files changed in `0.0.180`
-  and §14.6/§14.7 the 24 commits after it, plus §14.8 the 28 commits to the
+- The port audit (`CLI-Limitations.md`, pin `0.0.178` / `e2b911eca`) was
+  purged 2026-09-28; its open verdicts live on in `docs/UPSTREAM-PORT-QUEUE.md`
+  (P7–P10). §14 lists which of its audited files changed in `0.0.180`
+  and §14.6–§14.11 the batches since.
 - The wirefacts pin has since been
-  re-recorded at `a9ef9942d` (`0.0.191`), so the drift those sections describe is
+  re-recorded at `775383b3` (`0.0.204`, `snapshots.json:2-3`,
+  `scripts/vendor-version.txt:1`), so the drift those sections describe is
   closed against the checkout.
 - Presentation surfaces (TUI screens, ads rendering, copy) are intentionally
-  client-only — see the WONT rows in `CLI-Limitations.md`.
+  client-only — see `docs/UPSTREAM-PORT-QUEUE.md` Accepted gaps.
 - When upstream moves: `bash scripts/check-upstream.sh` classifies wire vs
   registry vs npm drift; wire findings flow through
   `scripts/review-wire-drift.sh` and the drift PR process (`AGENTS.md` §4.6-7).

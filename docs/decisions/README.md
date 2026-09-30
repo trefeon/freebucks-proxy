@@ -11,6 +11,8 @@ so a code comment naming one of those numbers will not resolve to a file here.
 | `locality-timezone.md` | The zone the gateway declares on session calls (x-fb-timezone): the vendor facts, the boring-host rule, the country→zone table, and the privacy split between /healthz and the doctor. |
 | `smart-probe.md` | The quota prober: what shipped, why it is trigger-based rather than sweeping, and the knobs. |
 | `tool-name-translation.md` | Client tool names on the wire: one mapper per request, ownership by the ordered pass, and universal wire-name legalization. |
+| `unified-store.md` | One runtime source per plane: mem-authoritative snapshot, DB-persisted, .env seed-only. |
+| `pool-only-removal.md` | Bridge/hybrid excision: pool-only routing, bridge knobs deleted not deprecated. |
 
 House style for a decision record: a status line, non-goals, the rules or
 eligibility conditions, the constants and knobs with their defaults, the files
