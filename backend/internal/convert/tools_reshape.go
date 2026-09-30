@@ -24,7 +24,8 @@ func (m ToolMapper) ReshapeArgsFor(wireName, args string) (string, bool) {
 	if !m.floorOnly {
 		return "", false
 	}
-	rule, ok := reshapeRules[resolveReshapeRule(wireName)]
+	resolved := resolveReshapeRule(wireName)
+	rule, ok := reshapeRules[resolved]
 	if !ok {
 		return "", false
 	}
@@ -32,6 +33,16 @@ func (m ToolMapper) ReshapeArgsFor(wireName, args string) (string, bool) {
 	dec := json.NewDecoder(strings.NewReader(args))
 	dec.UseNumber()
 	if err := dec.Decode(&in); err != nil || in == nil {
+		return "", false
+	}
+	// OMP-vocabulary emission (live 2026-09-30: a turn called OMP-native
+	// "read" with OMP-native {path}): the name resolves to a wire rule,
+	// but args already in OMP shape must pass through — reshaping them
+	// would corrupt valid calls (e.g. read {path} into {path:""}). A
+	// wire-name emission always carries wire-schema args (the model fills
+	// what it was shown). So an OMP-name call reshapes only when it
+	// carries CLI-distinctive keys.
+	if resolved != wireName && !hasAnyKey(in, reshapeCliKeys[resolved]) {
 		return "", false
 	}
 	out := rule(in)
@@ -68,7 +79,6 @@ var ompClientToWire = map[string]string{
 	"todo":  "write_todos",
 }
 
-// resolveReshapeRule maps a response call name to its reshape rule: the
 // wire name first, then the OMP client name the model may emit instead.
 func resolveReshapeRule(name string) string {
 	if _, ok := reshapeRules[name]; ok {
@@ -78,6 +88,29 @@ func resolveReshapeRule(name string) string {
 		return wire
 	}
 	return name
+}
+
+// reshapeCliKeys lists per-wire-rule argument keys that only exist in the
+// CLI schema, never in the OMP shape. An OMP-vocabulary call carrying none
+// of these is already OMP-shaped and passes through untouched.
+var reshapeCliKeys = map[string][]string{
+	"run_terminal_command": {"timeout_seconds", "process_type"},
+	"read_files":           {"paths"},
+	"str_replace":          {"replacements"},
+	"write_file":           {"instructions"},
+	"code_search":          {"flags", "maxResults"},
+	"glob":                 {"pattern"},
+	"write_todos":          {"todos"},
+	"web_search":           {"depth"},
+}
+
+func hasAnyKey(m map[string]any, keys []string) bool {
+	for _, k := range keys {
+		if _, ok := m[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ReshapeMessageCalls rewrites CLI-shaped arguments to OMP shape in place
@@ -145,41 +178,46 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 		}
 		return out
 	},
-	// OMP read {path} — singular; the first path wins.
-	"read_files": func(in map[string]any) map[string]any {
-		paths, _ := in["paths"].([]any)
-		first := ""
-		if len(paths) > 0 {
-			switch p := paths[0].(type) {
-			case string:
-				first = p
-			case map[string]any:
-				first = strField(p, "path")
-			}
-		}
-		return map[string]any{"path": first}
-	},
-	// OMP edit {path, old_string, new_string} — flat pair; first
-	// replacement wins (multi-replacement turns need one call each).
-	"str_replace": func(in map[string]any) map[string]any {
-		out := map[string]any{"path": strField(in, "path")}
-		if reps, _ := in["replacements"].([]any); len(reps) > 0 {
-			if r, ok := reps[0].(map[string]any); ok {
-				out["old_string"] = strField(r, "oldString")
-				out["new_string"] = strField(r, "newString")
-				return out
-			}
-		}
-		out["old_string"] = ""
-		out["new_string"] = ""
-		return out
-	},
 	// OMP write {path, content} — CLI instructions dropped.
 	"write_file": func(in map[string]any) map[string]any {
 		return map[string]any{
 			"path":    strField(in, "path"),
 			"content": strField(in, "content"),
 		}
+	},
+	// OMP read {path} — singular; the first path wins. No paths key
+	// means already OMP shape: nil (passthrough) rather than a
+	// blanked-out path.
+	"read_files": func(in map[string]any) map[string]any {
+		paths, _ := in["paths"].([]any)
+		if len(paths) == 0 {
+			return nil
+		}
+		first := ""
+		switch p := paths[0].(type) {
+		case string:
+			first = p
+		case map[string]any:
+			first = strField(p, "path")
+		}
+		return map[string]any{"path": first}
+	},
+	// OMP edit {path, old_string, new_string} — flat pair; first
+	// replacement wins (multi-replacement turns need one call each). No
+	// replacements key means already OMP shape: nil, never blanked-out
+	// strings.
+	"str_replace": func(in map[string]any) map[string]any {
+		reps, _ := in["replacements"].([]any)
+		if len(reps) == 0 {
+			return nil
+		}
+		out := map[string]any{"path": strField(in, "path")}
+		if r, ok := reps[0].(map[string]any); ok {
+			out["old_string"] = strField(r, "oldString")
+			out["new_string"] = strField(r, "newString")
+			return out
+		}
+		return nil
 	},
 	// OMP grep {pattern, path?} — CLI cwd becomes path; flags/maxResults
 	// dropped.
@@ -240,6 +278,21 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 	// descriptions carried verbatim.
 	"ask_user": func(in map[string]any) map[string]any {
 		qs, _ := in["questions"].([]any)
+		if len(qs) == 0 {
+			return nil
+		}
+		// Already OMP shape (every item carries an id): passthrough.
+		native := true
+		for _, q := range qs {
+			qm, _ := q.(map[string]any)
+			if qm == nil || strField(qm, "id") == "" {
+				native = false
+				break
+			}
+		}
+		if native {
+			return nil
+		}
 		out := make([]any, 0, len(qs))
 		for i, q := range qs {
 			qm, _ := q.(map[string]any)
@@ -270,13 +323,19 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 		return map[string]any{"questions": out}
 	},
 	// read_url -> OMP read {path}: OMP reads http(s) URLs through read;
-	// max_chars dropped.
+	// max_chars dropped. No url means already OMP shape: nil.
 	"read_url": func(in map[string]any) map[string]any {
+		if strField(in, "url") == "" {
+			return nil
+		}
 		return map[string]any{"path": strField(in, "url")}
 	},
 	// skill -> OMP read {path}: skill content resolves through the
-	// skill:// internal URI the read tool serves.
+	// skill:// internal URI the read tool serves. Empty name: nil.
 	"skill": func(in map[string]any) map[string]any {
+		if strField(in, "name") == "" {
+			return nil
+		}
 		return map[string]any{"path": "skill://" + strField(in, "name")}
 	},
 }

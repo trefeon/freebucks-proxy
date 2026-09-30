@@ -82,8 +82,9 @@ func TestReshapeClientNames(t *testing.T) {
 	// restore is identity, but the args still need the wire rule.
 	for _, tc := range [][3]string{
 		{"read", `{"paths":["a.go"]}`, "path"},
-		{"bash", `{"command":"ls"}`, "command"},
+		{"bash", `{"command":"ls","timeout_seconds":30}`, "command"},
 		{"edit", `{"path":"f","replacements":[{"oldString":"a","newString":"b"}]}`, "old_string"},
+		{"todo", `{"todos":[{"task":"a","completed":false}]}`, "op"},
 	} {
 		got, ok := m.ReshapeArgsFor(tc[0], tc[1])
 		if !ok {
@@ -97,6 +98,19 @@ func TestReshapeClientNames(t *testing.T) {
 		}
 		if _, ok := gotM[tc[2]]; !ok {
 			t.Errorf("ReshapeArgsFor(%q) = %s, want key %q", tc[0], got, tc[2])
+		}
+	}
+	// OMP-vocabulary emission already in OMP shape passes through
+	// untouched (reshaping would corrupt valid calls).
+	for _, tc := range [][2]string{
+		{"read", `{"path":"a.go"}`},
+		{"bash", `{"command":"ls"}`},
+		{"edit", `{"path":"f","old_string":"a","new_string":"b"}`},
+		{"todo", `{"op":"view"}`},
+		{"grep", `{"pattern":"x"}`},
+	} {
+		if got, ok := m.ReshapeArgsFor(tc[0], tc[1]); ok {
+			t.Errorf("ReshapeArgsFor(%q) = %q, want passthrough (already OMP shape)", tc[0], got)
 		}
 	}
 }
