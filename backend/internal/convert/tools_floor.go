@@ -142,6 +142,21 @@ func floorOnlyOMP(payload map[string]any) {
 // its payload as assistant text (or absorbs it) instead of relaying a name
 // the OMP dispatcher rejects with "not found".
 var floorFallbacks = map[string]string{
+	// Declared by a full OMP toolset; also registered unconditionally so a
+	// trimmed toolset (--tools, PI_NO_INTENT) can never leak a wire-only
+	// name: resolution must be total, not dependent on what the client
+	// happened to declare. First-claim-wins, so a real mapping still owns
+	// the pair.
+	"run_terminal_command": "bash",
+	"read_files":           "read",
+	"str_replace":          "edit",
+	"write_file":           "write",
+	"code_search":          "grep",
+	"glob":                 "glob",
+	"write_todos":          "todo",
+	"web_search":           "web_search",
+	// Never declared by OMP: the floor still rides (gate requirement) and
+	// these are the only restore target for the call.
 	"ask_user":       "ask",
 	"read_url":       "read",
 	"list_directory": "read",

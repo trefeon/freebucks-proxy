@@ -3,15 +3,14 @@ package server_test
 import (
 	"bytes"
 	"encoding/json"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 func TestWaitingRoom503ThenRetry(t *testing.T) {
@@ -199,15 +198,20 @@ func TestChatSessionSupersededTerminal(t *testing.T) {
 	}
 }
 
-// TestChatSessionSupersededRefundNeverRejoins pins the fail-fast rule for
-// the live 2026-09-28 shape: a 409 whose wording describes a REFUNDED
-// purchase ("purchase was refunded. Start a new session to try again." —
-// e.g. after a waiting-room 503 consumed the hold) is TERMINAL for the
-// current turn, exactly like a takeover. The gate match is error code +
-// HTTP status, never message prose, so no wording ever reopens a rejoin:
-// one chat attempt, one session create, honest 409 with no Retry-After.
-// The success canary proves the rejoin never fires.
-func TestChatSessionSupersededRefundNeverRejoins(t *testing.T) {
+// TestChatSessionSupersededRefundRejoins pins the corrected rule for the live
+// 2026-09-28 shape: a 409 whose wording describes a REFUNDED purchase
+// ("This model purchase was refunded. Start a new session to try again." —
+// e.g. after a waiting-room 503 consumed the hold) rejoins fresh ONCE
+// in-request, with no wait and no Retry-After.
+//
+// Supersedes the earlier "refund never rejoins" policy (which required the
+// user to restart the client for a self-healing condition). The gate still
+// matches on error code + HTTP status, never prose: the refund marker only
+// decides whether the single fresh admit is attempted. A takeover 409 has a
+// LIVE holder and stays terminal (TestChatSessionSupersededTerminal /
+// TestTakeoverSupersededTerminalByDefault) — stealing that seat back risks
+// ping-pong with the instance the user is actually watching.
+func TestChatSessionSupersededRefundRejoins(t *testing.T) {
 	mock := testutil.NewMock()
 	defer mock.Close()
 	callCount := 0
@@ -227,23 +231,18 @@ func TestChatSessionSupersededRefundNeverRejoins(t *testing.T) {
 		_, _ = w.Write([]byte("data: " + chunk("cmpl-test", 1234567890, `"choices":[{"delta":{"content":"ok"},"index":0}]`) + "\n\n"))
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}
+	// Default config: CHAT_AUTO_RETRY off — the refund rejoin is not gated on it.
 	ts, _ := newTestServer(t, nil, mock)
 
 	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", chatBody(modelA), nil)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("status = %d, want 409 (refund wording never rejoins): %s", resp.StatusCode, data)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (refund rejoins fresh once): %s", resp.StatusCode, data)
 	}
-	if !strings.Contains(string(data), "session_superseded") {
-		t.Errorf("body missing session_superseded: %s", data)
+	if got := callCount; got != 2 {
+		t.Errorf("upstream chat attempts = %d, want exactly 2 (refusal + one fresh rejoin)", got)
 	}
-	if ra := resp.Header.Get("Retry-After"); ra != "" {
-		t.Errorf("Retry-After = %q, want empty (terminal 409 invites no retry)", ra)
-	}
-	if got := callCount; got != 1 {
-		t.Errorf("upstream chat attempts = %d, want exactly 1 (no rejoin on refund wording)", got)
-	}
-	if got := mock.SessionCreates; got != 1 {
-		t.Errorf("session creates = %d, want 1 (no fresh admit in-request; the next turn re-joins)", got)
+	if got := mock.SessionCreates; got != 2 {
+		t.Errorf("session creates = %d, want 2 (dead row dropped, fresh admit)", got)
 	}
 }
 

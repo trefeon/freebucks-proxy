@@ -3,15 +3,14 @@ package server
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-	"strings"
-	"time"
-
 	"freebuff-proxy/backend/internal/convert"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 )
 
 // chatAutoRetry bounds for CHAT_AUTO_RETRY (opt-in in-request retry so
@@ -64,12 +63,26 @@ func autoRetryWait(err error) (time.Duration, bool) {
 	if errors.As(err, &sse) {
 		// Refund wording only: "This model purchase was refunded. Start a
 		// new session to try again." No holder to fight, safe to rejoin.
-		if strings.Contains(strings.ToLower(sse.Body), "refund") {
+		if refundedSuperseded(err) {
 			return 0, true
 		}
 		return 0, false
 	}
 	return 0, false
+}
+
+// refundedSuperseded reports whether err is the refunded-purchase 409
+// session_superseded ("This model purchase was refunded. Start a new session
+// to try again."). A takeover 409 carries no refund marker and has a live
+// holder, so it must stay terminal — stealing the seat back risks ping-pong.
+// The two wordings share one wire code, so the refund marker is the only
+// discriminator.
+func refundedSuperseded(err error) bool {
+	var sse *upstream.SessionSupersededError
+	if !errors.As(err, &sse) {
+		return false
+	}
+	return strings.Contains(strings.ToLower(sse.Body), "refund")
 }
 
 // chatBackend abstracts the acquire/chat/invalidate/cooldown/lease hooks the
@@ -145,6 +158,18 @@ func (b pooledBackend) FinishRun(ctx context.Context, lease *pool.Lease) {
 // exactly one chatAttemptOnce pass (fail-fast, as pinned).
 func (s *Server) chatAttempt(ctx context.Context, model string, normalized []byte, st *chatTraceState, backend chatBackend, autoRetry bool) (io.ReadCloser, *pool.Lease, error) {
 	if !autoRetry {
+		up, lease, err := s.chatAttemptOnce(ctx, model, normalized, st, backend)
+		if err == nil || !refundedSuperseded(err) {
+			return up, lease, err
+		}
+		// Refunded purchase (409 session_superseded, refund wording): the
+		// seat is gone and NO competing instance holds it, so rejoin fresh
+		// exactly once even with auto-retry off — chatAttemptOnce already
+		// invalidated the dead session, so the retry re-admits on a new row.
+		// Bounded: one extra upstream attempt per request, never a loop. A
+		// takeover 409 (live holder) is excluded by refundedSuperseded and
+		// still surfaces immediately.
+		st.retried = true
 		return s.chatAttemptOnce(ctx, model, normalized, st, backend)
 	}
 	deadline := time.Now().Add(chatAutoRetryBudget)

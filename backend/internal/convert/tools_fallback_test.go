@@ -89,9 +89,11 @@ func TestFloorFallbackReshape(t *testing.T) {
 	}
 }
 
-// The todo reshape must emit the verified phase form: {op:init,
-// list:[{phase, items:[{task, completed}]}]} — flat items rely on the
-// repair path and bare init errors ("Missing list for init operation").
+// The todo reshape must emit the verified phase form with STRING items:
+// {op:init, list:[{phase, items:[string]}]} — OMP's InitListEntry types items
+// as string[], so a per-item {task, completed} object is rejected by the
+// dispatcher, and completion rides as trailing `done` ops instead
+// (TestReshapeTodoFanoutCompletion).
 func TestTodoReshapePhaseForm(t *testing.T) {
 	m := ToolMapper{floorOnly: true}
 	got, ok := m.ReshapeArgsFor("write_todos",
@@ -116,10 +118,9 @@ func TestTodoReshapePhaseForm(t *testing.T) {
 	}
 	items, _ := phase["items"].([]any)
 	if len(items) != 2 {
-		t.Fatalf("items = %v, want both todos carried with flags", phase["items"])
+		t.Fatalf("items = %v, want both todos carried", phase["items"])
 	}
-	first, _ := items[0].(map[string]any)
-	if first["task"] != "a" || first["completed"] != false {
-		t.Errorf("first item = %v, want {task:a completed:false}", first)
+	if items[0] != "a" || items[1] != "b" {
+		t.Errorf("items = %v, want the string task titles in order", items)
 	}
 }

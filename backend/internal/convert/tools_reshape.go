@@ -136,6 +136,29 @@ func (m ToolMapper) fanoutArgs(resolved string, in map[string]any) []map[string]
 		return outs
 	case "glob":
 		return m.fanoutGlobArgs(in)
+	case "write_todos":
+		// OMP init carries string-only items and has no per-item status, so
+		// completion rides as one trailing `done {task, phase?}` op per
+		// completed entry. Order: init first, then the done ops.
+		titles, done, ok := todoItems(in)
+		if !ok {
+			return nil // already OMP-shaped emission: passthrough
+		}
+		if len(titles) == 0 {
+			return []map[string]any{{"op": "view"}}
+		}
+		items := make([]any, 0, len(titles))
+		for _, title := range titles {
+			items = append(items, title)
+		}
+		outs := []map[string]any{{
+			"op":   "init",
+			"list": []any{map[string]any{"phase": "Tasks", "items": items}},
+		}}
+		for _, title := range done {
+			outs = append(outs, map[string]any{"op": "done", "task": title})
+		}
+		return outs
 	default:
 		if rule, ok := reshapeRules[resolved]; ok {
 			if out := rule(in); out != nil {
@@ -358,6 +381,36 @@ func writeFileContent(in map[string]any) string {
 	return ""
 }
 
+// todoItems extracts a CLI `write_todos` dump as (titles, completedTitles),
+// order preserved. ok=false means the call carried no `todos` key at all — an
+// already-OMP-shaped emission the caller must pass through untouched.
+func todoItems(in map[string]any) (titles, done []string, ok bool) {
+	raw, present := in["todos"]
+	if !present {
+		return nil, nil, false
+	}
+	list, _ := raw.([]any)
+	titles = make([]string, 0, len(list))
+	for _, t := range list {
+		m, _ := t.(map[string]any)
+		if m == nil {
+			continue
+		}
+		title := strField(m, "task")
+		if title == "" {
+			title = strField(m, "content")
+		}
+		if title == "" {
+			continue
+		}
+		titles = append(titles, title)
+		if d, _ := m["completed"].(bool); d {
+			done = append(done, title)
+		}
+	}
+	return titles, done, true
+}
+
 var reshapeRules = map[string]func(map[string]any) map[string]any{
 	// OMP bash {command, cwd?, timeout?, ...} — extras have no CLI
 	// equivalent and are dropped; the `i` intent is omitted (the OMP
@@ -440,31 +493,22 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 		}
 		return nil
 	},
-	// OMP todo is an op-machine, CLI write_todos a state dump: re-init with
-	// completed}]}]} (live-probed 2026-09-30: bare init errors "Missing
-	// list for init operation"; flat items rely on the repair path).
-	// Completed flags ride through per item. All-done dumps read back as
-	// a view (init rejects empty items).
+	// OMP todo is an op-machine, CLI write_todos a state dump. OMP's init
+	// list carries string-only items (InitListEntry.items: string[]), so a
+	// per-item {task, completed} object is rejected by the dispatcher; this
+	// single entry emits the init half and fanoutArgs appends one `done` op
+	// per completed task. Empty dump reads back as a view.
 	"write_todos": func(in map[string]any) map[string]any {
-		todos, _ := in["todos"].([]any)
-		items := make([]any, 0, len(todos))
-		for _, t := range todos {
-			m, ok := t.(map[string]any)
-			if !ok {
-				continue
-			}
-			title := strField(m, "task")
-			if title == "" {
-				title = strField(m, "content")
-			}
-			if title == "" {
-				continue
-			}
-			done, _ := m["completed"].(bool)
-			items = append(items, map[string]any{"task": title, "completed": done})
+		titles, _, ok := todoItems(in)
+		if !ok {
+			return nil // already OMP-shaped emission
 		}
-		if len(items) == 0 {
+		if len(titles) == 0 {
 			return map[string]any{"op": "view"}
+		}
+		items := make([]any, 0, len(titles))
+		for _, title := range titles {
+			items = append(items, title)
 		}
 		return map[string]any{
 			"op":   "init",

@@ -68,14 +68,25 @@ dropped. A `tool_choice` pin naming a dropped wire name is deleted (default
 Upstream `topUpCliTools` drops `decide` (`upstream/clitools.go:28-30`), so
 the wire the gate sees is **16 + `end_turn`**.
 
-### Fallback routes (`convert/tools_floor.go:140-162`)
+### Fallback routes (`convert/tools_floor.go` `floorFallbacks`)
 
 Floor tools OMP never declares still ride (gate requirement) and restore to
 the OMP equivalent via `RegisterFloorFallbacks` (first claim wins, never
-overrides a real mapping):
+overrides a real mapping). The table is registered UNCONDITIONALLY for every
+floor wire name that has an OMP target, not only when the client declared
+that tool: resolution is total, so a trimmed toolset (`--tools`,
+`PI_NO_INTENT`) can never leak a wire-only name back to the client.
 
 | Wire (model sees) | Client (OMP dispatches) | Args |
 |---|---|---|
+| `run_terminal_command` | `bash` | reshaped (extras dropped) |
+| `read_files` | `read` | reshaped (fan-out per path) |
+| `str_replace` | `edit` | reshaped (fan-out per replacement) |
+| `write_file` | `write` | reshaped (nested content preserved) |
+| `code_search` | `grep` | reshaped (`cwd`→`path`) |
+| `glob` | `glob` / `find` | origin-aware (ex-`find` → `find {pattern}`) |
+| `write_todos` | `todo` | reshaped (phase form) |
+| `web_search` | `web_search` | reshaped (`depth` dropped) |
 | `ask_user` | `ask` | reshaped (ids synthesized) |
 | `read_url` | `read` | reshaped (`url` → `path`) |
 | `list_directory` | `read` | verbatim (`{path}` is already valid OMP `read` shape) |
@@ -105,7 +116,7 @@ name (non-streaming: `server/openai_stream.go:275-292`).
 | `write_file` | `write` | `{path, content}`; `instructions` dropped |
 | `code_search` | `grep` | `{pattern, path≤cwd}`; flags/`maxResults` dropped |
 | `glob` | `glob`/`find` | origin-aware: ex-`find` origin → OMP `find {pattern}` (source: first present of `pattern`/`query`; `cwd`/`max_results`/`grep_keywords` dropped); native → OMP `glob {path}`; already-OMP-shaped emissions pass through |
-| `write_todos` | `todo` | `op:init` + phase-form `list:[{phase, items}]`; empty dump → `op:view` (probe §B: bare `init` errors `Missing list`; Runtime-broken #3: bridge stringifies nested `list`, so `init` cannot round-trip — `view` works) |
+| `write_todos` | `todo` | **fan-out**: `op:init` with STRING items (`list:[{phase:"Tasks", items:[string]}]` — OMP's `InitListEntry.items` is `string[]`, so the CLI `{task, completed}` objects are rejected), then one trailing `op:done {task}` per completed entry (init has no per-item status); empty dump → `op:view`; an already-OMP-shaped emission (no `todos` key) passes through |
 | `web_search` | `web_search` | `{query}` only; `depth` dropped |
 | `ask_user` | `ask` | ids synthesized `q0…` (OMP requires them); labels/descriptions verbatim (probe UI: `ask` without per-question `id` fails validation) |
 | `read_url` | `read` | `{path≤url}`; `max_chars` dropped |

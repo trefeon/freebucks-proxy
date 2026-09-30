@@ -51,16 +51,19 @@ func TestReshapeArgsTable(t *testing.T) {
 		{"glob", `{"pattern":"*.go"}`, map[string]any{"path": "*.go"}},
 		{
 			"write_todos", `{"todos":[{"task":"a","completed":false},{"task":"b","completed":true}]}`,
+			// OMP init items are STRING-only (InitListEntry.items: string[]);
+			// the single entry carries the init half, completion rides as
+			// trailing `done` ops (see TestReshapeTodoFanoutCompletion).
 			map[string]any{"op": "init", "list": []any{map[string]any{
 				"phase": "Tasks",
-				"items": []any{map[string]any{"task": "a", "completed": false}, map[string]any{"task": "b", "completed": true}},
+				"items": []any{"a", "b"},
 			}}},
 		},
 		{
 			"write_todos", `{"todos":[{"task":"b","completed":true}]}`,
 			map[string]any{"op": "init", "list": []any{map[string]any{
 				"phase": "Tasks",
-				"items": []any{map[string]any{"task": "b", "completed": true}},
+				"items": []any{"b"},
 			}}},
 		},
 		{
@@ -144,5 +147,64 @@ func TestReshapeArgsPassthrough(t *testing.T) {
 	plain := ToolMapper{}
 	if _, ok := plain.ReshapeArgsFor("run_terminal_command", `{"command":"ls"}`); ok {
 		t.Error("non-floor-only mapper reshaped, want passthrough")
+	}
+}
+
+// OMP's init has no per-item status field (InitListEntry.items is string[]),
+// so a CLI dump that marks tasks complete must fan out to the init op plus
+// one trailing `done` op per completed task, order preserved.
+func TestReshapeTodoFanoutCompletion(t *testing.T) {
+	m := ToolMapper{floorOnly: true}
+	got, ok := m.ReshapeArgsFanout("write_todos",
+		`{"todos":[{"task":"a","completed":true},{"task":"b","completed":false},{"task":"c","completed":true}]}`)
+	if !ok {
+		t.Fatal("write_todos not reshaped")
+	}
+	if len(got) != 3 {
+		t.Fatalf("calls = %d, want 3 (init + done a + done c): %v", len(got), got)
+	}
+	var init map[string]any
+	if err := json.Unmarshal([]byte(got[0]), &init); err != nil {
+		t.Fatalf("init args invalid JSON: %v", err)
+	}
+	if init["op"] != "init" {
+		t.Errorf("call[0] op = %v, want init", init["op"])
+	}
+	list, _ := init["list"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("init list = %v, want one phase", init["list"])
+	}
+	phase, _ := list[0].(map[string]any)
+	items, _ := phase["items"].([]any)
+	if len(items) != 3 {
+		t.Fatalf("init items = %v, want 3 strings", phase["items"])
+	}
+	for i, want := range []string{"a", "b", "c"} {
+		if items[i] != want {
+			t.Errorf("items[%d] = %v (%T), want string %q", i, items[i], items[i], want)
+		}
+	}
+	for i, want := range []string{"a", "c"} {
+		var op map[string]any
+		if err := json.Unmarshal([]byte(got[i+1]), &op); err != nil {
+			t.Fatalf("done op %d invalid JSON: %v", i, err)
+		}
+		if op["op"] != "done" || op["task"] != want {
+			t.Errorf("call[%d] = %v, want {op:done task:%s}", i+1, op, want)
+		}
+	}
+}
+
+// A model that emits an already-OMP-shaped todo op (no `todos` key) passes
+// through untouched on both reshape paths: reshaping it would corrupt a
+// valid call.
+func TestReshapeTodoOMPShapePassthrough(t *testing.T) {
+	m := ToolMapper{floorOnly: true}
+	omp := `{"op":"done","task":"a"}`
+	if got, ok := m.ReshapeArgsFor("write_todos", omp); ok {
+		t.Errorf("ReshapeArgsFor rewrote OMP-shaped todo to %q, want passthrough", got)
+	}
+	if got, ok := m.ReshapeArgsFanout("write_todos", omp); ok {
+		t.Errorf("ReshapeArgsFanout rewrote OMP-shaped todo to %v, want passthrough", got)
 	}
 }
