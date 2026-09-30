@@ -80,3 +80,31 @@ blocked keys, DB lifecycle.
   openapi regen. No `dist` commit (integrator rebuilds once).
 - Shared `store/store.go` (spill core/DNS): Lane A owns; other lanes follow
   the recorded spill pattern inside their plane and MUST NOT touch it.
+
+## Amendment 2026-09-30: pool ledger flush cadence + crash window
+
+Lane B follow-up (post-roll zeros: `Messages24h`/`Requests`/`SpendDay` all
+zero after restart). Root cause: the write path worked (dirty flag → spill
+→ `pool_state` rows) but `Pool.Start` never called `RestorePoolPersist` —
+three comments claimed it did, hiding the bug. Fixed: `Start` restores
+first, then starts the spill, so the first pass can only persist restored
+state.
+
+- Flush cadence: dirty-gated only. Coalesced wakeup per mutation batch plus
+  a 1s spill tick (`poolSpillFlushEvery`), the maintain tick, and a
+  best-effort `Shutdown` flush. No new tables: the per-token blob
+  (`pool/ledger/<sha256>`) gained one additive field, `requests_total`
+  (runs mint counter = healthz `Requests`); pre-persist rows unmarshal it
+  as 0 and the restore skips them (max-guarded, never drags a live count
+  back). Migration `00004_v4_pool_state` already covers pre-table DBs.
+- Crash window: an unclean kill (SIGKILL, power loss) loses at most ~1s of
+  ledger deltas (the dirty-gated interval); a clean `Shutdown` flushes.
+  Documented, not plumbed further: no new graceful-shutdown machinery was
+  added. Restore revalidates on the way in (out-of-window usage dropped,
+  stale spend buckets rolled, hints expiry-checked), so a restart never
+  resurrects expired windows.
+- Deliberately still volatile (no complaint possible): slot/live-turn
+  counters, cooldowns, single-flight, `ip_capped`/burst windows, upstream
+  client counters (`TransientRetries`/`FingerprintRotations`/
+  `RateLimitEvents`), pool `requestsServed`, per-entry served history, and
+  the dashboard usage ring (in-memory by design, no table).

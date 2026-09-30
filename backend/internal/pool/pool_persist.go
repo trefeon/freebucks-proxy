@@ -11,17 +11,20 @@ import (
 // pool_persist.go — pool runtime write-through cache (DB-unified-storage).
 //
 // The in-memory maps stay the hot path: every mutation only sets a dirty
-// flag (markPersistDirty, a lock-free atomic store). A background flush —
-// the maintain tick plus a best-effort pass in Shutdown — snapshots the
-// allowlisted state and saves it through the PoolPersist interface. The
-// pool never imports the store package (archtest leaf rule): the pool
-// marshals its own opaque blobs, and the store package implements
-// PoolPersist implicitly (no import in either direction). Nil store
+// flag (markPersistDirty, a lock-free atomic store). Pool.Start restores the
+// persisted state first (RestorePoolPersist) and then starts the spill.
+// A background flush — the maintain tick plus a best-effort pass in
+// Shutdown — snapshots the allowlisted state and saves it through the
+// PoolPersist interface. The pool never imports the store package (archtest
+// leaf rule): the pool marshals its own opaque blobs, and the store package
+// implements PoolPersist implicitly (no import in either direction). Nil store
 // disables persistence (in-memory only). Save errors only warn and
 // re-arm the dirty flag for the next pass — a DB failure degrades to
 // live-only and never blocks the request hot path.
 //
-// Persist allowlist (parent-scoped): ledger counters, admissions counts,
+// Persist allowlist (parent-scoped): ledger counters (usage, Pacific-day
+// requests, spend buckets, spend_limited) plus the runs minted-turn total
+// (healthz Requests) in the same per-token blob, admissions counts,
 // terminal-cooldown hints (ban/country-block only, cooldown_hint.go). Never persisted: live handles (channels,
 // sync.Once, WaitGroup, CancelFunc, atomic.Pointer, Logger, Registry,
 // tokenEntry pointers); 429/ip_capped/limited_ip/burst windows (an ip_capped
@@ -75,12 +78,15 @@ type poolSpendBlob struct {
 }
 
 // poolLedgerBlob is the JSON-stable mirror of AccountLedger. Timestamps
-// are Unix millis UTC.
+// are Unix millis UTC. requests_total is the runs minted-turn counter
+// (healthz Requests): additive, so pre-persist rows unmarshal it as 0 and
+// the restore skips them.
 type poolLedgerBlob struct {
-	Usage       []int64       `json:"usage"`
-	Spend       poolSpendBlob `json:"spend"`
-	ReqDayStart int64         `json:"req_day_start"`
-	ReqDayCount int64         `json:"req_day_count"`
+	Usage         []int64       `json:"usage"`
+	Spend         poolSpendBlob `json:"spend"`
+	ReqDayStart   int64         `json:"req_day_start"`
+	ReqDayCount   int64         `json:"req_day_count"`
+	RequestsTotal int           `json:"requests_total"`
 }
 
 // poolTokenHash keys a token's per-token rows by the SHA-256 hex of the
@@ -94,8 +100,8 @@ func poolTokenHash(raw string) string {
 func poolLedgerKey(tokenHash string) string { return poolLedgerPrefix + tokenHash }
 
 // SetPoolPersist wires the runtime persistence backend (nil disables).
-// Start restores the persisted state automatically after wiring, so
-// counters and terminal-cooldown hints survive restarts;
+// Pool.Start calls RestorePoolPersist (which reads this backend) before
+// StartPoolSpill, so counters and terminal-cooldown hints survive restarts;
 // direct RestorePoolPersist calls remain for tests and pre-Start restores.
 func (p *Pool) SetPoolPersist(s PoolPersist) {
 	p.persistMu.Lock()
@@ -125,7 +131,8 @@ const (
 )
 
 // StartPoolSpill launches the background persist consumer. Idempotent; a
-// nil backend is a no-op. Start calls it after restore; tests opt in
+// nil backend is a no-op. Pool.Start runs RestorePoolPersist before this,
+// so the first pass can only persist restored state; tests opt in
 // explicitly so suites without it stay fully deterministic.
 func (p *Pool) StartPoolSpill() {
 	p.poolSpillOnc.Do(func() {
@@ -297,6 +304,7 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 	p.roster.mu.Lock()
 	captures := make([]ledgerCapture, 0, len(*p.roster.toks.Load()))
 	keys := make([]string, 0, len(*p.roster.toks.Load()))
+	entries := make([]*tokenEntry, 0, len(*p.roster.toks.Load()))
 	for _, entry := range *p.roster.toks.Load() {
 		if entry == nil || entry.ledger == nil {
 			continue
@@ -304,9 +312,18 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 		key := poolLedgerKey(poolTokenHash(entry.token))
 		captures = append(captures, captureLedger(entry.ledger))
 		keys = append(keys, key)
+		entries = append(entries, entry)
 		liveLedgers[key] = true
 	}
 	p.roster.mu.Unlock()
+	// Runs mint counters ride outside the roster lock: entry pointers are
+	// never mutated in place, so the runs Snapshot is safe lock-free here
+	// and introduces no roster→runs lock ordering.
+	for i, entry := range entries {
+		if entry.runs != nil {
+			captures[i].requestsTotal = entry.runs.Snapshot().Requests
+		}
+	}
 	ledgers := make([]poolKV, 0, len(captures))
 	for i, cap := range captures {
 		ledgers = append(ledgers, poolKV{key: keys[i], val: mustMarshalPool(marshalLedgerCapture(cap))})
@@ -335,10 +352,11 @@ func (p *Pool) snapshotPoolState() (staged []poolKV, liveLedgers, liveCooldowns 
 // taken while the roster mutex is held. marshalLedgerCapture
 // turns it into the JSON blob after the lock is released.
 type ledgerCapture struct {
-	usage       []time.Time
-	reqDayStart int64
-	reqDayCount int64
-	spend       *spendCapture
+	usage         []time.Time
+	reqDayStart   int64
+	reqDayCount   int64
+	requestsTotal int
+	spend         *spendCapture
 }
 
 // spendCapture mirrors spendLedger's persisted fields.
@@ -381,8 +399,9 @@ func captureLedger(l *AccountLedger) ledgerCapture {
 // No lock is required; call it after releasing the roster mutex.
 func marshalLedgerCapture(c ledgerCapture) poolLedgerBlob {
 	blob := poolLedgerBlob{
-		ReqDayStart: c.reqDayStart,
-		ReqDayCount: c.reqDayCount,
+		ReqDayStart:   c.reqDayStart,
+		ReqDayCount:   c.reqDayCount,
+		RequestsTotal: c.requestsTotal,
 	}
 	for _, t := range c.usage {
 		blob.Usage = append(blob.Usage, t.UnixMilli())
@@ -406,8 +425,9 @@ func marshalLedgerCapture(c ledgerCapture) poolLedgerBlob {
 }
 
 // RestorePoolPersist loads persisted runtime state into the live maps.
-// Start calls it automatically after the owner wires the store with
-// SetPoolPersist; direct calls remain for tests and pre-Start restores.
+// Pool.Start calls this before StartPoolSpill (wiring via SetPoolPersist
+// must happen first — see cli serve); direct calls remain for tests and
+// pre-Start restores.
 // Missing rows stay zero-valued (a fresh boot behaves exactly as before);
 // corrupt rows warn and are skipped — restore never fails the boot.
 // TTL/expiry is enforced on the way in: out-of-window usage timestamps are
@@ -431,9 +451,10 @@ func (p *Pool) RestorePoolPersist() {
 
 func (p *Pool) restoreLedgers(st PoolPersist, now time.Time) {
 	// Index the live roster by ledger key first (no store I/O under the
-	// roster lock).
+	// roster lock). Entries (not bare ledgers) are indexed so the runs
+	// mint counter restores alongside the ledger from the same blob.
 	p.roster.mu.Lock()
-	byKey := make(map[string]*AccountLedger)
+	byKey := make(map[string]*tokenEntry)
 	for _, entry := range *p.roster.toks.Load() {
 		if entry == nil {
 			continue
@@ -441,11 +462,11 @@ func (p *Pool) restoreLedgers(st PoolPersist, now time.Time) {
 		if entry.ledger == nil {
 			entry.ledger = newAccountLedger()
 		}
-		byKey[poolLedgerKey(poolTokenHash(entry.token))] = entry.ledger
+		byKey[poolLedgerKey(poolTokenHash(entry.token))] = entry
 	}
 	p.roster.mu.Unlock()
 
-	for key, ledger := range byKey {
+	for key, entry := range byKey {
 		raw, ok, err := st.LoadPoolState(key)
 		if err != nil {
 			p.logger.Warn("pool: runtime persist restore failed (starting fresh)", "key", key, "error", err)
@@ -460,8 +481,13 @@ func (p *Pool) restoreLedgers(st PoolPersist, now time.Time) {
 			continue
 		}
 		p.roster.mu.Lock()
-		installLedger(ledger, blob, now)
+		installLedger(entry.ledger, blob, now)
 		p.roster.mu.Unlock()
+		// Runs mint counter: outside the roster lock (runs owns its mutex;
+		// max-guarded, so an ancient blob can never drag a live count back).
+		if entry.runs != nil {
+			entry.runs.RestoreRequestsTotal(blob.RequestsTotal)
+		}
 	}
 }
 

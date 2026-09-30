@@ -119,10 +119,13 @@ func pollSession(ctx context.Context, sess *session.Manager, cfg *config.Config,
 // nothing else.
 func (p *Pool) Start(ctx context.Context) {
 	p.once.Do(func() {
-		// Restore the persisted runtime state first (pool_state): the
-		// live per-token quota cache, so a restart resumes warm.
-		// Missing rows are a fresh boot (current behavior); a nil store
-		// is a no-op; restore never fails the boot (warn-only).
+		// Restore the persisted runtime state first (pool_state): ledger
+		// counters, spend buckets and the runs mint totals, so a restart
+		// resumes warm. Missing rows are a fresh boot (current behavior);
+		// a nil store is a no-op; restore never fails the boot (warn-only).
+		// The spill starts after the restore so its first pass can only
+		// persist the restored state, never blank it.
+		p.RestorePoolPersist()
 		// Unified-store spill: background 1s persist behind the mem-
 		// authoritative maps (nil backend = no-op; idempotent).
 		p.StartPoolSpill()

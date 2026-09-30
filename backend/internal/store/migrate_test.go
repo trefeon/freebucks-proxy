@@ -112,3 +112,40 @@ func TestDBPathDefault(t *testing.T) {
 		t.Fatalf("DBPathFromEnv default = %q, want %q", got, want)
 	}
 }
+
+// TestOpenMigratesV1PoolStateUsable proves a pre-pool_state DB (v1 history
+// file, the shape live installs had before migration 00004) opens, migrates
+// forward, and serves the pool runtime table the ledger restore reads: the
+// pool restore must never meet a missing table on an upgraded install.
+func TestOpenMigratesV1PoolStateUsable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("raw open: %v", err)
+	}
+	if _, err := raw.Exec(legacyV1Schema); err != nil {
+		t.Fatalf("v1 schema: %v", err)
+	}
+	if _, err := raw.Exec(`PRAGMA user_version=1`); err != nil {
+		t.Fatalf("v1 stamp: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("raw close: %v", err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open on v1 file: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.SavePoolState("pool/ledger/abc", []byte(`{"usage":[]}`)); err != nil {
+		t.Fatalf("SavePoolState after migrate: %v", err)
+	}
+	got, ok, err := s.LoadPoolState("pool/ledger/abc")
+	if err != nil || !ok || string(got) != `{"usage":[]}` {
+		t.Fatalf("LoadPoolState after migrate = %q,%v,%v, want blob,true,nil", got, ok, err)
+	}
+	if _, ok, err := s.LoadPoolState("pool/ledger/missing"); err != nil || ok {
+		t.Fatalf("LoadPoolState missing = %v,%v, want false,nil", ok, err)
+	}
+}

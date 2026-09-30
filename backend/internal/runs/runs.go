@@ -608,6 +608,22 @@ func (m *RunManager) Shutdown(ctx context.Context) {
 	}
 }
 
+// RestoreRequestsTotal raises the cumulative minted-turn counter to n after a
+// restart (pool_state owns the number; the pool restores it at Start). Runs
+// START lazily, so a fresh process begins at zero and every mint increments
+// from the restored base — dashboard Requests never zeroes on restart.
+// Max-guarded: a late restore must never drag a live counter backwards.
+func (m *RunManager) RestoreRequestsTotal(n int) {
+	if m == nil || n <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if n > m.totalRequests {
+		m.totalRequests = n
+	}
+}
+
 // Snapshot returns a best-effort view of the manager state.
 func (m *RunManager) Snapshot() RunSnapshot {
 	m.mu.Lock()
