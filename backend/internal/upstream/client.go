@@ -14,18 +14,19 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/stealth"
+	"freebuff-proxy/backend/internal/wirefacts"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/http2"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/stealth"
-	"freebuff-proxy/backend/internal/wirefacts"
+	"golang.org/x/net/proxy"
 )
 
 // Client speaks the codebuff.com wire protocol for a single token.
@@ -285,21 +286,44 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 	//
 	// HTTP2_UPSTREAM=false restores the previous h1-only behavior.
 	//
-	// A configured UPSTREAM_EGRESS_PROXY takes precedence over
+	// An http/https UPSTREAM_EGRESS_PROXY takes precedence over
 	// HTTP2_UPSTREAM: the custom http2.Transport below has no proxy support
-	// (it dials the origin directly), and an h2 ALPN negotiated over an h1
-	// CONNECT tunnel is a fingerprint mismatch. Proxied egress therefore
-	// always speaks HTTP/1.1 through the exit, matching what the CLI's own
-	// (proxy-less) h1 path looks like from the far end.
-	if egressProxy != nil {
+	// (it dials the origin directly, ignoring Transport.Proxy), and an h2
+	// ALPN negotiated over an h1 CONNECT tunnel is a fingerprint mismatch.
+	// HTTP(S)-proxied egress therefore always speaks HTTP/1.1 through the
+	// exit, matching what the CLI's own (proxy-less) h1 path looks like
+	// from the far end.
+	//
+	// A socks5:// exit is the exception: SOCKS hands the dialer a layer-4
+	// stream to the origin, so the TLS handshake (and the ALPN negotiation
+	// inside it) still runs end-to-end against the origin — there is no
+	// CONNECT-tunnel mismatch. The h2 transport below therefore dials
+	// through the SOCKS exit (socksBaseDial under the same utls dialer),
+	// and the plain path keeps the stdlib h2 default (the stdlib routes
+	// both h1 and h2 over a socks5 Proxy func). Without this, the h2
+	// transport would dial the origin directly past the exit, and the
+	// server's H2 bytes would land in an H1 reader
+	// ("net/http: HTTP/1.x transport connection broken: malformed HTTP
+	// response").
+	isSocksEgress := egressProxy != nil && strings.EqualFold(egressProxy.Scheme, "socks5")
+	if egressProxy != nil && !isSocksEgress {
 		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	}
-	if c.http2Upstream && egressProxy == nil {
+	if c.http2Upstream && (egressProxy == nil || isSocksEgress) {
 		if stealthProf != nil {
 			//nolint:staticcheck // SA1019: stdlib http.Transport cannot dispatch HTTP/2 over *utls.UConn; custom h2t dials with the same utls dialer (see block comment above)
+			// SOCKS exits ride under the utls dialer: the TCP stream to the
+			// origin is opened through the exit, then the same ClientHello
+			// profile/ALPN handshakes end-to-end over it. Direct and
+			// HTTP(S)-proxied paths keep baseDial nil (default net dialer;
+			// the h1 CONNECT path dials the exit via DialContext).
+			var h2BaseDial func(ctx context.Context, network, addr string) (net.Conn, error)
+			if isSocksEgress {
+				h2BaseDial = socksBaseDial(egressProxy)
+			}
 			h2t := &http2.Transport{
 				DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-					return stealth.Dialer(c.dialProfileFor(ctx), baseDial, false, h2ALPN())(ctx, network, addr)
+					return stealth.Dialer(c.dialProfileFor(ctx), h2BaseDial, false, h2ALPN())(ctx, network, addr)
 				},
 				MaxDecoderHeaderTableSize: 65536,   // Chrome SETTINGS_HEADER_TABLE_SIZE
 				MaxHeaderListSize:         262_144, // Chrome SETTINGS_MAX_HEADER_LIST_SIZE
@@ -328,8 +352,10 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 			}
 		}
 	} else if stealthProf == nil || egressProxy != nil {
-		// HTTP2_UPSTREAM=false on the plain path, or any proxied egress:
-		// force HTTP/1.1 (the stdlib would otherwise negotiate h2).
+		// HTTP2_UPSTREAM=false on the plain path, or any HTTP(S)-proxied
+		// egress (a socks5 exit with HTTP2_UPSTREAM=false lands here via
+		// egressProxy != nil): force HTTP/1.1 (the stdlib would otherwise
+		// negotiate h2).
 		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	}
 	c.stealthProfile = stealthProf
@@ -375,6 +401,67 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 		},
 	}
 	return c, nil
+}
+
+// socksBaseDial returns the TCP dial func that opens the origin stream
+// through a socks5:// UPSTREAM_EGRESS_PROXY exit, for use as the baseDial
+// under the stealth utls dialer (H1 DialTLSContext ignores it — proxied H1
+// dials the exit via DialContext — but the custom H2 transport has no proxy
+// support and must carry the exit explicitly). The TLS handshake, and the
+// ALPN negotiation inside it, then run end-to-end against the origin over
+// the proxied stream, so HTTP/2 negotiates through the exit instead of the
+// transport dialing the origin directly past it (which surfaced live as
+// "net/http: HTTP/1.x transport connection broken: malformed HTTP response":
+// the server's H2 bytes landing in an H1 reader).
+//
+// exit carries userinfo when the URL does; Validate already constrained the
+// scheme to socks5 and required a host:port. A nil exit (hand-built Config
+// in tests) yields nil so the dialer falls back to the default net dialer.
+func socksBaseDial(exit *url.URL) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	if exit == nil {
+		return nil
+	}
+	var auth *proxy.Auth
+	if exit.User != nil {
+		pw, _ := exit.User.Password()
+		auth = &proxy.Auth{User: exit.User.Username(), Password: pw}
+	}
+	forward := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, DualStack: true}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		dialer, err := proxy.SOCKS5(network, exit.Host, auth, forward)
+		if err != nil {
+			return nil, fmt.Errorf("upstream: socks5 dialer: %w", err)
+		}
+		// proxy.Dialer has no context variant: race the SOCKS handshake
+		// against cancellation so a hung exit cannot wedge the request
+		// past the caller's deadline.
+		type dialRes struct {
+			conn net.Conn
+			err  error
+		}
+		ch := make(chan dialRes, 1)
+		go func() {
+			c, err := dialer.Dial(network, addr)
+			ch <- dialRes{conn: c, err: err}
+		}()
+		select {
+		case <-ctx.Done():
+			go func() {
+				if r := <-ch; r.err == nil {
+					_ = r.conn.Close()
+				}
+			}()
+			return nil, ctx.Err()
+		case r := <-ch:
+			if r.err != nil {
+				return nil, fmt.Errorf("upstream: socks5 dial %s: %w", addr, r.err)
+			}
+			return r.conn, nil
+		}
+	}
 }
 
 // sameBareWWW reports whether two URL hosts are identical or the bare<->www
