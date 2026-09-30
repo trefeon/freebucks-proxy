@@ -272,6 +272,19 @@ func (s *Server) relayJSON(ctx context.Context, w http.ResponseWriter, r io.Read
 				convert.StripEndTurnToolCalls(comp)
 				changed = true
 			}
+			// Floor-only (OMP) arg reshape: CLI-shaped args become OMP shape
+			// keyed by wire name — runs BEFORE the name restore below.
+			if stats.toolMap.FloorOnly() {
+				if rawChoices, ok := comp["choices"].([]any); ok {
+					for _, raw := range rawChoices {
+						if msg, ok := raw.(map[string]any)["message"].(map[string]any); ok {
+							if tcs, ok := msg["tool_calls"].([]any); ok && stats.toolMap.ReshapeMessageCalls(tcs) {
+								changed = true
+							}
+						}
+					}
+				}
+			}
 			// Restore client tool names (#140) before the finish_reason
 			// alignment below reads the delivered tool_calls.
 			if stats.toolMap.FromUpstreamChunk(comp) {

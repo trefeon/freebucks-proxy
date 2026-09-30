@@ -10,7 +10,6 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-
 	"freebuff-proxy/backend/internal/convert"
 )
 
@@ -39,6 +38,19 @@ type chunkRewriter struct {
 	streamToolCalls map[int]*streamToolAcc
 	reasoningParts  []string
 	contentParts    []string
+
+	// Floor-only (OMP) arg-reshape streaming state: per-index withheld
+	// CLI-shaped argument fragments, flushed reshaped on the terminal
+	// chunk. Nil-map safe: only allocated when the first ruled fragment
+	// arrives.
+	reshapeBuf map[int]*reshapeAcc
+}
+
+// reshapeAcc buffers one tool call's withheld argument fragments.
+type reshapeAcc struct {
+	id   string
+	wire string
+	args bytes.Buffer
 }
 
 func newChunkRewriter(stats *relayStats) *chunkRewriter {
@@ -95,6 +107,16 @@ func (cr *chunkRewriter) rewrite(clean []byte) []byte {
 		cr.xmlCallsSeen = true
 	}
 
+	// 4a. Floor-only (OMP) arg buffering: CLI-shaped argument fragments
+	// cannot reshape incrementally, so withhold them per tool-call index
+	// and inject the reshaped whole on the terminal chunk (stage 6a).
+	// The client SDK concatenates fragments, so withheld + injected reads
+	// exactly the OMP-shaped args. Gated on FloorOnly: other clients keep
+	// byte-identical arg streaming.
+	if cr.reshapeBuffer(chunk) {
+		mutated = true
+	}
+
 	// 4. Restore client tool names (#140): the request renamed mapped
 	// client tools to official signature names, so fragments carrying those
 	// names must read the CLIENT's name on the wire.
@@ -119,11 +141,16 @@ func (cr *chunkRewriter) rewrite(clean []byte) []byte {
 	if cr.xmlCallsSeen {
 		mutated = flipFinishReason(chunk, "stop", "tool_calls") || mutated
 	}
+	// 6a. Floor-only (OMP) arg flush: on the terminal chunk, inject the
+	// withheld reshaped args per buffered index (client name restored
+	// inline). Runs before capture so capture sees what the client gets.
+	if cr.reshapeFlush(chunk) {
+		mutated = true
+	}
 
 	// 7. Capture-only stages (never mutate the chunk): version-neutral
 	// reads for the identity, cache and ledger state.
 	cr.capture(chunk)
-
 	// 8. Stamp the served model and ensure the first chunk carries role.
 	mutated = rewriteChatChunkModelInChunk(chunk, cr.stats.servedModel) || mutated
 	mutated = ensureChatChunkRoleInChunk(chunk, &cr.roleSent) || mutated
@@ -154,6 +181,135 @@ func flipFinishReason(chunk map[string]any, from, to string) bool {
 		}
 	}
 	return changed
+}
+
+// reshapeBuffer withholds CLI-shaped argument fragments for ruled wire
+// names (floor-only OMP requests): incremental fragments cannot reshape,
+// so they buffer per tool-call index and relay without arguments; the
+// terminal chunk carries the reshaped whole (reshapeFlush). Entries the
+// client must still see (id on first sight, restored name via stage 4)
+// keep flowing — only argument bytes are withheld.
+func (cr *chunkRewriter) reshapeBuffer(chunk map[string]any) bool {
+	if !cr.stats.toolMap.FloorOnly() {
+		return false
+	}
+	changed := false
+	rawChoices, ok := chunk["choices"].([]any)
+	if !ok {
+		return false
+	}
+	for _, raw := range rawChoices {
+		choice, _ := raw.(map[string]any)
+		if choice == nil {
+			continue
+		}
+		delta, _ := choice["delta"].(map[string]any)
+		if delta == nil {
+			continue
+		}
+		tcs, _ := delta["tool_calls"].([]any)
+		for _, rtc := range tcs {
+			tc, _ := rtc.(map[string]any)
+			if tc == nil {
+				continue
+			}
+			fn, _ := tc["function"].(map[string]any)
+			if fn == nil {
+				continue
+			}
+			wire, _ := fn["name"].(string)
+			frag, _ := fn["arguments"].(string)
+			idx := 0
+			if i, ok := tc["index"].(float64); ok {
+				idx = int(i)
+			}
+			if wire == "" {
+				// Continuation fragments carry no name: the first
+				// fragment of this index named it (pre-restore, so the
+				// recorded name is the wire name — unlike the capture
+				// table, which only ever sees restored client names).
+				if acc := cr.reshapeBuf[idx]; acc != nil {
+					wire = acc.wire
+				}
+			}
+			if wire == "" || frag == "" || !cr.stats.toolMap.HasReshapeRule(wire) {
+				continue
+			}
+			if cr.reshapeBuf == nil {
+				cr.reshapeBuf = make(map[int]*reshapeAcc)
+			}
+			acc := cr.reshapeBuf[idx]
+			if acc == nil {
+				acc = &reshapeAcc{wire: wire}
+				cr.reshapeBuf[idx] = acc
+			}
+			if id, _ := tc["id"].(string); id != "" && acc.id == "" {
+				acc.id = id
+			}
+			acc.args.WriteString(frag)
+			delete(fn, "arguments")
+			changed = true
+		}
+	}
+	return changed
+}
+
+// reshapeFlush injects one delta.tool_calls entry per buffered index onto
+// the terminal chunk (any non-empty finish_reason): the reshaped whole
+// args under the restored client name. The client SDK concatenates
+// fragments, so withheld empties + this whole assemble exactly the
+// OMP-shaped call. Unreshapable buffers (model sent invalid JSON) flush
+// verbatim so no call is ever swallowed.
+func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
+	if len(cr.reshapeBuf) == 0 {
+		return false
+	}
+	rawChoices, ok := chunk["choices"].([]any)
+	if !ok || len(rawChoices) == 0 {
+		return false
+	}
+	terminal := false
+	for _, raw := range rawChoices {
+		if choice, _ := raw.(map[string]any); choice != nil {
+			if fr, _ := choice["finish_reason"].(string); fr != "" {
+				terminal = true
+				break
+			}
+		}
+	}
+	if !terminal {
+		return false
+	}
+	choice, _ := rawChoices[0].(map[string]any)
+	if choice == nil {
+		return false
+	}
+	delta, _ := choice["delta"].(map[string]any)
+	if delta == nil {
+		delta = map[string]any{}
+		choice["delta"] = delta
+	}
+	tcs, _ := delta["tool_calls"].([]any)
+	for idx, acc := range cr.reshapeBuf {
+		args := acc.args.String()
+		if out, ok := cr.stats.toolMap.ReshapeArgsFor(acc.wire, args); ok {
+			args = out
+		}
+		entry := map[string]any{
+			"index": idx,
+			"function": map[string]any{
+				"name":      cr.stats.toolMap.RestoreName(acc.wire),
+				"arguments": args,
+			},
+		}
+		if acc.id != "" {
+			entry["id"] = acc.id
+		}
+		tcs = append(tcs, entry)
+	}
+	delta["tool_calls"] = tcs
+	clear(cr.reshapeBuf)
+	return true
 }
 
 // capture reads stream identity, reasoning/content parts, usage and

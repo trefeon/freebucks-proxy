@@ -164,6 +164,7 @@ func NormalizeRequestMapped(body []byte, modelOverride string) ([]byte, ToolMapp
 // Options (issue #277). See NormalizeRequestOpts.
 func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options) ([]byte, ToolMapper, error) {
 	mapper := NewToolMapper(body)
+	ompMode := isOMPToolsetBody(body)
 	out, err := NormalizeRequestOpts(body, modelOverride, opts)
 	if err != nil {
 		return nil, ToolMapper{}, err
@@ -178,6 +179,12 @@ func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options)
 	// carry the canonical CLI description + parameters, so the gate sees
 	// CLI definitions, never foreign schemas under renamed names.
 	SubstituteCanonicalDefinitions(payload)
+	// OMP-family toolsets go floor-only: no foreign-schema rider may reach
+	// the gate (live 2026-09-30). Non-OMP clients keep the riding top-up.
+	if ompMode {
+		floorOnlyOMP(payload)
+		mapper.floorOnly = true
+	}
 	mapper.RenameRequestToolChoice(payload)
 	renamed, merr := json.Marshal(payload)
 	if merr != nil {

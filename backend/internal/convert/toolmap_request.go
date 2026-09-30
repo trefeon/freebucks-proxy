@@ -219,7 +219,16 @@ type ToolMapper struct {
 	clientToUpstream map[string]string // request path: original → official/MCP
 	msgs             int               // len(messages) (or len(input) for Responses) in the scanned body
 	tools            int               // len(tools) in the scanned body
+	// floorOnly marks an OMP-family request whose wire was replaced with
+	// the floor-only toolset: the model fills CLI-shaped args, so the
+	// response leg must reshape them back (ReshapeArgsFor) as well as
+	// restore names. Never set for other clients: their relays stay
+	// byte-identical apart from name restores.
+	floorOnly bool
 }
+
+// FloorOnly reports whether this request went floor-only (OMP family).
+func (m ToolMapper) FloorOnly() bool { return m.floorOnly }
 
 func isForeignHarness(name string) bool {
 	return ForeignHarnessToolNames[name] || strings.HasPrefix(strings.ToLower(name), "cron")

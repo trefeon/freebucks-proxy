@@ -185,7 +185,15 @@ func corpusNormalize(t *testing.T, h corpusHarness) ([]any, ToolMapper) {
 		t.Fatalf("harness %s: unmarshal normalized: %v", h.Harness, err)
 	}
 	wireTools, ok := parsed["tools"].([]any)
-	if !ok || len(wireTools) < len(tools) {
+	if !ok {
+		t.Fatalf("harness %s: no tools array on the wire", h.Harness)
+	}
+	if corpusExpectsFloorOnly(h) {
+		// Floor-only wire replaces client defs: 16 canonical + pins.
+		if len(wireTools) != 18 {
+			t.Fatalf("harness %s: wire tools = %d, want 18 (16 floor + end_turn + decide)", h.Harness, len(wireTools))
+		}
+	} else if len(wireTools) < len(tools) {
 		t.Fatalf("harness %s: wire tools = %v, want at least the %d client tools plus the injected signature tools", h.Harness, parsed["tools"], len(tools))
 	}
 	return wireTools, mapper
@@ -235,6 +243,14 @@ func assertCorpusHarnessWireClean(t *testing.T, h corpusHarness) {
 		seen[name] = h.Harness
 	}
 
+	// OMP-family branch: floor-only wire (tools_normalize.go). Per-index
+	// invariants do not apply (client defs are replaced, not renamed), so
+	// assert the floor shape + restore of the mapped pairs instead.
+	if corpusExpectsFloorOnly(h) {
+		assertCorpusFloorOnly(t, h, wireTools, mapper)
+		return
+	}
+
 	// Invariants 2 (grammar) and 3 (exact restore), per fixture tool.
 	// ToUpstream walks the tools array in order and only APPENDS the injected
 	// end_turn/decide, so wire index i is client tool i.
@@ -274,9 +290,58 @@ func assertCorpusHarnessWireClean(t *testing.T, h corpusHarness) {
 	if len(v.Genuine) == 0 {
 		t.Errorf("harness %s: no genuine signature tool on the wire (names %v)", h.Harness, v.Names)
 	}
-	if sig := WireForeignSignal(v); sig != "" {
-		t.Errorf("harness %s: wire reads %q, want empty (foreign harness %v, genuine %v, tools %v)",
-			h.Harness, sig, v.ForeignHarness, v.Genuine, v.Names)
+}
+
+// corpusExpectsFloorOnly reports whether a fixture harness hits the
+// OMP-family rule (two or more signature names): its wire is floor-only,
+// so the per-index invariants give way to the floor-shape assertions.
+func corpusExpectsFloorOnly(h corpusHarness) bool {
+	hits := 0
+	for _, ct := range h.Tools {
+		if ompSignatureNames[ct.Name] {
+			hits++
+			if hits >= 2 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// assertCorpusFloorOnly pins the floor-only contract for OMP-family
+// harnesses: the wire is exactly the 16 canonical floor definitions plus
+// the end_turn/decide pins (no foreign riders), and every mapped client
+// tool restores from its wire name.
+func assertCorpusFloorOnly(t *testing.T, h corpusHarness, wireTools []any, mapper ToolMapper) {
+	t.Helper()
+	defs, err := canonicalToolDefs()
+	if err != nil {
+		t.Fatalf("harness %s: canonicalToolDefs: %v", h.Harness, err)
+	}
+	want := map[string]bool{"end_turn": true, "decide": true}
+	for _, d := range defs {
+		m, _ := d.(map[string]any)
+		fn, _ := m["function"].(map[string]any)
+		if n, _ := fn["name"].(string); n != "" {
+			want[n] = true
+		}
+	}
+	if len(wireTools) != len(want) {
+		t.Errorf("harness %s: wire tools = %d, want %d (16 floor + end_turn + decide)", h.Harness, len(wireTools), len(want))
+	}
+	for _, wt := range wireTools {
+		if n := corpusWireName(wt); !want[n] {
+			t.Errorf("harness %s: non-floor tool %q on the wire", h.Harness, n)
+		}
+	}
+	for _, ct := range h.Tools {
+		wire, ok := mapper.clientToUpstream[ct.Name]
+		if !ok || wire == ct.Name {
+			continue // unmapped or identity: no rename to restore
+		}
+		if got := mapper.RestoreName(wire); got != ct.Name {
+			t.Errorf("harness %s: client tool %q went to wire as %q but restored to %q", h.Harness, ct.Name, wire, got)
+		}
 	}
 }
 

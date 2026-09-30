@@ -1,12 +1,11 @@
 package server_test
 
 import (
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // Hermetic "real user usage" conformance tests for the pi / Oh My Pi (OMP)
@@ -168,10 +167,10 @@ func TestConformancePiPowershellWindowsTurn(t *testing.T) {
 // (ask/task/hub/eval/lsp/browser/computer/github/ast_grep/ast_edit/
 // checkpoint/rewind/security_scan/memory_edit/learn/manage_skill/debug/
 // inspect_image) plus the mapped todo and the official web_search. The
-// unmapped names must round-trip VIRTUALIZED (mcp__<name>, never verbatim on
-// the wire — the free-tier gate flags foreign vocabulary; live 2026-09-29 the
-// verbatim names 503'd every OMP request), the mapped todo renamed, and
-// end_turn still injected.
+// family set goes floor-only (tools_floor.go): the wire carries the 16
+// canonical floor defs + pins with zero riders (live 2026-09-30 the gate
+// 503s on any foreign definition riding alongside the floor), while the
+// mapper still restores dropped tools' names on the response path.
 func TestConformanceOmpUnmappedLoopToolsVirtualized(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: conformance lane excluded; run `go test ./backend/...` for the full tier")
@@ -200,22 +199,19 @@ func TestConformanceOmpUnmappedLoopToolsVirtualized(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 300))
 	}
 	recorded := mock.RecordedChatBodies[0]
-	for _, keep := range []string{"ask", "task", "hub", "eval", "lsp", "ast_grep", "security_scan"} {
-		if !strings.Contains(recorded, `"name":"mcp__`+keep+`"`) {
-			t.Errorf("upstream body missing virtualized tool mcp__%q: %s", keep, recorded)
+	// Floor-only (tools_floor.go): the OMP-family set (eval/learn/
+	// manage_skill present) replaces every client def with the 16
+	// canonical floor defs + pins — no virtualized riders, no verbatim
+	// foreign names.
+	for _, gone := range []string{`"name":"mcp__`, `"name":"ask"`, `"name":"task"`, `"name":"eval"`, `"name":"learn"`} {
+		if strings.Contains(recorded, gone) {
+			t.Errorf("floor-only wire carries %s: %s", gone, truncate(recorded, 300))
 		}
-		if strings.Contains(recorded, `"name":"`+keep+`"`) {
-			t.Errorf("upstream body carries foreign name %q verbatim: %s", keep, recorded)
+	}
+	for _, want := range []string{`"name":"run_terminal_command"`, `"name":"read_files"`, `"name":"write_todos"`, `"name":"web_search"`, "end_turn"} {
+		if !strings.Contains(recorded, want) {
+			t.Errorf("upstream body missing %s: %s", want, truncate(recorded, 300))
 		}
-	}
-	if !strings.Contains(recorded, `"name":"web_search"`) {
-		t.Error("upstream body missing official web_search")
-	}
-	if !strings.Contains(recorded, `"name":"write_todos"`) {
-		t.Error("upstream body missing renamed todo → write_todos")
-	}
-	if !strings.Contains(recorded, "end_turn") {
-		t.Error("upstream body missing injected end_turn")
 	}
 	frames, done := collectOpenAIFrames(t, string(data))
 	if !done {
