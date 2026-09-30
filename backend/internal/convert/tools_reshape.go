@@ -338,6 +338,26 @@ func jsonFloat(f float64) string {
 	return string(b)
 }
 
+// writeFileContent preserves the write payload losslessly. OMP dispatches
+// content as a string — file text, or the JSON args object when the write
+// targets an xd:// device path — but the model may fill it as a nested
+// value. A blind string cast would blank it and strand the call (the device
+// receives empty args and never executes), so non-string values are
+// marshaled to their JSON text. Missing content stays empty.
+func writeFileContent(in map[string]any) string {
+	c, ok := in["content"]
+	if !ok || c == nil {
+		return ""
+	}
+	if s, ok := c.(string); ok {
+		return s
+	}
+	if b, err := json.Marshal(c); err == nil {
+		return string(b)
+	}
+	return ""
+}
+
 var reshapeRules = map[string]func(map[string]any) map[string]any{
 	// OMP bash {command, cwd?, timeout?, ...} — extras have no CLI
 	// equivalent and are dropped; the `i` intent is omitted (the OMP
@@ -352,11 +372,14 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 		}
 		return out
 	},
-	// OMP write {path, content} — CLI instructions dropped.
+	// OMP write {path, content} — CLI instructions dropped. content rides
+	// through writeFileContent, not a blind string cast: the model fills a
+	// nested value when the write targets an xd:// device (content is the
+	// device JSON args), and blanking it would strand the call.
 	"write_file": func(in map[string]any) map[string]any {
 		return map[string]any{
 			"path":    strField(in, "path"),
-			"content": strField(in, "content"),
+			"content": writeFileContent(in),
 		}
 	},
 	// OMP read {path} — singular per call; the fan-out core (fanoutArgs)

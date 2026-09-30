@@ -57,6 +57,9 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 	if servedModel == "" {
 		servedModel = requestedModel
 	}
+	// Unroutable floor emissions (OMP): suppress calls the client cannot
+	// dispatch into assistant text before the reshape/restore passes run.
+	stats.toolMap.ApplyTextFallbacks(completion)
 	// Floor-only (OMP) arg reshape + fan-out BEFORE the name restore below:
 	// CLI-shaped args become OMP shape keyed by wire name, multi-path reads
 	// and multi-replacement edits expanding to one tool_use block each.

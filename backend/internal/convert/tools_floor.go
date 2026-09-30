@@ -136,9 +136,11 @@ func floorOnlyOMP(payload map[string]any) {
 // floorFallbacks routes floor tools the OMP family never declares to the
 // OMP equivalent: the model sees all 16 floor defs (gate requirement) but
 // OMP dispatches only its own names. list_directory rides arg-verbatim
-// (CLI {path} is already valid OMP read shape); suggest_followups,
-// gravity_index, render_ui and report_project_profile have no equivalent
-// and keep failing client-side with "not found".
+// (CLI {path} is already valid OMP read shape). The four remaining floor
+// names have no OMP equivalent at all and are handled by the text fallback
+// (tools_textfallback.go): the response leg suppresses the call and renders
+// its payload as assistant text (or absorbs it) instead of relaying a name
+// the OMP dispatcher rejects with "not found".
 var floorFallbacks = map[string]string{
 	"ask_user":       "ask",
 	"read_url":       "read",

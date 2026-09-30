@@ -27,7 +27,25 @@ func TestReshapeArgsTable(t *testing.T) {
 		},
 		{
 			"write_file", `{"path":"f","instructions":"x","content":"hi"}`,
+			// A flat string payload (CLI shape) rides through unchanged.
 			map[string]any{"path": "f", "content": "hi"},
+		},
+		{
+			"write_file", `{"path":"xd://tts","content":{"text":"hi","voice":"af_sky"}}`,
+			// An xd:// device write carries its args as a nested value: a
+			// blind string cast would blank content and the device would
+			// receive empty args and never execute.
+			map[string]any{"path": "xd://tts", "content": `{"text":"hi","voice":"af_sky"}`},
+		},
+		{
+			"write_file", `{"path":"xd://reject","content":["a","b"]}`,
+			// Array payloads marshal to their JSON text too.
+			map[string]any{"path": "xd://reject", "content": `["a","b"]`},
+		},
+		{
+			"write_file", `{"path":"f"}`,
+			// Missing content stays an explicit empty string.
+			map[string]any{"path": "f", "content": ""},
 		},
 		{"code_search", `{"pattern":"foo","cwd":"src"}`, map[string]any{"pattern": "foo", "path": "src"}},
 		{"glob", `{"pattern":"*.go"}`, map[string]any{"path": "*.go"}},

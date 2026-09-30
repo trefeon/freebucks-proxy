@@ -139,8 +139,9 @@ UpstreamSHA `775383b3` (`scripts/vendor-version.txt`,
    virtualized, so a model turn that needs one cannot dispatch it and the
    agentic loop degrades client-side. Unrouted first-party emissions
    (`suggest_followups`, `gravity_index`, `render_ui`,
-   `report_project_profile`) likewise fail client-side. Floor, not mapping,
-   is what keeps the OMP gate green.
+   `report_project_profile`) are suppressed on the response leg and rendered
+   as assistant text (see the 2026-09-30 text-fallback amendment). Floor, not
+   mapping, is what keeps the OMP gate green.
 
 ## Amendment 2026-09-30 — fan-out, find→glob, kept-drop register
 
@@ -174,9 +175,10 @@ relays). Zero new wire names: every route lands on the 16 floor names.
 3. **Kept drops (documented, not silent).** Whole tools with no CLI
    equivalent never reach the wire — `eval`, `task`, `wait`, `learn`,
    `manage_skill`, `new_context`, `context_notes` (`floorOnlyOMP` cut; the
-   loop degrades client-side by design). Unrouted floor emissions keep
-   failing client-side with `not found`: `suggest_followups`,
-   `gravity_index`, `render_ui`, `report_project_profile`. Kept scalar
+   loop degrades client-side by design). Superseded for unrouted emissions:
+   `suggest_followups`, `gravity_index`, `render_ui` and
+   `report_project_profile` no longer fail client-side — see the text-fallback
+   amendment below. Kept scalar
    drops per rule: `bash` background extras + intent-`i`; `write`
    `instructions`; `grep` `flags`/`maxResults` (+`cwd`→`path` kept); `web_search`
    `depth`; `read` per-item `offset`/`limit`; `edit` `allowMultiple`;
@@ -188,3 +190,45 @@ relays). Zero new wire names: every route lands on the 16 floor names.
    and injects at the terminal chunk). OMP speaks the OpenAI chat surface,
    where both legs fan out; the non-streaming Anthropic/Responses relays fan
    out via the shared helper. Deferral noted at both streaming call sites.
+
+## Amendment 2026-09-30 — text fallback for unroutable floor calls
+
+Status: accepted · amends the floor amendments above. Code:
+`backend/internal/convert/tools_textfallback.go` (classify + render +
+`ApplyTextFallbacks`), `server/openai_chunk_pipeline.go`
+(`stripTextFallbackCalls` / `flushTextFallbacks`), wired into all three
+non-streaming relays.
+
+1. **An unroutable floor call never reaches the client as a tool call.**
+   Four of the sixteen gate-required CLI definitions have no OMP equivalent
+   (verified against `pi-coding-agent/src/tools/builtin-names.ts`): the model
+   can always call them, and `RestoreName` identity used to hand the OMP
+   dispatcher a name it answers with `Tool <name> not found`. The response
+   leg now suppresses the call and renders its payload as assistant text
+   (`suggest_followups` → the followup prompts as a markdown list;
+   `render_ui` → a markdown link; `gravity_index` → one line naming the
+   discovery request) or absorbs it (`report_project_profile`, internal
+   telemetry). `ask` is deliberately NOT a route for `suggest_followups`:
+   OMP's `ask` blocks the turn and auto-selects on timeout, which would turn
+   a fire-and-forget suggestion into a forced question.
+2. **Streaming strips the whole entry, not just its arguments.** The chat
+   relay removes the `delta.tool_calls` entry on first sight (name included)
+   and drops its nameless continuation fragments by recorded index — the
+   `end_turn` pattern — buffering the argument bytes for the terminal render.
+   The render appends to `delta.content` on the terminal chunk and flips
+   `finish_reason` `tool_calls`→`stop` only when the stream delivered no
+   dispatchable call and no XML-extracted call, so a mixed turn stays a
+   `tool_calls` turn.
+3. **The rest of the OMP surface is not affected.** OMP-only tools
+   (`task`, `wait`, `hub`, `eval`, `learn`, `manage_skill`, `context_notes`,
+   `new_context`, hidden `yield`/`goal`/`think`, `mcp__*` externals) have no
+   `clientToOfficial` entry, so they pass through verbatim on both legs; the
+   `xd://` devices ride through the model's `write`/`read` calls. OMP's own
+   system prompt ships a `# Tool Inventory`, so the model can call them even
+   though the gate keeps them off the wire. Pinned by
+   `server/floor_omp_surface_test.go`.
+4. **Scope.** Gated on floor-only: every other client keeps byte-identical
+   behavior (non-floor `ApplyTextFallbacks`/`HasTextFallback` are inert).
+   Streaming Anthropic/Responses have no withhold architecture (deferred with
+   their fan-out, §4 above); OMP speaks the chat surface, where both legs
+   apply the fallback.

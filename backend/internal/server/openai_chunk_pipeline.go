@@ -52,6 +52,18 @@ type chunkRewriter struct {
 	// of them. Recorded before the reshape-rule gate, so unruled middle
 	// indexes count too.
 	reshapeMaxIdx int
+
+	// Unroutable floor emissions (text fallback): tool-call indexes naming a
+	// floor tool OMP cannot dispatch, stripped from the stream like end_turn
+	// and rendered into delta.content on the terminal chunk. Continuation
+	// fragments carry no name, so their wire name is remembered per index.
+	textFallbackIndexes map[int]bool
+	textFallbackWires   map[int]string
+	textFallbackArgs    map[int]*bytes.Buffer
+	// nonFallbackCallSeen records any named, dispatchable tool call this
+	// stream relayed. A turn whose only calls were unroutable emissions must
+	// end as a finished text turn, not a tool_calls turn.
+	nonFallbackCallSeen bool
 }
 
 // reshapeAcc buffers one tool call's withheld argument fragments.
@@ -115,6 +127,16 @@ func (cr *chunkRewriter) rewrite(clean []byte) []byte {
 		cr.xmlCallsSeen = true
 	}
 
+	// 3a. Unroutable floor emissions: strip tool_calls entries naming a floor
+	// tool OMP cannot dispatch (and their nameless continuation fragments,
+	// matched by recorded index) before any relay stage sees them, buffering
+	// their argument fragments for the terminal text render. Mirrors the
+	// end_turn strip: the client must never assemble a call it cannot
+	// dispatch. Runs after the XML feed so an extracted call is covered too.
+	if cr.stripTextFallbackCalls(chunk) {
+		mutated = true
+	}
+
 	// 4a. Floor-only (OMP) arg buffering: CLI-shaped argument fragments
 	// cannot reshape incrementally, so withhold them per tool-call index
 	// and inject the reshaped whole on the terminal chunk (stage 6a).
@@ -153,6 +175,13 @@ func (cr *chunkRewriter) rewrite(clean []byte) []byte {
 	// withheld reshaped args per buffered index (client name restored
 	// inline). Runs before capture so capture sees what the client gets.
 	if cr.reshapeFlush(chunk) {
+		mutated = true
+	}
+	// 6b. Unroutable floor emissions: render the stripped calls' payload as
+	// assistant text on the terminal chunk and, when the stream delivered no
+	// dispatchable call, flip finish_reason tool_calls->stop so the client
+	// ends a text turn instead of waiting on calls it never received.
+	if cr.flushTextFallbacks(chunk) {
 		mutated = true
 	}
 
@@ -349,6 +378,166 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 	delta["tool_calls"] = tcs
 	clear(cr.reshapeBuf)
 	return true
+}
+
+// stripTextFallbackCalls removes delta.tool_calls entries naming an
+// unroutable floor tool (and their nameless continuation fragments, matched
+// by recorded index) from an unmarshalled chunk, buffering their argument
+// fragments per index for the terminal render. Mirrors the end_turn strip:
+// the model is shown the CLI floor, but OMP dispatches only its own names, so
+// a call to a floor tool with no OMP equivalent must never be assembled by
+// the client. Floor-only requests only; every other client keeps its calls
+// byte-identical.
+func (cr *chunkRewriter) stripTextFallbackCalls(chunk map[string]any) bool {
+	if !cr.stats.toolMap.FloorOnly() {
+		return false
+	}
+	rawChoices, ok := chunk["choices"].([]any)
+	if !ok {
+		return false
+	}
+	changed := false
+	for _, raw := range rawChoices {
+		choice, _ := raw.(map[string]any)
+		if choice == nil {
+			continue
+		}
+		delta, _ := choice["delta"].(map[string]any)
+		if delta == nil {
+			continue
+		}
+		tcs, _ := delta["tool_calls"].([]any)
+		if len(tcs) == 0 {
+			continue
+		}
+		kept := make([]any, 0, len(tcs))
+		choiceChanged := false
+		for _, rtc := range tcs {
+			tc, _ := rtc.(map[string]any)
+			if tc == nil {
+				kept = append(kept, rtc)
+				continue
+			}
+			idx := 0
+			if f, ok := tc["index"].(float64); ok {
+				idx = int(f)
+			}
+			fn, _ := tc["function"].(map[string]any)
+			name, _ := fn["name"].(string)
+			wire := name
+			if wire == "" {
+				wire = cr.textFallbackWires[idx]
+			}
+			if wire != "" && cr.stats.toolMap.HasTextFallback(wire) {
+				if name != "" {
+					if cr.textFallbackWires == nil {
+						cr.textFallbackWires = make(map[int]string)
+					}
+					cr.textFallbackWires[idx] = name
+				}
+				if frag, _ := fn["arguments"].(string); frag != "" {
+					if cr.textFallbackArgs == nil {
+						cr.textFallbackArgs = make(map[int]*bytes.Buffer)
+					}
+					buf := cr.textFallbackArgs[idx]
+					if buf == nil {
+						buf = &bytes.Buffer{}
+						cr.textFallbackArgs[idx] = buf
+					}
+					buf.WriteString(frag)
+				}
+				if cr.textFallbackIndexes == nil {
+					cr.textFallbackIndexes = make(map[int]bool)
+				}
+				cr.textFallbackIndexes[idx] = true
+				choiceChanged = true
+				continue // drop the entry: name and arguments never relay
+			}
+			if name != "" {
+				cr.nonFallbackCallSeen = true
+			}
+			kept = append(kept, rtc)
+		}
+		if !choiceChanged {
+			continue
+		}
+		changed = true
+		if len(kept) == 0 {
+			delete(delta, "tool_calls")
+		} else {
+			delta["tool_calls"] = kept
+		}
+	}
+	return changed
+}
+
+// flushTextFallbacks renders the stripped unroutable floor calls into
+// delta.content on the terminal chunk: the payload the client would have
+// shown (followup prompts, a UI link, a discovery request) becomes assistant
+// text, and absorbed names contribute nothing. When the stream relayed no
+// dispatchable call and no XML-extracted call, finish_reason flips
+// tool_calls->stop — the turn delivered text, so the client must not wait on
+// tool calls it never received.
+func (cr *chunkRewriter) flushTextFallbacks(chunk map[string]any) bool {
+	if len(cr.textFallbackIndexes) == 0 {
+		return false
+	}
+	rawChoices, ok := chunk["choices"].([]any)
+	if !ok || len(rawChoices) == 0 {
+		return false
+	}
+	terminal := false
+	for _, raw := range rawChoices {
+		if choice, _ := raw.(map[string]any); choice != nil {
+			if fr, _ := choice["finish_reason"].(string); fr != "" {
+				terminal = true
+				break
+			}
+		}
+	}
+	if !terminal {
+		return false
+	}
+	idxs := make([]int, 0, len(cr.textFallbackIndexes))
+	for idx := range cr.textFallbackIndexes {
+		idxs = append(idxs, idx)
+	}
+	sort.Ints(idxs)
+	var text bytes.Buffer
+	for _, idx := range idxs {
+		args := ""
+		if buf := cr.textFallbackArgs[idx]; buf != nil {
+			args = buf.String()
+		}
+		rendered, kind := cr.stats.toolMap.TextFallback(cr.textFallbackWires[idx], args)
+		if kind == convert.TextFallbackRender {
+			text.WriteString(rendered)
+		}
+	}
+	changed := false
+	if text.Len() > 0 {
+		if choice, _ := rawChoices[0].(map[string]any); choice != nil {
+			delta, _ := choice["delta"].(map[string]any)
+			if delta == nil {
+				delta = map[string]any{}
+				choice["delta"] = delta
+			}
+			cur, _ := delta["content"].(string)
+			// contentParts is appended by capture (stage 7) from this same
+			// delta — do not double-record here.
+			delta["content"] = cur + text.String()
+			changed = true
+		}
+	}
+	if !cr.nonFallbackCallSeen && !cr.xmlCallsSeen {
+		if flipFinishReason(chunk, "tool_calls", "stop") {
+			changed = true
+		}
+	}
+	clear(cr.textFallbackIndexes)
+	cr.textFallbackWires = nil
+	cr.textFallbackArgs = nil
+	return changed
 }
 
 // capture reads stream identity, reasoning/content parts, usage and

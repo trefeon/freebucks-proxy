@@ -81,9 +81,12 @@ overrides a real mapping):
 | `list_directory` | `read` | verbatim (`{path}` is already valid OMP `read` shape) |
 | `skill` | `read` | reshaped (`skill://` URI) |
 
-Unrouted — no OMP equivalent, still fail client-side with `not found`
-(probe §A): `suggest_followups`, `gravity_index`, `render_ui`,
-`report_project_profile`.
+Unrouted — no OMP equivalent (verified against OMP's builtin registry,
+`pi-coding-agent/src/tools/builtin-names.ts`): `suggest_followups`,
+`gravity_index`, `render_ui`, `report_project_profile`. They ride the wire
+because the gate requires all 16 canonical CLI definitions, so the model can
+always call them; the response leg never relays them as tool calls
+(§3a text fallback).
 
 ## 3. Response leg
 
@@ -109,8 +112,53 @@ name (non-streaming: `server/openai_stream.go:275-292`).
 | `skill` | `read` | `{path: "skill://"+name}` |
 
 All rules are total: unknown shapes / invalid JSON pass through verbatim
-rather than failing the turn. No rule exists for unrouted names
-(`gravity_index` etc. pass through byte-identical).
+rather than failing the turn. The four unrouted names have no reshape rule
+because they have no client tool to reshape for — they are suppressed by the
+text fallback below, never passed through.
+
+### 3a. Text fallback for unroutable floor calls (`convert/tools_textfallback.go`)
+
+A floor tool with no OMP equivalent cannot be dispatched by the client, so its
+call must not be relayed as a tool call at all. `TextFallback` classifies the
+four names; `ApplyTextFallbacks` (non-streaming: chat, Anthropic, Responses)
+and `stripTextFallbackCalls`/`flushTextFallbacks` (`server/openai_chunk_pipeline.go`,
+streaming) remove the call and render its payload as assistant text:
+
+| Wire | Handling | Rendered |
+|---|---|---|
+| `suggest_followups` | render | markdown list of the followup prompts |
+| `render_ui` | render | markdown link (plain string links only; a `gravity_index` link ref has no resolvable URL) |
+| `gravity_index` | render | one line naming the discovery request it cannot service |
+| `report_project_profile` | absorb | nothing (internal telemetry) |
+
+Invariants: the call is dropped with its name (streaming strips the whole
+entry, including nameless continuation fragments, like `end_turn`), the
+rendered text is appended to any content already produced, and when the turn
+delivered no dispatchable call the terminal `finish_reason` flips
+`tool_calls`→`stop` so no client waits on a call it never received. An
+ordinary call in the same turn keeps the turn a `tool_calls` turn. Gated on
+floor-only: every other client is untouched.
+
+### 3b. The rest of the OMP surface round-trips verbatim
+
+OMP capabilities that have no official CLI equivalent are deliberately absent
+from the wire (the gate rejects any foreign-schema rider), but they are NOT
+errors: OMP's own system prompt ships a `# Tool Inventory` naming them, so the
+model can call them from prompt vocabulary and the relay passes the name
+through untouched.
+
+| Group | Names | Path |
+|---|---|---|
+| Loop / subagent | `task`, `wait`, `hub` | verbatim both ways (`task` spawns a subagent client-side) |
+| OMP-only builtins | `eval`, `learn`, `manage_skill`, `context_notes`, `new_context`, `debug`, `ida`, `security_scan`, `checkpoint`, `rewind`, `github`, `lsp`, `ast_grep`, `ast_edit` | verbatim |
+| Hidden | `yield`, `goal`, `think` | verbatim |
+| `xd://` devices | ast_grep/ast_edit/lsp/github/debug/checkpoint/rewind/mem_*/security_scan/… | ride through the model's `write`/`read` calls (reshaped to OMP shape, `xd://` path preserved) |
+| External | `mcp__<server>_<tool>` | verbatim, namespace preserved |
+
+Regression proof: `server/floor_omp_surface_test.go`
+(`TestFloorOMPToolSurfaceRoundTrip` drives every name in the OMP registry,
+including `task` and `mcp__*`, and asserts the client receives it
+byte-identically).
 
 ### Streaming: withhold + inject (`server/openai_chunk_pipeline.go`)
 
@@ -120,18 +168,20 @@ Non-streaming chat, Anthropic and Responses relays share `ReshapeCompletionCalls
 
 ## 4. Degraded by design
 
-- **Dropped tools never ride**: `eval`, `task`, `wait`, `learn`,
+- **Dropped defs never ride**: `eval`, `task`, `wait`, `learn`,
   `manage_skill`, `context_notes`, `new_context`, `mcp__` virtualizations and
-  unmapped customs are cut by `floorOnlyOMP` — the model is never shown them,
-  so their calls never need restoring. The agentic loop is degraded for these
-  by design, not by bug (probe Runtime-broken items are third-party bridge
-  behavior, not proxy bugs).
+  unmapped customs are cut from the WIRE by `floorOnlyOMP` — the model is
+  never shown them (the gate rejects any foreign-schema rider). This is a
+  wire-shape constraint, not a capability loss: the model still calls them
+  from OMP's `# Tool Inventory` prompt vocabulary and they round-trip verbatim
+  (§3b).
 - **Routed, not dropped**: OMP `find` rides as floor `glob` and restores
   shape-aware to `find` (§3) — the only OMP-only tool with a CLI equivalent.
-- **Undeclared floor tools fail client-side**: if the model calls
+- **Unroutable floor calls degrade, never fail**: a model call to
   `suggest_followups`, `gravity_index`, `render_ui` or
-  `report_project_profile`, `RestoreName` identity passes the CLI name through
-  and the OMP dispatcher rejects it with `not found`.
+  `report_project_profile` is suppressed and rendered as assistant text (or
+  absorbed), so the OMP dispatcher never answers `Tool <name> not found`
+  (§3a).
 
 ## 5. Account discipline + live proof
 

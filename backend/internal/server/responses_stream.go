@@ -496,6 +496,9 @@ func (s *Server) relayResponsesJSON(ctx context.Context, w http.ResponseWriter, 
 		return
 	}
 	convert.StripEndTurnToolCalls(completion)
+	// Unroutable floor emissions (OMP): suppress calls the client cannot
+	// dispatch into assistant text before the reshape/restore passes run.
+	stats.toolMap.ApplyTextFallbacks(completion)
 	// Floor-only (OMP) arg reshape + fan-out BEFORE the name restore below:
 	// CLI-shaped args become OMP shape keyed by wire name, multi-path reads
 	// and multi-replacement edits expanding to one function_call item each.

@@ -272,6 +272,13 @@ func (s *Server) relayJSON(ctx context.Context, w http.ResponseWriter, r io.Read
 				convert.StripEndTurnToolCalls(comp)
 				changed = true
 			}
+			// Unroutable floor emissions (OMP): a call to a floor tool the
+			// client cannot dispatch is suppressed into assistant text before
+			// the reshape/restore passes run, so the client never receives an
+			// undispatchable call.
+			if stats.toolMap.ApplyTextFallbacks(comp) {
+				changed = true
+			}
 			// Floor-only (OMP) arg reshape + fan-out: CLI-shaped args become
 			// OMP shape keyed by wire name — runs BEFORE the name restore
 			// below. Multi-path reads / multi-replacement edits expand to
