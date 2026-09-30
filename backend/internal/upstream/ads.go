@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/wirefacts"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"freebuff-proxy/backend/internal/wirefacts"
 )
 
 // freebuffCliUA is the ads-API request User-Agent, mirroring the installed
@@ -32,7 +31,7 @@ import (
 // on the wire follows the vendored wire at every re-pin instead of freezing
 // at a hand-typed literal.
 // R3 verdict (2026-09-27): cli/package.json at tip is still 1.0.0 while
-// wirefacts.VendorVersion is 0.0.204 — DIVERGED, so the derivation below is
+// wirefacts.VendorVersion is 0.2.1 — DIVERGED, so the derivation below is
 // deliberately unchanged (pinning the UA to cli/package.json would advertise
 // a version no released binary ever sends).
 var freebuffCliUA = "Freebuff-CLI/" + wirefacts.VendorVersion

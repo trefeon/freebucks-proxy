@@ -1,9 +1,10 @@
 # UPSTREAM-PORT-QUEUE — what the vendor has that we haven't ported
 
-Pin state: `scripts/vendor-version.txt` = `0.0.204`,
-`backend/internal/wirefacts/wirefacts_gen.go:7` UpstreamSHA `a2fd4806`.
+Pin state: `scripts/vendor-version.txt` = `0.2.1`,
+`backend/internal/wirefacts/wirefacts_gen.go:7` UpstreamSHA `a2fd4806`
+(npm `freebuff` 0.2.1 published from this commit — verified in-clone).
 Vendor tip checked here: `25f1d6153` (gitignored `upstream/freebuff`,
-`origin/main`, fetched 2026-09-28). Live: npm `0.1.2`, CLI `0.1.1`
+`origin/main`, fetched 2026-09-28). Live: npm `0.2.1`, CLI `0.1.1`
 (release package at tip), Desktop latest `freebuff-desktop-v0.0.150`.
 0.1.1 assessed 2026-09-28 (25 files, §14.11): **no wire port needed** —
 abort/watchdog/banner fixes, compaction heuristics, BYOK internals; zero
