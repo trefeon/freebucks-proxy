@@ -379,8 +379,10 @@ func TestLiveCardPerDayDisplay(t *testing.T) {
 // no tier. Solar Pro 4 lost its slot to Solar Mini 4 (40c75256). 5.6 lost
 // its slot to GPT-6 Luna (c2d2958b) and was then withdrawn outright on
 // 2026-09-24 (FREEBUFF_PAUSED_FREE_MODEL_IDS), so it is a withdrawn row now,
-// not a retired one.
-var retiredPickerModels = map[string]bool{}
+// not a retired one. Muse Spark 1.2 left every picker on 2026-09-28 when 1.3
+// took its slot as a paid-only row (vendor a2fd480); 1.2 itself is paid-only
+// too but deliberately absent from every tier list, so it retires here.
+var retiredPickerModels = map[string]bool{"meta/muse-spark-1.2-contributor": true}
 
 // TestModelsDataCatalogTierFacts pins the full-catalog models view: every
 // modelcat row appears exactly once with the tier sets that admit it and its
@@ -388,9 +390,9 @@ var retiredPickerModels = map[string]bool{}
 // Served rows keep served=true; withdrawn rows carry served=false +
 // withdrawn=true + the refusal copy and no tiers; tier-only rows (paid,
 // offer) are unserved but carry the tier that admits them; the
-// retired-from-picker row (upstage/solar-pro4, whose slot moved to
-// upstage/solar-mini4 with the 40c75256 catalog) is unserved, not withdrawn
-// and tierless, because no tier admits it any more. God-only/eval registry
+// retired-from-picker row (meta/muse-spark-1.2-contributor, whose slot 1.3
+// took as a paid-only row with the a2fd480 catalog) is unserved, not
+// withdrawn and tierless, because no tier admits it any more. God-only/eval
 // rows (luna-es) stay out. Count is the row count.
 func TestModelsDataCatalogTierFacts(t *testing.T) {
 	cfg := &config.Config{

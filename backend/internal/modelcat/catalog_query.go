@@ -104,11 +104,12 @@ func IsPremium(id string) bool {
 }
 
 // SharedPremiumModels returns the ids metered by the shared daily premium
-// pool: Luna + Muse Spark 1.2 since 2026-09-07 (1.3 withdrawn that day;
-// solar left the pool when its entitlement went unmetered; gemini is
-// Pro-paywalled). GPT-6 Luna holds the slot from 2026-09-22: 5.6 left
-// FREEBUFF_MODELS, and the generator marks Premium only for served rows.
-// GLM 5.3 Flash is unmetered.
+// pool: Luna + MiMo 2.6 Pro (Muse Spark 1.2 held the second slot 2026-09-07
+// → 2026-09-28, when vendor a2fd480 paywalled it on every surface; solar
+// left the pool when its entitlement went unmetered; gemini is Pro-paywalled
+// and cannot consume the pool). GPT-6 Luna holds the slot from 2026-09-22:
+// 5.6 left FREEBUFF_MODELS, and the generator marks Premium only for served
+// rows. GLM 5.3 Flash is unmetered.
 func SharedPremiumModels() []string {
 	var out []string
 	for i := range Catalog {

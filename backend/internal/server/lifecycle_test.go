@@ -27,14 +27,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/modelcat"
+	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/modelcat"
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // lifecycleToken is a valid-shaped cb_ FreeBuff token (the config validator
@@ -114,8 +113,8 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if hz.Status != "ok" || hz.Mode != "pooled" {
 			t.Errorf("healthz status/mode = %q/%q, want ok/pooled", hz.Status, hz.Mode)
 		}
-		if hz.Models != 9 {
-			t.Errorf("healthz models = %d, want 9", hz.Models)
+		if hz.Models != 8 {
+			t.Errorf("healthz models = %d, want 8", hz.Models)
 		}
 		if len(hz.Tokens) != 1 {
 			t.Errorf("healthz tokens = %d, want 1 at boot", len(hz.Tokens))
@@ -135,11 +134,11 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal(data, &ml); err != nil {
 			t.Fatalf("/v1/models not JSON: %v: %s", err, data)
 		}
-		// 10 = the catalog surface (7 served + 3 tier rows) since the
-		// tier-aware gate; withdrawn rows stay unlisted and healthz still
-		// counts the 7 served ids.
-		if len(ml.Data) != 11 {
-			t.Fatalf("/v1/models count = %d, want 11 (9 served + 2 tier rows)", len(ml.Data))
+		// 12 = the catalog surface (8 served + 4 tier rows) since the
+		// tier-aware gate; withdrawn and tierless-retired rows stay unlisted
+		// and healthz still counts the served ids.
+		if len(ml.Data) != 12 {
+			t.Fatalf("/v1/models count = %d, want 12 (8 served + 4 tier rows)", len(ml.Data))
 		}
 		found := false
 		for _, m := range ml.Data {
@@ -338,7 +337,7 @@ func TestLifecycleFullJourney(t *testing.T) {
 		// After add-token, 4 requests should have gone to the new token "1" (drain rotation picks least-used)
 		// but if they went to "0" we accept either as long as total is 4
 		for _, want := range []string{
-			"freebucks_proxy_models_total 9",
+			"freebucks_proxy_models_total 8",
 			"freebucks_proxy_tokens_total 2",
 		} {
 			if !strings.Contains(body, want) {
@@ -430,8 +429,8 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal([]byte(bodyOf(t, ovResp)), &ov); err != nil {
 			t.Fatalf("overview not JSON: %v", err)
 		}
-		if ov.Mode != "pooled" || ov.ModelCount != 9 || !ov.HasTokens || len(ov.Tokens) != 2 {
-			t.Errorf("overview = %+v, want mode=pooled models=9 has_tokens with 2 token cards", ov)
+		if ov.Mode != "pooled" || ov.ModelCount != 8 || !ov.HasTokens || len(ov.Tokens) != 2 {
+			t.Errorf("overview = %+v, want mode=pooled models=8 has_tokens with 2 token cards", ov)
 		}
 
 		// The models list carries a per-model quota label.
@@ -535,8 +534,8 @@ func TestLifecycleFullJourney(t *testing.T) {
 		if err := json.Unmarshal(data, &hz); err != nil {
 			t.Fatalf("healthz not JSON: %v: %s", err, data)
 		}
-		if hz.Status != "ok" || hz.Mode != "pooled" || hz.Models != 9 || len(hz.Tokens) != 1 {
-			t.Errorf("healthz = %+v, want ok/pooled/9/1 token after reload", hz)
+		if hz.Status != "ok" || hz.Mode != "pooled" || hz.Models != 8 || len(hz.Tokens) != 1 {
+			t.Errorf("healthz = %+v, want ok/pooled/8/1 token after reload", hz)
 		}
 
 		// Final metrics counters: the removed first token's counters are
@@ -547,7 +546,7 @@ func TestLifecycleFullJourney(t *testing.T) {
 		}
 		metrics := string(data)
 		for _, want := range []string{
-			"freebucks_proxy_models_total 9",
+			"freebucks_proxy_models_total 8",
 			"freebucks_proxy_tokens_total 1",
 			"freebucks_proxy_token_requests_total{token=\"1\"} 0",
 		} {

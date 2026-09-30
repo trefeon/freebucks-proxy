@@ -99,8 +99,15 @@ var Catalog = []ModelInfo{
 		Tiers:          []string{TierFull, TierPaid},
 		Premium:        true,
 		ContextWindow:  1000000,
-		Efforts:        []string{"low", "medium", "high", "xhigh", "max"},
+		Efforts:        []string{"low", "medium", "high", "xhigh"},
 		Experimental:   true},
+	{ID: "openai/gpt-6.1-sol", DisplayName: "GPT-6.1 Sol",
+		Tagline:        "OpenAI flagship",
+		TaglineTooltip: "OpenAI's flagship, on flex capacity with a standard-tier backup when flex is busy.",
+		Badges:         []string{"Reasoning: medium", "Images", "NEW"},
+		Tiers:          []string{TierFull, TierPaid},
+		Efforts:        []string{"low", "medium", "high"},
+		PlanRequired:   true},
 	{ID: "upstage/solar-pro4", DisplayName: "Solar Pro 4",
 		Tagline:       "Upstage flagship",
 		Served:        true,
@@ -114,26 +121,25 @@ var Catalog = []ModelInfo{
 		ContextWindow: 500000},
 	{ID: "google/gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash",
 		Tagline:      "1M context",
-		Badges:       []string{"Images", "NEW"},
+		Badges:       []string{"Reasoning: high", "Images", "NEW"},
 		Tiers:        []string{TierFull, TierPaid},
-		Efforts:      []string{"low", "medium", "high", "xhigh", "max"},
+		Efforts:      []string{"high"},
 		PlanRequired: true},
 	{ID: "meta/muse-spark-1.3-contributor", DisplayName: "Muse Spark 1.3",
-		Tagline:           "Queues, then falls back",
-		Badges:            []string{"Reasoning: xhigh", "NEW"},
-		Notice:            "May use data for AI training",
-		ContextWindow:     1000000,
-		Efforts:           []string{"minimal", "low", "medium", "high", "xhigh"},
-		PausedReplacement: "z-ai/glm-5.3-flash"},
+		Tagline:       "Falls back when busy",
+		Badges:        []string{"Reasoning: high", "NEW"},
+		Notice:        "May use data for AI training",
+		Tiers:         []string{TierFull, TierPaid},
+		ContextWindow: 1000000,
+		Efforts:       []string{"low", "medium", "high"},
+		PlanRequired:  true},
 	{ID: "meta/muse-spark-1.2-contributor", DisplayName: "Muse Spark 1.2",
 		Tagline:       "Queue",
-		Badges:        []string{"Reasoning: xhigh"},
+		Badges:        []string{"Reasoning: high"},
 		Notice:        "May use data for AI training",
-		Served:        true,
-		Tiers:         []string{TierFull},
-		Premium:       true,
 		ContextWindow: 1000000,
-		Efforts:       []string{"minimal", "low", "medium", "high", "xhigh"}},
+		Efforts:       []string{"low", "medium", "high"},
+		PlanRequired:  true},
 	{ID: "z-ai/glm-5.2", DisplayName: "GLM 5.2",
 		Tagline:           "Referral reward",
 		Badges:            []string{"Referral only"},
@@ -200,10 +206,13 @@ const (
 // SubscriptionProModelIDs mirrors upstream FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS,
 // the freebuff-subscriptions.ts name for FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS: the
 // static paid-session boundary a viewer with no server verdict falls back to.
-// It is NOT the every-surface refusal set (ModelInfo.PlanRequired /
-// FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS): GPT-6 Luna is listed here but
-// carries a US exemption, so the server does not refuse it on every surface.
-var SubscriptionProModelIDs = []string{"google/gemini-3.8-flash"}
+// MiMo 2.6 Pro and GPT-6 Luna LEFT this list on 2026-09-25 (open to every
+// full-access account since); GPT-6.1 Sol arrived 2026-09-29 carrying the
+// FREEBUFF_US_OR_PAID_MODEL_IDS exemption, which the proxy does not resolve
+// (no viewer country), so it stays plan-gated on every surface here —
+// exactly what ModelInfo.PlanRequired / FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS
+// refuses. The two lists currently coincide.
+var SubscriptionProModelIDs = []string{"google/gemini-3.8-flash", "meta/muse-spark-1.3-contributor", "meta/muse-spark-1.2-contributor", "openai/gpt-6.1-sol"}
 
 // IsSubscriptionPro mirrors upstream isFreebuffSubscriptionProModelId:
 // suffix-tolerant, so a dated provider snapshot (mimo-mimo-v2.6-pro-<date>)

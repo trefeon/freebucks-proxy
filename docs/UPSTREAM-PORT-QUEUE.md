@@ -22,13 +22,28 @@ all verified CLI/agent-local with no proxy mirror, snapshots carried. No
 proxy behavior change: `streakBonus` / `note` are display-only (admission
 and charging still use `limit` as sent) and the retired tier copy is
 byte-identical to the previously served value.
+Registry port 0.2.1 (a2fd480, lane drift/registry-021): `free-agents.ts` /
+`freebuff-models.ts` re-pinned (byte-identical testdata mirrors, registry pin
+hashes refreshed, `modelcat/catalog_gen.go` regenerated via wiregen). New row
+`openai/gpt-6.1-sol` (GPT-6.1 Sol, OpenAI flagship on flex, promotional 100
+Freebucks, US-or-paid gated) in every agent map + picker + plan/paywall lists;
+Muse Spark 1.3 returns from PAUSED as a plan-gated tier row (tagline `Falls
+back when busy`, OpenRouter lane, efforts capped at high); 1.2 leaves every
+picker for the same paywall (unserved, tierless, still recognized — the
+retired-from-picker row); GPT-6 Luna drops `max` from its ladder, Gemini 3.8
+fixes at `high`, GLM 5.3 Flash gains a `dealEndingSoon` notice (Sep 30 → 15/hr).
+Served set 9→8 (`/v1/models` 11→12 with the 4 tier rows, healthz/metrics 9→8).
+New picker pill fields (`promotional`, `dealEndingSoon`, `newBadge`) are
+presence-validated and skipped by the emitter (client-side marketing, no
+admission meaning); the proxy NEW badge still derives from `isNew`.
+
 `complete_compaction` anti-ban signal
 (`convert/foreign_signals.go:114-118`); `model_unavailable` refusal + window
 cache + fallback + metric (#158: `session/session_admission.go:659`,
 `session/model_unavailable.go`, `MODEL_UNAVAILABLE_CACHE_TTL` 1h);
 `premium_slot_taken` + purchase arms terminal (#8: `upstream/classify*.go`,
-`session/session_poll.go:118-132`); off-peak pricing fixture; 0.0.204
-registry (9 served models).
+`session/session_poll.go:118-132`); off-peak pricing fixture; 0.2.1
+registry (8 served models).
 
 CLI-sweep ports (2026-09-28, do NOT re-queue): P1 SessionState parse gaps
 (`desktopPurchases/desktopRefunds/desktopSessionCounts/freeWindows` +

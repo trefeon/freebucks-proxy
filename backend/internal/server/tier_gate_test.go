@@ -259,8 +259,8 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 		t.Cleanup(ts.Close)
 
 		rows, raw := fetchTierRows(t, ts)
-		if len(rows) != 11 {
-			t.Fatalf("rows = %d, want 11 (9 served + 2 tier rows)", len(rows))
+		if len(rows) != 12 {
+			t.Fatalf("rows = %d, want 12 (8 served + 4 tier rows)", len(rows))
 		}
 		luna := tierRowByID(t, rows, tierLuna)
 		if !luna.Available || luna.Status != "unknown" || !tierEqual(luna.Tiers, []string{"full", "paid"}) || luna.Offer != nil {
@@ -273,6 +273,17 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 		gemini := tierRowByID(t, rows, tierGemini)
 		if gemini.Available || gemini.Status != "plan_required" || !tierEqual(gemini.Tiers, []string{"full", "paid"}) {
 			t.Errorf("gemini row = %+v, want unavailable/plan_required tiers [full paid]", gemini)
+		}
+		// Vendor a2fd480 paywalled both Muse Spark rows plus new GPT-6.1 Sol
+		// on every surface: they list as unavailable/plan_required tier rows,
+		// never as served rows.
+		spark13 := tierRowByID(t, rows, "meta/muse-spark-1.3-contributor")
+		if spark13.Available || spark13.Status != "plan_required" || !tierEqual(spark13.Tiers, []string{"full", "paid"}) {
+			t.Errorf("muse-spark-1.3 row = %+v, want unavailable/plan_required tiers [full paid]", spark13)
+		}
+		sol61 := tierRowByID(t, rows, "openai/gpt-6.1-sol")
+		if sol61.Available || sol61.Status != "plan_required" || !tierEqual(sol61.Tiers, []string{"full", "paid"}) {
+			t.Errorf("gpt-6.1-sol row = %+v, want unavailable/plan_required tiers [full paid]", sol61)
 		}
 		fable := tierRowByID(t, rows, tierFable)
 		if fable.Available || fable.Status != "offer_unavailable" || !tierEqual(fable.Tiers, []string{"offer"}) || fable.Offer != nil {
@@ -292,7 +303,9 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 		}
 		// Withdrawn ids stay off the wire catalog: absent here, refused with
 		// upstream's withdrawn copy on chat, and never an upstream call.
-		for _, id := range []string{tierWithdrawn, "z-ai/glm-5.2", "meta/muse-spark-1.3-contributor", "deepseek/deepseek-v4-pro", "stealth/ox-alpha"} {
+		// (1.3 returned from PAUSED as a plan-gated tier row with vendor
+		// a2fd480, so it is listed again — just not served.)
+		for _, id := range []string{tierWithdrawn, "z-ai/glm-5.2", "deepseek/deepseek-v4-pro", "stealth/ox-alpha"} {
 			for _, r := range rows {
 				if r.ID == id {
 					t.Errorf("/v1/models listed withdrawn %q, want it unadvertised", id)
@@ -372,15 +385,14 @@ func TestModelsTierAnnotationShape(t *testing.T) {
 
 		rows, _ := fetchTierRows(t, ts)
 		served := map[string]bool{
-			"deepseek/deepseek-v4-flash":      true,
-			"openai/gpt-6-luna":               true,
-			"upstage/solar-pro4":              true,
-			"upstage/solar-mini4":             true,
-			"stealth/space-bunny-alpha":       true,
-			"meta/muse-spark-1.2-contributor": true,
-			"z-ai/glm-5.3-flash":              true,
-			"mimo/mimo-v2.5":                  true,
-			"mimo/mimo-v2.6-pro":              true,
+			"deepseek/deepseek-v4-flash": true,
+			"openai/gpt-6-luna":          true,
+			"upstage/solar-pro4":         true,
+			"upstage/solar-mini4":        true,
+			"stealth/space-bunny-alpha":  true,
+			"z-ai/glm-5.3-flash":         true,
+			"mimo/mimo-v2.5":             true,
+			"mimo/mimo-v2.6-pro":         true,
 		}
 		if len(rows) != len(served) {
 			t.Fatalf("rows = %d, want %d (every unavailable row pruned)", len(rows), len(served))

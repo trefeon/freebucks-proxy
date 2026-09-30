@@ -1,10 +1,9 @@
 package registry
 
 import (
+	"freebuff-proxy/backend/internal/modelcat"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/modelcat"
 )
 
 // TestServedModelsRouteToBase3FreeRoots pins the live-capture pattern
@@ -16,15 +15,14 @@ import (
 // admission upstream (free_mode_invalid_agent_model).
 func TestServedModelsRouteToBase3FreeRoots(t *testing.T) {
 	servedRoots := map[string]string{
-		"deepseek/deepseek-v4-flash":      "base3-free-deepseek-flash",
-		"z-ai/glm-5.3-flash":              "base3-free-glm-5-3-flash",
-		"mimo/mimo-v2.5":                  "base3-free-mimo",
-		"mimo/mimo-v2.6-pro":              "base3-free-mimo-2-6-pro",
-		"openai/gpt-6-luna":               "base3-free-luna-6",
-		"meta/muse-spark-1.2-contributor": "base3-free-muse-spark",
-		"upstage/solar-pro4":              "base3-free-solar-pro4",
-		"upstage/solar-mini4":             "base3-free-solar-mini4",
-		"stealth/space-bunny-alpha":       "base3-free-space-bunny-alpha",
+		"deepseek/deepseek-v4-flash": "base3-free-deepseek-flash",
+		"z-ai/glm-5.3-flash":         "base3-free-glm-5-3-flash",
+		"mimo/mimo-v2.5":             "base3-free-mimo",
+		"mimo/mimo-v2.6-pro":         "base3-free-mimo-2-6-pro",
+		"openai/gpt-6-luna":          "base3-free-luna-6",
+		"upstage/solar-pro4":         "base3-free-solar-pro4",
+		"upstage/solar-mini4":        "base3-free-solar-mini4",
+		"stealth/space-bunny-alpha":  "base3-free-space-bunny-alpha",
 	}
 
 	// The table must track the served set exactly: a served model missing

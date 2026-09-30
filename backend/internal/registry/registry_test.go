@@ -98,22 +98,27 @@ var expectedFallback = map[string]string{
 	"openai/gpt-6-luna-pro":       "base2-free-gpt-6-luna-pro",
 	"openai/gpt-6-sol":            "base2-free-gpt-6-sol",
 	"openai/gpt-6-sol-pro":        "base2-free-gpt-6-sol-pro",
-	"openai/o3-pro":               "base2-free-o3-pro",
-	"qwen/qwen3.6-max-preview":    "base2-free-qwen3-6-max-preview",
-	"qwen/qwen3.6-plus":           "base2-free-qwen3-6-plus",
-	"qwen/qwen3.7-max":            "base2-free-qwen3-7-max",
-	"qwen/qwen3.7-plus":           "base2-free-qwen3-7-plus",
-	"qwen/qwen3.8-27b":            "base2-free-qwen3-8-27b",
-	"qwen/qwen3.8-flash":          "base2-free-qwen3-8-flash",
-	"qwen/qwen3.8-max-0902":       "base2-free-qwen3-8-max-0902",
-	"qwen/qwen3.8-max-prime":      "base2-free-qwen3-8-max-prime",
-	"x-ai/grok-4.20":              "base2-free-grok-4-20",
-	"x-ai/grok-4.5":               "base2-free-grok-4-5",
-	"x-ai/grok-4.6":               "base2-free-grok-4-6",
-	"x-ai/grok-4.7":               "base2-free-grok-4-7",
-	"z-ai/glm-5-turbo":            "base2-free-glm-5-turbo",
-	"z-ai/glm-5.3-flashx":         "base2-free-glm-5-3-flashx",
-	"z-ai/glm-5.3-prime":          "base2-free-glm-5-3-prime",
+	// Registry addition in the 0.2.1 snapshot (vendor a2fd4806b): GPT-6.1 Sol,
+	// served through OpenRouter on every surface from 2026-09-29, free to US
+	// viewers and paywalled elsewhere. The CLI base3 root wins over the
+	// legacy base2 entry, exactly like every other dual-mapped row.
+	"openai/gpt-6.1-sol":       "base3-free-gpt-6-1-sol",
+	"openai/o3-pro":            "base2-free-o3-pro",
+	"qwen/qwen3.6-max-preview": "base2-free-qwen3-6-max-preview",
+	"qwen/qwen3.6-plus":        "base2-free-qwen3-6-plus",
+	"qwen/qwen3.7-max":         "base2-free-qwen3-7-max",
+	"qwen/qwen3.7-plus":        "base2-free-qwen3-7-plus",
+	"qwen/qwen3.8-27b":         "base2-free-qwen3-8-27b",
+	"qwen/qwen3.8-flash":       "base2-free-qwen3-8-flash",
+	"qwen/qwen3.8-max-0902":    "base2-free-qwen3-8-max-0902",
+	"qwen/qwen3.8-max-prime":   "base2-free-qwen3-8-max-prime",
+	"x-ai/grok-4.20":           "base2-free-grok-4-20",
+	"x-ai/grok-4.5":            "base2-free-grok-4-5",
+	"x-ai/grok-4.6":            "base2-free-grok-4-6",
+	"x-ai/grok-4.7":            "base2-free-grok-4-7",
+	"z-ai/glm-5-turbo":         "base2-free-glm-5-turbo",
+	"z-ai/glm-5.3-flashx":      "base2-free-glm-5-3-flashx",
+	"z-ai/glm-5.3-prime":       "base2-free-glm-5-3-prime",
 }
 
 func TestFallbackMap(t *testing.T) {
@@ -913,7 +918,10 @@ func TestResolveModelMaxUpgradeRemoved(t *testing.T) {
 // model_not_found) and serving meta/muse-spark-1.2-contributor in its place,
 // and by 40c75256 (2026-09-23) retiring upstage/solar-pro4 from every picker
 // while serving upstage/solar-mini4 in its slot and adding
-// stealth/space-bunny-alpha:
+// stealth/space-bunny-alpha, and by a2fd480 (0.2.1, 2026-09-28/29)
+// paywalling BOTH Muse Spark rows plus new GPT-6.1 Sol on every surface
+// (FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS): 1.2 leaves the served set
+// 9->8 while 1.3 returns from PAUSED as a plan-gated row:
 // ServedModels contains ONLY the 7 operational FreeBuff models. openai/gpt-5.6-luna-es was removed
 // after the vendor moved it into FREEBUFF_WEB_GOD_ONLY_MODELS ("Codex
 // (test)" — Novita route, evaluation only; hidden from the CLI picker and
@@ -929,13 +937,12 @@ func TestStrictServedModelsPinned(t *testing.T) {
 		"upstage/solar-pro4",
 		"upstage/solar-mini4",
 		"stealth/space-bunny-alpha",
-		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.3-flash",
 		"mimo/mimo-v2.5",
 		"mimo/mimo-v2.6-pro",
 	}
-	if len(modelcat.ServedMap()) != 9 {
-		t.Fatalf("len(modelcat.ServedMap()) = %d, want exactly 9", len(modelcat.ServedMap()))
+	if len(modelcat.ServedMap()) != 8 {
+		t.Fatalf("len(modelcat.ServedMap()) = %d, want exactly 8", len(modelcat.ServedMap()))
 	}
 	for _, m := range wantModels {
 		if !modelcat.IsServed(m) {
@@ -948,7 +955,9 @@ func TestStrictServedModelsPinned(t *testing.T) {
 
 	// Decommissioned models, honeypot/bait models (kimi-k3-eco, and luna-es
 	// since vendor snapshot 0603bc1 reclassified it "Codex (test)" god-only),
-	// and the substitution-hazard -max variants must be rejected:
+	// the substitution-hazard -max variants, and the plan-gated rows (1.3
+	// since the 2026-09-07 withdrawal, 1.2 + GPT-6.1 Sol since a2fd480
+	// paywalled them on every surface) must be rejected:
 	decommissioned := []string{
 		"minimax/minimax-m3",
 		"google/gemini-2.5-flash-lite",
@@ -957,6 +966,8 @@ func TestStrictServedModelsPinned(t *testing.T) {
 		"crof/kimi-k3-eco",
 		"openai/gpt-5.6-luna-es",
 		"meta/muse-spark-1.3-contributor",
+		"meta/muse-spark-1.2-contributor",
+		"openai/gpt-6.1-sol",
 		"deepseek/deepseek-v4-pro-max",
 		"deepseek/deepseek-v4-flash-max",
 		"openai/gpt-5.6-luna-max",

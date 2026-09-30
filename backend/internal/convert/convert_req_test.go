@@ -533,8 +533,9 @@ func TestEffortsForModel(t *testing.T) {
 	// Every id the ServedModels gate serves, plus paused rows with frozen
 	// ladders, with its upstream-verified ladder
 	// (upstream/freebuff/common/src/constants/freebuff-models.ts,
-	// modelcat catalog, pinned 92c4f5e: 1.3 withdrawn 2026-09-07, 1.2 served
-	// in its place).
+	// modelcat catalog, pinned a2fd480: 1.3 returned 2026-09-28 as a
+	// plan-gated row, 1.2 paywalled beside it; both ladders are
+	// EFFORTS_THROUGH_HIGH since 2026-09-29, by product decision).
 	for model, want := range map[string][]string{
 		"deepseek/deepseek-v4-flash":      {"low", "high", "max"},
 		"deepseek/deepseek-v4-pro":        {"low", "high", "max"},
@@ -542,8 +543,8 @@ func TestEffortsForModel(t *testing.T) {
 		"mimo/mimo-v2.5":                  {"high"}, // Xiaomi: disabled/high only
 		"minimax/minimax-m3":              {"high"}, // adaptive/disabled only
 		"anthropic/claude-fable-5.1":      {"low", "medium", "high", "xhigh", "max"},
-		"meta/muse-spark-1.2-contributor": {"minimal", "low", "medium", "high", "xhigh"},
-		"meta/muse-spark-1.3-contributor": {"minimal", "low", "medium", "high", "xhigh"}, // paused, frozen ladder
+		"meta/muse-spark-1.2-contributor": {"low", "medium", "high"},
+		"meta/muse-spark-1.3-contributor": {"low", "medium", "high"},
 	} {
 		if got := effortsForModel(model); !reflect.DeepEqual(got, want) {
 			t.Errorf("effortsForModel(%s) = %v, want %v", model, got, want)
@@ -594,9 +595,10 @@ func TestNormalizeRequestEffortClamp(t *testing.T) {
 	if got := effortFor("openai/gpt-5.6-luna", "xhigh"); got != "xhigh" {
 		t.Errorf("gpt-5.6-luna xhigh = %q, want xhigh", got)
 	}
-	// muse-spark EFFORTS_THROUGH_XHIGH includes minimal: it passes through.
-	if got := effortFor("meta/muse-spark-1.2-contributor", "minimal"); got != "minimal" {
-		t.Errorf("muse-spark minimal = %q, want minimal", got)
+	// muse-spark is EFFORTS_THROUGH_HIGH since 2026-09-29 (vendor a2fd480):
+	// minimal now clamps down to low.
+	if got := effortFor("meta/muse-spark-1.2-contributor", "minimal"); got != "low" {
+		t.Errorf("muse-spark minimal = %q, want low (clamped)", got)
 	}
 	// deepseek-v4-pro gained low on 08/13: it passes through unclamped.
 	if got := effortFor("deepseek/deepseek-v4-pro", "low"); got != "low" {

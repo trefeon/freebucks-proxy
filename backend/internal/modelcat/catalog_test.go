@@ -366,9 +366,11 @@ func catalogIDs() []string {
 }
 
 // TestCatalogFactsPinned asserts the documented catalog reality directly:
-// the served set, the shared premium pool (Luna + Muse Spark 1.2 since
-// 2026-09-07, when 1.3 was withdrawn; GLM 5.3 Flash is unmetered), the
-// paused map (all six withdrawn rows recommend the default model), and
+// the served set, the shared premium pool (Luna + MiMo 2.6 Pro; Muse Spark
+// 1.2 left the pool with the a2fd480 paywall, solar's entitlement went
+// unmetered, GLM 5.3 Flash is unmetered, gemini is Pro-paywalled and cannot
+// consume the pool), the paused map (the five remaining withdrawn rows
+// recommend the default model; 1.3 returned as a plan-gated row), and
 // per-model effort ladders. This pins what the doc comments CLAIM so a
 // stale claim (e.g. "GLM 5.3 Flash is premium") fails here before an
 // operator reads it.
@@ -379,7 +381,6 @@ func TestCatalogFactsPinned(t *testing.T) {
 		"openai/gpt-6-luna",
 		"upstage/solar-pro4",
 		"upstage/solar-mini4",
-		"meta/muse-spark-1.2-contributor",
 		"z-ai/glm-5.3-flash",
 		"deepseek/deepseek-v4-flash",
 		"mimo/mimo-v2.5",
@@ -389,10 +390,10 @@ func TestCatalogFactsPinned(t *testing.T) {
 		t.Errorf("ServedIDs() = %v, want %v", got, wantServed)
 	}
 
-	// Shared premium pool = Luna + Muse Spark 1.2 since 2026-09-07 (solar's
-	// entitlement went unmetered; gemini is Pro-paywalled and cannot consume
-	// the pool; 1.3 is paused and consumes nothing). GLM 5.3 Flash unmetered.
-	wantPremium := []string{"openai/gpt-6-luna", "meta/muse-spark-1.2-contributor", "mimo/mimo-v2.6-pro"}
+	// Shared premium pool = Luna + MiMo 2.6 Pro (Muse Spark 1.2 left the pool
+	// with the a2fd480 paywall; solar's entitlement went unmetered; gemini is
+	// Pro-paywalled and cannot consume the pool). GLM 5.3 Flash unmetered.
+	wantPremium := []string{"openai/gpt-6-luna", "mimo/mimo-v2.6-pro"}
 	if got := SharedPremiumModels(); !slices.Equal(got, wantPremium) {
 		t.Errorf("SharedPremiumModels() = %v, want %v", got, wantPremium)
 	}
@@ -400,7 +401,10 @@ func TestCatalogFactsPinned(t *testing.T) {
 		t.Error("glm-5.3-flash marked premium, want unmetered (not premium)")
 	}
 	if IsPremium("meta/muse-spark-1.3-contributor") {
-		t.Error("muse-spark-1.3 marked premium, want paused (not premium)")
+		t.Error("muse-spark-1.3 marked premium, want plan-gated (not premium)")
+	}
+	if IsPremium("meta/muse-spark-1.2-contributor") {
+		t.Error("muse-spark-1.2 marked premium, want plan-gated (not premium)")
 	}
 	for _, id := range wantPremium {
 		if !IsPremium(id) {
@@ -408,21 +412,20 @@ func TestCatalogFactsPinned(t *testing.T) {
 		}
 	}
 	wantPaused := map[string]string{
-		"stealth/ox-alpha":                DefaultModelID,
-		"deepseek/deepseek-v4-pro":        DefaultModelID,
-		"minimax/minimax-m3":              DefaultModelID,
-		"openai/gpt-5.6-luna":             DefaultModelID,
-		"z-ai/glm-5.2":                    DefaultModelID,
-		"meta/muse-spark-1.3-contributor": DefaultModelID,
+		"stealth/ox-alpha":         DefaultModelID,
+		"deepseek/deepseek-v4-pro": DefaultModelID,
+		"minimax/minimax-m3":       DefaultModelID,
+		"openai/gpt-5.6-luna":      DefaultModelID,
+		"z-ai/glm-5.2":             DefaultModelID,
 	}
 	if got := PausedMap(); !maps.Equal(got, wantPaused) {
 		t.Errorf("PausedMap() = %v, want %v", got, wantPaused)
 	}
 
-	// Effort ladders for served models (nil = the route ignores it).
+	// Effort ladders (nil = the route ignores it).
 	wantEfforts := map[string][]string{
-		"openai/gpt-6-luna":               {"low", "medium", "high", "xhigh", "max"},
-		"meta/muse-spark-1.2-contributor": {"minimal", "low", "medium", "high", "xhigh"},
+		"openai/gpt-6-luna":               {"low", "medium", "high", "xhigh"},
+		"meta/muse-spark-1.2-contributor": {"low", "medium", "high"},
 		"deepseek/deepseek-v4-flash":      {"low", "high", "max"},
 		"mimo/mimo-v2.5":                  {"high"},
 		"upstage/solar-pro4":              nil,
@@ -477,12 +480,13 @@ var wantTiers = map[string][]string{
 	"minimax/minimax-m3":              nil,
 	"openai/gpt-5.6-luna":             nil,
 	"openai/gpt-6-luna":               {TierFull, TierPaid},
+	"openai/gpt-6.1-sol":              {TierFull, TierPaid},
 	"upstage/solar-pro4":              {TierLimited, TierFull},
 	"upstage/solar-mini4":             {TierLimited, TierFull},
 	"stealth/space-bunny-alpha":       {TierFull},
 	"google/gemini-3.8-flash":         {TierFull, TierPaid},
-	"meta/muse-spark-1.3-contributor": nil,
-	"meta/muse-spark-1.2-contributor": {TierFull},
+	"meta/muse-spark-1.3-contributor": {TierFull, TierPaid},
+	"meta/muse-spark-1.2-contributor": nil,
 	"z-ai/glm-5.2":                    nil,
 	"z-ai/glm-5.3-flash":              {TierLimited, TierFull, TierPaid},
 	"deepseek/deepseek-v4-flash":      {TierLimited, TierFull, TierPaid},

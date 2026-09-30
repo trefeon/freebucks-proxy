@@ -999,12 +999,18 @@ func bracketBody(src string, open int, name, commit string) (string, error) {
 // supersededBy is presence-validated AND skipped: the saved-pick migration
 // it drives lives in the upstream clients (the proxy coerces unserved picks
 // to its fallback), so the pointer must parse but emits nothing.
+// promotional, dealEndingSoon and newBadge (all new 2026-09-29) are
+// presence-validated AND skipped for the same reason: they are picker
+// marketing pills (a temporary price, a dated deal, a release announcement)
+// with no admission or metering meaning the proxy mirrors. The proxy's own
+// NEW badge still derives from isNew, which every announced row also carries.
 var rowFieldOK = map[string]bool{
 	"id": true, "displayName": true, "tagline": true, "availability": true,
 	"unavailableFallback": true, "warning": true, "dataUse": true,
 	"premium": true, "multimodal": true, "reasoningEffort": true,
 	"efforts": true, "defaultEffort": true, "experimental": true,
 	"taglineTooltip": true, "isNew": true, "supersededBy": true,
+	"promotional": true, "dealEndingSoon": true, "newBadge": true,
 }
 
 // parseRowFields extracts the top-level `key: value` fields of row NAME.
@@ -1246,9 +1252,12 @@ const (
 // SubscriptionProModelIDs mirrors upstream FREEBUFF_SUBSCRIPTION_PRO_MODEL_IDS,
 // the freebuff-subscriptions.ts name for FREEBUFF_PRO_ONLY_CATALOG_MODEL_IDS: the
 // static paid-session boundary a viewer with no server verdict falls back to.
-// It is NOT the every-surface refusal set (ModelInfo.PlanRequired /
-// FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS): GPT-6 Luna is listed here but
-// carries a US exemption, so the server does not refuse it on every surface.
+// MiMo 2.6 Pro and GPT-6 Luna LEFT this list on 2026-09-25 (open to every
+// full-access account since); GPT-6.1 Sol arrived 2026-09-29 carrying the
+// FREEBUFF_US_OR_PAID_MODEL_IDS exemption, which the proxy does not resolve
+// (no viewer country), so it stays plan-gated on every surface here —
+// exactly what ModelInfo.PlanRequired / FREEBUFF_PRO_ONLY_EVERY_SURFACE_MODEL_IDS
+// refuses. The two lists currently coincide.
 var SubscriptionProModelIDs = []string{%s}
 
 // IsSubscriptionPro mirrors upstream isFreebuffSubscriptionProModelId:
