@@ -133,3 +133,56 @@ func TestFloorOnlyStreamReshape(t *testing.T) {
 		}
 	}
 }
+
+const (
+	flTodoFrag1 = `{"todos":[{"task":"a","completed":`
+	flTodoFrag2 = `false}]}`
+)
+
+func TestFloorOnlyStreamNameOnlyFirstFragment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+	mock := testutil.NewMock()
+	defer mock.Close()
+	// Live shape 2026-09-30: first fragment carries ONLY the OMP-vocabulary
+	// name, continuation fragments carry arg pieces without names. The
+	// index ownership recorded on the name-only fragment must route the
+	// continuations to the rule, or CLI-shaped args leak to the client.
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-fl3", 1,
+			`"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_fl_3","type":"function","function":{"name":"todo"`+`}`+`}`+`]`+`}`+`,"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-fl3", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(flTodoFrag1)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-fl3", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(flTodoFrag2)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-fl3", 1,
+			`"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":60,"completion_tokens":20,"total_tokens":80}`)))
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	ts, _ := newTestServer(t, nil, mock)
+	body := `{"model":"` + modelA + `","messages":[{"role":"user","content":"plan it"}],"stream":true,"tools":` + ompFloorTools() + `}`
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", []byte(body), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
+	}
+	frames, done := collectOpenAIFrames(t, string(data))
+	if !done {
+		t.Error("stream missing [DONE]")
+	}
+	if name := toolCallName(frames, 0); name != "todo" {
+		t.Errorf("tool call name = %q, want todo", name)
+	}
+	args := joinToolArgs(frames, 0)
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(args), &decoded); err != nil {
+		t.Fatalf("assembled args not JSON: %q", args)
+	}
+	if decoded["op"] != "init" {
+		t.Errorf("assembled args = %q, want phase-form init", args)
+	}
+	if _, ok := decoded["list"]; !ok {
+		t.Errorf("assembled args = %q, want list phase form", args)
+	}
+}

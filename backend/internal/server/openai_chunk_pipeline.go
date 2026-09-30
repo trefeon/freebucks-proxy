@@ -232,7 +232,7 @@ func (cr *chunkRewriter) reshapeBuffer(chunk map[string]any) bool {
 					wire = acc.wire
 				}
 			}
-			if wire == "" || frag == "" || !cr.stats.toolMap.HasReshapeRule(wire) {
+			if wire == "" || !cr.stats.toolMap.HasReshapeRule(wire) {
 				continue
 			}
 			if cr.reshapeBuf == nil {
@@ -245,6 +245,12 @@ func (cr *chunkRewriter) reshapeBuffer(chunk map[string]any) bool {
 			}
 			if id, _ := tc["id"].(string); id != "" && acc.id == "" {
 				acc.id = id
+			}
+			// Name-only first fragments (no arguments yet) still record
+			// the index ownership above, so later continuation fragments
+			// resolve the rule; only argument bytes are withheld.
+			if frag == "" {
+				continue
 			}
 			acc.args.WriteString(frag)
 			delete(fn, "arguments")
@@ -290,7 +296,11 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 		choice["delta"] = delta
 	}
 	tcs, _ := delta["tool_calls"].([]any)
+	injected := false
 	for idx, acc := range cr.reshapeBuf {
+		if acc.args.Len() == 0 {
+			continue
+		}
 		args := acc.args.String()
 		if out, ok := cr.stats.toolMap.ReshapeArgsFor(acc.wire, args); ok {
 			args = out
@@ -302,10 +312,11 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 				"arguments": args,
 			},
 		}
-		if acc.id != "" {
-			entry["id"] = acc.id
-		}
 		tcs = append(tcs, entry)
+		injected = true
+	}
+	if !injected {
+		return false
 	}
 	delta["tool_calls"] = tcs
 	clear(cr.reshapeBuf)
