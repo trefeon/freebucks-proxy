@@ -58,6 +58,36 @@ type ChatOptions struct {
 	ExtraCodebuffMetadata map[string]string
 }
 
+const (
+	// maxWaitingRoomRetries caps same-session waiting-room retries per
+	// ChatCompletions call (issue #744): the model has no serving slot, so
+	// re-POSTing more than once per request only burns upstream goodwill —
+	// repeated 503s during an outage got accounts banned. Transport and
+	// capacity-deferred retries keep the full TRANSIENT_RETRIES budget.
+	maxWaitingRoomRetries = 1
+	// waitingRoomRetryFloor is the minimum honor-window sleep before a
+	// waiting-room same-session retry (issue #744): the AI-SDK default the
+	// chat path and writeError already use when upstream sends no window. A
+	// smaller upstream window is raised to the floor — a slot-less model
+	// never recovers in a second, and a fast re-POST is pure ban risk.
+	waitingRoomRetryFloor = 10 * time.Second
+)
+
+// waitingRoomRetryWait returns the honor-window sleep before a waiting-room
+// same-session retry: the parsed upstream window raised to the 10s floor
+// plus 0-30% crypto/rand jitter (the retryDelay shape), so concurrent
+// proxies do not re-POST on a fixed grid.
+func waitingRoomRetryWait(base time.Duration) time.Duration {
+	if base < waitingRoomRetryFloor {
+		base = waitingRoomRetryFloor
+	}
+	var b [8]byte
+	_, _ = cryptoRand.Read(b[:])
+	u := binary.BigEndian.Uint64(b[:])
+	jitter := time.Duration(u % uint64(int64(base)*3/10+1))
+	return base + jitter
+}
+
 // ChatCompletions POSTs an OpenAI-shaped request to the upstream chat
 // endpoint, injecting the CLI envelope, and returns the raw SSE body reader
 // on 2xx. On error status it drains (up to 500 chars), classifies, and
@@ -101,11 +131,16 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 	//     the session on 503 instead of failing the chat
 	//     (upstream/freebuff cli/src/utils/freebuff-session-api.ts:48-72),
 	//     so the proxy waits out the same window in-request before
-	//     surfacing 503 + Retry-After.
+	//     surfacing 503 + Retry-After — but at most maxWaitingRoomRetries
+	//     times per request (#744: re-POSTing into a slot-less model got
+	//     accounts banned).
 	// transientQueueAttempts is the per-request budget: a fresh call starts
 	// at zero, so every request gets its own TRANSIENT_RETRIES allowance
 	// (the client-lifetime atomics only track the metrics).
+	// waitingRoomAttempts is the per-request waiting-room allowance, capped
+	// at maxWaitingRoomRetries regardless of TRANSIENT_RETRIES.
 	transientQueueAttempts := 0
+	waitingRoomAttempts := 0
 	for {
 		req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/chat/completions", enveloped)
 		if err != nil {
@@ -165,11 +200,13 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 			c.dump("chat", req, resp.StatusCode, bodyText)
 			deferred := isCapacityDeferred(cerr)
 			waitingRoom := isWaitingRoom(cerr)
-			if (deferred || waitingRoom) && transientQueueAttempts < c.transientRetriesLimit {
+			capped := waitingRoom && waitingRoomAttempts >= maxWaitingRoomRetries
+			if (deferred || waitingRoom) && !capped && transientQueueAttempts < c.transientRetriesLimit {
 				transientQueueAttempts++
 				msg := "upstream capacity deferred, retrying same session"
 				if waitingRoom {
 					msg = "upstream waiting room, retrying same session"
+					waitingRoomAttempts++
 					c.waitingRoomRetries.Add(1) // lifetime metric
 				} else {
 					c.capacityDeferredRetries.Add(1) // lifetime metric
@@ -184,6 +221,11 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 				ra := 10 * time.Second
 				if d := queueRetryAfter(cerr); d > 0 {
 					ra = d
+				}
+				if waitingRoom {
+					// #744: floor + jitter the honor window so the one
+					// budgeted retry never hot-loops or lands on a fixed grid.
+					ra = waitingRoomRetryWait(ra)
 				}
 				// Same-session retry after the parsed wait: Debug like the
 				// transport retry in do(), carrying the same join keys.
