@@ -1773,18 +1773,19 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
 
-    // Served stat counts only usable rows: the fixture's 17-row catalog
-    // holds 7 served models (live-verified 2026-09-29: served == usable);
-    // withdrawn, paid-plan and trial rows are hidden, not greyed.
-    await expect(page.getByText("7 of 7")).toBeVisible();
-    await expect(page.getByText("17 registered · 50 agents")).toBeVisible();
+    // Served stat counts only usable rows: the fixture's 18-row catalog
+    // holds 6 served models (live-verified 2026-09-29: served == usable, and
+    // vendor a2fd480 retired Muse Spark 1.2 from every picker);
+    // withdrawn, paid-plan, retired and trial rows are hidden, not greyed.
+    await expect(page.getByText("6 of 6")).toBeVisible();
+    await expect(page.getByText("18 registered · 50 agents")).toBeVisible();
     // Tier column renders; the pool column stays gone.
     await expect(page.getByText("Tier").first()).toBeVisible();
     await expect(page.locator("table").getByText("Pool")).toHaveCount(0);
-    // 7 served rows in the desktop table; tier cells render in both the
+    // 6 served rows in the desktop table; tier cells render in both the
     // table and the mobile cards.
-    await expect(page.locator("table tbody tr")).toHaveCount(7);
-    await expect(page.getByTestId("model-tier")).toHaveCount(14);
+    await expect(page.locator("table tbody tr")).toHaveCount(6);
+    await expect(page.getByTestId("model-tier")).toHaveCount(12);
     // No plan-required badge, no withdrawn copy, no offer row: unserved
     // rows never render in either rendering.
     await expect(page.getByTestId("model-plan-required")).toHaveCount(0);
@@ -1804,7 +1805,6 @@ test.describe("dashboard hermetic mocks", () => {
         "served",
       ],
       ["mimo/mimo-v2.5", ["limited", "full"], "served"],
-      ["meta/muse-spark-1.2-contributor", ["full"], "served"],
     ];
     for (const [id, chips, state] of want) {
       const row = table.locator("tbody tr").filter({ hasText: id });
@@ -1820,6 +1820,8 @@ test.describe("dashboard hermetic mocks", () => {
       "deepseek/deepseek-v4-pro",
       "minimax/minimax-m3",
       "meta/muse-spark-1.3-contributor",
+      "meta/muse-spark-1.2-contributor",
+      "openai/gpt-6.1-sol",
       "openai/gpt-5.6-luna",
       "upstage/solar-pro4",
       "google/gemini-3.8-flash",
@@ -1866,7 +1868,7 @@ test.describe("dashboard hermetic mocks", () => {
       page.getByRole("heading", { level: 1, name: "Models", exact: true }),
     ).toBeVisible();
     const rows = page.locator("table tbody tr");
-    await expect(rows).toHaveCount(7);
+    await expect(rows).toHaveCount(6);
     await expect(rows.first()).toContainText("openai/gpt-6-luna");
   });
   test("Models hides the trial row even with a live offer", async ({

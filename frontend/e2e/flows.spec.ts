@@ -135,8 +135,9 @@ test.describe("user flows", () => {
     ).toBeDisabled();
   });
   test("tokens: spawn picker lists only served models", async ({ page }) => {
-    // The 17-row catalog lists withdrawn and tier-only rows the gateway
-    // never serves; the spawn picker must offer exactly the served set.
+    // The 18-row catalog lists withdrawn, retired and tier-only rows the
+    // gateway never serves; the spawn picker must offer exactly the served
+    // set (vendor a2fd480 retired Muse Spark 1.2 from every picker).
     await mockDashboard(page, loadFixtures());
     await page.goto(admin("tokens"));
     // The per-token Dev Session toolbar renders with DEVTOOLS_ENABLED=true.
@@ -166,7 +167,6 @@ test.describe("user flows", () => {
         "openai/gpt-6-luna",
         "upstage/solar-mini4",
         "stealth/space-bunny-alpha",
-        "meta/muse-spark-1.2-contributor",
         "z-ai/glm-5.3-flash",
         "deepseek/deepseek-v4-flash",
         "mimo/mimo-v2.5",

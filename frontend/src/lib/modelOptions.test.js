@@ -39,6 +39,9 @@ describe("fallbackModelOptions (offline pickers)", () => {
     assert.ok(!ids.includes("stealth/ox-alpha"));
     assert.ok(!ids.includes("google/gemini-3.8-flash"));
     assert.ok(!ids.includes("anthropic/claude-fable-5.1"));
+    // Muse Spark 1.2 left every picker on 2026-09-29 (vendor a2fd480):
+    // tierless and unserved, so the offline fallback must not offer it.
+    assert.ok(!ids.includes("meta/muse-spark-1.2-contributor"));
   });
 
   it("retired Solar Pro 4 is out, Mini 4 and Bunny are in", () => {

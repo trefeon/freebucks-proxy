@@ -13,11 +13,6 @@ export const fallbackModelOptions = [
     tag: "premium",
   },
   {
-    id: "meta/muse-spark-1.2-contributor",
-    label: "meta/muse-spark-1.2-contributor",
-    tag: "premium",
-  },
-  {
     id: "upstage/solar-mini4",
     label: "upstage/solar-mini4",
     tag: "free",

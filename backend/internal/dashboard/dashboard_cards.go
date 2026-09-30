@@ -1287,17 +1287,7 @@ type NoticesResponse struct {
 func (d *Dashboard) noticesData() NoticesResponse {
 	var list []NoticeItem
 
-	// 1. Official Upstream Tier & Model Announcement
-	list = append(list, NoticeItem{
-		ID:      "upstream-tier-change",
-		Type:    "announcement",
-		Title:   "Official Upstream Announcement",
-		Message: upstream.TierChangeNotice,
-		Badge:   "Freebuff Team",
-		Tone:    "accent",
-	})
-
-	// 2. Live DeepSeek Peak Hours Evaluation
+	// 1. Live DeepSeek Peak Hours Evaluation
 	peak := upstream.EvaluateDeepSeekPeak(time.Now())
 	if peak.IsPeak {
 		list = append(list, NoticeItem{
@@ -1310,7 +1300,7 @@ func (d *Dashboard) noticesData() NoticesResponse {
 		})
 	}
 
-	// 3. Dynamic Session Broadcasts & Upgrade Hints from Pool Tokens
+	// 2. Dynamic Session Broadcasts & Upgrade Hints from Pool Tokens
 	if d.pool != nil {
 		snaps := d.pool.Snapshot()
 		for i, tok := range snaps {

@@ -14,7 +14,7 @@ Recently ported (do NOT re-queue): wire port 0.2.1 (a2fd480, lane drift/wire-021
 `upstream/session_types_freebucks.go`, `TestParseFreebucksStreakBonusNote`);
 `FREEBUFF_TIER_CHANGE_NOTICE` deleted upstream → retired copy in
 `wirefacts/emit_wire.go:wireRetiredNotices` (dashboard announcement card
-untouched; the dashboard lane retires the card); availability
+retired in drift/dashboard-021); availability
 residential-proxy branch + VPN/Freebucks reword, peak-hours
 `isSupportedTimeZone` + zone validation, picker `dealEndingSoon` /
 `promotional` chips, agent-runtime `onFinishReason` + compaction rework —

@@ -8,23 +8,15 @@ func TestNoticesData(t *testing.T) {
 	d := &Dashboard{}
 	resp := d.noticesData()
 
-	if resp.Count == 0 || len(resp.Notices) == 0 {
-		t.Fatalf("noticesData() returned empty notices list")
-	}
-
-	foundTierChange := false
+	// The upstream tier-change announcement retired with vendor a2fd480
+	// (upstream deleted FREEBUFF_TIER_CHANGE_NOTICE): the card must stay
+	// gone. Peak windows and per-token broadcasts still ride this payload.
 	for _, n := range resp.Notices {
 		if n.ID == "upstream-tier-change" {
-			foundTierChange = true
-			if n.Type != "announcement" {
-				t.Errorf("TierChange notice Type = %q, want 'announcement'", n.Type)
-			}
-			if n.Tone != "accent" {
-				t.Errorf("TierChange notice Tone = %q, want 'accent'", n.Tone)
-			}
+			t.Errorf("retired upstream-tier-change card still served in noticesData()")
 		}
 	}
-	if !foundTierChange {
-		t.Errorf("TierChange notice not found in noticesData()")
+	if resp.Count != len(resp.Notices) {
+		t.Errorf("noticesData() Count = %d, want len(Notices) = %d", resp.Count, len(resp.Notices))
 	}
 }

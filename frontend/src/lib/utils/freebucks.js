@@ -106,10 +106,23 @@ export const MODEL_METADATA = {
     badges: ["Reasoning: high", "Images", "NEW"],
     disclaimer: "May use data for AI training",
   },
+  // Muse Spark 1.3 returned as a plan-gated tier row on 2026-09-29 (vendor
+  // a2fd480): locked without a paid plan, so never a served picker row, but
+  // named by plan rows — hence the copy.
+  "meta/muse-spark-1.3-contributor": {
+    displayName: "Muse Spark 1.3",
+    tagline: "Falls back when busy",
+    badges: ["Reasoning: high", "NEW"],
+    disclaimer: "May use data for AI training",
+  },
+  // Muse Spark 1.2 left every picker on 2026-09-29 (1.3 took its slot as a
+  // paid-only row, vendor a2fd480) but stays recognized: sessions admitted
+  // before the swap drain on it, so its copy stays for the rows that still
+  // name it. Tierless and unserved — never a picker row.
   "meta/muse-spark-1.2-contributor": {
     displayName: "Muse Spark 1.2",
     tagline: "Queue",
-    badges: ["Reasoning: xhigh"],
+    badges: ["Reasoning: high"],
     disclaimer: "May use data for AI training",
   },
   // GPT-5.6 Luna left every picker on 2026-09-22 (replaced by GPT-6 Luna in
@@ -125,6 +138,14 @@ export const MODEL_METADATA = {
     displayName: "GPT-6 Luna",
     tagline: "Strong all-around",
     badges: ["Reasoning: high", "Images", "NEW"],
+  },
+  // GPT-6.1 Sol arrived as a plan-gated tier row on 2026-09-29 (vendor
+  // a2fd480): locked without a paid plan, so never a served picker row, but
+  // named by plan rows — hence the copy.
+  "openai/gpt-6.1-sol": {
+    displayName: "GPT-6.1 Sol",
+    tagline: "OpenAI flagship",
+    badges: ["Reasoning: medium", "Images", "NEW"],
   },
   "z-ai/glm-5.2": {
     displayName: "GLM 5.2",

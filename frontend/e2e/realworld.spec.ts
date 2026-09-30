@@ -213,10 +213,11 @@ test.describe("real-world data", () => {
     await expect(page.getByText("Referral only")).toHaveCount(0);
     await expect(page.getByText("paid plan").first()).toBeVisible();
     await expect(page.getByText("limited trial")).toHaveCount(0);
-    // Served stat counts only usable rows: 7 served of the 17-row catalog
-    // (live-verified 2026-09-29: served == usable).
-    await expect(page.getByText("7 of 7")).toBeVisible();
-    await expect(page.getByText("17 registered · 50 agents")).toBeVisible();
+    // Served stat counts only usable rows: 6 served of the 18-row catalog
+    // (live-verified 2026-09-29: served == usable; vendor a2fd480 retired
+    // Muse Spark 1.2 from every picker).
+    await expect(page.getByText("6 of 6")).toBeVisible();
+    await expect(page.getByText("18 registered · 50 agents")).toBeVisible();
     // No withdrawn rows, no offer row: unserved rows never render.
     await expect(page.getByTestId("model-withdrawn")).toHaveCount(0);
     await expect(page.getByTestId("model-offer")).toHaveCount(0);
