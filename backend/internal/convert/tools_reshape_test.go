@@ -33,10 +33,20 @@ func TestReshapeArgsTable(t *testing.T) {
 		{"glob", `{"pattern":"*.go"}`, map[string]any{"path": "*.go"}},
 		{
 			"write_todos", `{"todos":[{"task":"a","completed":false},{"task":"b","completed":true}]}`,
-			map[string]any{"op": "init", "items": []any{"a"}},
+			map[string]any{"op": "init", "list": []any{map[string]any{
+				"phase": "Tasks",
+				"items": []any{map[string]any{"task": "a", "completed": false}, map[string]any{"task": "b", "completed": true}},
+			}}},
 		},
 		{
 			"write_todos", `{"todos":[{"task":"b","completed":true}]}`,
+			map[string]any{"op": "init", "list": []any{map[string]any{
+				"phase": "Tasks",
+				"items": []any{map[string]any{"task": "b", "completed": true}},
+			}}},
+		},
+		{
+			"write_todos", `{"todos":[]}`,
 			map[string]any{"op": "view"},
 		},
 		{"web_search", `{"query":"q","depth":"deep"}`, map[string]any{"query": "q"}},
@@ -67,8 +77,8 @@ func TestReshapeArgsTable(t *testing.T) {
 
 func TestReshapeArgsPassthrough(t *testing.T) {
 	m := ToolMapper{floorOnly: true}
-	if _, ok := m.ReshapeArgsFor("ask_user", `{"a":1}`); ok {
-		t.Error("ask_user reshaped, want passthrough (no rule)")
+	if _, ok := m.ReshapeArgsFor("gravity_index", `{"a":1}`); ok {
+		t.Error("gravity_index reshaped, want passthrough (no rule)")
 	}
 	if _, ok := m.ReshapeArgsFor("run_terminal_command", `not json`); ok {
 		t.Error("invalid JSON reshaped, want passthrough")

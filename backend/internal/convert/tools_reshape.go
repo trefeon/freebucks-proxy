@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -175,40 +176,82 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 		return out
 	},
 	// OMP todo is an op-machine, CLI write_todos a state dump: re-init with
-	// the open titles (lossy: per-item done states collapse — the loop
-	// stays functional, planning display refreshes). All-done dumps read
-	// back as a view (init rejects empty items).
+	// completed}]}]} (live-probed 2026-09-30: bare init errors "Missing
+	// list for init operation"; flat items rely on the repair path).
+	// Completed flags ride through per item. All-done dumps read back as
+	// a view (init rejects empty items).
 	"write_todos": func(in map[string]any) map[string]any {
 		todos, _ := in["todos"].([]any)
-		var open []string
+		items := make([]any, 0, len(todos))
 		for _, t := range todos {
 			m, ok := t.(map[string]any)
 			if !ok {
-				continue
-			}
-			done, _ := m["completed"].(bool)
-			if done {
 				continue
 			}
 			title := strField(m, "task")
 			if title == "" {
 				title = strField(m, "content")
 			}
-			if title != "" {
-				open = append(open, title)
+			if title == "" {
+				continue
 			}
+			done, _ := m["completed"].(bool)
+			items = append(items, map[string]any{"task": title, "completed": done})
 		}
-		if len(open) == 0 {
+		if len(items) == 0 {
 			return map[string]any{"op": "view"}
 		}
-		items := make([]any, 0, len(open))
-		for _, t := range open {
-			items = append(items, t)
+		return map[string]any{
+			"op":   "init",
+			"list": []any{map[string]any{"phase": "Tasks", "items": items}},
 		}
-		return map[string]any{"op": "init", "items": items}
 	},
 	// OMP web_search {query, ...} — CLI depth dropped.
 	"web_search": func(in map[string]any) map[string]any {
 		return map[string]any{"query": strField(in, "query")}
+	},
+	// ask_user -> OMP ask {questions:[{id, question, options}]}: ids
+	// synthesized per index (OMP requires them), option labels and
+	// descriptions carried verbatim.
+	"ask_user": func(in map[string]any) map[string]any {
+		qs, _ := in["questions"].([]any)
+		out := make([]any, 0, len(qs))
+		for i, q := range qs {
+			qm, _ := q.(map[string]any)
+			if qm == nil {
+				continue
+			}
+			entry := map[string]any{
+				"id":       "q" + strconv.Itoa(i),
+				"question": strField(qm, "question"),
+			}
+			if opts, ok := qm["options"].([]any); ok {
+				clean := make([]any, 0, len(opts))
+				for _, o := range opts {
+					om, _ := o.(map[string]any)
+					if om == nil {
+						continue
+					}
+					item := map[string]any{"label": strField(om, "label")}
+					if d := strField(om, "description"); d != "" {
+						item["description"] = d
+					}
+					clean = append(clean, item)
+				}
+				entry["options"] = clean
+			}
+			out = append(out, entry)
+		}
+		return map[string]any{"questions": out}
+	},
+	// read_url -> OMP read {path}: OMP reads http(s) URLs through read;
+	// max_chars dropped.
+	"read_url": func(in map[string]any) map[string]any {
+		return map[string]any{"path": strField(in, "url")}
+	},
+	// skill -> OMP read {path}: skill content resolves through the
+	// skill:// internal URI the read tool serves.
+	"skill": func(in map[string]any) map[string]any {
+		return map[string]any{"path": "skill://" + strField(in, "name")}
 	},
 }

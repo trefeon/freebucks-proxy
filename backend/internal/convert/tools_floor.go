@@ -130,3 +130,33 @@ func floorOnlyOMP(payload map[string]any) {
 		}
 	}
 }
+
+// floorFallbacks routes floor tools the OMP family never declares to the
+// OMP equivalent: the model sees all 16 floor defs (gate requirement) but
+// OMP dispatches only its own names. list_directory rides arg-verbatim
+// (CLI {path} is already valid OMP read shape); suggest_followups,
+// gravity_index, render_ui and report_project_profile have no equivalent
+// and keep failing client-side with "not found".
+var floorFallbacks = map[string]string{
+	"ask_user":       "ask",
+	"read_url":       "read",
+	"list_directory": "read",
+	"skill":          "read",
+}
+
+// RegisterFloorFallbacks records the fallback routes on the mapper so
+// response calls to undeclared floor tools restore + reshape to the OMP
+// equivalent. Never overrides a real mapping (first claim wins).
+func (m *ToolMapper) RegisterFloorFallbacks() {
+	if m.upstreamToClient == nil || m.clientToUpstream == nil {
+		return
+	}
+	for wire, client := range floorFallbacks {
+		if _, taken := m.upstreamToClient[wire]; !taken {
+			m.upstreamToClient[wire] = client
+		}
+		if _, taken := m.clientToUpstream[client]; !taken {
+			m.clientToUpstream[client] = wire
+		}
+	}
+}

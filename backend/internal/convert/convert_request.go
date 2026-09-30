@@ -184,6 +184,10 @@ func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options)
 	if ompMode {
 		floorOnlyOMP(payload)
 		mapper.floorOnly = true
+		// Undeclared floor tools route to the OMP equivalent so model
+		// calls to ask_user/read_url/list_directory/skill restore +
+		// reshape instead of failing client-side with "not found".
+		mapper.RegisterFloorFallbacks()
 	}
 	mapper.RenameRequestToolChoice(payload)
 	renamed, merr := json.Marshal(payload)
