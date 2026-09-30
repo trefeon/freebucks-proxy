@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
-
 	"freebuff-proxy/backend/internal/phasetiming"
 	"freebuff-proxy/backend/internal/pool"
 	"freebuff-proxy/backend/internal/store"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // stampOpenAISystemCacheMarker stamps {"type":"ephemeral"} cache_control on
@@ -142,7 +141,11 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 	}
 	// Token split for the traces enrichment: integer attrs under the exact
 	// UsageRecord key names, logged only when the relay observed a real
-	// usage block (absent otherwise, so the trace renders no token line).
+	// usage block. An ok-status chat with no usage block logs usage=absent
+	// instead, so a 0-token row reads as "upstream sent nothing" rather
+	// than missing data. Wire shape for gate debuggability: tools is the
+	// client-declared count, floor_only marks the OMP-family floor-only
+	// replacement.
 	if st != nil && st.usageTotal > 0 {
 		attrs = append(attrs,
 			"input", st.usageInput,
@@ -151,6 +154,14 @@ func (s *Server) traceChat(lease *pool.Lease, model string, ms int64, status, er
 			"reasoning", st.usageReasoning,
 			"total", st.usageTotal,
 		)
+	} else if st != nil && status == "ok" {
+		attrs = append(attrs, "usage", "absent")
+	}
+	if st != nil {
+		attrs = append(attrs, "tools", st.toolCount)
+		if st.floorOnly {
+			attrs = append(attrs, "floor_only", true)
+		}
 	}
 	for _, name := range []string{
 		phasetiming.AcquireMS,
@@ -262,6 +273,12 @@ type chatTraceState struct {
 	usageCached    int64
 	usageReasoning int64
 	usageTotal     int64
+	// toolCount is the client-declared tools length (toolMap.ToolCount)
+	// and floorOnly whether the OMP-family floor-only wire replaced the
+	// client defs (convert floorOnlyOMP). Logged as tools=N / floor_only
+	// for wire-shape debuggability (gate verdicts key on definitions).
+	toolCount int
+	floorOnly bool
 	// failedToken/failedAgent carry the lease attribution of a
 	// post-acquire chat error: chatAttempt releases the lease before
 	// returning, so without these the trace would lose the token that

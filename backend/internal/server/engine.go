@@ -83,6 +83,9 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		reqID = newReqID()
 	}
 	st := &chatTraceState{reqID: reqID, clientRequestID: clientRequestID(r)}
+	// Wire shape for the trace line (gate debuggability): the mapper
+	// already scanned the client body, so the counts ride free.
+	st.toolCount, st.floorOnly = toolMap.ToolCount(), toolMap.FloorOnly()
 	ctx, phases := phasetiming.WithContext(context.WithValue(r.Context(), reqIDKey{}, reqID))
 	start := time.Now()
 

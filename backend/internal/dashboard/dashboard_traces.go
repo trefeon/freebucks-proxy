@@ -1,12 +1,11 @@
 package dashboard
 
 import (
+	"freebuff-proxy/backend/internal/phasetiming"
+	"freebuff-proxy/backend/internal/store"
 	"strconv"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/phasetiming"
-	"freebuff-proxy/backend/internal/store"
 )
 
 // --- traces ---
@@ -39,6 +38,14 @@ type traceEntry struct {
 	// chat trace logs verbatim (comma-joined 1-based, e.g. "2" or "1,3").
 	// String passthrough like Token: the dashboard never interprets it.
 	RateTokens string `json:"rate_tokens,omitempty"`
+	// Tools is the client-declared tools count the chat trace logs for
+	// wire-shape debuggability. FloorOnly marks the OMP-family floor-only
+	// replacement. UsageAbsent marks an ok-status chat whose stream
+	// carried no usage block (a 0-token row that means "upstream sent
+	// nothing", not missing data).
+	Tools       int64 `json:"tools,omitempty"`
+	FloorOnly   bool  `json:"floor_only,omitempty"`
+	UsageAbsent bool  `json:"usage_absent,omitempty"`
 }
 
 // tracesData merges the live ring with the history store so the Traces
@@ -112,6 +119,12 @@ func traceFromFields(timeStr string, fields []string) traceEntry {
 			entry.Reasoning = parseTraceCount(value)
 		case "total":
 			entry.Total = parseTraceCount(value)
+		case "tools":
+			entry.Tools = parseTraceCount(value)
+		case "floor_only":
+			entry.FloorOnly = value == "true"
+		case "usage":
+			entry.UsageAbsent = value == "absent"
 		case "ms":
 			entry.Ms = value + "ms"
 		case "error":
