@@ -50,7 +50,7 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Pi", "write", classMapped, "write_file"},
 		{"Pi", "grep", classMapped, "code_search"},
 		{"Pi", "ls", classMapped, "list_directory"},
-		{"Pi", "find", classMapped, "find_files"},
+		{"Pi", "find", classMapped, "glob"},
 		{"Pi", "powershell", classMapped, "run_terminal_command"},
 		{"Pi", "edit-diff", classMapped, "apply_patch"},
 

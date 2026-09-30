@@ -377,6 +377,15 @@ func (s *Server) accumulateAnthropicChunk(send func(map[string]any), st *anthrop
 				st.ensureStarted(ts, send)
 			}
 			if args, ok := fn["arguments"].(string); ok && args != "" {
+				// Floor-only fan-out is intentionally NOT applied here:
+				// argument fragments relay live as input_json_delta bytes
+				// before the whole is known, so a multi-path read cannot
+				// expand to N tool_use blocks mid-stream (unlike the chat
+				// relay, nothing withholds fragments for a terminal
+				// reshape+inject). OMP speaks the OpenAI chat surface, where
+				// both legs fan out; the Anthropic streaming fan-out needs a
+				// withhold-buffer redesign of this state machine and stays
+				// deferred.
 				if ts.name != "" {
 					// ensureStarted replays the accumulated prefix when the
 					// block (re)opens; the new fragment is emitted after it.

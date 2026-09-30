@@ -121,9 +121,15 @@ var clientToOfficial = map[string]string{
 
 	// Pi / Oh My Pi (OMP)
 	"powershell": "run_terminal_command",
-	"find":       "find_files",
-	"edit-diff":  "apply_patch",
-
+	// OMP find {pattern} (the live prompt also emits query+grep_keywords
+	// vocabulary) is file-pattern search: it rides as CLI glob {pattern},
+	// an official floor name with zero new gate surface, and restores
+	// shape-aware to find {pattern} only when the call originated as find
+	// — native glob calls keep the OMP glob {path} shape (fanoutGlobArgs).
+	// A verbatim find def must never ride: any foreign-schema definition
+	// alongside the floor trips the gate.
+	"find":      "glob",
+	"edit-diff": "apply_patch",
 	// Kilocode / OpenCode
 	"execute_bash": "run_terminal_command",
 	"fuzzy_search": "code_search",

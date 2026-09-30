@@ -7,8 +7,10 @@ import "encoding/json"
 // Live bisect 2026-09-30 (5ac40785): OMP-tools + neutral-system 503s while
 // official-tools + the full 77KB OMP system 200s. The gate keys on tool
 // DEFINITIONS: any foreign-schema definition riding alongside the floor
-// (mcp__ virtualized defs, find_files under a non-floor name) trips it.
-// Substitution alone is insufficient — the riders must not ride at all.
+// (mcp__ virtualized defs, unmapped customs) trips it. Substitution alone
+// is insufficient — the riders must not ride at all. (OMP `find` is not a
+// rider: it maps to the official floor name `glob` and restores shape-aware
+// to find — see clientToOfficial + fanoutGlobArgs.)
 //
 // When the client toolset is OMP-family (intent-`i` schemas OMP injects per
 // request, or OMP-signature tool names no other harness declares), the wire
@@ -79,9 +81,9 @@ func isOMPToolset(tools []any) bool {
 
 // floorOnlyOMP rewrites payload["tools"] to the 16 canonical CLI definitions
 // in fixture order, preserving the end_turn/decide pins already present.
-// Non-floor entries (mcp__ virtualizations, find_files, unmapped customs)
-// are dropped: they would trip the gate, and the model cannot miss tools it
-// was never shown. A tool_choice pin naming a dropped wire name is removed
+// Non-floor entries (mcp__ virtualizations, unmapped customs) are dropped:
+// they would trip the gate, and the model cannot miss tools it was never
+// shown. A tool_choice pin naming a dropped wire name is removed
 // (the OpenAI default is auto); pins on floor names are left for
 // RenameRequestToolChoice, which runs after this pass.
 func floorOnlyOMP(payload map[string]any) {

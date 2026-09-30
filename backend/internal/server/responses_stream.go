@@ -403,6 +403,14 @@ func (s *Server) accumulateResponsesChunk(st *responsesStreamState, chunk map[st
 					item.name = st.toolMap.RestoreName(name)
 				}
 				if args, ok := fn["arguments"].(string); ok && args != "" {
+					// Floor-only fan-out is intentionally NOT applied here:
+					// argument fragments relay live as delta events before the
+					// whole is known, so a multi-path read cannot expand to N
+					// function_call items mid-stream (unlike the chat relay,
+					// nothing withholds fragments for a terminal reshape+inject).
+					// OMP speaks the OpenAI chat surface, where both legs fan
+					// out; the Responses streaming fan-out needs a withhold-buffer
+					// redesign of this accumulator and stays deferred.
 					item.args.WriteString(args)
 					send("response.function_call_arguments.delta", map[string]any{"type": "response.function_call_arguments.delta", "item_id": item.id, "output_index": item.outputIndex, "delta": args})
 					// The spec's newer event name for the same fragment: codex
@@ -488,6 +496,10 @@ func (s *Server) relayResponsesJSON(ctx context.Context, w http.ResponseWriter, 
 		return
 	}
 	convert.StripEndTurnToolCalls(completion)
+	// Floor-only (OMP) arg reshape + fan-out BEFORE the name restore below:
+	// CLI-shaped args become OMP shape keyed by wire name, multi-path reads
+	// and multi-replacement edits expanding to one function_call item each.
+	stats.toolMap.ReshapeCompletionCalls(completion)
 	// Restore client tool names (issue #140): the completion's tool_calls
 	// carry official signature names; the client dispatches on its own.
 	stats.toolMap.FromUpstreamChunk(completion)

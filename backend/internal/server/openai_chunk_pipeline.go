@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"freebuff-proxy/backend/internal/convert"
+	"sort"
 )
 
 // chunkRewriter owns the per-stream chunk state and the ordered rewrite
@@ -44,6 +45,13 @@ type chunkRewriter struct {
 	// chunk. Nil-map safe: only allocated when the first ruled fragment
 	// arrives.
 	reshapeBuf map[int]*reshapeAcc
+	// reshapeMaxIdx is the highest upstream tool-call index observed in any
+	// streamed delta.tool_calls entry (ruled or not). Fan-out extras take
+	// fresh indexes above it, so they can never collide with a live call —
+	// upstream indexes are dense per turn, and every buffered index is one
+	// of them. Recorded before the reshape-rule gate, so unruled middle
+	// indexes count too.
+	reshapeMaxIdx int
 }
 
 // reshapeAcc buffers one tool call's withheld argument fragments.
@@ -213,6 +221,9 @@ func (cr *chunkRewriter) reshapeBuffer(chunk map[string]any) bool {
 			if tc == nil {
 				continue
 			}
+			if i, ok := tc["index"].(float64); ok && int(i) > cr.reshapeMaxIdx {
+				cr.reshapeMaxIdx = int(i)
+			}
 			fn, _ := tc["function"].(map[string]any)
 			if fn == nil {
 				continue
@@ -260,12 +271,15 @@ func (cr *chunkRewriter) reshapeBuffer(chunk map[string]any) bool {
 	return changed
 }
 
-// reshapeFlush injects one delta.tool_calls entry per buffered index onto
-// the terminal chunk (any non-empty finish_reason): the reshaped whole
-// args under the restored client name. The client SDK concatenates
-// fragments, so withheld empties + this whole assemble exactly the
-// OMP-shaped call. Unreshapable buffers (model sent invalid JSON) flush
-// verbatim so no call is ever swallowed.
+// reshapeFlush injects delta.tool_calls entries for every buffered index
+// onto the terminal chunk (any non-empty finish_reason): the reshaped whole
+// args under the restored client name. Multi-path reads and
+// multi-replacement edits fan out to one entry per call — the first keeps
+// its index, extras take fresh indexes above every observed upstream index,
+// so the client SDK assembles each call separately. The client SDK
+// concatenates fragments, so withheld empties + these wholes assemble
+// exactly the OMP-shaped calls. Unreshapable buffers (model sent invalid
+// JSON) flush verbatim so no call is ever swallowed.
 func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 	if len(cr.reshapeBuf) == 0 {
 		return false
@@ -296,24 +310,38 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 		choice["delta"] = delta
 	}
 	tcs, _ := delta["tool_calls"].([]any)
+	idxs := make([]int, 0, len(cr.reshapeBuf))
+	for idx := range cr.reshapeBuf {
+		idxs = append(idxs, idx)
+	}
+	sort.Ints(idxs)
+	next := cr.reshapeMaxIdx + 1
 	injected := false
-	for idx, acc := range cr.reshapeBuf {
+	for _, idx := range idxs {
+		acc := cr.reshapeBuf[idx]
 		if acc.args.Len() == 0 {
 			continue
 		}
-		args := acc.args.String()
-		if out, ok := cr.stats.toolMap.ReshapeArgsFor(acc.wire, args); ok {
-			args = out
+		bodies, ok := cr.stats.toolMap.ReshapeArgsFanout(acc.wire, acc.args.String())
+		if !ok || len(bodies) == 0 {
+			bodies = []string{acc.args.String()}
 		}
-		entry := map[string]any{
-			"index": idx,
-			"function": map[string]any{
-				"name":      cr.stats.toolMap.RestoreName(acc.wire),
-				"arguments": args,
-			},
+		for k, args := range bodies {
+			useIdx := idx
+			if k > 0 {
+				useIdx = next
+				next++
+			}
+			entry := map[string]any{
+				"index": useIdx,
+				"function": map[string]any{
+					"name":      cr.stats.toolMap.RestoreName(acc.wire),
+					"arguments": args,
+				},
+			}
+			tcs = append(tcs, entry)
+			injected = true
 		}
-		tcs = append(tcs, entry)
-		injected = true
 	}
 	if !injected {
 		return false

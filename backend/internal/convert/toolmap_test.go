@@ -291,7 +291,7 @@ func TestAllHarnessToolsBidirectionalMapping(t *testing.T) {
 		{"Codex", "exec", "run_terminal_command"},
 		// Pi / OMP
 		{"Pi", "powershell", "run_terminal_command"},
-		{"Pi", "find", "find_files"},
+		{"Pi", "find", "glob"},
 		{"Pi", "edit-diff", "apply_patch"},
 		// Kilocode / OpenCode
 		{"Kilocode", "execute_bash", "run_terminal_command"},

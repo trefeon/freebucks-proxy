@@ -44,12 +44,11 @@ OMP-declared names that rename (keys lowercase):
 | `write` | `write_file` |
 | `grep` | `code_search` |
 | `todo` | `write_todos` |
-| `find` | `find_files` |
+| `find` | `glob` (file-pattern search; restores shape-aware to `find`, §3) |
 | `edit-diff` | `apply_patch` |
-
 `glob`, `web_search` are already official (identity). `wait`,
 `context_notes`, `new_context`, `eval`, `learn`, `manage_skill`, `task` have
-no official equivalent and never map.
+no official equivalent and never map (kept drops, §4).
 
 ### Canonical substitution (`convert/tools_normalize.go:67-117`)
 
@@ -97,17 +96,17 @@ name (non-streaming: `server/openai_stream.go:275-292`).
 
 | Wire | Client | Rule (`tools_reshape.go`) — lossy notes |
 |---|---|---|
-| `run_terminal_command` | `bash` | `:113-122`: `{command, cwd?, timeout≤timeout_seconds}`; extras dropped, `i` omitted |
-| `read_files` | `read` | `:124-136`: **first path wins** → `{path}` (probe §B + Runtime-broken #2: array form corrupts first/last client-side; singular `path` is the workaround) |
-| `str_replace` | `edit` | `:139-151`: flat `{path, old_string, new_string}` from **first** replacement (probe §B: flat shape works) |
-| `write_file` | `write` | `:153-158`: `{path, content}`; `instructions` dropped |
-| `code_search` | `grep` | `:161-167`: `{pattern, path≤cwd}`; flags/`maxResults` dropped |
-| `glob` | `glob` | `:171-177`: `pattern` rides as `path` (best-effort; magic chars pass through) |
-| `write_todos` | `todo` | `:183-208`: `op:init` + phase-form `list:[{phase, items}]`; empty dump → `op:view` (probe §B: bare `init` errors `Missing list`; Runtime-broken #3: bridge stringifies nested `list`, so `init` cannot round-trip — `view` works) |
-| `web_search` | `web_search` | `:210-212`: `{query}` only; `depth` dropped |
-| `ask_user` | `ask` | `:216-246`: ids synthesized `q0…` (OMP requires them); labels/descriptions verbatim (probe UI: `ask` without per-question `id` fails validation) |
-| `read_url` | `read` | `:249-251`: `{path≤url}`; `max_chars` dropped |
-| `skill` | `read` | `:254-256`: `{path: "skill://"+name}` |
+| `run_terminal_command` | `bash` | single: `{command, cwd?, timeout≤timeout_seconds}`; extras dropped, `i` omitted |
+| `read_files` | `read` | **fan-out**: one `{path}` per `paths` entry, order preserved; single stays 1:1; object entries keep `path`, `offset`/`limit` dropped |
+| `str_replace` | `edit` | **fan-out**: one flat `{path, old_string, new_string}` per `replacements` entry, order preserved; single stays 1:1; `allowMultiple` dropped |
+| `write_file` | `write` | `{path, content}`; `instructions` dropped |
+| `code_search` | `grep` | `{pattern, path≤cwd}`; flags/`maxResults` dropped |
+| `glob` | `glob`/`find` | origin-aware: ex-`find` origin → OMP `find {pattern}` (source: first present of `pattern`/`query`; `cwd`/`max_results`/`grep_keywords` dropped); native → OMP `glob {path}`; already-OMP-shaped emissions pass through |
+| `write_todos` | `todo` | `op:init` + phase-form `list:[{phase, items}]`; empty dump → `op:view` (probe §B: bare `init` errors `Missing list`; Runtime-broken #3: bridge stringifies nested `list`, so `init` cannot round-trip — `view` works) |
+| `web_search` | `web_search` | `{query}` only; `depth` dropped |
+| `ask_user` | `ask` | ids synthesized `q0…` (OMP requires them); labels/descriptions verbatim (probe UI: `ask` without per-question `id` fails validation) |
+| `read_url` | `read` | `{path≤url}`; `max_chars` dropped |
+| `skill` | `read` | `{path: "skill://"+name}` |
 
 All rules are total: unknown shapes / invalid JSON pass through verbatim
 rather than failing the turn. No rule exists for unrouted names
@@ -115,8 +114,9 @@ rather than failing the turn. No rule exists for unrouted names
 
 ### Streaming: withhold + inject (`server/openai_chunk_pipeline.go`)
 
-CLI-shaped arg fragments cannot reshape incrementally, so `reshapeBuffer` (`:186-255`) withholds `arguments` bytes per tool-call index (id and name keep flowing; continuations inherit the recorded wire name) and `reshapeFlush` (`:263-313`) injects one reshaped whole per index onto the terminal chunk with the client name restored inline (`:298-304`). The client SDK concatenates fragments, so withheld-empties + whole assemble exactly the OMP-shaped call. Unreshapable buffers flush verbatim — no call is swallowed.
+CLI-shaped arg fragments cannot reshape incrementally, so `reshapeBuffer` withholds `arguments` bytes per tool-call index (id and name keep flowing; continuations inherit the recorded wire name) and `reshapeFlush` injects the reshaped whole per index onto the terminal chunk with the client name restored inline. Fan-out expands at flush: the first call keeps its index, extras take fresh indexes above every observed upstream index. The client SDK concatenates fragments, so withheld-empties + wholes assemble exactly the OMP-shaped calls. Unreshapable buffers flush verbatim — no call is ever swallowed.
 Emission to the client is OMP vocabulary throughout on both legs.
+Non-streaming chat, Anthropic and Responses relays share `ReshapeCompletionCalls` (reshape + fan-out before the name restore). Streaming Anthropic/Responses fan-out stays deferred: those translators relay delta events live with no withhold architecture (noted at both call sites); OMP speaks the chat surface, where both legs fan out.
 
 ## 4. Degraded by design
 
@@ -126,6 +126,8 @@ Emission to the client is OMP vocabulary throughout on both legs.
   so their calls never need restoring. The agentic loop is degraded for these
   by design, not by bug (probe Runtime-broken items are third-party bridge
   behavior, not proxy bugs).
+- **Routed, not dropped**: OMP `find` rides as floor `glob` and restores
+  shape-aware to `find` (§3) — the only OMP-only tool with a CLI equivalent.
 - **Undeclared floor tools fail client-side**: if the model calls
   `suggest_followups`, `gravity_index`, `render_ui` or
   `report_project_profile`, `RestoreName` identity passes the CLI name through

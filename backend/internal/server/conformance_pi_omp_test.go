@@ -103,13 +103,13 @@ func TestConformancePiChatToolRenameRestore(t *testing.T) {
 	for _, want := range []string{
 		`"name":"read_files"`, `"name":"run_terminal_command"`, `"name":"str_replace"`,
 		`"name":"write_file"`, `"name":"code_search"`, `"name":"list_directory"`,
-		`"name":"find_files"`, `"name":"apply_patch"`, `"end_turn"`,
+		`"name":"glob"`, `"name":"apply_patch"`, `"end_turn"`,
 	} {
 		if !strings.Contains(recorded, want) {
 			t.Errorf("upstream body missing %s: %s", want, recorded)
 		}
 	}
-	for _, gone := range []string{`"name":"read"`, `"name":"bash"`, `"name":"edit"`, `"name":"grep"`} {
+	for _, gone := range []string{`"name":"read"`, `"name":"bash"`, `"name":"edit"`, `"name":"grep"`, `"name":"find"`, `"name":"find_files"`} {
 		if strings.Contains(recorded, gone) {
 			t.Errorf("upstream body still has client tool name %s: %s", gone, recorded)
 		}

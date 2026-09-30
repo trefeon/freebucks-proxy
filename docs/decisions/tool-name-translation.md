@@ -141,3 +141,50 @@ UpstreamSHA `775383b3` (`scripts/vendor-version.txt`,
    (`suggest_followups`, `gravity_index`, `render_ui`,
    `report_project_profile`) likewise fail client-side. Floor, not mapping,
    is what keeps the OMP gate green.
+
+## Amendment 2026-09-30 — fan-out, find→glob, kept-drop register
+
+Status: accepted · amends the 2026-09-30 floor amendment; code in
+`convert/tools_reshape.go` (`ReshapeArgsFanout`, `ReshapeMessageCalls`,
+`ReshapeCompletionCalls`, `fanoutGlobArgs`), `server/openai_chunk_pipeline.go`
+(`reshapeBuffer`/`reshapeFlush`), `server/openai_stream.go`,
+`server/anthropic_json.go`, `server/responses_stream.go` (non-streaming
+relays). Zero new wire names: every route lands on the 16 floor names.
+
+1. **Lossy single-first conversions fan out to N calls.** `read_files`
+   `{paths:[...]}` becomes one OMP `read {path}` per entry and `str_replace`
+   `{path, replacements:[...]}` one OMP `edit` per replacement, order
+   preserved; single-path/single-replacement stays exactly 1:1. Expansion
+   happens on every whole-args leg — non-streaming chat/Anthropic/Responses
+   (shared `ReshapeCompletionCalls` before the name restore) and the chat
+   streaming terminal flush (first keeps its index, extras take fresh indexes
+   above every observed upstream index so client SDKs assemble each call
+   separately; fragment-split args covered). Extra entries copy their parent
+   and take suffixed ids (`<id>-fanout-<k>`) so each dispatched call keeps a
+   unique identity for result echo.
+2. **OMP `find` routes to `glob`.** The repo fixture (`find {pattern}`,
+   required) and the live prompt (`query`+`grep_keywords` vocabulary) are
+   both file-pattern search, which is what CLI `glob {pattern, ...}` is — so
+   `find` maps to the official floor name `glob` on the request leg and
+   restores shape-aware on the response leg: a wire glob claimed by `find`
+   reshapes to OMP `find {pattern}` (source: first present of
+   `pattern`/`query`), a native glob keeps OMP `glob {path}`, and an
+   already-OMP-shaped emission (`find {pattern}`, native `glob {path}`)
+   passes through untouched. A verbatim `find` def never rides (gate risk).
+3. **Kept drops (documented, not silent).** Whole tools with no CLI
+   equivalent never reach the wire — `eval`, `task`, `wait`, `learn`,
+   `manage_skill`, `new_context`, `context_notes` (`floorOnlyOMP` cut; the
+   loop degrades client-side by design). Unrouted floor emissions keep
+   failing client-side with `not found`: `suggest_followups`,
+   `gravity_index`, `render_ui`, `report_project_profile`. Kept scalar
+   drops per rule: `bash` background extras + intent-`i`; `write`
+   `instructions`; `grep` `flags`/`maxResults` (+`cwd`→`path` kept); `web_search`
+   `depth`; `read` per-item `offset`/`limit`; `edit` `allowMultiple`;
+   `glob` `cwd`/`max_results`; ex-`find` `cwd`/`max_results`/`grep_keywords`.
+4. **Deferred: streaming Anthropic/Responses fan-out.** Those translators
+   relay argument fragments live as delta events before the whole is known,
+   so a multi-path turn cannot expand mid-stream without a withhold-buffer
+   redesign of both state machines (unlike the chat relay, which withholds
+   and injects at the terminal chunk). OMP speaks the OpenAI chat surface,
+   where both legs fan out; the non-streaming Anthropic/Responses relays fan
+   out via the shared helper. Deferral noted at both streaming call sites.

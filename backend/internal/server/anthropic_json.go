@@ -57,6 +57,10 @@ func (s *Server) relayAnthropicJSON(ctx context.Context, w http.ResponseWriter, 
 	if servedModel == "" {
 		servedModel = requestedModel
 	}
+	// Floor-only (OMP) arg reshape + fan-out BEFORE the name restore below:
+	// CLI-shaped args become OMP shape keyed by wire name, multi-path reads
+	// and multi-replacement edits expanding to one tool_use block each.
+	stats.toolMap.ReshapeCompletionCalls(completion)
 	// Restore client tool names (#140) BEFORE the Anthropic translation
 	// reads them: tool_use blocks must carry the client's dispatch name.
 	stats.toolMap.FromUpstreamChunk(completion)
