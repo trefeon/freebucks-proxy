@@ -44,6 +44,7 @@ with the 16 canonical CLI defs + end_turn pin
 `WIRE-NOTES.md:12,52-56`), which switches auth to `AuthType.GATEWAY` and then
 sends `{base}/v1beta/models/{model}:streamGenerateContent?alt=sse` with an
 `x-goog-api-key` header (empty under GATEWAY with no key). This gateway exposes
-no `/v1beta` surface (`backend/internal/server/`, routes are `/v1/chat/completions`,
-`/v1/responses`, `/v1/models`, `/v1/embeddings`, `/v1/messages`), so that env
-var lands on a 404 — a Google-API-shaped translation shim would be needed.
+no `/v1beta` surface (`backend/internal/server/`, live routes are `/v1/chat/completions`,
+`/v1/responses`, `/v1/models`, `/v1/messages` — `/v1/embeddings` answers 400
+`unsupported_endpoint` by design), so that env var lands on a 404 — a
+Google-API-shaped translation shim would be needed.

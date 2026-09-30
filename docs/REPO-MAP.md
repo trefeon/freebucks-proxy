@@ -23,7 +23,7 @@ Health probe: `GET /healthz` → 200.
 
 ## Backend (`backend/`)
 
-Boot: `cmd/freebucks-proxy/main.go` → `internal/cli/cli_serve.go:44-70`
+Boot: `cmd/freebuff-proxy/main.go` → `internal/cli/cli_serve.go:44-70`
 (config load + DB overlay → store open → registry + pool wiring → HTTP serve).
 Codegen tools: `cmd/openapi-emit` (dashboard `openapi.json`),
 `cmd/wiregen` (catalog/wirecodes/notices/toolmap emission).
