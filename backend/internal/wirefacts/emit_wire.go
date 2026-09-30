@@ -140,9 +140,6 @@ type wireNotice struct {
 }
 
 var wireNotices = []wireNotice{
-	{"TierChangeNotice", "FREEBUFF_TIER_CHANGE_NOTICE", wireAvailFile,
-		"Solar Mini 4 is now unmetered at full access and available with limited access. GPT-6 Luna still uses your shared premium allowance, charging partial time rounded up to a tenth. —❤️ Freebuff Team",
-		"TierChangeNotice is FREEBUFF_TIER_CHANGE_NOTICE from upstream."},
 	{"CapacityNotice", "FREEBUFF_CAPACITY_NOTICE", wireCeilingsFile,
 		"Capacity is now limited per account — sustained automated abuse forced us to cap how much any one account can use.",
 		"CapacityNotice is FREEBUFF_CAPACITY_NOTICE."},
@@ -155,6 +152,19 @@ var wireNotices = []wireNotice{
 	{"FreebucksCeilingNotice", "FREEBUFF_FREEBUCKS_CEILING_NOTICE", wireCeilingsFile,
 		"This account hit today’s hard usage cap. Freebucks pay for sessions, but the compute a day can draw is capped at three times what its Freebucks are worth, to protect the service from runaway usage.",
 		"FreebucksCeilingNotice is FREEBUFF_FREEBUCKS_CEILING_NOTICE. Upstream retired the per-model caps to soft pacing targets; the spend field itself is @deprecated on the wire."},
+}
+
+// wireRetiredNotices pins notice copy upstream deleted: the value rides
+// verbatim into notices_gen.go so previously generated surfaces keep
+// compiling until their own lane retires them, but it is never extracted —
+// the export is gone, so verification would fail. Upstream removed
+// FREEBUFF_TIER_CHANGE_NOTICE at a2fd480 (the Solar Mini 4 / GPT-6 Luna
+// announcement); the dashboard announcement card still serves this copy
+// until the dashboard lane retires the card.
+var wireRetiredNotices = []wireNotice{
+	{"TierChangeNotice", "FREEBUFF_TIER_CHANGE_NOTICE", wireAvailFile,
+		"Solar Mini 4 is now unmetered at full access and available with limited access. GPT-6 Luna still uses your shared premium allowance, charging partial time rounded up to a tenth. —❤️ Freebuff Team",
+		"TierChangeNotice is retired: upstream removed FREEBUFF_TIER_CHANGE_NOTICE at a2fd480."},
 }
 
 // Pinned DeepSeek peak facts from freebuff-peak-hours.ts at the pinned
@@ -214,11 +224,14 @@ func EmitWire(upstreamSHA, wireDir string, wireOut, noticesOut io.Writer) error 
 	if err != nil {
 		return err
 	}
+	// Retired copy renders first, preserving the notices_gen.go declaration
+	// order the dashboard card was generated against.
+	all := append(append([]wireNotice{}, wireRetiredNotices...), notices...)
 	wireSrc, err := format.Source(wireEmitCodes(upstreamSHA, m.UpstreamSHA))
 	if err != nil {
 		return fmt.Errorf("wiregen: format wirecodes_gen.go: %w", err)
 	}
-	noticesSrc, err := format.Source(wireEmitNotices(upstreamSHA, m.UpstreamSHA, notices, ranges, lead, expStart, expEnd))
+	noticesSrc, err := format.Source(wireEmitNotices(upstreamSHA, m.UpstreamSHA, all, ranges, lead, expStart, expEnd))
 	if err != nil {
 		return fmt.Errorf("wiregen: format notices_gen.go: %w", err)
 	}
@@ -354,7 +367,7 @@ func wireSnapshotValue(val string) bool {
 	return false
 }
 
-// wireVerifyNotices extracts the five notice strings and the peak facts,
+// wireVerifyNotices extracts the four notice strings and the peak facts,
 // requiring byte-exact matches with the pinned tables.
 func wireVerifyNotices(ceilings, avail, peak []byte, commit string) ([]wireNotice, [][2]int, int, int, int, error) {
 	files := map[string][]byte{wireCeilingsFile: ceilings, wireAvailFile: avail}
@@ -491,7 +504,7 @@ const (
 	return []byte(b.String())
 }
 
-// wireEmitNotices renders notices_gen.go: the five notice strings plus the
+// wireEmitNotices renders notices_gen.go: the notice strings (verified plus retired) plus the
 // DeepSeek peak window the live EvaluateDeepSeekPeak evaluates. It also
 // stamps NoticeUpstreamSHA from the manifest SHA so operators can see the
 // copy's pin age via GET /admin/api/notices without a live upstream call.

@@ -144,3 +144,35 @@ func TestEmitWireFailsExplicit(t *testing.T) {
 		}
 	}
 }
+
+// TestEmitWireRetiredNoticeSurvivesDeletion pins the a2fd480 tier-notice
+// retirement: no snapshot carries FREEBUFF_TIER_CHANGE_NOTICE anymore, yet
+// EmitWire still succeeds and the notices output keeps serving the retired
+// copy (the dashboard announcement card compiles against it until the
+// dashboard lane retires the card), instead of failing the extraction.
+func TestEmitWireRetiredNoticeSurvivesDeletion(t *testing.T) {
+	t.Parallel()
+	for _, f := range []string{wireSessionFile, wireCeilingsFile, wireAvailFile, wirePeakFile} {
+		src, err := os.ReadFile(filepath.Join(testWireDir, filepath.FromSlash(f)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(src, []byte("FREEBUFF_TIER_CHANGE_NOTICE")) {
+			t.Fatalf("%s still carries FREEBUFF_TIER_CHANGE_NOTICE, want the export gone", f)
+		}
+	}
+	dir := wireTestDir(t, nil)
+	var wireBuf, noticesBuf bytes.Buffer
+	if err := EmitWire(testUpstream, dir, &wireBuf, &noticesBuf); err != nil {
+		t.Fatalf("EmitWire with the tier notice deleted upstream: %v", err)
+	}
+	if !strings.Contains(noticesBuf.String(), "TierChangeNotice") {
+		t.Error("notices output lost TierChangeNotice, want the retired copy still emitted")
+	}
+	if !strings.Contains(noticesBuf.String(), "Solar Mini 4 is now unmetered at full access") {
+		t.Error("notices output lost the retired tier copy")
+	}
+	if wireBuf.Len() == 0 {
+		t.Error("wirecodes output empty, want the WireCode block still emitted")
+	}
+}

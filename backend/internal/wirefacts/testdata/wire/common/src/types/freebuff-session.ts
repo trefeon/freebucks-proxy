@@ -158,8 +158,13 @@ export interface FreebuffSubscriptionUsage {
 export interface FreebuffFreebucksWindow {
   /** Freebucks granted for the account's day: the access tier's free pool, or
    *  the plan's daily pool for a subscriber (the plan REPLACES the free
-   *  figure rather than stacking on it). */
+   *  figure rather than stacking on it), plus `streakBonus`. */
   limit: number
+  /** The part of `limit` today's streak added (15 per streak day granted in
+   *  this interval). Expires with the pool at `resetAt`; never in the wallet.
+   *  Absent when zero or from an older server. `limit - streakBonus` is the
+   *  plan's own daily figure. */
+  streakBonus?: number
   /** Freebucks already spent from the daily pool today. */
   spent: number
   /** `limit - spent`, floored at zero so a lowered allowance reads as 0. */
@@ -167,6 +172,10 @@ export interface FreebuffFreebucksWindow {
   /** ISO instant the pool refills. */
   resetAt: string
   resetTimeZone?: string
+  /** Why the pool is this size, when the user can do something about it —
+   *  today only the smaller free pool on a VPN or proxy. Server-resolved
+   *  copy; absent means nothing to explain. */
+  note?: string
 }
 
 /**
@@ -791,8 +800,6 @@ export type FreebuffPrivacyDecision =
   /** Spur named the tunnel, or placed an ipinfo-named anonymizer in a
    *  datacenter, and Scamalytics did not flag it. */
   | 'spur_suspicious_limited'
-  /** ipinfo flagged the IP and the device clock places the user in another
-   *  country; no provider saw a direct line. */
   | 'client_hints_limited'
   | 'ipinfo_failed_limited'
   | 'limited_other'

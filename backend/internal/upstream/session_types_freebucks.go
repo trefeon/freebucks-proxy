@@ -15,6 +15,18 @@ type FreebucksWindow struct {
 	// 6cd8970, FreebuffFreebucksWindow.resetTimeZone): the account's zone,
 	// no longer always Pacific. "" on older servers.
 	ResetTimeZone string `json:"resetTimeZone,omitempty"`
+	// StreakBonus is the part of Limit today's streak added (vendor a2fd480,
+	// FreebuffFreebucksWindow.streakBonus: 15 per streak day granted in this
+	// interval, expiring with the pool at ResetAt and never in the wallet).
+	// Nil when the server sent none (zero bonus or an older server), so
+	// Limit minus StreakBonus is the plan's own daily figure. Display only:
+	// admission and charging use Limit as sent.
+	StreakBonus *float64 `json:"streakBonus,omitempty"`
+	// Note is the server-resolved reason the pool is this size (vendor
+	// a2fd480, FreebuffFreebucksWindow.note): today only the smaller free
+	// pool on a VPN or proxy, when the user can do something about it.
+	// "" means nothing to explain. Display only — never switched on.
+	Note string `json:"note,omitempty"`
 }
 
 // FreebucksWallet is the never-expiring Freebucks store (issue #321 wire
@@ -234,11 +246,13 @@ func ApplyFreebucksPriceChanges(fb *FreebucksInfo, now time.Time) {
 }
 
 type rawFreebucksWindow struct {
-	Limit         float64 `json:"limit"`
-	Spent         float64 `json:"spent"`
-	Remaining     float64 `json:"remaining"`
-	ResetAt       any     `json:"resetAt"`
-	ResetTimeZone string  `json:"resetTimeZone"`
+	Limit         float64  `json:"limit"`
+	Spent         float64  `json:"spent"`
+	Remaining     float64  `json:"remaining"`
+	ResetAt       any      `json:"resetAt"`
+	ResetTimeZone string   `json:"resetTimeZone"`
+	StreakBonus   *float64 `json:"streakBonus"`
+	Note          string   `json:"note"`
 }
 
 type rawFreebucksWallet struct {
@@ -330,7 +344,7 @@ type rawFreebucksPriceChange struct {
 }
 
 func windowFromRaw(w rawFreebucksWindow) FreebucksWindow {
-	out := FreebucksWindow{Limit: w.Limit, Spent: w.Spent, Remaining: w.Remaining, ResetTimeZone: w.ResetTimeZone}
+	out := FreebucksWindow{Limit: w.Limit, Spent: w.Spent, Remaining: w.Remaining, ResetTimeZone: w.ResetTimeZone, StreakBonus: w.StreakBonus, Note: w.Note}
 	if t, err := parseFlexTime(w.ResetAt); err == nil {
 		out.ResetAt = t
 	}

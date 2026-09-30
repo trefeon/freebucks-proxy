@@ -372,3 +372,80 @@ func TestParseFreebucksPlanRequiredModelIDs(t *testing.T) {
 		})
 	}
 }
+
+// TestParseFreebucksStreakBonusNote pins the vendor a2fd480 wire shape: the
+// daily pool carries the streak bonus folded into limit plus the
+// server-resolved pool note. A present bonus decodes (limit minus bonus is
+// the plan's own daily figure); an explicit zero stays a present 0 (not "no
+// bonus"); an older server that omits both fields leaves a nil bonus and an
+// empty note. Display only — admission and charging use limit as sent.
+func TestParseFreebucksStreakBonusNote(t *testing.T) {
+	ptr := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name       string
+		dailyExtra string
+		wantBonus  *float64
+		wantNote   string
+	}{
+		{
+			name:       "bonus and note present",
+			dailyExtra: `,"streakBonus":45,"note":"Smaller free pool while on a VPN"`,
+			wantBonus:  ptr(45),
+			wantNote:   "Smaller free pool while on a VPN",
+		},
+		{
+			name:       "explicit zero bonus",
+			dailyExtra: `,"streakBonus":0`,
+			wantBonus:  ptr(0),
+		},
+		{
+			name:       "fields absent",
+			dailyExtra: "",
+			wantBonus:  nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := testutil.NewMock()
+			defer mock.Close()
+			mock.SessionHandler = func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"active","instanceId":"inst-streak","model":"openai/gpt-5.6-luna","expiresAt":"2030-01-01T00:00:00Z","freebucks":{"balance":65,"daily":{"limit":65,"spent":5,"remaining":60,"resetAt":"2026-09-01T07:00:00Z"` + tc.dailyExtra + `},"prices":{"openai/gpt-5.6-luna":5}}}`))
+			}
+			client, err := NewForAuth(testConfig(mock.URL(), nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := client.ProbeAccount(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Freebucks == nil {
+				t.Fatal("Freebucks = nil, want parsed block")
+			}
+			got := st.Freebucks.Daily.StreakBonus
+			if tc.wantBonus == nil {
+				if got != nil {
+					t.Errorf("StreakBonus = %v, want nil for an absent field", *got)
+				}
+			} else {
+				if got == nil {
+					t.Fatal("StreakBonus = nil, want present value")
+				}
+				if *got != *tc.wantBonus {
+					t.Errorf("StreakBonus = %v, want %v", *got, *tc.wantBonus)
+				}
+				if plan := st.Freebucks.Daily.Limit - *got; *tc.wantBonus == 45 && plan != 20 {
+					t.Errorf("limit - streakBonus = %v, want the plan's own figure 20", plan)
+				}
+			}
+			if st.Freebucks.Daily.Note != tc.wantNote {
+				t.Errorf("Note = %q, want %q", st.Freebucks.Daily.Note, tc.wantNote)
+			}
+		})
+	}
+}

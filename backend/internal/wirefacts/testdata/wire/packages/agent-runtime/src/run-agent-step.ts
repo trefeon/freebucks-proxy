@@ -28,7 +28,13 @@ import { cloneDeep, mapValues } from 'lodash'
 import z from 'zod/v4'
 
 import { evaluateCompactionTrigger } from './compact-history'
-import { compactWithModelOrFallback, compactionTools } from './model-compaction'
+import type { CompactionTrigger } from './compact-history'
+import {
+  automaticCompactionIsWorthwhile,
+  COMPACTION_LOW_WATER,
+  compactWithModelOrFallback,
+  compactionTools,
+} from './model-compaction'
 import { CACHE_DEBUG_FULL_LOGGING } from './constants'
 import { getMCPToolData } from './mcp'
 import {
@@ -70,6 +76,7 @@ import {
   withSystemTags as withSystemTags,
   buildUserMessageContent,
   expireMessages,
+  frameSteeringContent,
 } from './util/messages'
 import {
   estimateContextTokens,
@@ -118,48 +125,12 @@ import type {
   CustomToolDefinitions,
   ProjectFileContext,
 } from '@codebuff/common/util/file'
+import type { DrainSteeringMessages } from '@codebuff/common/types/contracts/steering'
 
-// Convert a tool's stored inputSchema into JSON Schema suitable for Anthropic's
-// count_tokens API. Built-in and MCP tools store a Zod schema here; serializing
-// it raw ships Zod internals (`def`/`shape`) instead of JSON Schema, so token
-// counts are computed against garbage and any schema whose top-level isn't an
-// object (e.g. a union → `anyOf`) arrives without `type`, which the API rejects
-// with `tools.N.custom.input_schema.type: Field required`. We convert to JSON
-// Schema and guarantee a top-level `type: 'object'`.
-export function toTokenCountInputSchema(
-  inputSchema: unknown,
-): Record<string, unknown> | undefined {
-  if (inputSchema == null) return undefined
-
-  let jsonSchema: Record<string, unknown>
-  if (
-    typeof (inputSchema as { safeParse?: unknown }).safeParse === 'function'
-  ) {
-    try {
-      jsonSchema = z.toJSONSchema(inputSchema as z.ZodType, {
-        io: 'input',
-      }) as Record<string, unknown>
-    } catch {
-      jsonSchema = { type: 'object', properties: {} }
-    }
-  } else if (typeof inputSchema === 'object' && !Array.isArray(inputSchema)) {
-    // Already a plain object (e.g. a pre-serialized JSON Schema) — copy it.
-    jsonSchema = { ...(inputSchema as Record<string, unknown>) }
-  } else {
-    return undefined
-  }
-
-  // `$schema` is meaningless to count_tokens; drop it to keep the payload lean.
-  delete jsonSchema['$schema']
-  // Anthropic requires a top-level `type: 'object'`. Object schemas already
-  // carry it; union/intersection schemas (anyOf/allOf) don't — backfill it.
-  // Treat missing / null / empty-string as absent (valid JSON Schema `type` is
-  // always a non-empty string or array).
-  if (jsonSchema.type == null || jsonSchema.type === '') {
-    jsonSchema.type = 'object'
-  }
-  return jsonSchema
-}
+// Moved to util/to-json-schema.ts so spawn-agent-inline can use it without an
+// import cycle through run-agent-step. Re-exported here for existing importers.
+import { toTokenCountInputSchema } from './util/to-json-schema'
+export { toTokenCountInputSchema }
 
 function toolsForContextEstimate(definitions: AgentState['toolDefinitions']) {
   return Object.entries(definitions).map(([name, def]) => ({
@@ -226,6 +197,9 @@ export const runAgentStep = async (
     onAgentUsageReceived?: (usage: AgentUsageData) => void
     onAgentUsageIncomplete?: () => void
     onCompaction?: (data: ContextCompactionData) => void
+    /** A root-agent compaction pass began; `onCompactionEnd` follows whatever its outcome. */
+    onCompactionStart?: (data: Pick<ContextCompactionData, 'trigger'>) => void
+    onCompactionEnd?: () => void
   } & ParamsExcluding<
     typeof processStream,
     | 'agentContext'
@@ -553,6 +527,7 @@ export const runAgentStep = async (
     countTokens(system) +
     countTokensJson(contextTools)
   let contextUsage: ModelUsageData | undefined
+  let finishReason: string | undefined
 
   // Raw stream from AI SDK
   const stream = getAgentStreamFromTemplate({
@@ -576,6 +551,9 @@ export const runAgentStep = async (
       })
     },
     onUsageIncomplete: params.onAgentUsageIncomplete,
+    onFinishReason: (reason) => {
+      finishReason = reason
+    },
     template: agentTemplate,
     onCostCalculated,
   })
@@ -598,6 +576,7 @@ export const runAgentStep = async (
     stream,
     onCostCalculated,
     stopStream: () => streamStop.abort(),
+    streamFinishReason: () => finishReason,
   }).finally(() => {
     // Inline agents can replace history (set_messages). A receipt for the old
     // request is not a baseline for a replacement summary.
@@ -784,10 +763,10 @@ export async function loopAgentSteps(
     prompt: string | undefined
     signal: AbortSignal
     /** Optional steering hook. Drained at each step boundary (after a step's LLM
-     * call + tools complete, before the next one). Any returned texts are appended
+     * call + tools complete, before the next one). Any returned messages are appended
      * to the message history as user prompts and keep the turn going, letting a
      * host "steer" a running agent without aborting or losing the current step. */
-    drainSteeringMessages?: () => string[]
+    drainSteeringMessages?: DrainSteeringMessages
     spawnParams: Record<string, any> | undefined
     startAgentRun: StartAgentRunFn
     userId: string | undefined
@@ -1067,13 +1046,16 @@ export async function loopAgentSteps(
   )
 
   // Convert tools to a serializable format for context-pruner token counting
+  // Tool definitions live in agent state (persisted, snapshotted, shipped over
+  // the wire), so every inputSchema must be plain JSON Schema: Zod instances
+  // are cyclic and break any JSON.stringify over the state.
   const toolDefinitions =
     manualCompaction && initialAgentState.toolDefinitions
       ? initialAgentState.toolDefinitions
       : mapValues(tools, (tool) => ({
           description:
             typeof tool.description === 'string' ? tool.description : undefined,
-          inputSchema: tool.inputSchema as {},
+          inputSchema: toTokenCountInputSchema(tool.inputSchema) ?? {},
         }))
 
   const additionalToolDefinitionsWithCache = async () => {
@@ -1181,7 +1163,7 @@ export async function loopAgentSteps(
           policy.maxContextLength ??
           contextPrunerBudgetForModel(agentTemplate.model)
         const thresholdTokens = modelCompactionThreshold(maxContextLength)
-        const trigger = manualCompaction
+        let trigger: CompactionTrigger | 'manual' | null = manualCompaction
           ? 'manual'
           : evaluateCompactionTrigger({
               ...policy,
@@ -1189,73 +1171,125 @@ export async function loopAgentSteps(
               contextTokenCount: currentAgentState.contextTokenCount,
               maxContextLength: thresholdTokens,
             }).trigger
+        const fixedTokenCount = trigger
+          ? countTokens(system) +
+            countTokensJson(toolsForTokenCount) +
+            (stepPrompt
+              ? countTokensMessages([userMessage({ content: stepPrompt })])
+              : 0)
+          : 0
+        // The threshold is a convenience, the budget is not. When even a
+        // perfect compaction would land back near the threshold (a small
+        // BYOK window under a large fixed prompt and tool catalog), firing
+        // there compacts every few steps, each pass summarizing the last
+        // summary. Keep working until the hard budget instead.
+        if (
+          trigger &&
+          trigger !== 'manual' &&
+          currentAgentState.contextTokenCount <= maxContextLength &&
+          !automaticCompactionIsWorthwhile({
+            messages: currentAgentState.messageHistory,
+            maxContextLength,
+            thresholdTokens,
+            fixedTokenCount,
+            maxOutputTokens: policy.maxOutputTokens,
+          })
+        ) {
+          logger.debug(
+            {
+              agentType,
+              runId,
+              contextTokenCount: currentAgentState.contextTokenCount,
+              thresholdTokens,
+              maxContextLength,
+              fixedTokenCount,
+            },
+            'Deferred compaction to the hard budget: it could not clear the threshold',
+          )
+          trigger = null
+        }
         if (trigger) {
           const before = currentAgentState.directCreditsUsed
           const started = Date.now()
-          // A compaction failure must never fail the turn: a summarizer error
-          // or malformed handoff falls back to the mechanical pass.
-          const compacted = await compactWithModelOrFallback({
-            messages: currentAgentState.messageHistory,
-            system,
-            maxContextLength,
-            fixedTokenCount:
-              countTokens(system) +
-              countTokensJson(toolsForTokenCount) +
-              (stepPrompt
-                ? countTokensMessages([userMessage({ content: stepPrompt })])
-                : 0),
-            signal,
-            logger,
-            runId,
-            model: agentTemplate.model,
-            trigger,
-            stream: (messages, maxOutputTokens) =>
-              getAgentStreamFromTemplate({
-                ...params,
-                agentId: agentType,
-                template: agentTemplate,
-                runId,
-                messages,
-                tools: compactionTools,
-                toolChoice: 'required',
-                maxOutputTokens,
-                onCostCalculated: async (credits) => {
-                  currentAgentState.creditsUsed += credits
-                  currentAgentState.directCreditsUsed += credits
-                },
-                // Compaction usage is spend, not the next root request's context.
-                onUsageReceived: (usage) =>
-                  params.onAgentUsageReceived?.({
-                    ...usage,
-                    isRoot: false,
-                    agentId: currentAgentState.agentId,
+          const isRoot = !initialAgentState.parentId
+          if (isRoot) params.onCompactionStart?.({ trigger })
+          let compacted: Awaited<ReturnType<typeof compactWithModelOrFallback>>
+          // Ends after the receipt, so a host never sees a gap between the
+          // pass it is showing and the handoff that replaces it.
+          try {
+            // A compaction failure must never fail the turn: a summarizer error
+            // or malformed handoff falls back to the mechanical pass.
+            compacted = await compactWithModelOrFallback({
+              messages: currentAgentState.messageHistory,
+              system,
+              maxContextLength,
+              fixedTokenCount,
+              maxOutputTokens: policy.maxOutputTokens,
+              // An automatic pass must leave the run under its own trigger, or
+              // the next step fires it again on the fallback's output.
+              ...(trigger === 'manual'
+                ? {}
+                : {
+                    fallbackTargetTokens: Math.floor(
+                      thresholdTokens * COMPACTION_LOW_WATER,
+                    ),
                   }),
-                onUsageIncomplete: params.onAgentUsageIncomplete,
-              }),
-          })
-          await addAgentStep({
-            ...params,
-            agentRunId: runId,
-            stepNumber: totalSteps,
-            credits: currentAgentState.directCreditsUsed - before,
-            childRunIds: [],
-            messageId: null,
-            status: 'completed',
-            startTime,
-          })
-          if (compacted) {
-            currentAgentState.messageHistory = compacted.messages
-            currentAgentState.contextTokenBaseline = undefined
-            currentAgentState.contextTokenCount = compacted.postTokens
-            if (!initialAgentState.parentId)
-              params.onCompaction?.({
-                trigger,
-                thresholdTokens,
-                summary: compacted.summary,
-                preTokens: compacted.preTokens,
-                postTokens: compacted.postTokens,
-                durationMs: Date.now() - started,
-              })
+              signal,
+              logger,
+              runId,
+              model: agentTemplate.model,
+              trigger,
+              stream: (messages, maxOutputTokens, onFinishReason) =>
+                getAgentStreamFromTemplate({
+                  ...params,
+                  agentId: agentType,
+                  template: agentTemplate,
+                  runId,
+                  messages,
+                  tools: compactionTools,
+                  toolChoice: 'required',
+                  maxOutputTokens,
+                  onFinishReason,
+                  onCostCalculated: async (credits) => {
+                    currentAgentState.creditsUsed += credits
+                    currentAgentState.directCreditsUsed += credits
+                  },
+                  // Compaction usage is spend, not the next root request's context.
+                  onUsageReceived: (usage) =>
+                    params.onAgentUsageReceived?.({
+                      ...usage,
+                      isRoot: false,
+                      agentId: currentAgentState.agentId,
+                    }),
+                  onUsageIncomplete: params.onAgentUsageIncomplete,
+                }),
+            })
+            await addAgentStep({
+              ...params,
+              agentRunId: runId,
+              stepNumber: totalSteps,
+              credits: currentAgentState.directCreditsUsed - before,
+              childRunIds: [],
+              messageId: null,
+              status: 'completed',
+              startTime,
+            })
+            if (compacted) {
+              currentAgentState.messageHistory = compacted.messages
+              currentAgentState.contextTokenBaseline = undefined
+              currentAgentState.contextTokenCount = compacted.postTokens
+              if (isRoot)
+                params.onCompaction?.({
+                  trigger,
+                  thresholdTokens,
+                  summary: compacted.summary,
+                  preTokens: compacted.preTokens,
+                  postTokens: compacted.postTokens,
+                  durationMs: Date.now() - started,
+                })
+            }
+          } finally {
+            if (isRoot) params.onCompactionEnd?.()
           }
           // A manual request is a maintenance operation, never a coding turn.
           if (manualCompaction) break
@@ -1264,7 +1298,7 @@ export async function loopAgentSteps(
             currentAgentState.contextTokenCount > maxContextLength
           ) {
             throw new Error(
-              'Compaction did not reduce the context enough. History has been preserved.',
+              `Compaction could not bring this conversation under the model's ${maxContextLength.toLocaleString('en-US')}-token context budget. History has been preserved. Start a new thread, or give a BYOK connection a larger context window if its model supports one.`,
             )
           }
           totalSteps++
@@ -1400,22 +1434,26 @@ export async function loopAgentSteps(
       // Steering: if the host fed user messages while this step ran, append them
       // now (the step's LLM call + tools have completed, so history is in a clean
       // state) and keep the turn going so the agent responds to them next step,
-      // rather than waiting for the whole turn to finish.
-      const steered = params.drainSteeringMessages?.()
+      // rather than waiting for the whole turn to finish. Each message is
+      // framed as sent mid-turn: bare, the model read it as the whole new
+      // request and dropped the one it was working on.
+      const steered = await params.drainSteeringMessages?.()
       if (steered?.length) {
-        assertUserContentSize(
-          steered.map((text) => userMessage(text)),
-          agentTemplate,
+        const messages = steered.map((message) =>
+          userMessage({
+            content: frameSteeringContent(
+              typeof message === 'string'
+                ? buildUserMessageContent(message, undefined)
+                : buildUserMessageContent(message.prompt, undefined, message.content),
+            ),
+            tags: ['USER_PROMPT'],
+            keepDuringTruncation: true,
+          }),
         )
+        assertUserContentSize(messages, agentTemplate)
         currentAgentState.messageHistory = [
           ...currentAgentState.messageHistory,
-          ...steered.map((text) =>
-            userMessage({
-              content: buildUserMessageContent(text, undefined, undefined),
-              tags: ['USER_PROMPT'],
-              keepDuringTruncation: true,
-            }),
-          ),
+          ...messages,
         ]
         shouldEndTurn = false
       }

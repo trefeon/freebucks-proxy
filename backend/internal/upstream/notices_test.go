@@ -84,11 +84,11 @@ func TestFreebucksCeilingNoticeThreeTimes(t *testing.T) {
 }
 
 func TestTierChangeNoticePin(t *testing.T) {
-	// Exact copy parity for the tier-change notice at the pinned commit
-	// (40c75256, vendor 0.0.188): the reword swaps Solar Pro 4 -> Mini 4
-	// and GPT-5.6 Luna -> GPT-6 Luna, landing via wiregen at re-pin
-	// (snapshots.json and notices_gen.go move together, keeping
-	// TestEmitWireUpToDate green).
+	// Exact copy parity for the retired tier-change notice. Upstream removed
+	// FREEBUFF_TIER_CHANGE_NOTICE at a2fd480, so wiregen now emits this as a
+	// retired copy (wireRetiredNotices in emit_wire.go) instead of extracting
+	// it; the dashboard announcement card still serves it until the dashboard
+	// lane retires the card. The value itself never changes here.
 	const want = "Solar Mini 4 is now unmetered at full access and available with limited access. GPT-6 Luna still uses your shared premium allowance, charging partial time rounded up to a tenth. —❤️ Freebuff Team"
 	if TierChangeNotice != want {
 		t.Errorf("TierChangeNotice = %q, want pinned copy %q", TierChangeNotice, want)

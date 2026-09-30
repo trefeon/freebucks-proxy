@@ -498,6 +498,12 @@ export const FreebuffModelSelector: React.FC<FreebuffModelSelectorProps> = ({
       if (model.priceWarning) {
         details.push({ text: 'Price subject to change', warn: true })
       }
+      if (model.dealEndingSoon) {
+        details.push({ text: model.dealEndingSoon.short, warn: true })
+      }
+      if (model.promotional) {
+        details.push({ text: model.promotional.short, warn: true })
+      }
       if (model.warning) details.push({ text: model.warning, warn: true })
       if (model.availability === 'deployment_hours') {
         // Carries both the in-hours and out-of-hours signal, so a row with

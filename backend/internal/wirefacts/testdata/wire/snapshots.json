@@ -1,5 +1,5 @@
 {
-  "upstream_sha": "775383b3dd25af1197ca37031f3dfd6b8a40f0de",
+  "upstream_sha": "a2fd4806b19e6ee55ce3d61d221f1f1cc33b05c9",
   "vendor_version": "0.0.204",
   "llm_providers_version": "1.0.0",
   "bun_version": "1.3.14",
@@ -18,19 +18,19 @@
     },
     {
       "path": "common/src/constants/freebuff-peak-hours.ts",
-      "sha256": "8cb33dfeaf178acfd1bc8048f51b7a05962f3baca407596078daf67f70a8daea"
+      "sha256": "cdf8a3245e5537b730d37148b5f3350ad0cfb1181d802803147e1f9d2865ce6e"
     },
     {
       "path": "common/src/util/freebuff-model-availability.ts",
-      "sha256": "342725ad5f751ea9d6675fa0805ade8f935e0646d3f352cf99544eba8293c44c"
+      "sha256": "9f5c0b3da8c1a8a450d1e9c65dde66629d99a9ff9d4e4eefee72c41193b5e14e"
     },
     {
       "path": "cli/src/components/freebuff-model-selector.tsx",
-      "sha256": "90f9462e955496833813494b0008d1836818e75d0bffe9f8b77064a4008123c0"
+      "sha256": "a46231be8e9348190e189ef00ffff7d22c27fe4b040f228e24cd40107c698029"
     },
     {
       "path": "common/src/types/freebuff-session.ts",
-      "sha256": "25d29a63b2a046fe2d0742eaa97234191bb5fbef24c8a171f1522c0910012cd6"
+      "sha256": "bb69965c2cda833c5e7c63c6df5cf27132865e8e0fb0c80471a2c5ef25632255"
     },
     {
       "path": "packages/agent-runtime/src/constants.ts",
@@ -38,11 +38,11 @@
     },
     {
       "path": "packages/agent-runtime/src/prompt-agent-stream.ts",
-      "sha256": "79448259aa4dc89be170a24c58d19053585ef749110e17419b1e531f26408f04"
+      "sha256": "1d0e15e4a3634307d6469d359b69ad0805096db455e970c53698c8ee1a94c25a"
     },
     {
       "path": "packages/agent-runtime/src/run-agent-step.ts",
-      "sha256": "19cb9d141a6504aec6d1fc2a3df95cec9b7eb4d3c03fefcbac1da92dacaafe6a"
+      "sha256": "69eacb2abdeab22011d3c5b6f6f5b12cd28602b1e9f8f0be89ded78613ff4385"
     },
     {
       "path": "packages/agent-runtime/src/run-programmatic-step.ts",

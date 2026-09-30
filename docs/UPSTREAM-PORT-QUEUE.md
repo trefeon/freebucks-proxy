@@ -1,7 +1,7 @@
 # UPSTREAM-PORT-QUEUE — what the vendor has that we haven't ported
 
 Pin state: `scripts/vendor-version.txt` = `0.0.204`,
-`backend/internal/wirefacts/wirefacts_gen.go:7` UpstreamSHA `775383b3`.
+`backend/internal/wirefacts/wirefacts_gen.go:7` UpstreamSHA `a2fd4806`.
 Vendor tip checked here: `25f1d6153` (gitignored `upstream/freebuff`,
 `origin/main`, fetched 2026-09-28). Live: npm `0.1.2`, CLI `0.1.1`
 (release package at tip), Desktop latest `freebuff-desktop-v0.0.150`.
@@ -9,7 +9,20 @@ Vendor tip checked here: `25f1d6153` (gitignored `upstream/freebuff`,
 abort/watchdog/banner fixes, compaction heuristics, BYOK internals; zero
 new routes/headers/statuses. Re-pin rides the drift bot, not hand edits.
 
-Recently ported (do NOT re-queue): `complete_compaction` anti-ban signal
+Recently ported (do NOT re-queue): wire port 0.2.1 (a2fd480, lane drift/wire-021):
+`streakBonus` / `note` on the daily Freebucks pool (opaque parse in
+`upstream/session_types_freebucks.go`, `TestParseFreebucksStreakBonusNote`);
+`FREEBUFF_TIER_CHANGE_NOTICE` deleted upstream → retired copy in
+`wirefacts/emit_wire.go:wireRetiredNotices` (dashboard announcement card
+untouched; the dashboard lane retires the card); availability
+residential-proxy branch + VPN/Freebucks reword, peak-hours
+`isSupportedTimeZone` + zone validation, picker `dealEndingSoon` /
+`promotional` chips, agent-runtime `onFinishReason` + compaction rework —
+all verified CLI/agent-local with no proxy mirror, snapshots carried. No
+proxy behavior change: `streakBonus` / `note` are display-only (admission
+and charging still use `limit` as sent) and the retired tier copy is
+byte-identical to the previously served value.
+`complete_compaction` anti-ban signal
 (`convert/foreign_signals.go:114-118`); `model_unavailable` refusal + window
 cache + fallback + metric (#158: `session/session_admission.go:659`,
 `session/model_unavailable.go`, `MODEL_UNAVAILABLE_CACHE_TTL` 1h);
