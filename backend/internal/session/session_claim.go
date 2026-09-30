@@ -1,11 +1,13 @@
 // session_claim.go — CLI-parity purchase-claim lifecycle (G4) plus the
-// same-claim admission retry (G5).
+// same-claim admission retry (G5) and the dead-start rotation below.
 //
 // The CLI mints one claim id (cli:<uuid>) per lifetime, re-POSTs the same
 // claim on every admission/rejoin, and rotates (new UUID) only after an
 // explicit DELETE of the old row or a dead-claim terminal
 // (use-freebuff-session.ts:576 newFreebuffCliInstanceId at startup,
-// :1148-1203 restart DELETE-before-rotate). The proxy previously minted a
+// :1148-1203 restart DELETE-before-rotate), plus the single
+// admission_attempt_closed rotation in refresh (the referenced start is dead
+// upstream — re-POSTing the claim 409s forever). The proxy previously minted a
 // fresh cli:<uuid> per admission inside the upstream client, so every rejoin
 // was a new purchase identity — the self-supersede churn behind the live
 // 503 → 409 refund loops.
@@ -27,12 +29,31 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/upstream"
 )
+
+// admissionAttemptClosedMarker matches the live upstream 409 refusal when the
+// purchase start a persisted claim refers to is dead upstream (live 409 body
+// carries {"error":"admission_attempt_closed",...} with no status field, so
+// it classifies to UpstreamError, never a session state): re-POSTing the
+// same claim 409s forever, across restarts via the persisted claim row.
+const admissionAttemptClosedMarker = "admission_attempt_closed"
+
+// isAdmissionAttemptClosed reports whether err is the dead-start 409: the
+// referenced admission attempt is closed upstream and the claim that named
+// it will never admit again. The marker is matched in this one place so the
+// wedge rule and its live-body citation stay together.
+func isAdmissionAttemptClosed(err error) bool {
+	var ue *upstream.UpstreamError
+	if errors.As(err, &ue) {
+		return strings.Contains(strings.ToLower(ue.Body), admissionAttemptClosedMarker)
+	}
+	return false
+}
 
 // claimPrefix marks a manager-minted purchase claim, matching the CLI's
 // newFreebuffCliInstanceId (cli/src/utils/freebuff-session-identity.ts) and

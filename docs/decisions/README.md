@@ -13,6 +13,7 @@ so a code comment naming one of those numbers will not resolve to a file here.
 | `tool-name-translation.md` | Client tool names on the wire: one mapper per request, ownership by the ordered pass, and universal wire-name legalization. |
 | `unified-store.md` | One runtime source per plane: mem-authoritative snapshot, DB-persisted, .env seed-only. |
 | `pool-only-removal.md` | Bridge/hybrid excision: pool-only routing, bridge knobs deleted not deprecated. |
+| `claim-rotate-closed.md` | Dead-claim wedge: 409 admission_attempt_closed rotates the persisted purchase claim with exactly one fresh-claim admission retry. |
 
 House style for a decision record: a status line, non-goals, the rules or
 eligibility conditions, the constants and knobs with their defaults, the files

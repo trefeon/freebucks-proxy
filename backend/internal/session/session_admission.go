@@ -220,7 +220,8 @@ func (m *Manager) createSessionForModel(ctx context.Context, model string) (*ups
 	// G4: resolve the stable purchase claim once per admission round — every
 	// POST in the retry loop below rejoins on it via
 	// CreateSessionForModelWithClaim; rotation happens only on
-	// DELETE/superseded paths (rotateClaim), never per attempt.
+	// DELETE/superseded paths (rotateClaim) plus the single
+	// admission_attempt_closed rotation in refresh, never per attempt.
 	claim := m.ensureClaim()
 	var st *upstream.SessionState
 	var err error
@@ -499,6 +500,20 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 			st, err = m.adoptOrCreate(ctx, targetModel)
 		}
 		if err != nil {
+			// Dead-claim wedge: the persisted claim refers to a purchase
+			// start upstream already closed (409 admission_attempt_closed) —
+			// re-POSTing the same claim 409s forever, across restarts via
+			// the persisted claim row. Rotate to a fresh claim (persisted by
+			// rotateClaim, so restarts adopt it) and retry the admission
+			// exactly once, bounded by the same claimRetried flag as the
+			// purchase_claim_released path below: at most one extra admission
+			// per request, only after this error. A second failure falls
+			// through and surfaces unchanged.
+			if isAdmissionAttemptClosed(err) && !claimRetried {
+				m.rotateClaim(reasonAttemptClosed)
+				claimRetried = true
+				continue
+			}
 			// #140: a 428 waiting_room_required on the queued row's
 			// refresh GET is session-ENDING (endsTheSession:true — the seat
 			// is gone, same as Poll's #116 handling). Drop the dead queued

@@ -13,11 +13,10 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"time"
-
 	"freebuff-proxy/backend/internal/modelcat"
 	"freebuff-proxy/backend/internal/upstream"
+	"log/slog"
+	"time"
 )
 
 const (
@@ -72,15 +71,16 @@ const (
 	// cause vocabulary shared by every terminal session log line. The
 	// poll/refresh drop paths map upstream statuses through tableReason;
 	// InvalidateWithReason accepts these so callers can name the cause.
-	reasonEnded      = "ended"
-	reasonSuperseded = "superseded"
-	reasonShutdown   = "shutdown"
-	reasonModelLock  = "model_lock"
-	reasonExpired    = "expired"
-	reason409        = "409"
-	reasonPoll       = "poll"
-	reasonStore      = "store"
-	reasonStuckQueue = "stuck_queue"
+	reasonEnded         = "ended"
+	reasonSuperseded    = "superseded"
+	reasonShutdown      = "shutdown"
+	reasonModelLock     = "model_lock"
+	reasonAttemptClosed = "admission_attempt_closed"
+	reasonExpired       = "expired"
+	reason409           = "409"
+	reasonPoll          = "poll"
+	reasonStore         = "store"
+	reasonStuckQueue    = "stuck_queue"
 
 	// ReasonSuperseded is the terminal-event reason for a session another
 	// instance took over (session_superseded, endsTheSession:true); exported
