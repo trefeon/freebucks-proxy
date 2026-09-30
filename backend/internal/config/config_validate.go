@@ -110,6 +110,22 @@ func (c Config) Validate() error {
 		}
 	}
 
+	if c.UpstreamEgressProxy != "" {
+		u, err := url.Parse(c.UpstreamEgressProxy)
+		if err != nil {
+			return fmt.Errorf("UPSTREAM_EGRESS_PROXY %q is not a parseable URL: %w", c.UpstreamEgressProxy, err)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "socks5":
+			// valid
+		default:
+			return fmt.Errorf("UPSTREAM_EGRESS_PROXY %q must use http, https or socks5 (empty = direct egress)", c.UpstreamEgressProxy)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("UPSTREAM_EGRESS_PROXY %q has no host:port", c.UpstreamEgressProxy)
+		}
+	}
+
 	if c.LogLevel != "" {
 		if _, ok := ParseLevel(c.LogLevel); !ok {
 			return fmt.Errorf("LOG_LEVEL %q must be one of: debug, info, warn, error, trace", c.LogLevel)

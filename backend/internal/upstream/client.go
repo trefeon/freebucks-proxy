@@ -228,13 +228,24 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 		stealthProf = profile
 	}
 
-	// Direct egress only (no proxy support): this gateway spoofs the
-	// official FreeBuff CLI, which has no proxy machinery, and the upstream
-	// server hard-blocks proxy/VPN/Tor egress. The DefaultTransport clone
-	// inherits http.ProxyFromEnvironment; disable it so an operator
-	// HTTP_PROXY/HTTPS_PROXY env var never routes upstream traffic through a
-	// proxy either (full egress control).
+	// Egress control. The DefaultTransport clone inherits
+	// http.ProxyFromEnvironment, so an ambient operator HTTP_PROXY/HTTPS_PROXY
+	// env var would otherwise route upstream traffic through a proxy behind
+	// the operator's back — never wanted, because this gateway spoofs the
+	// official FreeBuff CLI (which has no proxy machinery) and the upstream
+	// server hard-blocks VPN/proxy/Tor egress. The one sanctioned exit is the
+	// explicit UPSTREAM_EGRESS_PROXY (cfg.EgressProxyURL); empty (the default)
+	// keeps the direct path. It exists for hosts whose own IP reads as
+	// anonymized/datacenter to the upstream country resolver
+	// (anonymous_network): the operator pins a clean, directly-attributed
+	// exit and every upstream call — admission, poll, chat, agent runs —
+	// leaves from there. A relay that looks like a relay just reproduces the
+	// same refusal, so the exit itself has to read clean.
+	egressProxy := cfg.EgressProxyURL()
 	transport.Proxy = nil
+	if egressProxy != nil {
+		transport.Proxy = http.ProxyURL(egressProxy)
+	}
 	if stealthProf != nil {
 		// Resolve the profile per request (instead of capturing it) so a
 		// transient retry can swap the pinned fingerprint without rebuilding
@@ -247,7 +258,7 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 		// The ALPN list must match the transport that will speak next: h2
 		// when the http2 transport below is registered, h1 otherwise.
 		alpn := []string{"http/1.1"}
-		if c.http2Upstream {
+		if c.http2Upstream && egressProxy == nil {
 			alpn = h2ALPN()
 		}
 		transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -273,7 +284,17 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 	// stdlib transport.
 	//
 	// HTTP2_UPSTREAM=false restores the previous h1-only behavior.
-	if c.http2Upstream {
+	//
+	// A configured UPSTREAM_EGRESS_PROXY takes precedence over
+	// HTTP2_UPSTREAM: the custom http2.Transport below has no proxy support
+	// (it dials the origin directly), and an h2 ALPN negotiated over an h1
+	// CONNECT tunnel is a fingerprint mismatch. Proxied egress therefore
+	// always speaks HTTP/1.1 through the exit, matching what the CLI's own
+	// (proxy-less) h1 path looks like from the far end.
+	if egressProxy != nil {
+		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	}
+	if c.http2Upstream && egressProxy == nil {
 		if stealthProf != nil {
 			//nolint:staticcheck // SA1019: stdlib http.Transport cannot dispatch HTTP/2 over *utls.UConn; custom h2t dials with the same utls dialer (see block comment above)
 			h2t := &http2.Transport{
@@ -306,9 +327,9 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 				transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 			}
 		}
-	} else if stealthProf == nil {
-		// HTTP2_UPSTREAM=false on the plain path: force HTTP/1.1 (the
-		// stdlib would otherwise negotiate h2).
+	} else if stealthProf == nil || egressProxy != nil {
+		// HTTP2_UPSTREAM=false on the plain path, or any proxied egress:
+		// force HTTP/1.1 (the stdlib would otherwise negotiate h2).
 		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	}
 	c.stealthProfile = stealthProf

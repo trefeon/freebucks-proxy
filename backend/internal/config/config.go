@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -51,13 +52,24 @@ type Config struct {
 	// still opt into discovery on its own.
 	AutoDiscoverToken bool
 	TLSFingerprint    string // "" (plain Go transport) | chrome120 | chrome126 | safari17 | safari18 | firefox120 | firefox128 | edge126 | random | auto
-	RegistryRefresh   time.Duration
-	DebugDump         bool
-	DevToolsEnabled   bool
-	LogFile           string
-	LogLevel          string // "" (use -v/default) or debug|info|warn|error|trace
-	LogFormat         string // "text" (default) or "json"
-	LogAccess         bool   // true = per-request access log lines (LOG_ACCESS; default true, an empty .env line keeps it enabled)
+	// UpstreamEgressProxy pins the network path every upstream call egresses
+	// through (UPSTREAM_EGRESS_PROXY; default "" = direct). Opt-in escape
+	// hatch for a host whose own exit reads as anonymized/datacenter to the
+	// upstream country resolver (the anonymous_network refusal): point it at
+	// a clean, directly-attributed exit and every session admission, poll,
+	// chat and agent-run call leaves from there, whichever client asked and
+	// wherever that client is. http, https and socks5 URLs are accepted
+	// (userinfo allowed). The upstream hard-blocks VPN/proxy/Tor egress, so
+	// the exit itself has to read clean — a relay that looks like a relay
+	// reproduces the same refusal. Restart-only: the transport is built once.
+	UpstreamEgressProxy string
+	RegistryRefresh     time.Duration
+	DebugDump           bool
+	DevToolsEnabled     bool
+	LogFile             string
+	LogLevel            string // "" (use -v/default) or debug|info|warn|error|trace
+	LogFormat           string // "text" (default) or "json"
+	LogAccess           bool   // true = per-request access log lines (LOG_ACCESS; default true, an empty .env line keeps it enabled)
 	// The dashboard log surface is hardcoded: the viewer ring holds 500
 	// records, the console's default VIEW window is 1h, and the history
 	// purge keeps log_entries/request_records for 168h (7d). Quota and
@@ -320,6 +332,21 @@ const (
 )
 
 // IsDefaultAdminToken reports whether AdminToken matches the factory default credentials ("123456").
+// EgressProxyURL returns the parsed UPSTREAM_EGRESS_PROXY, or nil for the
+// direct path. Validate has already checked the value, so a parse failure or
+// a host-less URL here means a hand-built Config (tests) bypassed it: callers
+// fall back to direct rather than failing a request.
+func (c *Config) EgressProxyURL() *url.URL {
+	if c == nil || c.UpstreamEgressProxy == "" {
+		return nil
+	}
+	u, err := url.Parse(c.UpstreamEgressProxy)
+	if err != nil || u.Host == "" {
+		return nil
+	}
+	return u
+}
+
 func (c *Config) IsDefaultAdminToken() bool {
 	return c != nil && c.AdminToken == DefaultAdminToken
 }

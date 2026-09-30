@@ -258,6 +258,7 @@ var restartOnlyConfigKeys = []string{
 	"LOG_FILE",
 	"AUTO_DISCOVER_TOKEN",
 	"REGISTRY_REFRESH",
+	"UPSTREAM_EGRESS_PROXY",
 }
 
 // changedRestartOnlyKeys returns the subset of restartOnlyConfigKeys whose
@@ -359,6 +360,7 @@ func effectiveConfigKV(cfg *config.Config) map[string]string {
 		"SESSION_CALL_TIMEOUT":        cfg.SessionCallTimeout.String(),
 		"COST_MODE":                   cfg.CostMode,
 		"TLS_FINGERPRINT":             cfg.TLSFingerprint,
+		"UPSTREAM_EGRESS_PROXY":       boolWord(cfg.UpstreamEgressProxy != ""),
 		"REGISTRY_REFRESH":            cfg.RegistryRefresh.String(),
 		"AUTO_DISCOVER_TOKEN":         strconv.FormatBool(cfg.AutoDiscoverToken),
 		"DEBUG_DUMP":                  strconv.FormatBool(cfg.DebugDump),

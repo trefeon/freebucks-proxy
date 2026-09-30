@@ -38,24 +38,40 @@ type Result struct {
 	Err     error
 }
 
-// Probe GETs ProbeURL through dialer, bounded by timeout, and parses the
-// ip= and loc= lines of the Cloudflare trace body. Any failure — dial,
-// TLS, non-200 status, unreadable body — returns Result{Err: err}; the
-// probe never retries and never touches the configured upstream auth.
+// Probe GETs ProbeURL over the direct path — a Path carrying only a dialer —
+// bounded by timeout, and parses the ip= and loc= lines of the Cloudflare
+// trace body. Any failure — dial, TLS, non-200 status, unreadable body —
+// returns Result{Err: err}; the probe never retries and never touches the
+// configured upstream auth.
 func Probe(ctx context.Context, dialer func(ctx context.Context, network, addr string) (net.Conn, error), timeout time.Duration) Result {
+	return ProbePath(ctx, Path{Dialer: dialer}, timeout)
+}
+
+// ProbePath GETs ProbeURL through one egress path and parses the trace body.
+// p.Dialer routes the connection; p.Proxy, when set, is the sanctioned exit
+// the gateway's upstream calls egress through (UPSTREAM_EGRESS_PROXY), so the
+// reported IP/country is what the upstream country resolver sees rather than
+// this host's own address.
+func ProbePath(ctx context.Context, p Path, timeout time.Duration) Result {
+	dialer := p.Dialer
 	if dialer == nil {
 		dialer = DirectDialer(timeout)
 	}
 	if timeout <= 0 {
 		timeout = ProbeTimeout
 	}
-	// Dedicated transport without ProxyFromEnvironment: the probe must go
-	// through exactly the dialer given, not whatever env proxies exist.
+	// Dedicated transport without ProxyFromEnvironment: the probe goes
+	// through exactly the dialer and exit given, never whatever env proxies
+	// happen to exist.
+	proxy := func(*http.Request) (*url.URL, error) { return nil, nil }
+	if p.Proxy != nil {
+		proxy = http.ProxyURL(p.Proxy)
+	}
 	tr := &http.Transport{
-		// Explicit proxy disable: a nil Proxy field would resolve to
+		// Explicit proxy selection: a nil Proxy field would resolve to
 		// http.ProxyFromEnvironment and silently route region reads through
 		// env proxies, contradicting the dialer-bound guarantee above.
-		Proxy:               func(*http.Request) (*url.URL, error) { return nil, nil },
+		Proxy:               proxy,
 		DialContext:         dialer,
 		MaxIdleConns:        1,
 		IdleConnTimeout:     DefaultTTL,
@@ -103,10 +119,15 @@ func DirectDialer(timeout time.Duration) func(ctx context.Context, network, addr
 }
 
 // Path identifies one egress path to probe: the cache key ("direct") and
-// the dialer that routes the probe connection.
+// the dialer that routes the probe connection, plus the explicit exit the
+// gateway's upstream calls use when one is configured (UPSTREAM_EGRESS_PROXY).
 type Path struct {
 	Key    string
 	Dialer func(ctx context.Context, network, addr string) (net.Conn, error)
+	// Proxy is the sanctioned egress exit, nil = direct. It is the same exit
+	// the upstream transport is built with, so probing the path reports the
+	// address and country the upstream resolver actually sees.
+	Proxy *url.URL
 }
 
 // probeAll probes every path concurrently and returns one Result per key.
@@ -120,7 +141,7 @@ func probeAll(ctx context.Context, paths []Path, timeout time.Duration) map[stri
 		wg.Add(1)
 		go func(p Path) {
 			defer wg.Done()
-			r := Probe(ctx, p.Dialer, timeout)
+			r := ProbePath(ctx, p, timeout)
 			mu.Lock()
 			results[p.Key] = r
 			mu.Unlock()

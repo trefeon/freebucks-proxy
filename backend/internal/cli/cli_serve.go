@@ -441,10 +441,15 @@ func Serve(configPath string, verbose bool, version string) int {
 	// It carries no credentials and never touches upstream visibility — only
 	// Cloudflare learns the egress IP — and docs/decisions/locality-timezone.md
 	// records the reversal.
-	egressTracker := egress.NewTracker(egress.NewCache(), egress.Path{
+	// The probe follows the same exit the upstream transport uses: with
+	// UPSTREAM_EGRESS_PROXY set, /healthz and the doctor must report the
+	// address upstream sees (the exit), never this host's own.
+	egressPath := egress.Path{
 		Key:    "direct",
 		Dialer: egress.DirectDialer(egress.ProbeTimeout),
-	}, egress.DefaultTTL)
+		Proxy:  cfg.EgressProxyURL(),
+	}
+	egressTracker := egress.NewTracker(egress.NewCache(), egressPath, egress.DefaultTTL)
 
 	// Issue #62: the dashboard login wizard drives the same headless OAuth
 	// flow as the CLI against the proxy's own transport/stealth wiring; the

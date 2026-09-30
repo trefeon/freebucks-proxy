@@ -103,6 +103,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	// dropped; ACTING_USER_ID wins when both are set in one source.
 	overrideStringAlias(&raw.ActingUserID, os.Getenv, "ACTING_USER_ID", "USER_ID")
 	overrideString(&raw.TLSFingerprint, "TLS_FINGERPRINT")
+	overrideString(&raw.UpstreamEgressProxy, "UPSTREAM_EGRESS_PROXY")
 	overrideString(&raw.RegistryRefresh, "REGISTRY_REFRESH")
 	overrideBool(&raw.DebugDump, "DEBUG_DUMP")
 	overrideBool(&raw.DevToolsEnabled, "DEVTOOLS_ENABLED")
@@ -384,6 +385,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		CostMode:                 strings.TrimSpace(raw.CostMode),
 		ActingUserID:             strings.TrimSpace(raw.ActingUserID),
 		TLSFingerprint:           strings.TrimSpace(raw.TLSFingerprint),
+		UpstreamEgressProxy:      strings.TrimSpace(raw.UpstreamEgressProxy),
 		RegistryRefresh:          registryRefresh,
 		DebugDump:                raw.DebugDump,
 		DevToolsEnabled:          raw.DevToolsEnabled,
@@ -564,6 +566,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	// JSON); ACTING_USER_ID wins when both are in the .env.
 	overrideStringAlias(&raw.ActingUserID, get, "ACTING_USER_ID", "USER_ID")
 	overrideStringFrom(&raw.TLSFingerprint, get, "TLS_FINGERPRINT")
+	overrideStringFrom(&raw.UpstreamEgressProxy, get, "UPSTREAM_EGRESS_PROXY")
 	overrideStringFrom(&raw.RegistryRefresh, get, "REGISTRY_REFRESH")
 	overrideBoolFrom(&raw.DebugDump, get, "DEBUG_DUMP")
 	overrideBoolFrom(&raw.DevToolsEnabled, get, "DEVTOOLS_ENABLED")

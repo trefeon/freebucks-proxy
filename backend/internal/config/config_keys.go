@@ -33,6 +33,7 @@ type rawConfig struct {
 	// the end of Load when no ACTING_USER_ID source set a value (#126).
 	LegacyActingUserID       string          `json:"USER_ID"`
 	TLSFingerprint           string          `json:"TLS_FINGERPRINT"`
+	UpstreamEgressProxy      string          `json:"UPSTREAM_EGRESS_PROXY"`
 	RegistryRefresh          string          `json:"REGISTRY_REFRESH"`
 	DebugDump                bool            `json:"DEBUG_DUMP"`
 	DevToolsEnabled          bool            `json:"DEVTOOLS_ENABLED"`

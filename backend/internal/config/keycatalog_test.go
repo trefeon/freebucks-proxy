@@ -28,7 +28,8 @@ var dotenvKeys = map[string]bool{
 	"API_KEYS": true, "ADMIN_TOKEN": true, "COST_MODE": true,
 	"HTTP_READ_TIMEOUT": true,
 	"ACTING_USER_ID":    true, "TLS_FINGERPRINT": true, "REGISTRY_REFRESH": true,
-	"DEBUG_DUMP": true, "DEVTOOLS_ENABLED": true, "LOG_FILE": true,
+	"UPSTREAM_EGRESS_PROXY": true,
+	"DEBUG_DUMP":            true, "DEVTOOLS_ENABLED": true, "LOG_FILE": true,
 	"LOG_LEVEL": true, "LOG_FORMAT": true, "LOG_ACCESS": true,
 
 	"IDLE_ROTATION_TIMEOUT": true, "SAFE_MODE": true,
@@ -63,6 +64,8 @@ var catalogExtras = map[string]bool{
 // must mask: credentials by shape, or URLs that may carry credentials.
 var secretKeys = map[string]bool{
 	"ADMIN_TOKEN": true, "AUTH_TOKENS": true, "API_KEYS": true, "WEBHOOK_URL": true,
+	// UPSTREAM_EGRESS_PROXY may carry user:pass userinfo in the URL.
+	"UPSTREAM_EGRESS_PROXY": true,
 }
 
 // TestCatalogSanity pins the catalog's own invariants: unique keys, known

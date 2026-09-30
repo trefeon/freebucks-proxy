@@ -54,6 +54,8 @@ func effectiveRawValue(cfg Config, key string) string {
 		return cfg.AdminToken
 	case "WEBHOOK_URL":
 		return cfg.WebhookURL
+	case "UPSTREAM_EGRESS_PROXY":
+		return cfg.UpstreamEgressProxy
 	case "AUTO_DISCOVER_TOKEN":
 		return strconv.FormatBool(cfg.AutoDiscoverToken)
 	case "ACTING_USER_ID":

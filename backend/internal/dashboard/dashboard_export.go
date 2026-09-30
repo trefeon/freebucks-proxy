@@ -17,8 +17,9 @@ import (
 //
 // Shape: KEY=value lines in catalog order (the same order as effective[]).
 // Non-secret values reuse the canonical effective strings (durations,
-// bools, joined lists — all re-parseable by the loader); the four secret
-// keys render raw so an admin can copy a working seed. Exposure is
+// bools, joined lists — all re-parseable by the loader); the five secret
+// keys render raw so an admin can copy a working seed and so the posted
+// document reloads (masked presence words would fail Validate). Exposure is
 // unchanged: this endpoint is admin-authenticated and previously served the
 // raw file, secrets in clear, to the same callers.
 func renderEnvExport(cfg *config.Config) string {
@@ -36,6 +37,8 @@ func renderEnvExport(cfg *config.Config) string {
 			val = cfg.AdminToken
 		case "WEBHOOK_URL":
 			val = cfg.WebhookURL
+		case "UPSTREAM_EGRESS_PROXY":
+			val = cfg.UpstreamEgressProxy
 		}
 		b.WriteString(entry.Key + "=" + val + "\n")
 	}

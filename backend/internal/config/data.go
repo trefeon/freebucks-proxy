@@ -63,6 +63,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return c.CostMode, false
 	case "TLS_FINGERPRINT":
 		return c.TLSFingerprint, false
+	case "UPSTREAM_EGRESS_PROXY":
+		return boolWord(c.UpstreamEgressProxy != ""), true
 	case "REGISTRY_REFRESH":
 		return c.RegistryRefresh.String(), false
 	case "DEBUG_DUMP":

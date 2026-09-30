@@ -594,6 +594,16 @@
     "description": "Upstream API endpoint (codebuff.com is normalized to www.codebuff.com)."
   },
   {
+    "key": "UPSTREAM_EGRESS_PROXY",
+    "group": "upstream",
+    "kind": "text",
+    "default": "",
+    "restart_only": true,
+    "secret": true,
+    "essential": false,
+    "description": "Opt-in exit every upstream call egresses through (empty = direct, the default). Set it to a clean, directly-attributed route - typically a residential/US exit - when this host's own IP reads as anonymized/datacenter to the upstream country resolver (the anonymous_network refusal that blocks accounts). It carries every session admission, poll, chat and agent-run call, whichever client asked and wherever that client is, so the upstream country read follows the exit. http, https and socks5 URLs are accepted and may carry userinfo. Point it at an exit that genuinely reads clean: the upstream hard-blocks VPN/proxy/Tor egress, so a relay that looks like a relay reproduces the same refusal. Needs a container restart."
+  },
+  {
     "key": "US_CONSISTENCY",
     "group": "upstream",
     "kind": "bool",

@@ -360,6 +360,11 @@ var keyCatalog = []KeyDef{
 	},
 
 	{
+		Key: "UPSTREAM_EGRESS_PROXY", Group: GroupUpstream, Kind: "text", Secret: true, RestartOnly: true,
+		Default:     "",
+		Description: `Opt-in exit every upstream call egresses through (empty = direct, the default). Set it to a clean, directly-attributed route - typically a residential/US exit - when this host's own IP reads as anonymized/datacenter to the upstream country resolver (the anonymous_network refusal that blocks accounts). It carries every session admission, poll, chat and agent-run call, whichever client asked and wherever that client is, so the upstream country read follows the exit. http, https and socks5 URLs are accepted and may carry userinfo. Point it at an exit that genuinely reads clean: the upstream hard-blocks VPN/proxy/Tor egress, so a relay that looks like a relay reproduces the same refusal. Needs a container restart.`,
+	},
+	{
 		Key: "US_CONSISTENCY", Group: GroupUpstream, Kind: "bool",
 		Default:     "false",
 		Description: `US-consistency preset: pins every client-controlled signal to US values (session calls declare America/New_York unless SESSION_TIMEZONE is explicitly set; the ads device block follows the declared zone with an en-US locale). Aligns consistency signals ONLY - it NEVER changes the server-resolved country, which the upstream derives from the egress IP alone: a non-US or anonymized (VPN/proxy/Tor/hosting/relay) egress still resolves non-US. To read as US, egress every session admission, poll, and chat call from a clean, non-anonymized US IP; when a block persists after moving, verify the account country in the human web flow at /account?tab=country. Applies live on reload.`,

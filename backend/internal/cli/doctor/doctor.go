@@ -220,14 +220,18 @@ func Run(configPath string) {
 		ok(fmt.Sprintf("TLS connection to %s:%s succeeded", targetHost, targetPort))
 	}
 
-	// Egress region check: one live probe of the direct outbound path
-	// through a plain dialer. The probe result lands in a doctor-local
-	// cache (the runtime no longer probes — #123); a failed probe is a
-	// warning, not a doctor failure — the proxy keeps working, only the
-	// region readout is missing.
+	// Egress region check: one live probe of the outbound path through a
+	// plain dialer, following the sanctioned exit when one is configured
+	// (UPSTREAM_EGRESS_PROXY) so the row reports the address upstream sees.
+	// The probe result lands in a doctor-local cache (the runtime no longer
+	// probes — #123); a failed probe is a warning, not a doctor failure —
+	// the proxy keeps working, only the region readout is missing.
 	egressCache := egress.NewCache()
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	res := egress.Probe(probeCtx, egress.DirectDialer(5*time.Second), 5*time.Second)
+	res := egress.ProbePath(probeCtx, egress.Path{
+		Dialer: egress.DirectDialer(5 * time.Second),
+		Proxy:  cfg.EgressProxyURL(),
+	}, 5*time.Second)
 	probeCancel()
 	egressCache.Set("direct", res)
 	if line, isWarn := egressRegionRow(egressCache); isWarn {
