@@ -5,14 +5,20 @@ import (
 	"strings"
 )
 
-// Response-leg translation for floor tools OMP cannot dispatch.
+// Response-leg translation for canonical wire tools the client cannot
+// dispatch.
 //
-// Floor-only OMP requests put exactly the 16 canonical CLI definitions on the
-// wire (tools_floor.go): the free-tier gate rejects any foreign-schema rider,
-// so the client's own tool defs never ride and the model chooses from the CLI
-// set. The response leg already restores client names and reshapes CLI args
-// back to OMP shape (tools_reshape.go). Four of the sixteen have no OMP
-// equivalent AT ALL — verified against OMP's builtin registry
+// Both families see the canonical CLI definitions on the wire: OMP via the
+// floor-only replacement (tools_floor.go), pi via the canonical substitution
+// every core pi tool maps onto plus the upstream top-up. The response leg
+// already restores client names and reshapes CLI args back to client shape
+// (tools_reshape.go), but a call to a canonical tool the client has no
+// equivalent for would restore by identity to a CLI name and the dispatcher
+// answers "Tool <name> not found" (pi-agent-core/src/agent-loop.ts:2828-2839
+// — OMP and pi share the agent loop).
+//
+// OMP: four of the sixteen have no OMP equivalent AT ALL — verified against
+// OMP's builtin registry
 // (pi-coding-agent/src/tools/builtin-names.ts: read, bash, edit, ast_grep,
 // ast_edit, ask, debug, ida, eval, github, glob, grep, find, lsp, checkpoint,
 // rewind, context_notes, new_context, security_scan, task, wait, todo,
@@ -34,6 +40,15 @@ import (
 // a route for suggest_followups: OMP's ask blocks the turn and auto-selects
 // on timeout, which corrupts a fire-and-forget suggestion into a forced
 // question.
+//
+// pi: the dispatch surface is its eight built-in tools (read, bash,
+// powershell, edit, write, grep, find, ls), so every other canonical name is
+// unroutable unless the client itself declared it — a pi extension tool whose
+// own name IS the wire name restores by identity and stays a real call
+// (piRoutable). Unroutable pi calls render the payload the model wanted to
+// act on (todo checklist, search/read/skill request, blocking question) as
+// assistant text and absorb telemetry, the same invariant as OMP: an
+// unroutable call must never reach the client as a tool call.
 
 // TextFallbackKind classifies how an unroutable floor call is handled.
 type TextFallbackKind int
@@ -57,6 +72,22 @@ var textFloorRenderers = map[string]func(map[string]any) string{
 	"render_ui":              renderFloatWidget,
 	"gravity_index":          renderGravityIndex,
 	"report_project_profile": nil, // internal telemetry: nothing to show the user
+}
+
+// piFloorRenderers maps a canonical wire name pi cannot dispatch to its
+// renderer (nil absorbs). Consulted only when the name does NOT restore to a
+// pi-declared tool (piRoutable), so an extension that declares, say, its own
+// web_search keeps receiving real calls.
+var piFloorRenderers = map[string]func(map[string]any) string{
+	"suggest_followups":      renderSuggestFollowups,
+	"render_ui":              renderFloatWidget,
+	"gravity_index":          renderGravityIndex,
+	"report_project_profile": nil, // internal telemetry: nothing to show the user
+	"write_todos":            renderTodoChecklist,
+	"web_search":             renderMissingWebSearch,
+	"read_url":               renderMissingReadURL,
+	"ask_user":               renderQuestionList,
+	"skill":                  renderMissingSkill,
 }
 
 // renderSuggestFollowups turns the clickable followup cards the client would
@@ -127,15 +158,110 @@ func renderGravityIndex(in map[string]any) string {
 	return note + "._"
 }
 
-// TextFallback classifies one wire name + arguments for the unroutable floor
-// set. kind is TextFallbackNone for every ordinary call. Rendered text is
-// empty for TextFallbackAbsorb and for a render whose payload carried nothing
-// renderable (callers treat an empty render as an absorb).
-func (m ToolMapper) TextFallback(wireName, args string) (string, TextFallbackKind) {
-	if !m.floorOnly {
-		return "", TextFallbackNone
+// renderTodoChecklist turns the CLI write_todos state dump into a markdown
+// checklist for pi, which has no todo tool: the user still sees the plan the
+// turn recorded, and the model's next turn sees the same text.
+func renderTodoChecklist(in map[string]any) string {
+	todos, _ := in["todos"].([]any)
+	lines := make([]string, 0, len(todos))
+	for _, t := range todos {
+		m, _ := t.(map[string]any)
+		if m == nil {
+			continue
+		}
+		title := strField(m, "task")
+		if title == "" {
+			title = strField(m, "content")
+		}
+		if title == "" {
+			continue
+		}
+		box := "[ ]"
+		if done, _ := m["completed"].(bool); done {
+			box = "[x]"
+		}
+		lines = append(lines, "- "+box+" "+title)
 	}
-	render, ok := textFloorRenderers[wireName]
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\n**Tasks**\n" + strings.Join(lines, "\n")
+}
+
+// renderMissingWebSearch states the search request pi cannot service, so the
+// user still sees what the turn wanted to do.
+func renderMissingWebSearch(in map[string]any) string {
+	note := "\n\n_Web search is unavailable in this client"
+	if query := strField(in, "query"); query != "" {
+		note += " (requested: " + query + ")"
+	}
+	return note + "._"
+}
+
+// renderMissingReadURL states the remote-read request pi cannot service
+// (pi's read tool is filesystem-only).
+func renderMissingReadURL(in map[string]any) string {
+	note := "\n\n_Reading remote URLs is unavailable in this client"
+	if url := strField(in, "url"); url != "" {
+		note += " (requested: " + url + ")"
+	}
+	return note + "._"
+}
+
+// renderMissingSkill states the skill request pi cannot dispatch as a tool.
+func renderMissingSkill(in map[string]any) string {
+	note := "\n\n_Skills are unavailable in this client"
+	if name := strField(in, "name"); name != "" {
+		note += " (requested: " + name + ")"
+	}
+	return note + "._"
+}
+
+// renderQuestionList renders an ask_user question as assistant text: pi has
+// no ask tool, so a blocking question can only be asked in the reply and
+// answered on the user's next turn.
+func renderQuestionList(in map[string]any) string {
+	qs, _ := in["questions"].([]any)
+	lines := make([]string, 0, len(qs))
+	for _, q := range qs {
+		qm, _ := q.(map[string]any)
+		if qm == nil {
+			continue
+		}
+		text := strField(qm, "question")
+		if text == "" {
+			continue
+		}
+		lines = append(lines, "- "+text)
+		opts, _ := qm["options"].([]any)
+		for _, o := range opts {
+			om, _ := o.(map[string]any)
+			if om == nil {
+				continue
+			}
+			label := strField(om, "label")
+			if label == "" {
+				continue
+			}
+			line := "  - " + label
+			if desc := strField(om, "description"); desc != "" {
+				line += " — " + desc
+			}
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\n**Question for you**\n" + strings.Join(lines, "\n")
+}
+
+// TextFallback classifies one wire name + arguments for the client family's
+// unroutable set. kind is TextFallbackNone for every ordinary call. Rendered
+// text is empty for TextFallbackAbsorb and for a render whose payload carried
+// nothing renderable (callers treat an empty render as an absorb).
+func (m ToolMapper) TextFallback(wireName, args string) (string, TextFallbackKind) {
+	render, ok := m.unroutableRenderer(wireName)
 	if !ok {
 		return "", TextFallbackNone
 	}
@@ -155,24 +281,52 @@ func (m ToolMapper) TextFallback(wireName, args string) (string, TextFallbackKin
 	return text, TextFallbackRender
 }
 
-// HasTextFallback reports whether wireName is an unroutable floor name
+// unroutableRenderer resolves the family renderer for a canonical wire name,
+// or reports that the call is ordinary. OMP uses the static floor table (its
+// floor wire never carries a name the client declared). pi checks
+// routability first, then the pi table: a name that restores to a declared pi
+// tool is a real dispatch, not a render.
+func (m ToolMapper) unroutableRenderer(wireName string) (func(map[string]any) string, bool) {
+	switch m.family {
+	case familyOMP:
+		render, ok := textFloorRenderers[wireName]
+		return render, ok
+	case familyPi:
+		if m.piRoutable(wireName) {
+			return nil, false
+		}
+		render, ok := piFloorRenderers[wireName]
+		return render, ok
+	}
+	return nil, false
+}
+
+// piRoutable reports whether a wire call dispatches on this pi client: the
+// request leg mapped the wire name onto a client tool (upstreamToClient) or
+// the client declared the wire name itself. RestoreName cannot answer the
+// second case — ToUpstream stores no reverse entry when the client's own name
+// IS the wire name — hence the raw clientTools table.
+func (m ToolMapper) piRoutable(wireName string) bool {
+	if m.upstreamToClient[wireName] != "" {
+		return true
+	}
+	return m.clientTools[wireName]
+}
+
+// HasTextFallback reports whether wireName is an unroutable canonical name
 // (renderable or absorbable) on this mapper.
 func (m ToolMapper) HasTextFallback(wireName string) bool {
-	if !m.floorOnly {
-		return false
-	}
-	_, ok := textFloorRenderers[wireName]
+	_, ok := m.unroutableRenderer(wireName)
 	return ok
 }
 
-// ApplyTextFallbacks rewrites an OpenAI-shaped completion for a floor-only
-// (OMP) request: every choices[].message.tool_calls entry naming an
-// unroutable floor tool is removed, the rendered text is appended to the
-// message content, and finish_reason flips tool_calls->stop when no call
-// remains. Returns whether the completion changed. Non-OMP requests are
-// untouched.
+// ApplyTextFallbacks rewrites an OpenAI-shaped completion for a family
+// request: every choices[].message.tool_calls entry naming an unroutable
+// canonical tool is removed, the rendered text is appended to the message
+// content, and finish_reason flips tool_calls->stop when no call remains.
+// Returns whether the completion changed. Unmapped requests are untouched.
 func (m ToolMapper) ApplyTextFallbacks(completion map[string]any) bool {
-	if !m.floorOnly {
+	if m.family == familyNone {
 		return false
 	}
 	changed := false

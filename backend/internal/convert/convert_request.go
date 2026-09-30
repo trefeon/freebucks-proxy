@@ -164,7 +164,7 @@ func NormalizeRequestMapped(body []byte, modelOverride string) ([]byte, ToolMapp
 // Options (issue #277). See NormalizeRequestOpts.
 func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options) ([]byte, ToolMapper, error) {
 	mapper := NewToolMapper(body)
-	ompMode := isOMPToolsetBody(body)
+	family := detectFamilyBody(body)
 	out, err := NormalizeRequestOpts(body, modelOverride, opts)
 	if err != nil {
 		return nil, ToolMapper{}, err
@@ -179,11 +179,15 @@ func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options)
 	// carry the canonical CLI description + parameters, so the gate sees
 	// CLI definitions, never foreign schemas under renamed names.
 	SubstituteCanonicalDefinitions(payload)
-	// OMP-family toolsets go floor-only: no foreign-schema rider may reach
-	// the gate (live 2026-09-30). Non-OMP clients keep the riding top-up.
-	if ompMode {
+	// Family response translation (tools_floor.go). OMP-family toolsets go
+	// floor-only: no foreign-schema rider may reach the gate (live
+	// 2026-09-30). pi-family toolsets keep their substituted wire (every pi
+	// core tool already maps to an official name) and need only the
+	// response-leg pi arg reshape + unroutable text render. Non-family
+	// clients keep the riding top-up.
+	mapper.family = family
+	if family == familyOMP {
 		floorOnlyOMP(payload)
-		mapper.floorOnly = true
 		// Undeclared floor tools route to the OMP equivalent so model
 		// calls to ask_user/read_url/list_directory/skill restore +
 		// reshape instead of failing client-side with "not found".

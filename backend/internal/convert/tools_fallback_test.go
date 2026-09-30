@@ -42,7 +42,7 @@ func TestFloorFallbackRestore(t *testing.T) {
 }
 
 func TestFloorFallbackReshape(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	m.RegisterFloorFallbacks()
 	cases := []struct {
 		wire string
@@ -95,7 +95,7 @@ func TestFloorFallbackReshape(t *testing.T) {
 // dispatcher, and completion rides as trailing `done` ops instead
 // (TestReshapeTodoFanoutCompletion).
 func TestTodoReshapePhaseForm(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	got, ok := m.ReshapeArgsFor("write_todos",
 		`{"todos":[{"task":"a","completed":false},{"task":"b","completed":true}]}`)
 	if !ok {

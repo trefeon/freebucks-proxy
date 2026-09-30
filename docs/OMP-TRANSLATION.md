@@ -1,7 +1,9 @@
 # OMP / pi-family translation
 
-Single canonical page for the OMP-family request/response translation layer.
-Truth date: 2026-09-30. Every behavior below names its code path.
+Single canonical page for the OMP-family request/response translation layer,
+plus the pi family (§6) — pi is the project OMP forked from and is a separate,
+non-floor family. Truth date: 2026-10-01. Every behavior below names its code
+path.
 
 ## 1. What the gate checks: definitions only
 
@@ -30,7 +32,10 @@ OMP-family iff **any** tool schema carries the injected intent-`i` property
 
 - `eval`, `learn`, `manage_skill`, `context_notes` (`ompSignatureNames`, `:28-33`)
 
-Invalid bodies report false — never floor-only on doubt.
+Invalid bodies report false — never floor-only on doubt. OMP is checked FIRST,
+so a stripped OMP toolset cannot read as pi (the two families restore different
+arg shapes). pi is a separate family with its own detection and NO floor — see
+§6.
 
 ### Rename: client → wire (`convert/toolmap_request.go:41-179`)
 
@@ -169,7 +174,10 @@ through untouched.
 Regression proof: `server/floor_omp_surface_test.go`
 (`TestFloorOMPToolSurfaceRoundTrip` drives every name in the OMP registry,
 including `task` and `mcp__*`, and asserts the client receives it
-byte-identically).
+byte-identically). Delegation specifically:
+`TestFloorOmpDelegationStreamsVerbatim` (fragmented `task` + whole `hub`, turn
+stays `tool_calls`) and `TestFloorOmpDelegationAcrossSurfaces` (Anthropic +
+Responses).
 
 ### Streaming: withhold + inject (`server/openai_chunk_pipeline.go`)
 
@@ -205,3 +213,78 @@ Live proof: image rel post-`82d896bb` — 5/5 same-session triple (chat,
 reasoning, harness-tools normalizer) plus streaming and non-streaming tool
 turns (`bash` → `run_terminal_command` → restore → local exec → turn-2 relay
 → final answer).
+
+## 6. pi family (the project OMP forked from)
+
+pi (`reference/harnesses/pi`, `packages/coding-agent/src/core/tools/index.ts`
+`allToolNames`) is a *second, distinct* family, and unlike OMP it is **not**
+floor-only: every core name has an official wire target, so nothing has to be
+dropped for the gate. Detection lives in `convert/tools_floor.go`
+(`clientFamily`, `piToolVocabulary`, `isPiToolset`, `hasPiEditFingerprint`,
+`detectFamilyBody`).
+
+| Signal | Rule |
+|---|---|
+| name subset | every declared name is in `piToolVocabulary` (`read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, `ls`) and at least two appear |
+| edit fingerprint | an `edit` tool whose `parameters.properties.edits.items.properties` carries `oldText` + `newText` (`edit.ts:34-54`) — catches pi sessions carrying extension tools (subagent spawners, MCP bridges), whose extra names leave the vocabulary |
+
+### Request leg
+
+No floor: the eight core names rename to official wire names, canonical
+definitions are substituted, and extension tools keep riding virtualized
+(`mcp__<name>`).
+
+| Client | Wire |
+|---|---|
+| `read` | `read_files` |
+| `bash`, `powershell` | `run_terminal_command` |
+| `edit` | `str_replace` |
+| `write` | `write_file` |
+| `grep` | `code_search` |
+| `find` | `glob` |
+| `ls` | `list_directory` |
+
+### Response leg
+
+`piReshapeWires` scopes the rules to the seven wire names pi's core toolset
+maps onto — an extension declared under any other canonical name keeps its own
+args. Rules live in `piReadArgs` / `piEditArgs` (`convert/tools_reshape.go`).
+
+| Wire | pi shape | Note |
+|---|---|---|
+| `read_files` | `{path[, offset, limit]}` | fan-out per path; **offset/limit KEPT** (OMP drops them) |
+| `str_replace` | `{path, edits:[{oldText,newText}, …]}` | ONE batch call, not one per replacement |
+| `run_terminal_command` | `{command, timeout}` | not `timeout_seconds` |
+| `write_file` | `{path, content}` | |
+| `code_search` | `{pattern, path?}` | |
+| `glob` | `{pattern, path?}` | |
+| `list_directory` | `{path}` | |
+
+### Text fallback
+
+pi declares no todo/web_search/ask/skill tool, so a model call to
+`write_todos`, `web_search`, `read_url`, `ask_user`, `skill`,
+`suggest_followups`, `render_ui` or `gravity_index` would reach pi's
+dispatcher as `Tool <name> not found`. `piFloorRenderers` renders each payload
+as assistant text (todo checklist, query note, URL note, question list) or
+absorbs it (`report_project_profile`). `piRoutable` keeps the REAL call when the
+wire name restores to a pi core tool, or *is* one of the client's own declared
+tools — a pi extension named `web_search` still receives `web_search`.
+
+### Gate
+
+`ToolMapper.ResponseRewrite()` (family != none) gates the streaming withhold
+buffers and the unroutable-call strip; `FloorOnly()` still means "the client
+defs were replaced" and stays OMP-only.
+
+### Delegation
+
+A pi extension registering `spawn_agent` rides the wire virtualized as
+`mcp__spawn_agent`; its calls restore to `spawn_agent` with pi's own args.
+Spawning is client-side (the extension runs the subagent), so a verbatim call
+is the whole requirement — a rename, virtualization or drop is what turns it
+into "Tool spawn_agent not found". Pinned by
+`server/conformance_pi_omp_test.go` (`TestConformancePiChatToolRenameRestore`,
+`TestConformancePiArgReshapeE2E`, `TestConformancePiStreamArgReshape`,
+`TestConformancePiDelegationAcrossSurfaces`) and
+`convert/tools_pifamily_test.go`.

@@ -13,7 +13,7 @@ import (
 // (or absorbed) instead of relayed as "not found".
 
 func TestTextFallbackClassify(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	cases := []struct {
 		name      string
 		wire      string
@@ -144,7 +144,7 @@ func mustCalls(calls string) []any {
 // text turn: the call is gone, the payload is message content, and
 // finish_reason reads stop so no client waits on a call it never received.
 func TestApplyTextFallbacksRendersAndFlips(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	comp := completionWith(
 		`[{"id":"c1","type":"function","function":{"name":"suggest_followups","arguments":"{\"followups\":[{\"prompt\":\"Run the tests\"}]}"}}]`,
 		"tool_calls")
@@ -167,7 +167,7 @@ func TestApplyTextFallbacksRendersAndFlips(t *testing.T) {
 // Absorbed calls leave no content and no calls; an unknown-to-fallback call
 // in the same message is kept and the turn stays a tool_calls turn.
 func TestApplyTextFallbacksKeepsRealCalls(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	comp := completionWith(
 		`[{"id":"c1","type":"function","function":{"name":"code_search","arguments":"{\"pattern\":\"x\"}"}},`+
 			`{"id":"c2","type":"function","function":{"name":"report_project_profile","arguments":"{\"status\":\"unchanged\"}"}},`+
@@ -201,7 +201,7 @@ func TestApplyTextFallbacksKeepsRealCalls(t *testing.T) {
 // Text is appended after any content the model already produced, never
 // replacing it.
 func TestApplyTextFallbacksAppendsContent(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	comp := completionWith(
 		`[{"id":"c1","type":"function","function":{"name":"gravity_index","arguments":"{\"action\":\"search\",\"query\":\"kv store\"}"}}]`,
 		"tool_calls")

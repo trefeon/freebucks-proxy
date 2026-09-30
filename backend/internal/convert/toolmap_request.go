@@ -225,16 +225,29 @@ type ToolMapper struct {
 	clientToUpstream map[string]string // request path: original → official/MCP
 	msgs             int               // len(messages) (or len(input) for Responses) in the scanned body
 	tools            int               // len(tools) in the scanned body
-	// floorOnly marks an OMP-family request whose wire was replaced with
-	// the floor-only toolset: the model fills CLI-shaped args, so the
-	// response leg must reshape them back (ReshapeArgsFor) as well as
-	// restore names. Never set for other clients: their relays stay
-	// byte-identical apart from name restores.
-	floorOnly bool
+	// family marks a client toolset whose response leg translates beyond the
+	// name restore every mapped client gets (tools_floor.go: familyOMP,
+	// familyPi). Zero value (familyNone) keeps the relay byte-identical apart
+	// from name restores.
+	family clientFamily
+	// clientTools holds every tool name the client declared, exactly as sent.
+	// RestoreName cannot answer "did the client declare this name?" for a
+	// wire name that is also the client's own name (ToUpstream owns those slots
+	// and stores no reverse entry), which is what family text fallbacks need
+	// before suppressing a call.
+	clientTools map[string]bool
 }
 
-// FloorOnly reports whether this request went floor-only (OMP family).
-func (m ToolMapper) FloorOnly() bool { return m.floorOnly }
+// FloorOnly reports whether this request went floor-only (OMP family): the
+// client's own tool defs were replaced by the 16 canonical wire definitions.
+func (m ToolMapper) FloorOnly() bool { return m.family == familyOMP }
+
+// ResponseRewrite reports whether the response leg performs client-specific
+// translation for this request — OMP family (floor arg reshape + unroutable
+// text render) or pi family (pi arg reshape + unroutable text render). The
+// streaming pipeline gates its withhold buffers on it; unmapped clients keep
+// byte-identical arg streaming.
+func (m ToolMapper) ResponseRewrite() bool { return m.family != familyNone }
 
 func isForeignHarness(name string) bool {
 	return ForeignHarnessToolNames[name] || strings.HasPrefix(strings.ToLower(name), "cron")
@@ -393,6 +406,7 @@ func NewToolMapper(body []byte) ToolMapper {
 	m := ToolMapper{
 		upstreamToClient: make(map[string]string),
 		clientToUpstream: make(map[string]string),
+		clientTools:      make(map[string]bool),
 	}
 	m.msgs = len(payload.Messages)
 	if m.msgs == 0 {
@@ -404,6 +418,7 @@ func NewToolMapper(body []byte) ToolMapper {
 		if name == "" {
 			continue
 		}
+		m.clientTools[name] = true
 		upstreamName := resolveUpstreamTool(name, t.Function.Parameters)
 		if upstreamName != "" && upstreamName != name {
 			m.clientToUpstream[name] = upstreamName

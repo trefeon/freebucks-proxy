@@ -2,7 +2,20 @@ package convert
 
 import "encoding/json"
 
-// Floor-only wire for OMP-family toolsets.
+// Client toolset families whose response leg needs translation beyond the
+// name restore every mapped client gets.
+//
+//   - familyOMP (Oh My Pi): floor-only wire (this file) + OMP-shaped arg
+//     reshape + unroutable text fallback (tools_reshape.go,
+//     tools_textfallback.go).
+//   - familyPi (pi, the upstream OMP forked from): the wire already carries
+//     official names with canonical substituted definitions for every pi
+//     core tool (read/bash/powershell/edit/write/grep/find/ls all have
+//     clientToOfficial entries), so nothing is floored — but responses still
+//     need pi-shaped args (read {path}, edit {path, edits[]}, bash
+//     {command, timeout}) and pi-unroutable floor calls (write_todos,
+//     web_search, ask_user, …) must degrade to text, not relay a name pi's
+//     dispatcher answers with "Tool <name> not found".
 //
 // Live bisect 2026-09-30 (5ac40785): OMP-tools + neutral-system 503s while
 // official-tools + the full 77KB OMP system 200s. The gate keys on tool
@@ -19,10 +32,17 @@ import "encoding/json"
 // need restoring; the model fills CLI-shaped args for the floor tools and
 // the response leg reshapes them back (ReshapeArgs) + restores names.
 //
-// Non-OMP clients are untouched: their custom/virtualized tools keep riding
-// with the top-up, exactly as before.
+// Non-family clients are untouched: their custom/virtualized tools keep
+// riding with the top-up, exactly as before.
+type clientFamily int
 
-// ompSignatureNames are tool names unique to the OMP/pi family across the
+const (
+	familyNone clientFamily = iota
+	familyOMP
+	familyPi
+)
+
+// ompSignatureNames are tool names unique to the OMP family across the
 // client corpus (verified: codex declares new_context+wait, pi declares
 // find, Reasonix/kilocode declare task — none declare these). Two or more
 // in one request identifies the family even when intent injection is off
@@ -34,16 +54,118 @@ var ompSignatureNames = map[string]bool{
 	"context_notes": true,
 }
 
-// isOMPToolsetBody parses raw client tools from a request body for the
-// family check. Invalid bodies report false (never floor-only on doubt).
-func isOMPToolsetBody(body []byte) bool {
+// piToolVocabulary is pi's complete built-in model-facing vocabulary
+// (reference/harnesses/pi packages/coding-agent/src/core/tools/index.ts
+// ToolName union; powershell is registered on Windows in place of bash).
+// A request whose every declared tool name is in this set is pi or a
+// pi-shaped client: across the 21-harness corpus only pi's own sets are
+// subsets (opencode/Claude Code share some names but add glob/todowrite/
+// PascalCase tools, so they never match). Reports from pi with extension/
+// custom tools are not detected — extension schemas may themselves be
+// foreign, and the family heuristic deliberately stays conservative.
+var piToolVocabulary = map[string]bool{
+	"read":       true,
+	"bash":       true,
+	"powershell": true,
+	"edit":       true,
+	"write":      true,
+	"grep":       true,
+	"find":       true,
+	"ls":         true,
+}
+
+// isPiToolset reports whether every raw client tool name is pi vocabulary
+// (pi's default session declares exactly read/bash/edit/write; read-only
+// sessions declare read/grep/find/ls). At least two names are required: a
+// single generic tool (`read`, `edit`) is every client's name and carries no
+// family signal.
+func isPiToolset(tools []any) bool {
+	count := 0
+	for _, t := range tools {
+		m, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		fn, ok := m["function"].(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := fn["name"].(string)
+		if name == "" {
+			continue
+		}
+		if !piToolVocabulary[name] {
+			return false
+		}
+		count++
+	}
+	return count >= 2
+}
+
+// hasPiEditFingerprint recognizes pi's batch edit schema — an `edit` tool
+// whose parameters carry `edits` as an array of {oldText,newText} objects
+// (packages/coding-agent/src/core/tools/edit.ts:34-54, the schema every pi
+// session ships). This is the detection path for a pi session carrying
+// extension/custom tools (subagent spawners, MCP bridges, …): the extra
+// names leave piToolVocabulary, so the name-subset rule cannot see it, but
+// the core edit schema still can. OMP never advertises this shape (its
+// replace mode is old_string/new_string, its patch mode op/diff) and no
+// other corpus harness declares a batch edits[] edit.
+func hasPiEditFingerprint(tools []any) bool {
+	for _, t := range tools {
+		m, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		fn, ok := m["function"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := fn["name"].(string); name != "edit" {
+			continue
+		}
+		params, _ := fn["parameters"].(map[string]any)
+		props, _ := params["properties"].(map[string]any)
+		edits, _ := props["edits"].(map[string]any)
+		items, _ := edits["items"].(map[string]any)
+		itemProps, _ := items["properties"].(map[string]any)
+		if _, ok := itemProps["oldText"]; !ok {
+			continue
+		}
+		if _, ok := itemProps["newText"]; !ok {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// detectClientFamily classifies the raw client tools for the translation
+// layer. OMP is checked first: a pi-vocabulary-only subset (e.g. an OMP
+// session stripped to read/bash/edit/write, or with intent tracing off)
+// would otherwise read as pi, and the two families restore different arg
+// shapes. pi matches the bare vocabulary subset or the schema fingerprint.
+func detectClientFamily(tools []any) clientFamily {
+	if isOMPToolset(tools) {
+		return familyOMP
+	}
+	if isPiToolset(tools) || hasPiEditFingerprint(tools) {
+		return familyPi
+	}
+	return familyNone
+}
+
+// detectFamilyBody parses raw client tools from a request body for the
+// family check. Invalid bodies report familyNone (never translate a family
+// on doubt).
+func detectFamilyBody(body []byte) clientFamily {
 	var payload struct {
 		Tools []any `json:"tools"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return false
+		return familyNone
 	}
-	return isOMPToolset(payload.Tools)
+	return detectClientFamily(payload.Tools)
 }
 
 // isOMPToolset reports whether raw client tools come from the OMP family:

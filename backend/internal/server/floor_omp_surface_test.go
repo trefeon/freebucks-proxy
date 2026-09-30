@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"freebuff-proxy/backend/internal/testutil"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -81,6 +83,175 @@ func TestFloorOMPToolSurfaceRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// OMP's delegation surface must survive the floor-only relay on every
+// surface, because subagent spawning is CLIENT-SIDE: OMP's task tool
+// (pi-coding-agent/src/task/index.ts:507, "Spawn subagents to complete
+// delegated tasks", params agent/name/task/context/tasks[]/batch) runs the
+// subagent locally, and `hub` coordinates the resulting jobs. The proxy's
+// only job is to hand the call back under OMP's own name with OMP's own
+// args — a rename, a virtualized mcp__name or a dropped entry is what turns
+// delegation into "Tool task not found". The model reaches them through
+// OMP's own # Tool Inventory system prompt (the proxy prepends its canonical
+// opening, never replaces the client prompt), so no client def needs to ride
+// the gate-mandated floor.
+const (
+	ompTaskArgs  = `{"agent":"researcher","task":"audit the auth flow","context":"focus on session refresh"}`
+	ompTaskFrag1 = `{"agent":"researcher","task":"audit the auth `
+	ompTaskFrag2 = `flow","context":"focus on session refresh"}`
+	ompHubArgs   = `{"op":"wait","job_id":"job-7"}`
+)
+
+// Streaming chat: a fragmented task call and a whole hub call come back
+// verbatim (name + args), the turn stays a tool_calls turn, and the request
+// leg carried zero foreign riders.
+func TestFloorOmpDelegationStreamsVerbatim(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		// Name-only first fragment (live OMP shape), args on continuations.
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-del", 1,
+			`"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_t1","type":"function","function":{"name":"task"}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-del", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(ompTaskFrag1)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-del", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(ompTaskFrag2)+`}},`+
+				`{"index":1,"id":"call_h1","type":"function","function":{"name":"hub","arguments":`+strconv.Quote(ompHubArgs)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-del", 1,
+			`"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":40,"completion_tokens":20,"total_tokens":60}`)))
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	ts, _ := newTestServer(t, nil, mock)
+	body := `{"model":"` + modelA + `","messages":[{"role":"user","content":"delegate it"}],"stream":true,"tools":` + ompFloorTools() + `}`
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", []byte(body), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
+	}
+	assertFloorOnlyWire(t, mock)
+	frames, done := collectOpenAIFrames(t, string(data))
+	if !done {
+		t.Error("stream missing [DONE]")
+	}
+	if name := toolCallName(frames, 0); name != "task" {
+		t.Errorf("index 0 name = %q, want task (delegation must dispatch)", name)
+	}
+	if args := joinToolArgs(frames, 0); args != ompTaskArgs {
+		t.Errorf("index 0 args = %q, want verbatim OMP task args %q", args, ompTaskArgs)
+	}
+	if name := toolCallName(frames, 1); name != "hub" {
+		t.Errorf("index 1 name = %q, want hub", name)
+	}
+	if args := joinToolArgs(frames, 1); args != ompHubArgs {
+		t.Errorf("index 1 args = %q, want verbatim OMP hub args %q", args, ompHubArgs)
+	}
+	// A delegation turn must stay a tool turn, not be downgraded to text.
+	last := frames[len(frames)-1]
+	if fr, _ := last["choices"].([]any)[0].(map[string]any)["finish_reason"].(string); fr != "tool_calls" {
+		t.Errorf("finish_reason = %q, want tool_calls", fr)
+	}
+	if strings.Contains(string(data), "mcp__") {
+		t.Errorf("delegation call was virtualized downstream: %s", truncate(string(data), 300))
+	}
+	if strings.Contains(string(data), "not found") {
+		t.Errorf("response advertises an undispatched tool: %s", truncate(string(data), 300))
+	}
+}
+
+// Non-streaming Anthropic + Responses surfaces: the same task call arrives
+// with its own name and its own args on both, so a pi/OMP client that speaks
+// either surface delegates identically.
+func TestFloorOmpDelegationAcrossSurfaces(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+	taskCall := `{"index":0,"id":"call_t1","type":"function","function":{"name":"task","arguments":` + strconv.Quote(ompTaskArgs) + `}}`
+
+	t.Run("anthropic", func(t *testing.T) {
+		mock := testutil.NewMock()
+		defer mock.Close()
+		mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+			tfMockTurn(w, taskCall, "tool_calls")
+		}
+		ts, _ := newTestServer(t, nil, mock)
+		body := `{"model":"` + modelA + `","max_tokens":256,"messages":[{"role":"user","content":"delegate"}],"tools":` + anthropicFloorTools() + `}`
+		resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/messages", []byte(body),
+			map[string]string{"Content-Type": "application/json", "anthropic-version": "2023-06-01"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
+		}
+		assertFloorOnlyWire(t, mock)
+		var msg map[string]any
+		if err := json.Unmarshal(data, &msg); err != nil {
+			t.Fatalf("response not JSON: %v", err)
+		}
+		blocks, _ := msg["content"].([]any)
+		var use map[string]any
+		for _, b := range blocks {
+			bm, _ := b.(map[string]any)
+			if bm["type"] == "tool_use" {
+				use = bm
+			}
+		}
+		if use == nil {
+			t.Fatalf("no tool_use block: %s", truncate(string(data), 300))
+		}
+		if use["name"] != "task" {
+			t.Errorf("tool_use name = %v, want task", use["name"])
+		}
+		input, _ := use["input"].(map[string]any)
+		if input["agent"] != "researcher" || input["task"] != "audit the auth flow" {
+			t.Errorf("tool_use input = %v, want verbatim OMP task args", input)
+		}
+		if msg["stop_reason"] != "tool_use" {
+			t.Errorf("stop_reason = %v, want tool_use", msg["stop_reason"])
+		}
+	})
+
+	t.Run("responses", func(t *testing.T) {
+		mock := testutil.NewMock()
+		defer mock.Close()
+		mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+			tfMockTurn(w, taskCall, "tool_calls")
+		}
+		ts, _ := newTestServer(t, nil, mock)
+		body := `{"model":"` + modelA + `","input":[{"role":"user","content":[{"type":"input_text","text":"delegate"}]}],"tools":` + responsesFloorTools() + `}`
+		resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/responses", []byte(body), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
+		}
+		assertFloorOnlyWire(t, mock)
+		var obj map[string]any
+		if err := json.Unmarshal(data, &obj); err != nil {
+			t.Fatalf("response not JSON: %v", err)
+		}
+		output, _ := obj["output"].([]any)
+		var call map[string]any
+		for _, o := range output {
+			om, _ := o.(map[string]any)
+			if om["type"] == "function_call" {
+				call = om
+			}
+		}
+		if call == nil {
+			t.Fatalf("no function_call item: %s", truncate(string(data), 300))
+		}
+		if call["name"] != "task" {
+			t.Errorf("function_call name = %v, want task", call["name"])
+		}
+		var args map[string]any
+		if err := json.Unmarshal([]byte(call["arguments"].(string)), &args); err != nil {
+			t.Fatalf("function_call arguments not JSON: %v", err)
+		}
+		if args["agent"] != "researcher" || args["context"] != "focus on session refresh" {
+			t.Errorf("function_call arguments = %v, want verbatim OMP task args", args)
+		}
+	})
 }
 
 // The four floor tools the model can call but OMP cannot dispatch never reach

@@ -9,7 +9,7 @@ import (
 // call must reshape to OMP-consumable args; unknown wire names and
 // non-floor-only mappers pass through untouched.
 func TestReshapeArgsTable(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	cases := []struct {
 		wire string
 		args string
@@ -97,7 +97,7 @@ func TestReshapeArgsTable(t *testing.T) {
 }
 
 func TestReshapeClientNames(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	// OMP-vocabulary names the model emits instead of the wire schema
 	// (live 2026-09-30: turn called "read" with CLI-shaped {paths}):
 	// restore is identity, but the args still need the wire rule.
@@ -137,7 +137,7 @@ func TestReshapeClientNames(t *testing.T) {
 }
 
 func TestReshapeArgsPassthrough(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	if _, ok := m.ReshapeArgsFor("gravity_index", `{"a":1}`); ok {
 		t.Error("gravity_index reshaped, want passthrough (no rule)")
 	}
@@ -154,7 +154,7 @@ func TestReshapeArgsPassthrough(t *testing.T) {
 // so a CLI dump that marks tasks complete must fan out to the init op plus
 // one trailing `done` op per completed task, order preserved.
 func TestReshapeTodoFanoutCompletion(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	got, ok := m.ReshapeArgsFanout("write_todos",
 		`{"todos":[{"task":"a","completed":true},{"task":"b","completed":false},{"task":"c","completed":true}]}`)
 	if !ok {
@@ -199,7 +199,7 @@ func TestReshapeTodoFanoutCompletion(t *testing.T) {
 // through untouched on both reshape paths: reshaping it would corrupt a
 // valid call.
 func TestReshapeTodoOMPShapePassthrough(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	omp := `{"op":"done","task":"a"}`
 	if got, ok := m.ReshapeArgsFor("write_todos", omp); ok {
 		t.Errorf("ReshapeArgsFor rewrote OMP-shaped todo to %q, want passthrough", got)

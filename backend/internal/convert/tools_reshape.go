@@ -6,28 +6,36 @@ import (
 	"strings"
 )
 
-// Response-leg argument reshape for floor-only (OMP-family) requests.
+// Response-leg argument reshape for client families (tools_floor.go).
 //
-// The model fills CLI-shaped args per the canonical floor definitions it was
-// shown; the OMP dispatcher validates per its own schemas, so CLI-shaped
-// args must be reshaped to OMP shape alongside the name restore. Keyed by
-// WIRE name (floor-official, unambiguous) and gated on FloorOnly: no other
-// client's relay ever reaches these paths.
+// The model fills CLI-shaped args per the canonical definitions it was shown
+// (OMP: the floor-only wire; pi: the canonical defs every pi core tool maps
+// onto); the client dispatcher validates per its own schemas, so CLI-shaped
+// args must be reshaped to the client's shape alongside the name restore.
+// Keyed by WIRE name and gated on the client family: no other client's relay
+// ever reaches these paths.
 //
-// Two wire shapes fan out to N OMP calls, order preserved: read_files
-// {paths:[...]} becomes one read {path} per entry, and str_replace
-// {path, replacements:[...]} becomes one edit {path, old_string,
-// new_string} per replacement. A single path / single replacement stays
-// exactly 1:1. Every other rule yields exactly one call.
+// OMP rules emit the OMP vocabulary (edit {path, old_string, new_string},
+// todo op-machine, …); pi rules emit pi's core shapes (read {path[, offset,
+// limit]}, edit {path, edits:[{oldText,newText}]}) and only for the wire
+// names pi's core toolset maps onto (piReshapeWires) — a pi extension tool
+// that happens to be named like a canonical wire name keeps its own args.
+//
+// Two wire shapes fan out to N calls, order preserved: read_files
+// {paths:[...]} becomes one read {path} per entry (OMP and pi alike), and
+// str_replace {path, replacements:[...]} becomes one edit per replacement in
+// the OMP vocabulary while pi's batch-native edit takes all replacements in
+// ONE {path, edits:[{oldText,newText},…]} call. A single path / single
+// replacement stays exactly 1:1. Every other rule yields exactly one call.
 //
 // All rules are total and lossy-documented: unknown shapes pass through
 // verbatim rather than failing the turn. Kept scalar drops (grep flags,
 // bash background extras, write instructions, web_search depth, read
-// offset/limit, edit allowMultiple, glob cwd/max_results, OMP-find
-// query/grep_keywords variants) are documented at each rule; whole tools
-// with no CLI equivalent (eval, task, wait, learn, manage_skill,
-// new_context, context_notes) never reach the wire at all — floorOnlyOMP
-// drops them so the model is never shown them.
+// offset/limit — OMP only, pi reads keep them —, edit allowMultiple, glob
+// cwd/max_results, OMP-find query/grep_keywords variants) are documented at
+// each rule; whole tools with no CLI equivalent (eval, task, wait, learn,
+// manage_skill, new_context, context_notes) never reach the wire at all —
+// floorOnlyOMP drops them so the model is never shown them.
 
 // ReshapeArgsFor rewrites CLI-shaped arguments JSON for wireName into the
 // OMP client shape. Returns the rewritten JSON and true, or ("", false) when
@@ -50,11 +58,16 @@ func (m ToolMapper) ReshapeArgsFor(wireName, args string) (string, bool) {
 // nothing to reshape — the caller keeps the args verbatim, so no call is
 // ever dropped by reshaping.
 func (m ToolMapper) ReshapeArgsFanout(wireName, args string) ([]string, bool) {
-	if !m.floorOnly {
+	if m.family == familyNone {
 		return nil, false
 	}
 	resolved := resolveReshapeRule(wireName)
 	if _, ok := reshapeRules[resolved]; !ok {
+		return nil, false
+	}
+	// pi reshapes only the wire names its core toolset maps onto: an
+	// extension tool declared under a canonical name keeps its own args.
+	if m.family == familyPi && !piReshapeWires[resolved] {
 		return nil, false
 	}
 	var in map[string]any
@@ -88,9 +101,32 @@ func (m ToolMapper) ReshapeArgsFanout(wireName, args string) ([]string, bool) {
 	return bodies, true
 }
 
-// fanoutArgs maps one parsed CLI-shaped arguments object to one OMP-shaped
-// map per resulting client call. Nil/empty means passthrough (never a drop).
+// piReshapeWires are the wire names pi's core toolset maps onto
+// (read→read_files, edit→str_replace, write→write_file, bash/powershell→
+// run_terminal_command, grep→code_search, find→glob, ls→list_directory).
+// Only these get pi-shaped args back; extension tools under other canonical
+// names are left alone.
+var piReshapeWires = map[string]bool{
+	"read_files":           true,
+	"str_replace":          true,
+	"write_file":           true,
+	"run_terminal_command": true,
+	"code_search":          true,
+	"glob":                 true,
+	"list_directory":       true,
+}
+
+// fanoutArgs maps one parsed CLI-shaped arguments object to one shaped map
+// per resulting client call. Nil/empty means passthrough (never a drop).
 func (m ToolMapper) fanoutArgs(resolved string, in map[string]any) []map[string]any {
+	if m.family == familyPi {
+		switch resolved {
+		case "read_files":
+			return piReadArgs(in)
+		case "str_replace":
+			return piEditArgs(in)
+		}
+	}
 	switch resolved {
 	case "read_files":
 		// OMP read {path} is singular: one call per entry, order
@@ -169,6 +205,65 @@ func (m ToolMapper) fanoutArgs(resolved string, in map[string]any) []map[string]
 	}
 }
 
+// piReadArgs maps CLI read_files {paths:[...]} to pi's read calls: one call	// per entry, order preserved. pi's read is singular ({path}) but natively
+// supports offset/limit, so object entries keep them — the OMP rule drops
+// them because OMP's read has no equivalent. String entries pass the
+// value through verbatim. No paths key means already pi shape: nil
+// (passthrough), never blanked.
+func piReadArgs(in map[string]any) []map[string]any {
+	paths, ok := in["paths"].([]any)
+	if !ok {
+		return nil
+	}
+	var outs []map[string]any
+	for _, p := range paths {
+		switch v := p.(type) {
+		case string:
+			outs = append(outs, map[string]any{"path": v})
+		case map[string]any:
+			out := map[string]any{"path": strField(v, "path")}
+			if n, ok := numField(v, "offset"); ok {
+				out["offset"] = n
+			}
+			if n, ok := numField(v, "limit"); ok {
+				out["limit"] = n
+			}
+			outs = append(outs, out)
+		}
+	}
+	return outs
+}
+
+// piEditArgs maps CLI str_replace {path, replacements:[{oldString,
+// newString}]} to pi's batch-native edit: ONE call {path, edits:[{oldText,
+// newText},…]}, order preserved (OMP fans out one edit per replacement
+// because OMP's edit is single-replacement per call). allowMultiple and any
+// extra replacement keys have no pi equivalent and are dropped. No
+// replacements key means already pi shape — native {path, edits[…]} or the
+// legacy flat {path, oldText, newText} pi normalizes itself: nil
+// (passthrough), never a blanked-out edits list.
+func piEditArgs(in map[string]any) []map[string]any {
+	reps, ok := in["replacements"].([]any)
+	if !ok {
+		return nil
+	}
+	edits := make([]any, 0, len(reps))
+	for _, r := range reps {
+		rm, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		edits = append(edits, map[string]any{
+			"oldText": strField(rm, "oldString"),
+			"newText": strField(rm, "newString"),
+		})
+	}
+	if len(edits) == 0 {
+		return nil // nothing usable to reshape: keep the wire args for the error
+	}
+	return []map[string]any{{"path": strField(in, "path"), "edits": edits}}
+}
+
 // fanoutGlobArgs reshapes CLI glob {pattern, ...} to the OMP shape dictated
 // by the request origin: a wire glob claimed by the client's `find` tool
 // restores as OMP find {pattern}, a native glob as OMP glob {path}.
@@ -195,11 +290,17 @@ func (m ToolMapper) fanoutGlobArgs(in map[string]any) []map[string]any {
 // HasReshapeRule reports whether wireName has a reshape rule on this
 // mapper (floor-only OMP requests only).
 func (m ToolMapper) HasReshapeRule(wireName string) bool {
-	if !m.floorOnly {
+	resolved := resolveReshapeRule(wireName)
+	if _, ok := reshapeRules[resolved]; !ok {
 		return false
 	}
-	_, ok := reshapeRules[resolveReshapeRule(wireName)]
-	return ok
+	switch m.family {
+	case familyNone:
+		return false
+	case familyPi:
+		return piReshapeWires[resolved]
+	}
+	return true
 }
 
 // ompClientToWire covers the mapped OMP names the model emits from prompt
@@ -260,7 +361,7 @@ func hasAnyKey(m map[string]any, keys []string) bool {
 // throughout. Returns the (possibly longer) call list and whether anything
 // changed; entries without a rule keep byte-identical args.
 func (m ToolMapper) ReshapeMessageCalls(tcs []any) ([]any, bool) {
-	if !m.floorOnly {
+	if m.family == familyNone {
 		return tcs, false
 	}
 	changed := false
@@ -312,7 +413,7 @@ func (m ToolMapper) ReshapeMessageCalls(tcs []any) ([]any, bool) {
 // restores names — the rules key on the wire name. Returns whether anything
 // changed.
 func (m ToolMapper) ReshapeCompletionCalls(completion map[string]any) bool {
-	if !m.floorOnly {
+	if m.family == familyNone {
 		return false
 	}
 	rawChoices, ok := completion["choices"].([]any)

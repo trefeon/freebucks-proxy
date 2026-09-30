@@ -127,21 +127,22 @@ func (cr *chunkRewriter) rewrite(clean []byte) []byte {
 		cr.xmlCallsSeen = true
 	}
 
-	// 3a. Unroutable floor emissions: strip tool_calls entries naming a floor
-	// tool OMP cannot dispatch (and their nameless continuation fragments,
-	// matched by recorded index) before any relay stage sees them, buffering
-	// their argument fragments for the terminal text render. Mirrors the
-	// end_turn strip: the client must never assemble a call it cannot
-	// dispatch. Runs after the XML feed so an extracted call is covered too.
+	// 3a. Unroutable family emissions: strip tool_calls entries naming a
+	// canonical tool the family cannot dispatch (and their nameless
+	// continuation fragments, matched by recorded index) before any relay
+	// stage sees them, buffering their argument fragments for the terminal
+	// text render. Mirrors the end_turn strip: the client must never assemble
+	// a call it cannot dispatch. Runs after the XML feed so an extracted call
+	// is covered too.
 	if cr.stripTextFallbackCalls(chunk) {
 		mutated = true
 	}
 
-	// 4a. Floor-only (OMP) arg buffering: CLI-shaped argument fragments
-	// cannot reshape incrementally, so withhold them per tool-call index
-	// and inject the reshaped whole on the terminal chunk (stage 6a).
-	// The client SDK concatenates fragments, so withheld + injected reads
-	// exactly the OMP-shaped args. Gated on FloorOnly: other clients keep
+	// 4a. Family arg buffering: CLI-shaped argument fragments cannot reshape
+	// incrementally, so withhold them per tool-call index and inject the
+	// reshaped whole on the terminal chunk (stage 6a). The client SDK
+	// concatenates fragments, so withheld + injected reads exactly the
+	// family-shaped args. Gated on ResponseRewrite: other clients keep
 	// byte-identical arg streaming.
 	if cr.reshapeBuffer(chunk) {
 		mutated = true
@@ -171,9 +172,9 @@ func (cr *chunkRewriter) rewrite(clean []byte) []byte {
 	if cr.xmlCallsSeen {
 		mutated = flipFinishReason(chunk, "stop", "tool_calls") || mutated
 	}
-	// 6a. Floor-only (OMP) arg flush: on the terminal chunk, inject the
-	// withheld reshaped args per buffered index (client name restored
-	// inline). Runs before capture so capture sees what the client gets.
+	// 6a. Family arg flush: on the terminal chunk, inject the withheld
+	// reshaped args per buffered index (client name restored inline). Runs
+	// before capture so capture sees what the client gets.
 	if cr.reshapeFlush(chunk) {
 		mutated = true
 	}
@@ -227,7 +228,7 @@ func flipFinishReason(chunk map[string]any, from, to string) bool {
 // client must still see (id on first sight, restored name via stage 4)
 // keep flowing — only argument bytes are withheld.
 func (cr *chunkRewriter) reshapeBuffer(chunk map[string]any) bool {
-	if !cr.stats.toolMap.FloorOnly() {
+	if !cr.stats.toolMap.ResponseRewrite() {
 		return false
 	}
 	changed := false
@@ -389,7 +390,7 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 // the client. Floor-only requests only; every other client keeps its calls
 // byte-identical.
 func (cr *chunkRewriter) stripTextFallbackCalls(chunk map[string]any) bool {
-	if !cr.stats.toolMap.FloorOnly() {
+	if !cr.stats.toolMap.ResponseRewrite() {
 		return false
 	}
 	rawChoices, ok := chunk["choices"].([]any)

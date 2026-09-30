@@ -26,7 +26,7 @@ func fanoutBodies(t *testing.T, m ToolMapper, wire, args string) []map[string]an
 }
 
 func TestReshapeFanoutRead(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	// Multi-path string form fans out in order.
 	outs := fanoutBodies(t, m, "read_files", `{"paths":["a.go","b.go","c.go"]}`)
 	if len(outs) != 3 {
@@ -61,7 +61,7 @@ func TestReshapeFanoutRead(t *testing.T) {
 }
 
 func TestReshapeFanoutEdit(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	outs := fanoutBodies(t, m, "str_replace",
 		`{"path":"f","replacements":[{"oldString":"a","newString":"b"},{"oldString":"c","newString":"d","allowMultiple":true}]}`)
 	if len(outs) != 2 {
@@ -106,7 +106,7 @@ func TestReshapeFanoutEdit(t *testing.T) {
 }
 
 func TestReshapeMessageCallsFanout(t *testing.T) {
-	m := ToolMapper{floorOnly: true}
+	m := ToolMapper{family: familyOMP}
 	mk := func(id, name, args string) any {
 		return map[string]any{
 			"id":   id,
@@ -163,7 +163,7 @@ func TestReshapeMessageCallsFanout(t *testing.T) {
 func TestFindGlobRestore(t *testing.T) {
 	// A request that claimed wire glob for the client's find tool.
 	findMapper := ToolMapper{
-		floorOnly:        true,
+		family:           familyOMP,
 		upstreamToClient: map[string]string{"glob": "find"},
 		clientToUpstream: map[string]string{"find": "glob"},
 	}
@@ -178,7 +178,7 @@ func TestFindGlobRestore(t *testing.T) {
 		t.Fatalf("ex-find query glob = %v, want [{pattern:*.ts}]", outs)
 	}
 	// Native glob keeps the OMP glob {path} shape (glob→glob identity).
-	native := ToolMapper{floorOnly: true}
+	native := ToolMapper{family: familyOMP}
 	outs = fanoutBodies(t, native, "glob", `{"pattern":"*.go"}`)
 	if len(outs) != 1 || outs[0]["path"] != "*.go" {
 		t.Fatalf("native glob = %v, want [{path:*.go}]", outs)

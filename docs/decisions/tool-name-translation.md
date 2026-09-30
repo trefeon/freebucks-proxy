@@ -121,7 +121,9 @@ UpstreamSHA `775383b3` (`scripts/vendor-version.txt`,
    `reasoning_effort`) are deliberate contracted passthroughs for real
    client fleets + spend metering, not gate material.
 2. **Correction to the "No argument or schema translation" non-goal
-   (L20-22): names-only holds for other clients only.** For OMP/pi-family,
+   (L20-22): names-only holds for other clients only. (Extended
+   2026-10-01: the pi family joins OMP here — see the pi-family amendment
+   below.)** For OMP/pi-family,
    detected by an intent-`i` schema prop OR 2+ of
    {`eval`, `learn`, `manage_skill`, `context_notes`}, schemas ARE
    substituted: the wire carries exactly the 16 canonical CLI tool defs +
@@ -232,3 +234,90 @@ non-streaming relays.
    Streaming Anthropic/Responses have no withhold architecture (deferred with
    their fan-out, §4 above); OMP speaks the chat surface, where both legs
    apply the fallback.
+
+## Amendment 2026-10-01 — pi is its own family; delegation is client-side
+
+Status: accepted · amends the 2026-09-30 OMP amendments (the "names-only
+holds for other clients only" correction now reads "the OMP AND pi
+families"). Code: `convert/tools_floor.go` (`clientFamily`,
+`piToolVocabulary`, `isPiToolset`, `hasPiEditFingerprint`,
+`detectClientFamily`, `detectFamilyBody`), `convert/toolmap_request.go`
+(`ResponseRewrite()`), `convert/tools_reshape.go` (`piReshapeWires`,
+`piReadArgs`, `piEditArgs`), `convert/tools_textfallback.go`
+(`piFloorRenderers`, `piRoutable`), `convert/convert_request.go`.
+
+1. **pi is a second family, not an OMP alias.** pi
+   (reference/harnesses/pi `packages/coding-agent/src/core/tools/index.ts`
+   `allToolNames`: read/bash/powershell/edit/write/grep/find/ls) is what OMP
+   forked from, and it is NOT floor-only: all eight core names have
+   `clientToOfficial` entries, so the wire already carries official names with
+   canonical substituted definitions and the gate stays green without dropping
+   anything — extensions keep riding virtualized (`mcp__<name>`). What pi
+   still needs is the RESPONSE leg: the model fills the canonical CLI shapes it
+   was shown and pi dispatches its own. `read {path[,offset,limit]}` (multi-path
+   fans out per path, offset/limit KEPT — unlike OMP), `edit
+   {path, edits:[{oldText,newText},…]}` (ONE batch call, not N), `bash
+   {command, timeout}` (not `timeout_seconds`), plus the write/grep/find/ls
+   shapes.
+2. **Detection: name subset or edit fingerprint.** `isPiToolset` matches a
+   request whose every declared name is pi vocabulary (≥2 names, so a lone
+   generic `read` never matches; across the 21-harness corpus only pi's own
+   sets are subsets — opencode/Claude Code share names but add
+   glob/todowrite/PascalCase tools). A pi session carrying extension tools — a
+   subagent spawner, an MCP bridge — leaves the vocabulary, so
+   `hasPiEditFingerprint` catches it from the schema every pi session ships: an
+   `edit` tool whose `parameters.properties.edits.items.properties` carries both
+   `oldText` and `newText` (edit.ts:34-54; `prepareArguments` additionally
+   accepts the legacy flat `oldText`/`newText`). OMP never advertises this shape
+   (its replace mode is `old_string`/`new_string`, patch mode `op`/`diff`) and no
+   other corpus harness declares a batch `edits[]` edit. OMP is classified
+   FIRST, so a stripped OMP session (intent injection off, names reduced to
+   read/bash/edit/write) cannot read as pi — the two families restore different
+   arg shapes.
+3. **`ResponseRewrite()` replaces `FloorOnly()` as the response-leg gate.**
+   `FloorOnly()` (family == OMP) still means "the client defs were replaced";
+   `ResponseRewrite()` (family != none) means "the response leg translates".
+   The streaming withhold buffers (`reshapeBuffer`/`reshapeFlush`) and the
+   unroutable-call strip (`stripTextFallbackCalls`/`flushTextFallbacks`) key on
+   the latter, so pi gets arg reshape + text fallback without floor. Unmapped
+   clients keep byte-identical arg streaming.
+4. **pi text fallback covers the floor names pi cannot dispatch.** pi declares
+   no todo/web_search/ask/skill tool, so a model call to `write_todos`,
+   `web_search`, `read_url`, `ask_user`, `skill`, `suggest_followups`,
+   `render_ui`, `gravity_index` would reach pi's dispatcher as `Tool <name> not
+   found`. `piFloorRenderers` renders those payloads as assistant text (todo
+   checklist, query note, URL note, question list) or absorbs them
+   (`report_project_profile`, internal telemetry). `piRoutable` guards the
+   table: a wire name that restores to a pi core tool — or is one of the
+   client's OWN declared tools, e.g. a pi extension named `web_search` — keeps
+   its real call (`clientTools` answers the case `RestoreName` cannot, because
+   `ToUpstream` stores no reverse entry when the client's own name IS the wire
+   name).
+5. **Delegation is client-side, so it only needs a verbatim call.** Subagent
+   spawning runs in the HARNESS, not upstream. OMP's `task`
+   (reference/harnesses/oh-my-pi `packages/coding-agent/src/task/index.ts:507`,
+   "Spawn subagents to complete delegated tasks", params
+   `agent`/`name`/`task`/`context`/`tasks[]`/`batch`; recursion capped by
+   `task.maxRecursionDepth`) spawns the subagent locally and `hub` coordinates
+   the resulting jobs; a pi extension registers its own `spawn_agent`. Upstream
+   has no official delegation tool (`officialTools` in `toolmap_request.go` has
+   no such entry), so these names have no wire target AND no gate-safe
+   definition: floor-only drops them from the wire for OMP, and the model
+   reaches them through the harness's own system prompt (`# Tool Inventory` —
+   `ensureCliSystemMarker` PREPENDS its canonical opening and never replaces
+   the client prompt). The proxy's whole obligation is to hand the call back
+   under the client's own name with the client's own args: a rename, a
+   virtualization, or a drop is exactly what turns delegation into "Tool task
+   not found". Pinned end to end — `server/floor_omp_surface_test.go`
+   (`TestFloorOmpDelegationStreamsVerbatim`: fragmented `task` + whole `hub`
+   under floor-only, turn stays `tool_calls`; `TestFloorOmpDelegationAcrossSurfaces`:
+   Anthropic + Responses) and `server/conformance_pi_omp_test.go`
+   (`TestConformancePiDelegationAcrossSurfaces`: extension `spawn_agent`
+   restored from `mcp__spawn_agent` on Anthropic + Responses, with per-path read
+   fan-out on both).
+6. **Verification.** `convert/tools_pifamily_test.go` (family detection incl.
+   OMP-precedence, read offset/limit retention, ONE-call batch edit, native-shape
+   passthrough, renderers + `piRoutable`), `convert/toolmap_corpus_test.go` (21
+   harnesses unchanged), `server/conformance_pi_omp_test.go` (chat /
+   streaming / Anthropic / Responses rename+restore, arg reshape, delegation),
+   `server/floor_omp_surface_test.go` (OMP round-trip + delegation).
