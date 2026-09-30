@@ -186,6 +186,25 @@ func (s *Server) chatCore(w http.ResponseWriter, r *http.Request, model string, 
 		st.retried = true
 		up, lease, err = s.chatAttempt(ctx, model, normalized, st, be)
 	}
+	if err != nil && ctx.Err() == nil && errors.Is(err, upstream.ErrNoEndpoints) {
+		// Issue #729 (reopened #630 symptom): upstream routing has no
+		// serving endpoint for the (model, tools) request shape — the same
+		// body without tools[] succeeds. The #633 surface already advises
+		// clients to "retry without tools[] or pick another model"; do the
+		// first half automatically, once: re-issue with the tools envelope
+		// stripped so the request resolves endpoints like a tools-less
+		// one. chatAttempt released the lease with no invalidation (a
+		// model-scoped routing refusal touches no session/run state), so
+		// the re-acquire below reuses the cached session. Tools-less 404s
+		// skip the retry (the identical shape would re-trip the same
+		// fence) and surface as model_no_endpoints below.
+		if stripped, ok := stripToolsEnvelope(normalized); ok {
+			s.logger.Info(kind+" no-endpoints tools fallback",
+				"req_id", reqID, "model", model, "tools", toolMap.ToolCount())
+			st.retried = true
+			up, lease, err = s.chatAttempt(ctx, model, stripped, st, be)
+		}
+	}
 	if err != nil {
 		// Acquire-time rate limit (pool returned nil lease): attribute the
 		// binding token + limited set onto the trace line. Post-acquire
