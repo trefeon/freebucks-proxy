@@ -208,3 +208,93 @@ func TestReshapeTodoOMPShapePassthrough(t *testing.T) {
 		t.Errorf("ReshapeArgsFanout rewrote OMP-shaped todo to %v, want passthrough", got)
 	}
 }
+
+// OMP delegation (task) normalization: the harness validates `tasks`
+// (non-empty array of {name?, agent?, task}), but a model that never saw the
+// tool definition (floor-only drops it from the wire) emits the singular
+// vocabulary form {agent, task, context} — or a bare {task} — which the
+// harness rejects with "Missing `tasks`". The response leg synthesizes
+// tasks[] around the singular keys, preserving every original key; a valid
+// non-empty tasks[] (or nothing usable at all) passes through untouched.
+func TestReshapeTaskSingularToTasksBatch(t *testing.T) {
+	m := ToolMapper{family: familyOMP}
+	if !m.HasReshapeRule("task") {
+		t.Error("HasReshapeRule(task) = false, want true (streaming buffer gate)")
+	}
+	cases := []struct {
+		args string
+		want map[string]any
+	}{
+		{
+			`{"agent":"researcher","task":"audit the auth flow","context":"focus on session refresh"}`,
+			map[string]any{
+				"agent":   "researcher",
+				"task":    "audit the auth flow",
+				"context": "focus on session refresh",
+				"tasks": []any{map[string]any{
+					"agent": "researcher",
+					"task":  "audit the auth flow",
+				}},
+			},
+		},
+		{
+			`{"task":"ship it"}`,
+			map[string]any{
+				"task":  "ship it",
+				"tasks": []any{map[string]any{"task": "ship it"}},
+			},
+		},
+		{
+			`{"name":"sub","agent":"coder","task":"write tests"}`,
+			map[string]any{
+				"name":  "sub",
+				"agent": "coder",
+				"task":  "write tests",
+				"tasks": []any{map[string]any{
+					"name":  "sub",
+					"agent": "coder",
+					"task":  "write tests",
+				}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		got, ok := m.ReshapeArgsFor("task", tc.args)
+		if !ok {
+			t.Errorf("ReshapeArgsFor(task, %s) = not-ok, want tasks[] synthesis", tc.args)
+			continue
+		}
+		var gotM map[string]any
+		if err := json.Unmarshal([]byte(got), &gotM); err != nil {
+			t.Errorf("ReshapeArgsFor(task) invalid JSON %q: %v", got, err)
+			continue
+		}
+		wantB, _ := json.Marshal(tc.want)
+		var wantM map[string]any
+		if err := json.Unmarshal(wantB, &wantM); err != nil {
+			t.Fatalf("want fixture invalid JSON: %v", err)
+		}
+		gotB, _ := json.Marshal(gotM)
+		wantB2, _ := json.Marshal(wantM)
+		if string(gotB) != string(wantB2) {
+			t.Errorf("ReshapeArgsFor(task) = %s, want %s", gotB, wantB2)
+		}
+	}
+	// A valid non-empty tasks[] batch passes through untouched.
+	valid := `{"tasks":[{"name":"a","task":"one"}],"context":"keep"}`
+	if got, ok := m.ReshapeArgsFor("task", valid); ok {
+		t.Errorf("ReshapeArgsFor(task, batch) = %q, want passthrough", got)
+	}
+	// Nothing usable to synthesize from: passthrough, harness errors as today.
+	if got, ok := m.ReshapeArgsFor("task", `{}`); ok {
+		t.Errorf("ReshapeArgsFor(task, {}) = %q, want passthrough", got)
+	}
+	// pi has no task rule: extension/pass-through args stay byte-identical.
+	pi := ToolMapper{family: familyPi}
+	if pi.HasReshapeRule("task") {
+		t.Error("pi HasReshapeRule(task) = true, want false")
+	}
+	if got, ok := pi.ReshapeArgsFor("task", `{"task":"x"}`); ok {
+		t.Errorf("pi ReshapeArgsFor(task) = %q, want passthrough", got)
+	}
+}

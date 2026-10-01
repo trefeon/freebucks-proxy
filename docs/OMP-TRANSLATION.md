@@ -167,19 +167,20 @@ through untouched.
 
 | Group | Names | Path |
 |---|---|---|
-| Loop / subagent | `task`, `wait`, `hub` | verbatim both ways (`task` spawns a subagent client-side) |
+| Loop / subagent | `wait`, `hub` | verbatim both ways |
+| Delegation | `task` | name verbatim; args gain synthesized `tasks[]` batch (singular-to-batch normalization — the harness validates non-empty `tasks[]`, valid batches pass through) |
 | OMP-only builtins | `eval`, `learn`, `manage_skill`, `context_notes`, `new_context`, `debug`, `ida`, `security_scan`, `checkpoint`, `rewind`, `github`, `lsp`, `ast_grep`, `ast_edit` | verbatim |
 | Hidden | `yield`, `goal`, `think` | verbatim |
 | `xd://` devices | ast_grep/ast_edit/lsp/github/debug/checkpoint/rewind/mem_*/security_scan/… | ride through the model's `write`/`read` calls (reshaped to OMP shape, `xd://` path preserved) |
 | External | `mcp__<server>_<tool>` | verbatim, namespace preserved |
-
 Regression proof: `server/floor_omp_surface_test.go`
-(`TestFloorOMPToolSurfaceRoundTrip` drives every name in the OMP registry,
-including `task` and `mcp__*`, and asserts the client receives it
-byte-identically). Delegation specifically:
+(`TestFloorOMPToolSurfaceRoundTrip` drives every name in the OMP registry and
+asserts the name restores). Delegation args specifically:
 `TestFloorOmpDelegationStreamsVerbatim` (fragmented `task` + whole `hub`, turn
-stays `tool_calls`) and `TestFloorOmpDelegationAcrossSurfaces` (Anthropic +
-Responses).
+stays `tool_calls`, task args carry the synthesized `tasks[]`) and
+`TestFloorOmpDelegationAcrossSurfaces` (Anthropic + Responses);
+`convert/tools_reshape_test.go` (`TestReshapeTaskSingularToTasksBatch`:
+singular → batch, valid-batch and empty passthrough, pi untouched).
 
 ### Streaming: withhold + inject (`server/openai_chunk_pipeline.go`)
 
@@ -194,8 +195,8 @@ Non-streaming chat, Anthropic and Responses relays share `ReshapeCompletionCalls
   unmapped customs are cut from the WIRE by `floorOnlyOMP` — the model is
   never shown them (the gate rejects any foreign-schema rider). This is a
   wire-shape constraint, not a capability loss: the model still calls them
-  from OMP's `# Tool Inventory` prompt vocabulary and they round-trip verbatim
-  (§3b).
+  from OMP's `# Tool Inventory` prompt vocabulary and they round-trip (§3b) —
+  verbatim, except `task`, whose args gain the synthesized `tasks[]` batch.
 - **Routed, not dropped**: OMP `find` rides as floor `glob` and restores
   shape-aware to `find` (§3) — the only OMP-only tool with a CLI equivalent.
 - **Unroutable floor calls degrade, never fail**: a model call to

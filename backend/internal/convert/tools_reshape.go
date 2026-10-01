@@ -448,6 +448,16 @@ func strField(m map[string]any, key string) string {
 	return s
 }
 
+// taskCopyArgs shallow-copies an args object so batch normalization can add
+// tasks[] without mutating the caller's map.
+func taskCopyArgs(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in)+1)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func numField(m map[string]any, key string) (json.Number, bool) {
 	switch v := m[key].(type) {
 	case json.Number:
@@ -620,6 +630,44 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 	// OMP web_search {query, ...} — CLI depth dropped.
 	"web_search": func(in map[string]any) map[string]any {
 		return map[string]any{"query": strField(in, "query")}
+	},
+	// OMP task (delegation) batch normalization. The harness validates
+	// `tasks` (non-empty array of {name?, agent?, task}), but a model that
+	// never saw the tool definition — floor-only drops it from the wire so
+	// the gate never sees a foreign def — emits the singular vocabulary
+	// form {agent, task, context} or a bare {task}, which the harness
+	// rejects with "Missing `tasks`" (deterministic: retries fail
+	// identically). A valid non-empty tasks[] passes through (nil);
+	// otherwise every original key is preserved and tasks[] is synthesized
+	// around the singular keys — never invented from nothing (nil =
+	// passthrough, the harness errors exactly as today). Wire-safe: this
+	// runs on the response leg only, the 16+end_turn wire is untouched.
+	"task": func(in map[string]any) map[string]any {
+		if arr, ok := in["tasks"].([]any); ok && len(arr) > 0 {
+			return nil
+		}
+		if s, ok := in["tasks"].(string); ok && s != "" {
+			out := taskCopyArgs(in)
+			var arr []any
+			if err := json.Unmarshal([]byte(s), &arr); err == nil && len(arr) > 0 {
+				out["tasks"] = arr
+				return out
+			}
+			out["tasks"] = []any{map[string]any{"task": s}}
+			return out
+		}
+		item := make(map[string]any, 3)
+		for _, k := range []string{"name", "agent", "task"} {
+			if s := strField(in, k); s != "" {
+				item[k] = s
+			}
+		}
+		if len(item) == 0 {
+			return nil
+		}
+		out := taskCopyArgs(in)
+		out["tasks"] = []any{item}
+		return out
 	},
 	// gravity_index -> OMP web_search {query}: searches developer services
 	// directory; query synthesizes from search query, browse keyword/category,

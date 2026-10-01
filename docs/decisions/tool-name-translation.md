@@ -293,8 +293,8 @@ families"). Code: `convert/tools_floor.go` (`clientFamily`,
    its real call (`clientTools` answers the case `RestoreName` cannot, because
    `ToUpstream` stores no reverse entry when the client's own name IS the wire
    name).
-5. **Delegation is client-side, so it only needs a verbatim call.** Subagent
-   spawning runs in the HARNESS, not upstream. OMP's `task`
+5. **Delegation is client-side, so it needs the name plus a valid batch.**
+   Subagent spawning runs in the HARNESS, not upstream. OMP's `task`
    (reference/harnesses/oh-my-pi `packages/coding-agent/src/task/index.ts:507`,
    "Spawn subagents to complete delegated tasks", params
    `agent`/`name`/`task`/`context`/`tasks[]`/`batch`; recursion capped by
@@ -305,10 +305,13 @@ families"). Code: `convert/tools_floor.go` (`clientFamily`,
    definition: floor-only drops them from the wire for OMP, and the model
    reaches them through the harness's own system prompt (`# Tool Inventory` —
    `ensureCliSystemMarker` PREPENDS its canonical opening and never replaces
-   the client prompt). The proxy's whole obligation is to hand the call back
-   under the client's own name with the client's own args: a rename, a
-   virtualization, or a drop is exactly what turns delegation into "Tool task
-   not found". Pinned end to end — `server/floor_omp_surface_test.go`
+   the client prompt). The proxy hands the call back under the client's own
+   name — and, for OMP `task`, with the harness-validating `tasks[]` batch
+   synthesized around a singular `{agent, task}` emission (valid batches pass
+   through; `tools_reshape.go` `task` rule). A rename, a virtualization, a
+   drop, or an unbatchable singular is exactly what turns delegation into
+   "Tool task not found" / "Missing `tasks`". Pinned end to end —
+   `server/floor_omp_surface_test.go`
    (`TestFloorOmpDelegationStreamsVerbatim`: fragmented `task` + whole `hub`
    under floor-only, turn stays `tool_calls`; `TestFloorOmpDelegationAcrossSurfaces`:
    Anthropic + Responses) and `server/conformance_pi_omp_test.go`

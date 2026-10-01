@@ -105,8 +105,10 @@ const (
 )
 
 // Streaming chat: a fragmented task call and a whole hub call come back
-// verbatim (name + args), the turn stays a tool_calls turn, and the request
-// leg carried zero foreign riders.
+// under OMP's own names with OMP's own args, the turn stays a tool_calls
+// turn, and the request leg carried zero foreign riders. The task args gain
+// the harness-validating tasks[] batch (singular-to-batch normalization);
+// hub has no such requirement and stays byte-identical.
 func TestFloorOmpDelegationStreamsVerbatim(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode")
@@ -142,8 +144,11 @@ func TestFloorOmpDelegationStreamsVerbatim(t *testing.T) {
 	if name := toolCallName(frames, 0); name != "task" {
 		t.Errorf("index 0 name = %q, want task (delegation must dispatch)", name)
 	}
-	if args := joinToolArgs(frames, 0); args != ompTaskArgs {
-		t.Errorf("index 0 args = %q, want verbatim OMP task args %q", args, ompTaskArgs)
+	// Singular OMP task args gain the harness-validating tasks[] batch;
+	// every original key is preserved.
+	wantTaskArgs := `{"agent":"researcher","context":"focus on session refresh","task":"audit the auth flow","tasks":[{"agent":"researcher","task":"audit the auth flow"}]}`
+	if args := joinToolArgs(frames, 0); args != wantTaskArgs {
+		t.Errorf("index 0 args = %q, want normalized OMP task args %q", args, wantTaskArgs)
 	}
 	if name := toolCallName(frames, 1); name != "hub" {
 		t.Errorf("index 1 name = %q, want hub", name)
@@ -202,12 +207,15 @@ func TestFloorOmpDelegationAcrossSurfaces(t *testing.T) {
 		if use == nil {
 			t.Fatalf("no tool_use block: %s", truncate(string(data), 300))
 		}
-		if use["name"] != "task" {
-			t.Errorf("tool_use name = %v, want task", use["name"])
-		}
 		input, _ := use["input"].(map[string]any)
 		if input["agent"] != "researcher" || input["task"] != "audit the auth flow" {
-			t.Errorf("tool_use input = %v, want verbatim OMP task args", input)
+			t.Errorf("tool_use input = %v, want normalized OMP task args", input)
+		}
+		batch, _ := input["tasks"].([]any)
+		if len(batch) != 1 {
+			t.Errorf("tool_use input tasks = %v, want 1 synthesized batch entry", input["tasks"])
+		} else if item, _ := batch[0].(map[string]any); item["agent"] != "researcher" || item["task"] != "audit the auth flow" {
+			t.Errorf("tool_use input tasks[0] = %v, want {agent task}", batch[0])
 		}
 		if msg["stop_reason"] != "tool_use" {
 			t.Errorf("stop_reason = %v, want tool_use", msg["stop_reason"])
@@ -250,7 +258,13 @@ func TestFloorOmpDelegationAcrossSurfaces(t *testing.T) {
 			t.Fatalf("function_call arguments not JSON: %v", err)
 		}
 		if args["agent"] != "researcher" || args["context"] != "focus on session refresh" {
-			t.Errorf("function_call arguments = %v, want verbatim OMP task args", args)
+			t.Errorf("function_call arguments = %v, want normalized OMP task args", args)
+		}
+		rbatch, _ := args["tasks"].([]any)
+		if len(rbatch) != 1 {
+			t.Errorf("function_call arguments tasks = %v, want 1 synthesized batch entry", args["tasks"])
+		} else if ritem, _ := rbatch[0].(map[string]any); ritem["agent"] != "researcher" || ritem["task"] != "audit the auth flow" {
+			t.Errorf("function_call arguments tasks[0] = %v, want {agent task}", rbatch[0])
 		}
 	})
 }
