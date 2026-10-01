@@ -182,6 +182,28 @@ stays `tool_calls`, task args carry the synthesized `tasks[]`) and
 `convert/tools_reshape_test.go` (`TestReshapeTaskSingularToTasksBatch`:
 singular → batch, valid-batch and empty passthrough, pi untouched).
 
+### 3c. Floor-only capability reminder (system prompt)
+
+The wire floor costs the model its definitions for the harness-only tools,
+and live MITM (19 turns, deepseek, all 200) proved models never emit
+undeclared tools and fumble the shapes of the ones they reach from prompt
+vocabulary alone — singular `{agent, task}` emissions the harness rejects
+with "Missing `tasks`" (the response-leg batch normalization in §3b repairs
+the shape, but only when the model attempts the call at all). So on
+OMP-floor-only requests the proxy appends a short paragraph to its prepended
+system marker (`upstream/chat.go`: `ompFloorCapabilityReminder`,
+`appendOMPFloorReminder`, gated on `ChatOptions.OMPFloorOnly` set from
+`toolMap.FloorOnly()` at `server/engine_attempt.go`): the harness-only names
+with their exact required arg shapes — `task` (`tasks` non-empty
+`[{name?, agent?, task}]`), the `todo` op-machine, `ask` (`questions` with
+per-question `id`), `eval`, bare `wait` / `new_context`, `context_notes`,
+`learn`, `manage_skill` — stated as callable by name with these args though
+absent from `tools[]`. Gate-safety: system-prompt text is exonerated (§1 —
+the full 77 KB OMP prompt returns 200), the canonical opening stays the
+trimmed prefix at position 0, and the wire stays 16 + `end_turn` (pinned by
+`TestInjectEnvelopeOMPFloorReminderWireUntouched`). OMP-only: pi and
+unmapped clients keep the zero value and are byte-identical.
+
 ### Streaming: withhold + inject (`server/openai_chunk_pipeline.go`)
 
 CLI-shaped arg fragments cannot reshape incrementally, so `reshapeBuffer` withholds `arguments` bytes per tool-call index (id and name keep flowing; continuations inherit the recorded wire name) and `reshapeFlush` injects the reshaped whole per index onto the terminal chunk with the client name restored inline. Fan-out expands at flush: the first call keeps its index, extras take fresh indexes above every observed upstream index. The client SDK concatenates fragments, so withheld-empties + wholes assemble exactly the OMP-shaped calls. Unreshapable buffers flush verbatim — no call is ever swallowed.

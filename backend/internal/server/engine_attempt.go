@@ -3,14 +3,15 @@ package server
 import (
 	"context"
 	"errors"
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // chatAutoRetry bounds for CHAT_AUTO_RETRY (opt-in in-request retry so
@@ -263,6 +264,11 @@ func (s *Server) chatAttemptOnce(ctx context.Context, model string, normalized [
 		// D1: the request's correlation id, threaded to the upstream
 		// client so its do()/retry log lines share the server's req_id.
 		RequestID: st.reqID,
+		// OMP floor-only (toolMap.FloorOnly, recorded on st at the chatCore
+		// acquire site): appends the harness-only capability reminder to
+		// the prepended system marker. Every other family keeps false and
+		// stays byte-identical.
+		OMPFloorOnly: st.floorOnly,
 		// Issue #113: stamp the run's 1-based per-chat step counter so
 		// codebuff_metadata["llm_step_number"] matches the CLI (each chat
 		// call is one agent step; run-agent-step.ts increments per step).

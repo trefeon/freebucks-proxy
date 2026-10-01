@@ -71,6 +71,16 @@ type ChatOptions struct {
 	// (llm.ts:115 `...(extraCodebuffMetadata ?? {})`) — caller-supplied
 	// keys merged BEFORE reserved identifiers so reserved keys win.
 	ExtraCodebuffMetadata map[string]string
+	// OMPFloorOnly marks an OMP-family floor-only request
+	// (convert ToolMapper.FloorOnly: the client defs were replaced by the
+	// 16 canonical wire definitions). It gates ONLY the harness-only
+	// capability reminder appended to the prepended system marker
+	// (appendOMPFloorReminder): the 16+end_turn wire is untouched, and
+	// every other family keeps the zero value (byte-identical). Set at the
+	// server relay construction site from the request's own mapper — never
+	// recomputed here from the body (already normalized: family detection
+	// would read familyNone).
+	OMPFloorOnly bool
 }
 
 // ChatCompletions POSTs an OpenAI-shaped request to the upstream chat
@@ -428,6 +438,66 @@ func ensureCliSystemMarker(payload map[string]any, agentID string, model ...stri
 	payload["messages"] = newMsgs
 }
 
+// ompFloorReminderSentinel guards appendOMPFloorReminder idempotency: the
+// reminder is appended once per body, never duplicated on re-injection.
+const ompFloorReminderSentinel = "callable by name with these exact arguments though absent from tools"
+
+// ompFloorCapabilityReminder names the harness-only tools for OMP-family
+// floor-only requests. The gate rejects any foreign-schema definition riding
+// the wire, so these tools are deliberately absent from tools[] — but live
+// MITM proved models never emit undeclared tools and fumble the shapes of
+// the ones they reach from prompt vocabulary alone (harness "Missing tasks"
+// on singular {agent, task} emissions). This paragraph restores the
+// names+shapes in prose, where the gate is exonerated (system text with the
+// full 77 KB OMP prompt returns 200). OMP-only: every other family keeps the
+// zero ChatOptions and never sees it.
+const ompFloorCapabilityReminder = `Harness tools callable by name with these exact arguments though absent from tools (no foreign definitions may ride the wire):
+- task {"tasks":[{"name?,"agent?,"task"}],"context?"} — tasks must be a non-empty array.
+- todo op-machine {"op",...}: init {list:[{phase,items:[string]}]}, done {task}, view.
+- ask {"questions":[{"id","question","options"}]} — every question needs its id.
+- eval {"language","code"}; wait (no arguments); new_context (no arguments).
+- context_notes {"text"}; learn {"memory"}; manage_skill {"action",...}.`
+
+// appendOMPFloorReminder appends ompFloorCapabilityReminder to the first
+// system message (string content gains a trailing paragraph, parts content a
+// trailing text part). Gate-safe: the canonical opening stays the trimmed
+// prefix at position 0, so already-canonical bodies keep passing. Total:
+// missing/non-system messages are left alone, and a body that already
+// carries the reminder is untouched.
+func appendOMPFloorReminder(payload map[string]any) {
+	rawMsgs, ok := payload["messages"].([]any)
+	if !ok || len(rawMsgs) == 0 {
+		return
+	}
+	for i, m := range rawMsgs {
+		msg, ok := m.(map[string]any)
+		if !ok || msg["role"] != "system" {
+			continue
+		}
+		switch content := msg["content"].(type) {
+		case string:
+			if strings.Contains(content, ompFloorReminderSentinel) {
+				return
+			}
+			msg["content"] = content + "\n\n" + ompFloorCapabilityReminder
+		case []any:
+			for _, p := range content {
+				if partMap, ok := p.(map[string]any); ok {
+					if txt, ok := partMap["text"].(string); ok && strings.Contains(txt, ompFloorReminderSentinel) {
+						return
+					}
+				}
+			}
+			msg["content"] = append(content, map[string]any{"type": "text", "text": ompFloorCapabilityReminder})
+		default:
+			continue
+		}
+		rawMsgs[i] = msg
+		payload["messages"] = rawMsgs
+		return
+	}
+}
+
 // ensureCliTools enforces the free-tier traffic-gate tool floor on the wire
 // (topUpCliTools in clitools.go): a request that carried no tools gets the
 // full canonical 16 declarations, and a request that DID declare tools keeps
@@ -472,6 +542,9 @@ func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, err
 	}
 
 	ensureCliSystemMarker(payload, opts.AgentID, opts.Model)
+	if opts.OMPFloorOnly {
+		appendOMPFloorReminder(payload)
+	}
 	ensureCliTools(payload)
 
 	// client_id is minted ONCE PER RUN and repeated here — never a fresh
