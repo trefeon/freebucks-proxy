@@ -34,6 +34,7 @@ func TestFloorFallbackRestore(t *testing.T) {
 	for wire, client := range map[string]string{
 		"ask_user": "ask", "read_url": "read",
 		"list_directory": "read", "skill": "read",
+		"gravity_index": "web_search",
 	} {
 		if got := mapper.RestoreName(wire); got != client {
 			t.Errorf("RestoreName(%q) = %q, want %q (fallback route)", wire, got, client)
@@ -63,6 +64,22 @@ func TestFloorFallbackReshape(t *testing.T) {
 		{
 			"skill", `{"name":"find-skills"}`,
 			map[string]any{"path": "skill://find-skills"},
+		},
+		{
+			"gravity_index", `{"action":"search","query":"postgresql hosting"}`,
+			map[string]any{"query": "postgresql hosting"},
+		},
+		{
+			"gravity_index", `{"action":"browse","category":"database"}`,
+			map[string]any{"query": "database developer services"},
+		},
+		{
+			"gravity_index", `{"action":"get_service","slug":"supabase"}`,
+			map[string]any{"query": "supabase developer documentation"},
+		},
+		{
+			"gravity_index", `{"action":"browse","q":"sendgrid"}`,
+			map[string]any{"query": "sendgrid"},
 		},
 	}
 	for _, tc := range cases {

@@ -54,11 +54,10 @@ func TestTextFallbackClassify(t *testing.T) {
 			wantParts: []string{"Get your key"},
 		},
 		{
-			name:      "gravity_index states the request it cannot service",
-			wire:      "gravity_index",
-			args:      `{"action":"search","query":"serverless postgres for Next.js"}`,
-			wantKind:  TextFallbackRender,
-			wantParts: []string{"Gravity Index", "search", "serverless postgres for Next.js"},
+			name:     "gravity_index is routable for OMP (no text fallback)",
+			wire:     "gravity_index",
+			args:     `{"action":"search","query":"serverless postgres for Next.js"}`,
+			wantKind: TextFallbackNone,
 		},
 		{
 			name:     "report_project_profile is absorbed",
@@ -201,7 +200,7 @@ func TestApplyTextFallbacksKeepsRealCalls(t *testing.T) {
 // Text is appended after any content the model already produced, never
 // replacing it.
 func TestApplyTextFallbacksAppendsContent(t *testing.T) {
-	m := ToolMapper{family: familyOMP}
+	m := ToolMapper{family: familyPi}
 	comp := completionWith(
 		`[{"id":"c1","type":"function","function":{"name":"gravity_index","arguments":"{\"action\":\"search\",\"query\":\"kv store\"}"}}]`,
 		"tool_calls")

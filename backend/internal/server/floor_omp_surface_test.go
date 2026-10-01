@@ -3,12 +3,13 @@ package server_test
 import (
 	"encoding/json"
 	"fmt"
-	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // ompDispatchableToolNames is OMP's complete callable surface as the client
@@ -268,7 +269,6 @@ func TestFloorUnroutableNamesNeverRelayed(t *testing.T) {
 	}{
 		{"suggest_followups", `{"followups":[{"prompt":"Ship the fix"}]}`, []string{"Suggested next steps", "Ship the fix"}},
 		{"render_ui", `{"widget":{"type":"button","text":"Open report","link":"https://example.test/r"}}`, []string{"Open report", "https://example.test/r"}},
-		{"gravity_index", `{"action":"search","query":"kv store"}`, []string{"Gravity Index", "kv store"}},
 		{"report_project_profile", `{"status":"unchanged"}`, nil},
 	}
 	for _, tc := range cases {

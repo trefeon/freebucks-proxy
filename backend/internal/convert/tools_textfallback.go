@@ -64,13 +64,12 @@ const (
 
 // textFloorRenderers maps an unroutable floor wire name to its renderer. A nil
 // renderer absorbs the call (nothing user-facing in the payload). Only
-// floor-only (OMP-family) requests consult this map: the four names are
+// floor-only (OMP-family) requests consult this map: the three names are
 // required on the wire by the gate, so the model can always call them and the
 // response leg is the only place to degrade.
 var textFloorRenderers = map[string]func(map[string]any) string{
 	"suggest_followups":      renderSuggestFollowups,
 	"render_ui":              renderFloatWidget,
-	"gravity_index":          renderGravityIndex,
 	"report_project_profile": nil, // internal telemetry: nothing to show the user
 }
 

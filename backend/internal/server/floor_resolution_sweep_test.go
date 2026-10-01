@@ -3,11 +3,12 @@ package server_test
 import (
 	"encoding/json"
 	"fmt"
-	"freebuff-proxy/backend/internal/testutil"
 	"net/http"
 	"sort"
 	"strings"
 	"testing"
+
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // Full resolution sweep for the OMP floor path: for every tool the upstream
@@ -36,9 +37,9 @@ var floorResolution = []struct {
 	{"read_url", `{"url":"https://example.test/x"}`, "read"},
 	{"ask_user", `{"questions":[{"question":"q?","options":[{"label":"a"}]}]}`, "ask"},
 	{"skill", `{"name":"demo-skill"}`, "read"},
+	{"gravity_index", `{"action":"search","query":"kv store"}`, "web_search"},
 	// No OMP equivalent: suppressed + rendered as text (or absorbed).
 	{"suggest_followups", `{"followups":[{"prompt":"Ship it"}]}`, ""},
-	{"gravity_index", `{"action":"search","query":"kv store"}`, ""},
 	{"render_ui", `{"widget":{"type":"button","text":"Open","link":"https://example.test/r"}}`, ""},
 	{"report_project_profile", `{"status":"unchanged"}`, ""},
 }

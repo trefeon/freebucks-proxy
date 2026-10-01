@@ -339,6 +339,7 @@ var reshapeCliKeys = map[string][]string{
 	"glob":                 {"pattern"},
 	"write_todos":          {"todos"},
 	"web_search":           {"depth"},
+	"gravity_index":        {"action", "search_id", "category", "slug"},
 }
 
 func hasAnyKey(m map[string]any, keys []string) bool {
@@ -620,7 +621,29 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 	"web_search": func(in map[string]any) map[string]any {
 		return map[string]any{"query": strField(in, "query")}
 	},
-	// ask_user -> OMP ask {questions:[{id, question, options}]}: ids
+	// gravity_index -> OMP web_search {query}: searches developer services
+	// directory; query synthesizes from search query, browse keyword/category,
+	// or service slug so the model gets live service info via web search.
+	"gravity_index": func(in map[string]any) map[string]any {
+		query := strField(in, "query")
+		if query == "" {
+			query = strField(in, "q")
+		}
+		if query == "" {
+			if cat := strField(in, "category"); cat != "" {
+				query = cat + " developer services"
+			}
+		}
+		if query == "" {
+			if slug := strField(in, "slug"); slug != "" {
+				query = slug + " developer documentation"
+			}
+		}
+		if query == "" {
+			return nil
+		}
+		return map[string]any{"query": query}
+	},
 	// synthesized per index (OMP requires them), option labels and
 	// descriptions carried verbatim.
 	"ask_user": func(in map[string]any) map[string]any {

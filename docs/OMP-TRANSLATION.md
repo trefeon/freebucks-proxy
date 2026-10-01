@@ -96,10 +96,11 @@ that tool: resolution is total, so a trimmed toolset (`--tools`,
 | `read_url` | `read` | reshaped (`url` → `path`) |
 | `list_directory` | `read` | verbatim (`{path}` is already valid OMP `read` shape) |
 | `skill` | `read` | reshaped (`skill://` URI) |
+| `gravity_index` | `web_search` | reshaped (`query`/`category`/`slug` → `query`) |
 
 Unrouted — no OMP equivalent (verified against OMP's builtin registry,
 `pi-coding-agent/src/tools/builtin-names.ts`): `suggest_followups`,
-`gravity_index`, `render_ui`, `report_project_profile`. They ride the wire
+`render_ui`, `report_project_profile`. They ride the wire
 because the gate requires all 16 canonical CLI definitions, so the model can
 always call them; the response leg never relays them as tool calls
 (§3a text fallback).
@@ -126,9 +127,10 @@ name (non-streaming: `server/openai_stream.go:275-292`).
 | `ask_user` | `ask` | ids synthesized `q0…` (OMP requires them); labels/descriptions verbatim (probe UI: `ask` without per-question `id` fails validation) |
 | `read_url` | `read` | `{path≤url}`; `max_chars` dropped |
 | `skill` | `read` | `{path: "skill://"+name}` |
+| `gravity_index` | `web_search` | `{query: query || q || category+" developer services" || slug+" developer documentation"}` |
 
 All rules are total: unknown shapes / invalid JSON pass through verbatim
-rather than failing the turn. The four unrouted names have no reshape rule
+rather than failing the turn. The three unrouted names have no reshape rule
 because they have no client tool to reshape for — they are suppressed by the
 text fallback below, never passed through.
 

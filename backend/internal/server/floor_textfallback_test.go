@@ -2,12 +2,13 @@ package server_test
 
 import (
 	"encoding/json"
-	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+
+	"freebuff-proxy/backend/internal/testutil"
 )
 
 // Unroutable floor emissions end to end: a model call to a floor tool OMP
@@ -81,7 +82,7 @@ func TestFloorTextFallbackStreamKeepsRealCall(t *testing.T) {
 	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
 		tfMockTurn(w,
 			`{"index":0,"id":"call_b1","type":"function","function":{"name":"run_terminal_command","arguments":"{\"command\":\"ls\"}"}},`+
-				`{"index":1,"id":"call_g1","type":"function","function":{"name":"gravity_index","arguments":"{\"action\":\"search\",\"query\":\"kv store\"}"}}`,
+				`{"index":1,"id":"call_s1","type":"function","function":{"name":"suggest_followups","arguments":"{\"followups\":[{\"prompt\":\"Run unit tests\",\"label\":\"Tests\"}]}"}}`,
 			"tool_calls")
 	}
 	ts, _ := newTestServer(t, nil, mock)
@@ -91,14 +92,14 @@ func TestFloorTextFallbackStreamKeepsRealCall(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
 	out := string(data)
-	if strings.Contains(out, `"gravity_index"`) {
-		t.Errorf("client received an undispatchable gravity_index call: %q", truncate(out, 400))
+	if strings.Contains(out, `"suggest_followups"`) {
+		t.Errorf("client received an undispatchable suggest_followups call: %q", truncate(out, 400))
 	}
 	if !strings.Contains(out, `"name":"bash"`) {
 		t.Errorf("dispatchable call not restored: %q", truncate(out, 400))
 	}
-	if !strings.Contains(out, "Gravity Index") || !strings.Contains(out, "kv store") {
-		t.Errorf("gravity_index note missing; body: %q", truncate(out, 600))
+	if !strings.Contains(out, "Suggested next steps") || !strings.Contains(out, "Run unit tests") {
+		t.Errorf("suggest_followups note missing; body: %q", truncate(out, 600))
 	}
 	if !strings.Contains(out, `"finish_reason":"tool_calls"`) {
 		t.Errorf("finish_reason tool_calls lost while a real call remains: %q", truncate(out, 400))

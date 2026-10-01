@@ -258,7 +258,7 @@ func floorOnlyOMP(payload map[string]any) {
 // floorFallbacks routes floor tools the OMP family never declares to the
 // OMP equivalent: the model sees all 16 floor defs (gate requirement) but
 // OMP dispatches only its own names. list_directory rides arg-verbatim
-// (CLI {path} is already valid OMP read shape). The four remaining floor
+// (CLI {path} is already valid OMP read shape). The three remaining floor
 // names have no OMP equivalent at all and are handled by the text fallback
 // (tools_textfallback.go): the response leg suppresses the call and renders
 // its payload as assistant text (or absorbs it) instead of relaying a name
@@ -283,6 +283,7 @@ var floorFallbacks = map[string]string{
 	"read_url":       "read",
 	"list_directory": "read",
 	"skill":          "read",
+	"gravity_index":  "web_search",
 }
 
 // RegisterFloorFallbacks records the fallback routes on the mapper so
