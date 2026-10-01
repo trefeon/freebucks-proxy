@@ -43,6 +43,25 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 	// byte-preserving fast path for untouched chunks.
 	rw := newChunkRewriter(stats)
 
+	// writeSynthetic frames one proxy-authored chunk (XML flush, withheld
+	// reshape flush) through the same counting/flush path as upstream frames.
+	writeSynthetic := func(chunk map[string]any) bool {
+		b, err := json.Marshal(chunk)
+		if err != nil {
+			return false
+		}
+		frame := convert.EncodeSSE(b)
+		if _, err := w.Write(frame); err != nil {
+			s.logger.Debug("stream write failed", "err", err)
+			return false
+		}
+		stats.chunks++
+		stats.bytes += len(frame)
+		*lastWrite = time.Now()
+		flusher.Flush()
+		return true
+	}
+
 	// emitXMLFlush releases anything the XML extractor still holds at
 	// stream end (Flush) as one synthetic chunk through the normal frame
 	// path: completed calls inside a never-closed block still become native
@@ -85,23 +104,7 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 		if stats.toolMap.Len() > 0 {
 			stats.toolMap.FromUpstreamChunk(chunk)
 		}
-		writeFrame := func(chunk map[string]any) bool {
-			b, err := json.Marshal(chunk)
-			if err != nil {
-				return false
-			}
-			frame := convert.EncodeSSE(b)
-			if _, err := w.Write(frame); err != nil {
-				s.logger.Debug("stream write failed", "err", err)
-				return false
-			}
-			stats.chunks++
-			stats.bytes += len(frame)
-			*lastWrite = time.Now()
-			flusher.Flush()
-			return true
-		}
-		if !writeFrame(chunk) {
+		if !writeSynthetic(chunk) {
 			return
 		}
 		// Tool calls flushed from an unclosed XML block arrive AFTER the
@@ -115,7 +118,7 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 		// mirroring relayJSON's guard) and the upstream reason was "stop"
 		// ("length" stays honest).
 		if rw.xmlCallsSeen && rw.lastFinishReason == "stop" && !rw.seenRealToolCalls {
-			writeFrame(map[string]any{
+			writeSynthetic(map[string]any{
 				"id":      streamID,
 				"object":  "chat.completion.chunk",
 				"created": time.Now().Unix(),
@@ -138,6 +141,18 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 				stats.aborted = true
 				if ctx.Err() == nil {
 					emitXMLFlush()
+					// A dying stream must never swallow withheld reshaped
+					// arguments: deliver the reconstructed call and settle
+					// the turn on it whenever the buffered bytes are whole.
+					if chunk, ok, complete := rw.flushReshapeTerminal(rw.xmlStreamID, rw.streamModel); ok {
+						writeSynthetic(chunk)
+						if complete {
+							_, _ = w.Write(convert.DONE)
+							flusher.Flush()
+							s.ingestStreamReasoning(rw.streamModel, rw.reasoningParts, rw.contentParts, rw.toolIDs, rw.streamToolCalls)
+							return
+						}
+					}
 					s.logger.Warn("upstream stream error", streamErrorAttrs(ctx, chatStart, stats, lc.err)...)
 					_, _ = w.Write(convert.ErrorChunk("upstream stream interrupted: "+lc.err.Error(), "upstream_stream_error"))
 					_, _ = w.Write(convert.DONE)
@@ -149,6 +164,11 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 			if lc.done {
 				// Clean end of stream (EOF is not a scanner error).
 				emitXMLFlush()
+				// An upstream that closes without a finish_reason still owes
+				// the client the withheld reshaped arguments.
+				if chunk, ok, _ := rw.flushReshapeTerminal(rw.xmlStreamID, rw.streamModel); ok {
+					writeSynthetic(chunk)
+				}
 				_, _ = w.Write(convert.DONE)
 				flusher.Flush()
 				s.ingestStreamReasoning(rw.streamModel, rw.reasoningParts, rw.contentParts, rw.toolIDs, rw.streamToolCalls)
@@ -185,6 +205,48 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 			flusher.Flush()
 		}
 	}
+}
+
+// flushReshapeTerminal releases withheld reshaped tool arguments when the
+// upstream stream ends WITHOUT ever carrying a finish_reason — a clean early
+// close, or a mid-stream read error. reshapeBuffer withholds argument bytes
+// for ruled wire names and re-injects them on the terminal chunk
+// (reshapeFlush); when no terminal chunk ever arrives the client is left
+// assembling a tool call whose arguments were never delivered, and reports
+// "the model did not complete a usable response" instead of running it. The
+// synthetic chunk settles the turn as tool_calls, mirroring emitXMLFlush.
+// complete reports whether every buffered call reshaped from valid JSON, so
+// the caller can still surface a transport failure when the bytes were
+// genuinely truncated.
+func (cr *chunkRewriter) flushReshapeTerminal(streamID, model string) (map[string]any, bool, bool) {
+	if len(cr.reshapeBuf) == 0 {
+		return nil, false, false
+	}
+	complete := true
+	for _, acc := range cr.reshapeBuf {
+		if acc.args.Len() == 0 {
+			continue
+		}
+		if !json.Valid(acc.args.Bytes()) {
+			complete = false
+			break
+		}
+	}
+	chunk := map[string]any{
+		"id":      streamID,
+		"object":  "chat.completion.chunk",
+		"created": time.Now().Unix(),
+		"model":   model,
+		"choices": []any{map[string]any{
+			"index":         0,
+			"delta":         map[string]any{},
+			"finish_reason": "tool_calls",
+		}},
+	}
+	if !cr.reshapeFlush(chunk) {
+		return nil, false, complete
+	}
+	return chunk, true, complete
 }
 
 // streamToolAcc accumulates one upstream tool call's identity across its
