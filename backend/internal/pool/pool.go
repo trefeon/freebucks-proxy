@@ -478,11 +478,11 @@ type tokenEntry struct {
 	// (PIN_MODEL): requests for models the slot is not pinned to.
 	// Surfaced per-token in snapshots, cards, and metrics.
 	pinSkips atomic.Int64
-	// leases counts granted leases not yet released/abandoned (per-turn
-	// mint is unleased at the runs layer — MintTurnRun tracks caller-owned
-	// runs with inflight 0 — so the pool tracks its own outstanding-lease
-	// count for the in-flight gates below that used runs.InflightCount:
-	// idle-FINISH skip, session-poll skip, queued-advance skip, and the
+	// leases counts granted leases not yet released/abandoned (the turn
+	// run is leased at the runs layer — Acquire mints with inflight 1 —
+	// and the pool tracks its own outstanding-lease count for the
+	// in-flight gates below that used runs.InflightCount: idle-FINISH
+	// skip, session-poll skip, queued-advance skip, and the
 	// removal/retired drains. Incremented on grant, decremented on
 	// LeaseRelease/LeaseAbandon (saturating, like seatCounter).
 	leases atomic.Int64
@@ -570,6 +570,7 @@ func (l *Lease) NoteWaitingRoomQueue() bool {
 func (e *tokenEntry) resetQueueStrikes() {
 	e.queueStrikes.Store(0)
 }
+
 func (e *tokenEntry) SetEmail(email string) {
 	if email != "" {
 		e.email.Store(&email)

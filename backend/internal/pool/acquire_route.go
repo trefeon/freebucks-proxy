@@ -951,25 +951,25 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 
 	// Per-turn mint (CLI parity run-agent-step.ts:926-944): every turn mints
 	// a FRESH runId — one START per prompt — and the turn's tool/llm steps
-	// all reuse that run_id. MintTurnRun tracks the run unleased
-	// (caller-owned FINISH via FinishLeaseRun); TurnRun supplies the *Run
-	// for the lease. The retired Precreate/Acquire alias path is gone.
-	// Concurrency: a racing next-turn mint may replace ours between the
-	// two calls — the lease then rides the latest current run (sharing
-	// beats failing; the slot ledger serializes lanes in production so
-	// this is a load-test-only path). Nil only when the manager dropped
-	// the mint under race (shutdown/maintain).
+	// all reuse that run_id. Acquire mints leased (inflight 1): a concurrent
+	// next-turn mint drains this run, and the drain's async FINISH must wait
+	// for this turn's Release — an unleased mint let the worker FINISH a live
+	// turn's run mid-chat (live 502, 2026-10-01: the second mint's drain
+	// FINISHed the first turn's run while its chat was still in flight).
 	runStart := time.Now()
-	_, mintErr := tok.runs.MintTurnRun(ctx, effectiveAgentID)
-	phasetiming.FromContext(ctx).Since(phasetiming.RunAcquireMS, runStart)
 	var run *runs.Run
-	if mintErr != nil {
-		err = mintErr
-	} else if tr := tok.runs.TurnRun(effectiveAgentID); tr != nil {
-		run = tr
-	} else {
-		err = fmt.Errorf("pool: turn run vanished after mint")
-	}
+	// Drop guard (mirrors the seat defer above): every non-grant exit after a
+	// successful mint Releases the leased run — quota-requeue, laneFail,
+	// laneNext, laneRetry, and the roster-swap exit below. Release saturates,
+	// so the guard subsumes the old explicit roster-swap Release (removed);
+	// Release(nil) on a refused mint is a no-op.
+	defer func() {
+		if res.outcome != laneGranted {
+			tok.runs.Release(run)
+		}
+	}()
+	run, err = tok.runs.Acquire(ctx, effectiveAgentID)
+	phasetiming.FromContext(ctx).Since(phasetiming.RunAcquireMS, runStart)
 	if err != nil {
 		c := p.classifyAndCooldown(tok.runs, err)
 		if c.authRejected {
@@ -1087,13 +1087,15 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 	}
 	p.logger.Debug("pool: lease acquired", leaseAttrs...)
 	if cur := p.roster.Load(); idx < 0 || idx >= len(*cur) || (*cur)[idx] != tok {
-		tok.runs.Release(run)
+		// The mint drop guard above Releases the leased run; only the slot
+		// needs an explicit release on this exit.
 		routeSlot.Release()
 		return laneResult{outcome: laneNext}
 	}
 	// Outstanding-lease count for the in-flight gates (idle-FINISH skip,
-	// session-poll skip, removal/retired drains): per-turn mint is unleased
-	// at the runs layer, so the pool counts granted leases itself.
+	// session-poll skip, removal/retired drains): the turn run is leased
+	// at the runs layer now (Acquire, inflight 1), and the pool counts
+	// granted leases itself for the gates that used runs.InflightCount.
 	// Incremented here (the single grant point all walks funnel through),
 	// decremented on LeaseRelease/LeaseAbandon.
 	tok.leases.Add(1)

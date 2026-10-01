@@ -10,8 +10,8 @@ import (
 // TestRemoveTokenSeamlessUnderInflight proves that RemoveTokenAt and
 // RemoveLastToken succeed immediately even while requests are in flight
 // (outstanding pool leases > 0), parking the retired token in p.retired
-// until the lease releases and drains cleanly. Per-turn mint is unleased at
-// the runs layer, so the pool counts granted leases itself.
+// until the lease releases and drains cleanly. The turn run is leased at
+// the runs layer, and the pool counts granted leases itself.
 func TestRemoveTokenSeamlessUnderInflight(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()

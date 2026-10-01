@@ -39,7 +39,7 @@ func (p *Pool) LeaseRelease(lease *Lease) {
 	// session admission must drop whatever happens below, including the run
 	// row being gone.
 	lease.releaseSeat()
-	// Outstanding-lease count (per-turn mint is unleased at the runs layer):
+	// Outstanding-lease count (the turn run is leased at the runs layer):
 	// drop it even when the run row is gone so the in-flight gates below
 	// observe the release.
 	if lease.entry != nil {

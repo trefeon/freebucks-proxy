@@ -37,12 +37,11 @@ import (
 // deadline (PRD §5: "10s force deadline").
 const shutdownTimeout = 10 * time.Second
 
-// ErrShuttingDown is returned by MintTurnRun (and the deprecated Acquire
-// alias) once Shutdown has begun: the manager has been (or is being)
-// drained and the deferred-finish worker is stopped, so a run STARTed now
-// would never be FINISHed. MintTurnRun re-checks the flag after its upstream
-// StartRun returns and discards/finishes the freshly started run inline
-// instead of tracking it.
+// ErrShuttingDown is returned by MintTurnRun and Acquire once Shutdown has
+// begun: the manager has been (or is being) drained and the deferred-finish
+// worker is stopped, so a run STARTed now would never be FINISHed. The
+// shared mint re-checks the flag after its upstream StartRun returns and
+// discards/finishes the freshly started run inline instead of tracking it.
 var ErrShuttingDown = errors.New("runs: manager shutting down; new run starts refused")
 
 // Defaults for the bounded deferred-FINISH queue (issue #90) and the
@@ -62,8 +61,9 @@ const (
 //
 // RotationInterval is RETIRED (per-turn mint has no CLI counterpart): kept
 // only so pool runOptions still compiles — the value is ignored.
-// TODO(port-runsapi): delete the field with the Acquire alias once the
-// server slice migrates pool to MintTurnRun.
+// TODO(port-runsapi): delete the field with the unleased MintTurnRun path
+// once its last caller migrates to Acquire (only tests exercise it now
+// that pool mints leased).
 type Options struct {
 	RotationInterval    time.Duration // Deprecated: ignored; per-turn mint always STARTs.
 	FinishQueueSize     int
@@ -266,7 +266,7 @@ func (m *RunManager) KeptForPersistence() bool {
 // left behind.
 //
 // MintTurnRun refuses while the token cools down and after Shutdown begins
-// (ErrShuttingDown), like the old Acquire path.
+// (ErrShuttingDown), like Acquire.
 func (m *RunManager) MintTurnRun(ctx context.Context, agentID string) (string, error) {
 	run, err := m.startTurnRun(ctx, agentID, false)
 	if err != nil {
@@ -361,12 +361,12 @@ func (m *RunManager) startTurnRun(ctx context.Context, agentID string, leased bo
 	return newRun, nil
 }
 
-// Acquire mints the turn's run: every call STARTs fresh through the shared
-// per-turn path — the 6h run reuse is retired (it has no CLI counterpart).
-//
-// TODO(port-runsapi): deprecated multiplex-era entry point, kept only
-// because pool (acquire_route.go) still calls it. The server slice migrates
-// pool to MintTurnRun and deletes this alias.
+// Acquire mints the turn's run leased (inflight 1): every call STARTs fresh
+// through the shared per-turn path — the 6h run reuse is retired (it has no
+// CLI counterpart). Pool (acquire_route.go) mints every turn through here so
+// a concurrent next-turn mint's drain cannot FINISH a live turn's run; the
+// turn's Release re-queues the deferred FINISH. MintTurnRun is the unleased
+// variant (caller-owned FINISH, pinned by TestMintTurnRunContract).
 func (m *RunManager) Acquire(ctx context.Context, agentID string) (*Run, error) {
 	return m.startTurnRun(ctx, agentID, true)
 }
@@ -650,7 +650,7 @@ func (m *RunManager) Snapshot() RunSnapshot {
 // maintainToken still calls it; the server slice removes the call.
 func (m *RunManager) Prewarm(_ context.Context, _ []string) {}
 
-// Precreate is a no-op kept for pool compatibility: the turn's MintTurnRun
+// Precreate is a no-op kept for pool compatibility: the turn's Acquire
 // covers the START, so there is nothing to pre-create.
 //
 // TODO(port-runsapi): kept only because pool (acquire_route.go, maintainToken)

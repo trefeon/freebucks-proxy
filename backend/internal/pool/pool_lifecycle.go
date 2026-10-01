@@ -74,8 +74,8 @@ func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.Run
 	// a chat is in flight so it cannot kick the active session
 	// (reference/freebuff-proxy-hengxin session-manager.js:37-49, 259-260).
 	// Active-session liveness polls run on the jittered poll schedule
-	// (sessionPollTick) instead. Per-turn mint is unleased at the runs
-	// layer, so the caller passes the pool's outstanding-lease state.
+	// (sessionPollTick) instead. The turn run is leased at the runs layer,
+	// and the caller passes the pool's outstanding-lease state.
 	if !leased {
 		snap := sess.Snapshot()
 		if snap.Status == "queued" {
@@ -298,8 +298,8 @@ func (p *Pool) maintainTick(ctx context.Context) {
 		for _, tok := range *toks {
 			// Skip tokens with outstanding leases: FINISHing this run
 			// would kill an in-flight chat; leave it for rotation once the
-			// lease drains. Per-turn mint is unleased at the runs layer,
-			// so the pool counts granted leases itself.
+			// lease drains. The turn run is leased at the runs layer,
+			// and the pool counts granted leases itself.
 			if tok.leases.Load() > 0 {
 				continue
 			}
@@ -359,7 +359,7 @@ func (p *Pool) sessionPollTick(ctx context.Context) {
 			// Mid-chat in-flight gate (same rule as maintainTick): a poll
 			// GET can kick the active session (428 waiting_room). Leave the
 			// schedule due; the next pass polls once the lease drains.
-			// Per-turn mint is unleased at the runs layer, so the pool
+			// The turn run is leased at the runs layer, and the pool
 			// counts granted leases itself.
 			continue
 		}
