@@ -4,14 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/logring"
-	"freebuff-proxy/backend/internal/pool"
-	"freebuff-proxy/backend/internal/registry"
-	"freebuff-proxy/backend/internal/server"
-	"freebuff-proxy/backend/internal/session"
-	"freebuff-proxy/backend/internal/testutil"
-	"freebuff-proxy/backend/internal/upstream"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,6 +13,15 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/logring"
+	"freebuff-proxy/backend/internal/pool"
+	"freebuff-proxy/backend/internal/registry"
+	"freebuff-proxy/backend/internal/server"
+	"freebuff-proxy/backend/internal/session"
+	"freebuff-proxy/backend/internal/testutil"
+	"freebuff-proxy/backend/internal/upstream"
 )
 
 // flakyFirstRT fails requests with a transient transport error while armed
@@ -78,7 +79,7 @@ func TestUnknownModel(t *testing.T) {
 		wantStatus int
 		wantCode   string
 	}{
-		{"unknown_model", `{"model":"no/such-model","messages":[{"role":"user","content":"hi"}]}`, http.StatusBadRequest, "model_unavailable"},
+		{"unknown_model", `{"model":"no/such-model","messages":[{"role":"user","content":"hi"}]}`, http.StatusNotFound, "model_not_found"},
 		{"missing_model", `{"messages":[{"role":"user","content":"hi"}]}`, http.StatusBadRequest, "model_not_found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

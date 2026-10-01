@@ -54,13 +54,14 @@ func quotaSummary(st *upstream.SessionState) string {
 }
 
 // openAIError is the OpenAI error body with an optional human-readable hint (#19).
-// Per OpenAPI 3.1 specification (reference/protocols/openai-openapi/openapi.yaml), code,
-// message, param, and type are standard; param is null when unset.
+// Per OpenAPI 3.1 specification (reference/protocols/openai-openapi/openapi.yaml),
+// message, type, param, and code are all standard and always present;
+// param and code are null when unset. hint is a non-standard additive extra.
 type openAIError struct {
 	Message string  `json:"message"`
 	Type    string  `json:"type"`
 	Param   *string `json:"param"`
-	Code    string  `json:"code,omitempty"`
+	Code    *string `json:"code"`
 	Hint    string  `json:"hint,omitempty"`
 }
 
@@ -74,6 +75,10 @@ func (s *Server) writeJSONErrorWithHint(w http.ResponseWriter, status int, messa
 	if hint == "" {
 		hint = defaultHintForCode(code, message)
 	}
+	var codeJSON *string
+	if code != "" {
+		codeJSON = &code
+	}
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	if retryAfter > 0 {
@@ -81,7 +86,7 @@ func (s *Server) writeJSONErrorWithHint(w http.ResponseWriter, status int, messa
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"error": openAIError{Message: message, Type: typ, Code: code, Hint: hint},
+		"error": openAIError{Message: message, Type: typ, Code: codeJSON, Hint: hint},
 	})
 }
 
@@ -385,7 +390,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error, m
 		}
 		retryAfter = ue.RetryAfter
 	case errors.Is(err, registry.ErrModelNotFound):
-		status, code = http.StatusBadRequest, "model_not_found"
+		status, code = http.StatusNotFound, "model_not_found"
 		message = err.Error() + "; available: " + strings.Join(s.servedModels(), ", ")
 	case errors.Is(err, upstream.ErrAuthRejected):
 		status, code = http.StatusBadGateway, "upstream_auth_rejected"

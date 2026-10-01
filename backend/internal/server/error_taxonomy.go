@@ -13,21 +13,23 @@ import (
 )
 
 // openAIErrorType maps an internal error code to the OpenAI error `type`
-// field at the call sites that route through writeClientError. The shared
-// handler needs a single OpenAI shape; the type is derived from the code
-// so every site keeps its historical categorization.
+// field at the call sites that route through writeClientError. The type
+// follows the OpenAI vocabulary: invalid_request_error for client errors,
+// rate_limit_error for 429, server_error for 5xx. Strict tool-calling
+// contract failures (strict_tools.go) are client request errors, never
+// upstream failures, regardless of status.
 func openAIErrorType(status int, code string) string {
 	switch code {
-	case "rate_limit_exceeded":
-		return "rate_limit_exceeded"
-	case "missing_bearer_token":
-		return "invalid_request_error"
 	case "strict_violation", "invalid_tool_arguments":
-		// Strict tool-calling contract failures (strict_tools.go) are
-		// client request errors, never upstream failures.
 		return "invalid_request_error"
+	}
+	switch {
+	case status == http.StatusTooManyRequests:
+		return "rate_limit_error"
+	case status >= 500:
+		return "server_error"
 	default:
-		return "upstream_error"
+		return "invalid_request_error"
 	}
 }
 

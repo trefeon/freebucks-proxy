@@ -438,7 +438,7 @@ func (s *Server) finalizeAnthropicStream(send func(map[string]any), st *anthropi
 		// tool_use blocks (mirror of anthropicMessageFromCompletion).
 		stopReason = "end_turn"
 	}
-	usagePayload := map[string]any{"output_tokens": 0}
+	usagePayload := map[string]any{"input_tokens": st.inputTokens, "output_tokens": 0}
 	if st.usage != nil {
 		if outToks, ok := intOf(st.usage["output_tokens"]); ok {
 			usagePayload["output_tokens"] = outToks

@@ -11,12 +11,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 )
 
 // relayStream forwards sanitized upstream SSE lines to the client with
@@ -274,10 +275,10 @@ func (s *Server) relayJSON(ctx context.Context, w http.ResponseWriter, r io.Read
 		stats.aborted = true
 		if errors.Is(err, errDrainUpstreamDecode) {
 			s.writeJSONError(w, http.StatusBadGateway,
-				"failed to decode upstream stream: "+errDrainCause(err), "upstream_error", "upstream_unavailable", 0)
+				"failed to decode upstream stream: "+errDrainCause(err), "server_error", "upstream_unavailable", 0)
 		} else {
 			s.writeJSONError(w, http.StatusBadGateway,
-				"upstream stream error: "+errDrainCause(err), "upstream_error", "upstream_unavailable", 0)
+				"upstream stream error: "+errDrainCause(err), "server_error", "upstream_unavailable", 0)
 		}
 		return
 	}

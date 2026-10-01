@@ -693,9 +693,9 @@ func TestMessagesCountTokens(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("body not JSON: %v", err)
 	}
-	// 8 per-message overhead + 1 for "hello" (o200k_base reference).
-	if out.InputTokens != 9 {
-		t.Errorf("input_tokens = %d, want 9", out.InputTokens)
+	// 8 per-message overhead + 2 for "hello" (chars/3: ceil(5/3)).
+	if out.InputTokens != 10 {
+		t.Errorf("input_tokens = %d, want 10", out.InputTokens)
 	}
 	if mock.RequestsSnapshot() != 0 {
 		t.Errorf("upstream requests = %d, want 0 (local estimate only)", mock.RequestsSnapshot())
@@ -703,8 +703,8 @@ func TestMessagesCountTokens(t *testing.T) {
 }
 
 // TestMessagesCountTokensComplexRequest exercises a mixed request (system,
-// thinking, tool_use, tool_result, tools) against the golden total 93 from
-// the Python tiktoken reference — proving the estimator's composition, not
+// thinking, tool_use, tool_result, tools) against the golden total 98 from
+// the chars/3 estimator goldens — proving the estimator's composition, not
 // just the trivial one-message case.
 func TestMessagesCountTokensComplexRequest(t *testing.T) {
 	mock := testutil.NewMock()
@@ -730,8 +730,8 @@ func TestMessagesCountTokensComplexRequest(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("body not JSON: %v", err)
 	}
-	if out.InputTokens != 93 {
-		t.Errorf("input_tokens = %d, want 93 (golden reference)", out.InputTokens)
+	if out.InputTokens != 98 {
+		t.Errorf("input_tokens = %d, want 98 (golden reference)", out.InputTokens)
 	}
 	if mock.RequestsSnapshot() != 0 {
 		t.Errorf("upstream requests = %d, want 0", mock.RequestsSnapshot())

@@ -52,8 +52,8 @@ func TestClientRateLimiterHTTP429(t *testing.T) {
 	if err := json.Unmarshal(data, &errResp); err != nil {
 		t.Fatalf("error response is not valid JSON: %v: %s", err, data)
 	}
-	if errResp.Error.Type != "rate_limit_exceeded" || errResp.Error.Code != "rate_limit_exceeded" {
-		t.Errorf("error type/code = (%q, %q), want (rate_limit_exceeded, rate_limit_exceeded)",
+	if errResp.Error.Type != "rate_limit_error" || errResp.Error.Code != "rate_limit_exceeded" {
+		t.Errorf("error type/code = (%q, %q), want (rate_limit_error, rate_limit_exceeded)",
 			errResp.Error.Type, errResp.Error.Code)
 	}
 	if !strings.Contains(errResp.Error.Message, "rate limit exceeded") {

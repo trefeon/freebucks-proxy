@@ -90,8 +90,9 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			// Envelope follows the ingress: Anthropic clients get the
 			// Anthropic error shape (same 401 message/code), everyone
 			// else the OpenAI shape. A blanket writeClientError is wrong
-			// here (openAIErrorType maps 401/invalid_api_key to
-			// upstream_error, silently changing the OpenAI type).
+			// here (it derives authentication_error for the 401; OpenAI
+			// itself reports invalid_request_error on bad keys, which the
+			// explicit type below preserves).
 			if isAnthropicRequest(r) {
 				s.writeAnthropicError(w, r, http.StatusUnauthorized, "Invalid API key", "invalid_api_key", 0)
 				return

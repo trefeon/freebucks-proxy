@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"freebuff-proxy/backend/internal/convert"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"freebuff-proxy/backend/internal/convert"
 )
 
 // completions, Responses, embeddings, model catalog) onto the mux. The
@@ -63,6 +64,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	model := s.reg.ResolveModel(rawModel)
 	if !s.modelAllowed(model) {
+		if s.isUnknownModelID(rawModel, model) {
+			// Genuinely unknown id: 404 like GET /v1/models/{model} (and
+			// OpenAI). Known-but-refused (paused, provisioned -max
+			// variant, plan, trial, allowlist) keeps the 400 refusal.
+			s.writeJSONError(w, http.StatusNotFound,
+				"The model '"+rawModel+"' does not exist", "invalid_request_error", "model_not_found", 0)
+			return
+		}
 		s.writeJSONError(w, http.StatusBadRequest,
 			s.modelRefusalMessage(rawModel, model), "invalid_request_error", "model_unavailable", 0)
 		return

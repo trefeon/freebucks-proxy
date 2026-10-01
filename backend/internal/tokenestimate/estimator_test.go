@@ -1,10 +1,13 @@
 package tokenestimate_test
 
-// Golden values in this file were computed with the independent Python
-// reference (OpenAI tiktoken 0.13.0, o200k_base, allowed_special="all",
-// floor(raw * 1.35)) — see scripts/token_ref/reference.py in the repo. Go
-// counts are asserted against those numbers so the estimator's o200k_base
-// tokenization is cross-validated against the reference implementation.
+// Golden values in this file follow the upstream chars/3 estimator
+// (packages/agent-runtime/src/util/token-counter.ts):
+//
+//	countTokens(text) = ceil((utf16Len + (utf8Bytes - utf16Len) * 3) / 3)
+//
+// where utf16Len is the JS UTF-16 code-unit count. Values were derived
+// independently (Python, UTF-16 unit length) and pinned here so the Go port
+// is cross-validated against the vendor formula.
 
 import (
 	"strings"
@@ -12,7 +15,6 @@ import (
 	"testing"
 
 	"freebuff-proxy/backend/internal/tokenestimate"
-	"github.com/tiktoken-go/tokenizer"
 )
 
 func mustNew(t *testing.T) *tokenestimate.Estimator {
@@ -25,7 +27,8 @@ func mustNew(t *testing.T) *tokenestimate.Estimator {
 }
 
 func TestCountTextGolden(t *testing.T) {
-	// Values from scripts/token_ref/reference.py: floor(raw * 1.35), o200k_base.
+	// Values from the upstream chars/3 rule; the fixture below is the old
+	// codec-based CountText body (plain ASCII, so bytes == UTF-16 units).
 	const codeFixture = `func (e *Estimator) CountText(text string) int {
 	if text == "" {
 		return 0
@@ -43,14 +46,14 @@ func TestCountTextGolden(t *testing.T) {
 		want int
 	}{
 		{"empty", "", 0},
-		{"hello", "hello", 1},
-		{"hello world", "hello world", 2},
+		{"hello", "hello", 2},
+		{"hello world", "hello world", 4},
 		{"Hello, world!", "Hello, world!", 5},
-		{"indonesian", "Saya sedang menguji penghitung token untuk aplikasi ini.", 14},
-		{"cjk", "你好世界，这是一个测试。", 8},
-		{"emoji combining", "👨\u200d💻🚀 café naïve e\u0301", 16},
-		{"go code", codeFixture, 116},
-		{"long", strings.Repeat("The quick brown fox jumps over the lazy dog. ", 60), 811},
+		{"indonesian", "Saya sedang menguji penghitung token untuk aplikasi ini.", 19},
+		{"cjk", "你好世界，这是一个测试。", 28},
+		{"emoji combining", "👨\u200d💻🚀 café naïve e\u0301", 18},
+		{"go code", codeFixture, 94},
+		{"long", strings.Repeat("The quick brown fox jumps over the lazy dog. ", 60), 900},
 	}
 	e := mustNew(t)
 	for _, tc := range cases {
@@ -60,27 +63,24 @@ func TestCountTextGolden(t *testing.T) {
 	}
 }
 
-// TestCountTextSpecialMarkers pins the behavior of OpenAI-style special
-// markers. tiktoken-go/tokenizer has no special-token encoder: markers are
-// BPE-encoded as regular text instead of collapsing to one token (the Python
-// reference with allowed_special="all" yields 1 for <|endoftext|>). The
-// exact values below are the deterministic over-count of the local port
-// (9 for the endof* markers, 8 for fim_*); a change here means the tokenizer
-// behavior changed and the values must be re-derived from the reference.
+// TestCountTextSpecialMarkers pins that OpenAI-style special markers carry no
+// special-token semantics under the chars/3 estimator: they are ordinary
+// ASCII text, so every <|...|> marker of the same byte length counts the same.
+// A change here means the formula changed and these values must be re-derived.
 func TestCountTextSpecialMarkers(t *testing.T) {
 	e := mustNew(t)
 	cases := map[string]int{
-		"<|endoftext|>":   9,
-		"<|endofprompt|>": 9,
-		"<|endofmask|>":   9,
-		"<|fim_prefix|>":  8,
-		"<|fim_suffix|>":  8,
-		"<|fim_middle|>":  8,
+		"<|endoftext|>":   5,
+		"<|endofprompt|>": 5,
+		"<|endofmask|>":   5,
+		"<|fim_prefix|>":  5,
+		"<|fim_suffix|>":  5,
+		"<|fim_middle|>":  5,
 	}
 	for s, want := range cases {
 		first := e.CountText(s)
 		if first != want {
-			t.Errorf("CountText(%q) = %d, want %d (documented over-count)", s, first, want)
+			t.Errorf("CountText(%q) = %d, want %d (plain ASCII text)", s, first, want)
 		}
 		if second := e.CountText(s); second != first {
 			t.Errorf("CountText(%q) not deterministic: %d then %d", s, first, second)
@@ -95,14 +95,14 @@ func TestCountJSONGolden(t *testing.T) {
 		value any
 		want  int
 	}{
-		{"tool_input_small", map[string]any{"city": "Jakarta"}, 8},
+		{"tool_input_small", map[string]any{"city": "Jakarta"}, 6},
 		{"tool_input_big", map[string]any{
 			"city":  "Jakarta",
 			"extra": strings.Repeat("a", 64),
 			"unit":  "celsius",
-		}, 29},
-		{"unknown_block", map[string]any{"foo": "bar", "type": "weird"}, 13},
-		{"json_ok", "ok", 4},
+		}, 37},
+		{"unknown_block", map[string]any{"foo": "bar", "type": "weird"}, 10},
+		{"json_ok", "ok", 2},
 	}
 	e := mustNew(t)
 	for _, tc := range cases {
@@ -113,14 +113,14 @@ func TestCountJSONGolden(t *testing.T) {
 }
 
 func TestCountAnthropicRequestGolden(t *testing.T) {
-	// The full mixed request from the reference fixture. Expected total:
-	//   system "You are a helpful assistant."                      = 8
-	//   user "hello"                                   8 + 1      = 9
+	// The full mixed request, each part under the chars/3 formula. Total:
+	//   system "You are a helpful assistant."                      = 10
+	//   user "hello"                                   8 + 2      = 10
 	//   assistant thinking "Let me think about this."  8 + 8      = 16
-	//   assistant tool_use (name+input)                8 + 2 + 8  = 18
-	//   user tool_result [{text "3 files"}]            8 + 2      = 10
-	//   tools (tools_minimal JSON)                                = 32
-	//                                                             = 93
+	//   assistant tool_use (name+input)                8 + 4 + 6  = 18
+	//   user tool_result [{text "3 files"}]            8 + 3      = 11
+	//   tools (tools_minimal JSON)                                = 33
+	//                                                             = 98
 	req := map[string]any{
 		"model":  "z-ai/glm-5.2",
 		"system": "You are a helpful assistant.",
@@ -149,8 +149,8 @@ func TestCountAnthropicRequestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountAnthropicRequest: %v", err)
 	}
-	if got != 93 {
-		t.Errorf("CountAnthropicRequest = %d, want 93", got)
+	if got != 98 {
+		t.Errorf("CountAnthropicRequest = %d, want 98", got)
 	}
 }
 
@@ -259,9 +259,8 @@ func imagePart(sourceType, data string) map[string]any {
 }
 
 func TestCountAnthropicRequestToolsGolden(t *testing.T) {
-	// tools_minimal / tools_rich / tools_two canonical JSON from
-	// token_ref/reference.py; each request has one empty user message
-	// (8 overhead, 0 content) plus the tool definitions.
+	// tools_minimal / tools_rich / tools_two canonical JSON; each request has
+	// one empty user message (8 overhead, 0 content) plus the tool definitions.
 	emptyMsg := []any{map[string]any{"role": "user"}}
 	cases := []struct {
 		name string
@@ -273,7 +272,7 @@ func TestCountAnthropicRequestToolsGolden(t *testing.T) {
 			map[string]any{"name": "get_weather", "input_schema": map[string]any{
 				"type": "object", "properties": map[string]any{"city": map[string]any{"type": "string"}},
 			}},
-		}}, 8 + 32},
+		}}, 8 + 33},
 		{"tools_rich", map[string]any{"messages": emptyMsg, "tools": []any{
 			map[string]any{
 				"name":        "get_weather",
@@ -287,7 +286,7 @@ func TestCountAnthropicRequestToolsGolden(t *testing.T) {
 					},
 				},
 			},
-		}}, 8 + 75},
+		}}, 8 + 79},
 		{"tools_two", map[string]any{"messages": emptyMsg, "tools": []any{
 			map[string]any{
 				"name":        "get_weather",
@@ -299,7 +298,7 @@ func TestCountAnthropicRequestToolsGolden(t *testing.T) {
 			map[string]any{"name": "search_docs", "input_schema": map[string]any{
 				"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}},
 			}},
-		}}, 8 + 70},
+		}}, 8 + 77},
 	}
 	e := mustNew(t)
 	for _, tc := range cases {
@@ -401,16 +400,16 @@ func TestCountAnthropicRequestContentShapes(t *testing.T) {
 	}{
 		{"nil content", msg(nil), 8},
 		{"empty content", msg(""), 8},
-		{"string content", msg("hello"), 9},
-		{"unknown block JSON fallback", msg([]any{map[string]any{"foo": "bar", "type": "weird"}}), 8 + 13},
-		{"text block", msg([]any{map[string]any{"type": "text", "text": "hello"}}), 9},
+		{"string content", msg("hello"), 10},
+		{"unknown block JSON fallback", msg([]any{map[string]any{"foo": "bar", "type": "weird"}}), 8 + 10},
+		{"text block", msg([]any{map[string]any{"type": "text", "text": "hello"}}), 10},
 		{"thinking uses thinking field", msg([]any{map[string]any{"type": "thinking", "thinking": "Let me think about this."}}), 8 + 8},
 		{"thinking falls back to text", msg([]any{map[string]any{"type": "thinking", "text": "Let me think about this."}}), 8 + 8},
 		{"tool_use name and input", msg([]any{map[string]any{"type": "tool_use", "name": "get_weather", "input": map[string]any{"city": "Jakarta"}}}), 8 + 2 + 8},
-		{"tool_result string", msg([]any{map[string]any{"type": "tool_result", "content": "3 files"}}), 8 + 2},
+		{"tool_result string", msg([]any{map[string]any{"type": "tool_result", "content": "3 files"}}), 8 + 3},
 		{"tool_result structured text", msg([]any{map[string]any{"type": "tool_result", "content": []any{
 			map[string]any{"type": "text", "text": "3 files"},
-		}}}), 8 + 2},
+		}}}), 8 + 3},
 		{"tool_result structured image", msg([]any{map[string]any{"type": "tool_result", "content": []any{
 			map[string]any{"type": "image", "source": map[string]any{"type": "base64", "data": "aGVsbG8="}},
 		}}}), 8 + 1600},
@@ -436,8 +435,8 @@ func TestCountAnthropicRequestSystemShapes(t *testing.T) {
 		system any
 		want   int
 	}{
-		{"string", "You are a helpful assistant.", 8 + 8},
-		{"text block array", []any{map[string]any{"type": "text", "text": "You are a helpful assistant."}}, 8 + 8},
+		{"string", "You are a helpful assistant.", 8 + 10},
+		{"text block array", []any{map[string]any{"type": "text", "text": "You are a helpful assistant."}}, 8 + 10},
 		{"null", nil, 8},
 		{"non-string non-array dropped", 42, 8},
 	}
@@ -501,8 +500,8 @@ func TestDeterminism(t *testing.T) {
 }
 
 // TestConcurrentUse runs CountText and CountAnthropicRequest from many
-// goroutines against the shared codec; the -race detector validates the
-// estimator is safe for concurrent use (Count/Encode are read-only).
+// goroutines; the -race detector validates the estimator is safe for
+// concurrent use (pure arithmetic on immutable strings).
 func TestConcurrentUse(t *testing.T) {
 	e := mustNew(t)
 	req := map[string]any{
@@ -527,48 +526,10 @@ func TestConcurrentUse(t *testing.T) {
 					t.Errorf("CountAnthropicRequest: %v", err)
 					return
 				}
-				if got := e.CountText("hello world"); got != 2 {
-					t.Errorf("CountText = %d, want 2", got)
+				if got := e.CountText("hello world"); got != 4 { // 11 chars -> ceil(11/3)
+					t.Errorf("CountText = %d, want 4", got)
 					return
 				}
-			}
-		}()
-	}
-	wg.Wait()
-}
-
-// TestDecodeRoundTrip pins the Decode API (issue #243): ids produced by
-// Encode decode back to the text, and concurrent Decode calls do not race
-// (the shared codec's reverse-vocabulary map is built lazily and would
-// crash without the internal lock).
-func TestDecodeRoundTrip(t *testing.T) {
-	est, err := tokenestimate.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := "hello, world — token estimate round trip"
-	codec, err := tokenizer.Get(tokenizer.O200kBase)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ids, _, err := codec.Encode(text)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := est.Decode(ids)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != text {
-		t.Errorf("decoded = %q, want %q", got, text)
-	}
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if _, err := est.Decode(ids); err != nil {
-				t.Errorf("concurrent Decode: %v", err)
 			}
 		}()
 	}

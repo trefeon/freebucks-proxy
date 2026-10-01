@@ -187,8 +187,8 @@ func TestChatStreamUpstreamErrorEnvelope(t *testing.T) {
 		if env.Error.Code != "rate_limited" {
 			t.Errorf("error.code = %q, want rate_limited", env.Error.Code)
 		}
-		if env.Error.Type != "upstream_error" {
-			t.Errorf("error.type = %q, want upstream_error", env.Error.Type)
+		if env.Error.Type != "rate_limit_error" {
+			t.Errorf("error.type = %q, want rate_limit_error", env.Error.Type)
 		}
 		if env.Error.Message == "" || env.Error.Param != nil {
 			t.Errorf("error message/param wrong: %+v", env.Error)

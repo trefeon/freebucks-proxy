@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"freebuff-proxy/backend/internal/modelcat"
 	"freebuff-proxy/backend/internal/pool"
@@ -190,6 +191,31 @@ func (s *Server) modelAllowed(model string) bool {
 		return false
 	}
 	return allowedByList(model, s.cfg.Load().ModelsAllow)
+}
+
+// isUnknownModelID reports whether model is an id the gateway never serves:
+// absent from the agent map, not a provisioned -max variant of a mapped or
+// served model, and not a paused/withdrawn id (those keep the 400 refusal
+// copy so the client sees the replacement message, not "does not exist").
+func (s *Server) isUnknownModelID(rawModel, model string) bool {
+	if modelcat.IsServed(model) || modelcat.IsServed(rawModel) {
+		return false
+	}
+	if base, ok := strings.CutSuffix(model, "-max"); ok {
+		if _, err := s.reg.AgentForModel(base); err == nil {
+			return false
+		}
+		if modelcat.IsServed(base) {
+			return false
+		}
+	}
+	if modelcat.IsPaused(rawModel) || modelcat.IsPaused(model) {
+		return false
+	}
+	if _, err := s.reg.AgentForModel(model); err == nil {
+		return false
+	}
+	return true
 }
 
 // modelListed is the /v1/models row filter: every row the catalog surface
