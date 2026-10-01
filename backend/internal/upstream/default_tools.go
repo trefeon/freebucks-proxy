@@ -29,6 +29,10 @@ func defaultCliTools() []any {
 	defaultToolsOnce.Do(func() {
 		var tools []any
 		if err := json.Unmarshal(cliToolsFixture, &tools); err == nil {
+			// Served defs carry no commit-attribution footer (fixture
+			// stays byte-identical for parity); see
+			// commit_attribution.go.
+			stripCommitAttribution(tools)
 			defaultToolsList = tools
 		}
 	})

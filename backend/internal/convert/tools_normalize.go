@@ -29,6 +29,9 @@ func canonicalToolDefs() ([]any, error) {
 			canonicalToolsErr = err
 			return
 		}
+		// Served defs carry no commit-attribution footer (fixture stays
+		// byte-identical for parity); see tools_attribution.go.
+		stripCommitAttribution(tools)
 		canonicalTools = tools
 	})
 	if canonicalToolsErr != nil {
