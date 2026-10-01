@@ -111,6 +111,15 @@ var clientToOfficial = map[string]string{
 	"searchweb":            "web_search",
 	"viewsubdirectory":     "list_directory",
 	"singlefindandreplace": "str_replace",
+	// Continue — the shipped BuiltInToolNames are snake_case
+	// (reference/agents/continue core/tools/builtIn.ts, corpus-proven);
+	// the concatenated keys above predate that and no longer match, so
+	// these three scalar-shaped tools were virtualizing instead of
+	// translating. Their canonical defs (web_search{query},
+	// read_url{url}, glob{pattern}) match the client shapes 1:1.
+	"search_web":        "web_search",
+	"fetch_url_content": "read_url",
+	"file_glob_search":  "glob",
 	// Kimi-CLI (reference/agents/kimi-cli src/kimi_cli/tools/*)
 	"writefile":   "write_file",
 	"settodolist": "write_todos",

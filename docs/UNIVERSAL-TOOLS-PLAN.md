@@ -22,7 +22,7 @@ foreign schema, a duplicated name, or a malformed call.
 | Unicode/grammar legalization | all clients | `wireVirtualName`, `resolveUpstreamTool` |
 
 So the asymmetry is precise: **names are universal; argument shapes are
-OMP-only.** Every non-OMP client is assumed to fill arguments in official
+OMP/pi-only.** Every other client is assumed to fill arguments in official
 shape — true only while the client's own schema rides the wire unchanged
 (names-only translation). That assumption breaks the moment a client's tool
 has the same *intent* but a different *shape* (Codex `apply_patch` vs
@@ -69,25 +69,44 @@ rule (invalid body → generic).
       `suggest*`, `canvas_ui` — the text-fallback class).
 - [ ] For each of the 16 floor tools, list client tools needing **arg
       translation** (same intent, different shape).
-- [ ] Deliverable: `docs/UNIVERSAL-TOOLS-AUDIT.md` with the three buckets and
-      per-row `reference/<repo>` `file:line` provenance.
+- [x] Deliverable: [`UNIVERSAL-TOOLS-AUDIT.md`](UNIVERSAL-TOOLS-AUDIT.md) —
+      created 2026-10-01 with the protocol matrix, measured buckets, the
+      per-wire arg-shape table and the OpenAI/Responses/Anthropic surface
+      design. Remaining: add `claude-code` + `aider` corpus rows (currently
+      absent), and finish the audit-pending arg rows with
+      `reference/<repo>` `file:line`.
 - Verify: counts reproduce with one script run and are byte-identical on
   re-run; bucket (a) contains no name whose schema is already identical to
   its floor target (those need no rule).
 
 ### Phase 1 — Registry extraction (pure refactor, no behavior change)
-- [ ] Move `clientToOfficial`, `officialTools`, `reshapeRules`,
-      `reshapeCliKeys`, `floorFallbacks`, `ompClientToWire` behind one
-      `convert/registry.go` API: `NameFor(client)`, `ClientFor(wire)`,
-      `Reshape(family, wire, args)`, `FloorFor(family)`.
-- [ ] Keep `floorOnly` semantics bit-identical for OMP.
-- [ ] Tests: the existing corpus sweep, `TestComprehensiveToolClassification`,
-      and all reshape tests must pass **unchanged**. That is the whole proof
-      this phase is behavior-preserving.
+- [x] One registry API in `convert/registry.go`: `NameFor`,
+      `IsOfficialWireName`, `ReshapeWireNames`, `FloorRoutes`, `FamilyOf`.
+      The tables stay beside their owning code (same package) and every
+      access goes through these accessors, so a new family/mapping is added
+      in one place. (Storage migration into the file is deferred: moving the
+      literals buys nothing the accessors do not, at added churn risk.)
+- [x] `floorOnly` semantics bit-identical for OMP (no rule changed).
+- [x] Tests: the existing corpus sweep, `TestComprehensiveToolClassification`,
+      and all reshape tests pass **unchanged** — the behavior-preservation
+      proof. (An unrelated uncommitted WIP test,
+      `TestSanitizeChunkMapped` in `convert_stream_test.go`, is red on its
+      own; not this phase's.)
 - Verify: `go test ./backend/internal/convert/ ./backend/internal/server/`
   green with zero test edits.
 
 ### Phase 2 — Arg rules for the highest-value non-OMP families
+- [x] Name-map slice (not arg): Continue's shipped `BuiltInToolNames` are
+      snake_case (`core/tools/builtIn.ts`), but the table only carried
+      concatenated keys (`searchweb`, …) that never matched — `search_web`,
+      `fetch_url_content`, `file_glob_search` were riding unrenamed. Added
+      the three scalar-shaped mappings + `toolmap_continue_test.go`.
+- [ ] **Shape-sensitivity finding:** a mapped wire name in
+      `substitutedWireNames` gets the canonical CLI *definition*, so the model
+      fills CLI args and the client receives them under its own name. Adding a
+      name mapping to such a wire is only safe when the client's arg shape
+      matches the canonical shape (or the family reshapes it). Non-matching
+      names need a reshape rule, not just a mapping.
 - [ ] For each candidate from Phase 0, add a table entry + a RED test first
       (`tools_reshape_test.go` style), then the rule.
 - [ ] Order by measured frequency in the corpus, one family per commit.

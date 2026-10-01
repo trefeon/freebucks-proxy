@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"freebuff-proxy/backend/internal/convert"
 	"sort"
+	"time"
 )
 
 // chunkRewriter owns the per-stream chunk state and the ordered rewrite
@@ -84,19 +85,13 @@ func newChunkRewriter(stats *relayStats) *chunkRewriter {
 	}
 }
 
-// rewrite runs the ordered pipeline over one sanitized chunk. The returned
-// bytes are the original when the pipeline mutated nothing (or the chunk is
-// not a JSON object) so untouched frames keep their exact bytes.
-func (cr *chunkRewriter) rewrite(clean []byte) []byte {
-	// Cheap coarse probe: none of the stages can act on a chunk lacking
-	// every relevant token; keep the exact bytes without unmarshalling.
-	if !bytes.Contains(clean, []byte(`"choices"`)) &&
-		!bytes.Contains(clean, []byte(`"model":`)) &&
-		!bytes.Contains(clean, []byte(`"id":`)) {
-		return clean
-	}
-	var chunk map[string]any
-	if json.Unmarshal(clean, &chunk) != nil {
+// rewrite runs the ordered pipeline over one sanitized chunk, whose decoded
+// map the caller already holds (convert.SanitizeChunkMapped) — the second
+// json.Unmarshal the relay used to perform here is gone. The returned bytes
+// are the original clean bytes when the pipeline mutated nothing (or the
+// chunk decoded empty) so untouched frames keep their exact bytes.
+func (cr *chunkRewriter) rewrite(clean []byte, chunk map[string]any) []byte {
+	if len(chunk) == 0 {
 		return clean
 	}
 	mutated := false
@@ -379,6 +374,53 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 	delta["tool_calls"] = tcs
 	clear(cr.reshapeBuf)
 	return true
+}
+
+// flushReshapeTerminal releases withheld reshaped tool arguments when the
+// upstream stream ends WITHOUT ever carrying a finish_reason — a clean early
+// close (openai_stream.go:151) or a mid-stream read error (openai_stream.go:139).
+// reshapeBuffer withholds argument bytes for ruled wire names and re-injects
+// them on the terminal chunk (reshapeFlush); a stream that never delivers a
+// terminal chunk leaves the client assembling a call whose arguments were
+// never sent, which surfaces as "The model did not complete a usable
+// response" instead of the call running. The synthetic chunk settles the turn
+// on tool_calls, shaped like emitXMLFlush's flush frame
+// (openai_stream.go:76-82). complete reports whether every buffered entry's
+// bytes are whole JSON: when the stream was cut mid-fragment the caller must
+// still surface the transport error rather than pass a truncated turn off as
+// a clean one.
+func (cr *chunkRewriter) flushReshapeTerminal(streamID, model string) (map[string]any, bool, bool) {
+	if len(cr.reshapeBuf) == 0 {
+		return nil, false, true
+	}
+	complete := true
+	for _, acc := range cr.reshapeBuf {
+		if acc.args.Len() == 0 {
+			continue
+		}
+		if !json.Valid(acc.args.Bytes()) {
+			complete = false
+			break
+		}
+	}
+	if streamID == "" {
+		streamID = "chatcmpl-flush"
+	}
+	chunk := map[string]any{
+		"id":      streamID,
+		"object":  "chat.completion.chunk",
+		"created": time.Now().Unix(),
+		"model":   model,
+		"choices": []any{map[string]any{
+			"index":         0,
+			"delta":         map[string]any{},
+			"finish_reason": "tool_calls",
+		}},
+	}
+	if !cr.reshapeFlush(chunk) {
+		return nil, false, true
+	}
+	return chunk, true, complete
 }
 
 // stripTextFallbackCalls removes delta.tool_calls entries naming an

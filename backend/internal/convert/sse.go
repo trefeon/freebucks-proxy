@@ -132,6 +132,58 @@ func SanitizeChunkOpts(line []byte, opts Options) ([]byte, bool) {
 	return out, false
 }
 
+// SanitizeChunkMapped is SanitizeChunkOpts that ALSO hands back the decoded
+// chunk map the sanitized bytes encode, so a caller that must inspect or
+// rewrite the chunk (the streaming relays do) decodes it exactly once
+// instead of json.Unmarshal-ing the returned bytes a second time. Steady
+// streams pay this per upstream frame; the second decode was the single
+// largest per-chunk CPU/alloc cost on the relay hot path.
+//
+// Contract:
+//   - clean is byte-for-byte what SanitizeChunkOpts returns for the same
+//     line (the raw payload on the zero-sanitize fast path, otherwise the
+//     compact JSON of the sanitized chunk).
+//   - chunk is the chunk decoded the same way the relays decoded clean
+//     before this function existed: JSON number semantics (float64), on
+//     BOTH paths. The fast path decodes once and returns that map; the
+//     sanitize path marshals the sanitized chunk and decodes it back so
+//     the numeric normalization sanitize performs (int64 truncation) never
+//     changes the types callers branch on. Consumers may therefore keep
+//     their existing `.(float64)` assertions unchanged.
+//   - On the fast path clean aliases line, so a caller that retains clean
+//     past this step must copy it.
+//   - drop reports malformed/non-chunk lines; then clean and chunk are nil.
+//   - The returned map is NOT pooled; the caller owns it.
+func SanitizeChunkMapped(line []byte, opts Options) (clean []byte, chunk map[string]any, drop bool) {
+	data, ok := parseSSEData(line)
+	if !ok {
+		return nil, nil, true
+	}
+	decoded := make(map[string]any, 8)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil, nil, true
+	}
+	if opts.ReasoningInContent == "" && !needsSanitize(decoded) {
+		return data, decoded, false
+	}
+	result := sanitizeChunk(decoded, make(map[string]any, 5), opts.ReasoningInContent)
+	if result == nil {
+		return nil, nil, true
+	}
+	out, err := json.Marshal(result)
+	if err != nil {
+		return nil, nil, true
+	}
+	// Re-decode the sanitized bytes so the returned map carries the same
+	// JSON number types (float64) a second decode of clean would have
+	// produced, keeping caller type assertions valid.
+	rebuilt := make(map[string]any, len(result))
+	if err := json.Unmarshal(out, &rebuilt); err != nil {
+		return nil, nil, true
+	}
+	return out, rebuilt, false
+}
+
 // sanitizeChunk implements the per-chunk cleanup into the pooled clean map;
 // returns nil to drop the chunk. clean is cleared by the caller on drop.
 func sanitizeChunk(chunk map[string]any, clean map[string]any, reasoningTag string) map[string]any {

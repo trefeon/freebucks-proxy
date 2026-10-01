@@ -39,12 +39,14 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 	// field when no lease drove the relay (direct unit-test calls).
 	//
 	// All per-chunk rewrite state lives in the chunk pipeline (issue #249):
-	// one unmarshal, a chain of map-level rewrites, one marshal, with the
-	// byte-preserving fast path for untouched chunks.
+	// one shared decode (convert.SanitizeChunkMapped), a chain of map-level
+	// rewrites, one marshal, with the byte-preserving fast path for
+	// untouched chunks.
 	rw := newChunkRewriter(stats)
 
-	// writeSynthetic frames one proxy-authored chunk (XML flush, withheld
-	// reshape flush) through the same counting/flush path as upstream frames.
+	// writeSynthetic frames one proxy-authored chunk (the XML flush and the
+	// withheld-reshape terminal flush) through the same counting/flush path
+	// relayed upstream frames take.
 	writeSynthetic := func(chunk map[string]any) bool {
 		b, err := json.Marshal(chunk)
 		if err != nil {
@@ -174,7 +176,7 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 				s.ingestStreamReasoning(rw.streamModel, rw.reasoningParts, rw.contentParts, rw.toolIDs, rw.streamToolCalls)
 				return
 			}
-			clean, drop := convert.SanitizeChunkOpts(lc.line, s.convertOptions())
+			clean, chunk, drop := convert.SanitizeChunkMapped(lc.line, s.convertOptions())
 			if drop {
 				// Non-chunk lines (upstream comments, junk frames) are never
 				// relayed and must NOT advance the keepalive timer: the
@@ -187,8 +189,10 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 			// continuation drop, XML feed, tool-name restore, both finish
 			// flips, model/id/reasoning capture, usage capture, model
 			// stamp, role ensure) runs as one parse-mutate-marshal
-			// pipeline (issue #249).
-			clean = rw.rewrite(clean)
+			// pipeline (issue #249). SanitizeChunkMapped already decoded
+			// the chunk, so the pipeline rewrites that map instead of a
+			// second decode of clean.
+			clean = rw.rewrite(clean, chunk)
 			if first {
 				first = false
 				phasetiming.FromContext(ctx).Since(phasetiming.UpstreamTTFBMS, chatStart)
@@ -205,48 +209,6 @@ func (s *Server) relayStream(ctx context.Context, w http.ResponseWriter, r io.Re
 			flusher.Flush()
 		}
 	}
-}
-
-// flushReshapeTerminal releases withheld reshaped tool arguments when the
-// upstream stream ends WITHOUT ever carrying a finish_reason — a clean early
-// close, or a mid-stream read error. reshapeBuffer withholds argument bytes
-// for ruled wire names and re-injects them on the terminal chunk
-// (reshapeFlush); when no terminal chunk ever arrives the client is left
-// assembling a tool call whose arguments were never delivered, and reports
-// "the model did not complete a usable response" instead of running it. The
-// synthetic chunk settles the turn as tool_calls, mirroring emitXMLFlush.
-// complete reports whether every buffered call reshaped from valid JSON, so
-// the caller can still surface a transport failure when the bytes were
-// genuinely truncated.
-func (cr *chunkRewriter) flushReshapeTerminal(streamID, model string) (map[string]any, bool, bool) {
-	if len(cr.reshapeBuf) == 0 {
-		return nil, false, false
-	}
-	complete := true
-	for _, acc := range cr.reshapeBuf {
-		if acc.args.Len() == 0 {
-			continue
-		}
-		if !json.Valid(acc.args.Bytes()) {
-			complete = false
-			break
-		}
-	}
-	chunk := map[string]any{
-		"id":      streamID,
-		"object":  "chat.completion.chunk",
-		"created": time.Now().Unix(),
-		"model":   model,
-		"choices": []any{map[string]any{
-			"index":         0,
-			"delta":         map[string]any{},
-			"finish_reason": "tool_calls",
-		}},
-	}
-	if !cr.reshapeFlush(chunk) {
-		return nil, false, complete
-	}
-	return chunk, true, complete
 }
 
 // streamToolAcc accumulates one upstream tool call's identity across its

@@ -15,13 +15,14 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 )
 
 // --- streaming translation ---
@@ -145,15 +146,11 @@ func (s *Server) relayAnthropicStream(ctx context.Context, w http.ResponseWriter
 				s.finalizeAnthropicStream(send, st)
 				return
 			}
-			clean, drop := convert.SanitizeChunkOpts(lc.line, s.convertOptions())
+			clean, chunk, drop := convert.SanitizeChunkMapped(lc.line, s.convertOptions())
 			if drop {
 				// Dropped upstream lines are never relayed and must not
 				// advance the keepalive timer (client sees only real
 				// frames — #161).
-				continue
-			}
-			var chunk map[string]any
-			if err := json.Unmarshal(clean, &chunk); err != nil {
 				continue
 			}
 			// In-band upstream error chunk: the Anthropic surface must

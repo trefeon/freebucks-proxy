@@ -10,12 +10,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 )
 
 // responsesItem is one output item being assembled during stream relay:
@@ -157,15 +158,11 @@ func (s *Server) relayResponsesStream(ctx context.Context, w http.ResponseWriter
 				s.endResponsesStream(w, send, st, model, respID, createdAt, false, nil)
 				return
 			}
-			clean, drop := convert.SanitizeChunkOpts(lc.line, s.convertOptions())
+			clean, chunk, drop := convert.SanitizeChunkMapped(lc.line, s.convertOptions())
 			if drop {
 				// Dropped upstream lines are never relayed and must not
 				// advance the keepalive timer (client sees only real
 				// frames — #161).
-				continue
-			}
-			var chunk map[string]any
-			if err := json.Unmarshal(clean, &chunk); err != nil {
 				continue
 			}
 			// --- XML tool calls embedded in content ---

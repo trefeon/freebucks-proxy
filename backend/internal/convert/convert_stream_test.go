@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -615,6 +616,64 @@ func BenchmarkSanitizeChunkSanitizePath(b *testing.B) {
 			b.Fatal("chunk dropped")
 		}
 		_ = out
+	}
+}
+
+// TestSanitizeChunkMapped pins the single-decode contract the streaming
+// relays rely on: clean is byte-identical to SanitizeChunkOpts, and chunk
+// is the decoded chunk clean encodes (semantically identical, byte-identical
+// on the sanitize path), on both the fast and the sanitize path. A caller
+// can therefore rewrite chunk instead of re-decoding clean.
+func TestSanitizeChunkMapped(t *testing.T) {
+	cases := []struct {
+		name    string
+		line    string
+		wantRaw bool // fast path: clean aliases the raw payload, may differ byte-wise from a re-marshal
+	}{
+		{"fast path", `data: {"id":"c1","object":"chat.completion.chunk","created":5,"model":"m","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}]}`, true},
+		{"sanitize path", `data: {"choices":[{"delta":{"content":"hi"}}]}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wantClean, wantDrop := SanitizeChunkOpts([]byte(tc.line), DefaultOptions())
+			clean, chunk, drop := SanitizeChunkMapped([]byte(tc.line), DefaultOptions())
+			if drop != wantDrop {
+				t.Fatalf("drop = %v, want %v", drop, wantDrop)
+			}
+			if chunk == nil {
+				t.Fatal("chunk = nil, want decoded map")
+			}
+			if got := decode(t, clean); !reflect.DeepEqual(got, chunk) {
+				t.Fatalf("chunk = %#v, want the decoded clean map %#v", chunk, got)
+			}
+			if tc.wantRaw {
+				raw := strings.TrimPrefix(tc.line, "data: ")
+				if string(clean) != raw {
+					t.Fatalf("fast path clean = %q, want raw payload %q", clean, raw)
+				}
+				// The fast path must return exactly what SanitizeChunkOpts
+				// returns (both alias the raw payload).
+				if string(clean) != string(wantClean) {
+					t.Fatalf("fast path clean = %q, want SanitizeChunkOpts output %q", clean, wantClean)
+				}
+				return
+			}
+			// Sanitize path: the sanitize step must actually have run
+			// (defaults present) and the map stays JSON-decode-equivalent.
+			if id, _ := chunk["id"].(string); !strings.HasPrefix(id, "chatcmpl-") {
+				t.Fatalf("sanitize path id = %q, want chatcmpl- default", chunk["id"])
+			}
+			if chunk["object"] != "chat.completion.chunk" {
+				t.Fatalf("object = %v, want chat.completion.chunk", chunk["object"])
+			}
+			if _, ok := chunk["created"].(float64); !ok {
+				t.Fatalf("created = %#v, want float64 (JSON number semantics preserved)", chunk["created"])
+			}
+		})
+	}
+
+	if clean, chunk, drop := SanitizeChunkMapped([]byte("{bad"), DefaultOptions()); !drop || clean != nil || chunk != nil {
+		t.Fatalf("malformed line: clean=%q chunk=%v drop=%v; want drop with nils", clean, chunk, drop)
 	}
 }
 
