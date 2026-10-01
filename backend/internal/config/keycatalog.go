@@ -196,6 +196,11 @@ var keyCatalog = []KeyDef{
 		Description: `Pin pool slots to one model each (e.g. "0:z-ai/glm-5.2;1:deepseek/deepseek-v4-flash"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config.`,
 	},
 	{
+		Key: "POOL_ORDERED_PLACEMENT", Group: GroupPool, Kind: "bool",
+		Default:     "false",
+		Description: `Prefer the lowest-index account that can serve a request: a later lane's warm session no longer wins while an earlier lane can take the turn (default false = today's warm-lane grant). Applies live on reload; the earlier lane's seat must be free to take it.`,
+	},
+	{
 		Key: "QUEUE_DEPTH", Group: GroupPool, Kind: "int",
 		Default:     "16",
 		Description: `Cap on parked FIFO waiters per account-model lane (0 = no queueing: spill at once when no slot is free; negative rejects the config). A full queue spills with the existing 429 shape. Applies live on reload.`,

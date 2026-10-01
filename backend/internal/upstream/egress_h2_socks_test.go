@@ -21,6 +21,7 @@ package upstream
 
 import (
 	"context"
+	"errors"
 	"freebuff-proxy/backend/internal/config"
 	"io"
 	"net"
@@ -379,7 +380,13 @@ func TestH2BytesInH1Reader(t *testing.T) {
 	if err == nil {
 		t.Fatal("H1 RoundTrip against an H2-speaking server succeeded, want malformed-response failure")
 	}
-	if !strings.Contains(err.Error(), "malformed HTTP") {
-		t.Errorf("H1-vs-H2 error = %q, want the malformed-response family", err.Error())
+	// The rejection must come from the response bytes, not from our own
+	// context: the stdlib surfaces H2-preface rejection either as the classic
+	// malformed-response family or — under -race on a loaded machine, when
+	// the read loop peeks before the preface arrives — as a peek failure
+	// whose nil cause formats as %!w(<nil>). A context lapse here would mean
+	// the client hung instead of rejecting, which stays a failure.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		t.Fatalf("H1-vs-H2 error = %q, want a response rejection, not a context lapse", err.Error())
 	}
 }

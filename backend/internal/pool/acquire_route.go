@@ -388,7 +388,26 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 // gate skips are re-evaluated with full recording wherever the request goes
 // next — so a scan hit that grants leaves the same records as the legacy
 // walk, and a miss parks silently like a spill.
+//
+// POOL_ORDERED_PLACEMENT (default off) makes placement prefer the LOWEST
+// roster index that can serve the request: a warm lane may only grant when
+// no earlier admissible lane can take the request. The first admissible lane
+// with a free slot is the lane the walk itself would admit on
+// (acquire_route.go scaleoutFrom), so once that lane is cold-but-admittable
+// the scan suppresses the warm grant and lets the walk admit there (a cold
+// lane creates its session inline). A cold lane whose seat another model's
+// in-flight turn already holds is NOT admittable in place — preferring it
+// would rotate the account's single seat out from under that turn (seat.go)
+// — so the later warm lane still grants and two models keep running on two
+// accounts. Off, the scan is byte-identical to the legacy arrival scan.
 func (p *Pool) scanWarmFree(ws *walkState, cap int) (tok *tokenEntry, idx int, permit *slotPermit) {
+	ordered := ws.cfg.PoolOrderedPlacement
+	// unsafeColdFree records an earlier admissible lane with a free slot
+	// whose seat is held by another model's turn: the walk WILL admit (and
+	// rotate) there, so a later warm grant must not be suppressed into that
+	// rotation. Only a cold lane nobody is currently dispatching on can
+	// pre-empt the warm scan.
+	unsafeColdFree := false
 	for _, i := range ws.order {
 		if err := ws.ctx.Err(); err != nil {
 			return nil, -1, nil
@@ -402,7 +421,22 @@ func (p *Pool) scanWarmFree(ws *walkState, cap int) (tok *tokenEntry, idx int, p
 			continue
 		}
 		if !sessionUsableForModel(t, ws.model) {
-			continue
+			if !ordered {
+				continue
+			}
+			if !p.slotHasFree(slotKey{entry: t, model: ws.model}, cap) {
+				continue
+			}
+			if t.seat.busy() {
+				unsafeColdFree = true
+				continue
+			}
+			if unsafeColdFree {
+				continue
+			}
+			// The walk takes this lane; do not hand the request to a
+			// later warm lane first.
+			return nil, -1, nil
 		}
 		if permit, _, ok := p.slotTry(slotKey{entry: t, model: ws.model}, cap); ok {
 			return t, i, permit

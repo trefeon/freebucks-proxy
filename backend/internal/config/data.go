@@ -151,6 +151,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.Itoa(c.QueueDepth), false
 	case "MAX_SPILL_ACCOUNTS":
 		return strconv.Itoa(c.MaxSpillAccounts), false
+	case "POOL_ORDERED_PLACEMENT":
+		return strconv.FormatBool(c.PoolOrderedPlacement), false
 	case "COMPRESS_PROMPT":
 		return strconv.FormatBool(c.CompressPrompt), false
 	case "CACHE_CONTROL_INJECTION":

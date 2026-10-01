@@ -268,6 +268,16 @@ type Config struct {
 	// A 429 quota requeue never consumes spill budget. Live-apply (read
 	// per Acquire).
 	MaxSpillAccounts int
+	// PoolOrderedPlacement makes placement prefer the lowest roster index
+	// that can serve a request (POOL_ORDERED_PLACEMENT; default false):
+	// the arrival scan no longer grants on a later warm lane while an
+	// earlier lane can take the request, so an idle earlier account is
+	// used instead of letting a later warm one serve everything. A warm
+	// lane still grants when every earlier lane is full or gated, or when
+	// the earlier lane's seat is held by another model's in-flight turn
+	// (preferring it would rotate that turn's session out). Off, the warm
+	// arrival scan is unchanged. Live-apply (read per Acquire).
+	PoolOrderedPlacement bool
 	// Cooldown backoffs (COOLDOWN_*_MS, integer milliseconds): every
 	// upstream-refusal backoff the pool and classifier apply, tunable
 	// without a restart. Zero-tolerant: unset or non-positive values fall

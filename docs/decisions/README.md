@@ -14,6 +14,7 @@ so a code comment naming one of those numbers will not resolve to a file here.
 | `unified-store.md` | One runtime source per plane: mem-authoritative snapshot, DB-persisted, .env seed-only. |
 | `pool-only-removal.md` | Bridge/hybrid excision: pool-only routing, bridge knobs deleted not deprecated. |
 | `claim-rotate-closed.md` | Dead-claim wedge: 409 admission_attempt_closed rotates the persisted purchase claim with exactly one fresh-claim admission retry. |
+| `ordered-account-placement.md` | POOL_ORDERED_PLACEMENT: prefer the lowest-index account that can serve a turn instead of letting a later warm lane take it; the Freebucks-seat tradeoff and why it is opt-in. |
 
 House style for a decision record: a status line, non-goals, the rules or
 eligibility conditions, the constants and knobs with their defaults, the files

@@ -244,6 +244,16 @@
     "description": "Pin pool slots to one model each (e.g. \"0:z-ai/glm-5.2;1:deepseek/deepseek-v4-flash\"). Slots without an entry serve any model. Applies live on reload; malformed values reject the config."
   },
   {
+    "key": "POOL_ORDERED_PLACEMENT",
+    "group": "pool",
+    "kind": "bool",
+    "default": "false",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Prefer the lowest-index account that can serve a request: a later lane's warm session no longer wins while an earlier lane can take the turn (default false = today's warm-lane grant). Applies live on reload; the earlier lane's seat must be free to take it."
+  },
+  {
     "key": "QUEUE_DEPTH",
     "group": "pool",
     "kind": "int",

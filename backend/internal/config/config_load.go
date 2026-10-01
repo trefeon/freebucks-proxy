@@ -137,6 +137,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideString(&raw.QueueWait, "QUEUE_WAIT")
 	overrideInt(&raw.QueueDepth, "QUEUE_DEPTH")
 	overrideInt(&raw.MaxSpillAccounts, "MAX_SPILL_ACCOUNTS")
+	overrideBool(&raw.PoolOrderedPlacement, "POOL_ORDERED_PLACEMENT")
 	overrideBool(&raw.WaitingRoomChain, "WAITING_ROOM_CHAIN")
 	overrideFloat(&raw.RateLimitPerIP, "RATE_LIMIT_PER_IP")
 	overrideInt(&raw.RateLimitBurst, "RATE_LIMIT_BURST")
@@ -417,6 +418,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		QueueWait:                queueWait,
 		QueueDepth:               queueDepth,
 		MaxSpillAccounts:         maxSpillAccounts,
+		PoolOrderedPlacement:     raw.PoolOrderedPlacement,
 		AdoptCLISession:          raw.AdoptCLISession,
 		WaitingRoomChain:         raw.WaitingRoomChain,
 		RateLimitPerIP:           rateLimitPerIP,
@@ -603,6 +605,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideStringFrom(&raw.QueueWait, get, "QUEUE_WAIT")
 	overrideIntFrom(&raw.QueueDepth, get, "QUEUE_DEPTH")
 	overrideIntFrom(&raw.MaxSpillAccounts, get, "MAX_SPILL_ACCOUNTS")
+	overrideBoolFrom(&raw.PoolOrderedPlacement, get, "POOL_ORDERED_PLACEMENT")
 	overrideBoolFrom(&raw.WaitingRoomChain, get, "WAITING_ROOM_CHAIN")
 	overrideFloatFrom(&raw.RateLimitPerIP, get, "RATE_LIMIT_PER_IP")
 	overrideIntFrom(&raw.RateLimitBurst, get, "RATE_LIMIT_BURST")

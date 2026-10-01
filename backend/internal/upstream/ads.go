@@ -209,6 +209,12 @@ type adAuctionMessage struct {
 //     never fills (waiting-room widths at freebuff-landing-screen.tsx:480-488,
 //     CLI-Chat-Inline at chat.tsx:259, partner slots via partner-ads.ts).
 func (c *Client) requestAdsForSurface(ctx context.Context, provider, surface string, msgs []adAuctionMessage) (auctionedAd, error) {
+	// Snapshot the cached arm BEFORE kicking the fetch: the fetch runs
+	// detached, so on a loaded machine it can land before the payload below
+	// is built and the first auction would carry an arm the CLI never sends
+	// (its first request precedes the policy fetch — ad-request.ts:139 vs
+	// use-dock-panel.ts:48-51). Later calls observe the cached arm normally.
+	arm, armOk := c.adsDockArm()
 	c.ensureAdsPolicy(ctx)
 	var messages any = []any{}
 	if len(msgs) > 0 {
@@ -229,7 +235,7 @@ func (c *Client) requestAdsForSurface(ctx context.Context, provider, surface str
 		"userAgent": adBrowserUserAgent(),
 		"surface":   surface,
 	}
-	if arm, ok := c.adsDockArm(); ok {
+	if armOk {
 		payload["cliDockArm"] = arm
 	}
 	body, _ := json.Marshal(payload)

@@ -61,6 +61,16 @@ func (s *seatCounter) idle() bool {
 	return s.n.Load() <= 1
 }
 
+// busy reports whether ANY turn currently holds the seat. Unlike idle, it is
+// read by callers that have NOT counted themselves (the ordered-placement
+// arrival scan runs before admitOnLane's acquire), so a positive count means
+// another turn is mid-admission or dispatching. Preference must skip such a
+// lane: admitting on it would rotate the account's single seat out from under
+// that turn (seat.go's whole reason to exist).
+func (s *seatCounter) busy() bool {
+	return s.n.Load() > 0
+}
+
 // releaseSeat drops the seat count held by this lease. Nil-safe; paired with
 // the acquire inside admitOnLane. LeaseRelease and LeaseAbandon are the only
 // release paths, and a lease is released by one of them (a double call is

@@ -99,6 +99,10 @@ type rawConfig struct {
 	// MaxSpillAccounts records MAX_SPILL_ACCOUNTS (default 0): the spill
 	// walk bound, 0 = unbounded.
 	MaxSpillAccounts *int `json:"MAX_SPILL_ACCOUNTS"`
+	// PoolOrderedPlacement records POOL_ORDERED_PLACEMENT (default false):
+	// prefer the lowest roster index that can serve a request, so a warm
+	// later lane never grants while an earlier lane can take the request.
+	PoolOrderedPlacement bool `json:"POOL_ORDERED_PLACEMENT"`
 	// USConsistency pins every client-controlled signal to US values
 	// (US_CONSISTENCY): the session declaration defaults to
 	// America/New_York unless SESSION_TIMEZONE is explicitly set, and the
@@ -163,6 +167,7 @@ func defaultRawConfig() rawConfig {
 		SmartProbeBackoffMax:   "30m",      // 429-backoff doubling ceiling
 		SlotsPerAccount:        ptrInt(3),  // per account-model live turns (floor 1; bunker strictness is 1)
 		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
+		PoolOrderedPlacement:   false,      // warm-lane grant keeps winning: prefer the lowest-index lane that can serve (set true to enable)
 		MaturityEnabled:        true,       // streak maintenance on by default; set MATURITY_ENABLED=false to disable
 		MaturityTouchModel:     "",         // "" = auto: cheapest unmetered catalog row
 		MaturityTargetDays:     ptrInt(7),  // default 7-day streak target

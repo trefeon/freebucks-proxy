@@ -121,6 +121,19 @@ func (p *Pool) slotTry(key slotKey, cap int) (permit *slotPermit, live int, ok b
 	return &slotPermit{pool: p, key: key}, st.live, true
 }
 
+// slotHasFree reports whether the lane has a free live-turn slot WITHOUT
+// taking it (the ordered-placement arrival scan's read-only probe: it must
+// decide whether a lane can serve before committing, since slotTry's take
+// would have to be released — and Release hands a freed slot to a queued
+// waiter, which is not this caller's to give). cap is always positive here:
+// SLOTS_PER_ACCOUNT=0 never reaches the scan (leaseFromOrder routes it to the
+// legacy loop).
+func (p *Pool) slotHasFree(key slotKey, cap int) bool {
+	p.routeMu.Lock()
+	defer p.routeMu.Unlock()
+	return p.slotLiveLocked(key) < cap
+}
+
 // slotLiveLocked reports the lane's live-turn count. Caller holds p.routeMu.
 func (p *Pool) slotLiveLocked(key slotKey) int {
 	if st, ok := p.routeSlots[key]; ok && st != nil {
