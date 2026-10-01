@@ -192,6 +192,9 @@ func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options)
 		// calls to ask_user/read_url/list_directory/skill restore +
 		// reshape instead of failing client-side with "not found".
 		mapper.RegisterFloorFallbacks()
+		// Replay tool calls in historical assistant messages must match
+		// the canonical floor tools on the wire.
+		mapper.RenameMessagesToolCalls(payload)
 	}
 	mapper.RenameRequestToolChoice(payload)
 	renamed, merr := json.Marshal(payload)

@@ -568,3 +568,45 @@ func (m ToolMapper) RenameRequestToolChoice(payload map[string]any) {
 		}
 	}
 }
+
+// RenameMessagesToolCalls renames tool_calls function names in prior assistant
+// messages so the upstream wire carries official signature names matching
+// the tools definition array.
+func (m ToolMapper) RenameMessagesToolCalls(payload map[string]any) {
+	msgs, ok := payload["messages"].([]any)
+	if !ok || len(msgs) == 0 {
+		return
+	}
+	rename := func(name string) string {
+		if upstreamName, hit := m.clientToUpstream[name]; hit && upstreamName != "" {
+			return upstreamName
+		}
+		if upstreamName := resolveUpstreamTool(name, nil); upstreamName != "" {
+			return upstreamName
+		}
+		return name
+	}
+	for _, msgItem := range msgs {
+		msg, ok := msgItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		tcs, ok := msg["tool_calls"].([]any)
+		if !ok {
+			continue
+		}
+		for _, tcItem := range tcs {
+			tc, ok := tcItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			fn, ok := tc["function"].(map[string]any)
+			if !ok {
+				continue
+			}
+			if name, ok := fn["name"].(string); ok && name != "" {
+				fn["name"] = rename(name)
+			}
+		}
+	}
+}
