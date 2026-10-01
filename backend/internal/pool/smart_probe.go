@@ -1,12 +1,15 @@
 // smart_probe.go — smart zero-cost quota auto-refresh.
 //
-// Trigger-only, never sweeping: a token is probed only when real activity
-// marked it dirty (lease grant, successful chat, 429 refusal) or a known
-// reset instant arrives (per-model QuotaByModel ResetAt, remembered-429
-// reset, Freebucks daily refill, Pacific-midnight fallback when quota
-// memory exists but carries no instant). Accounts with no quota memory are
-// never due, so idle accounts see zero traffic: there is no periodic
-// full-sweep timer and no page-visit sweep.
+// Probe-once, never sweeping: a token is probed when real activity
+// marked it dirty (lease grant, successful chat, 429 refusal), when a
+// known reset instant arrives (per-model QuotaByModel ResetAt,
+// remembered-429 reset, Freebucks daily refill, Pacific-midnight
+// fallback when quota memory exists but carries no instant), or ONCE
+// when the account is still unknown (no quota memory at all —
+// SMART_PROBE_BOOTSTRAP, default on — so the dashboard shows data, then
+// quiet). There is no periodic full-sweep timer and no page-visit
+// sweep; with the bootstrap knob off, unknown accounts stay never-due
+// and idle accounts see zero traffic.
 //
 // The tick rides maintainTick (cheap predicate checks only) and dispatches
 // a due round to a detached stagger worker (single-flight, wg-tracked,
@@ -21,12 +24,11 @@ package pool
 import (
 	"context"
 	"errors"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
 
 const (
@@ -62,6 +64,22 @@ func smartProbeBackoffCap(cfg *config.Config) time.Duration {
 		return cfg.SmartProbeBackoffMax
 	}
 	return defaultSmartProbeBackoffMax
+}
+
+// smartProbeBootstrapEnabled reports whether the one-shot unknown-account
+// bootstrap may fire (SMART_PROBE_BOOTSTRAP, default on in production
+// Load; a nil config disables it, like the master switch in the tick).
+func smartProbeBootstrapEnabled(cfg *config.Config) bool {
+	return cfg != nil && cfg.SmartProbeBootstrap
+}
+
+// smartProbeQuotaUnknown reports whether the snapshots carry no quota
+// memory at all — a never-active account: no per-model rows, no
+// Freebucks block, no remembered-429 reset. This is the same condition
+// smartProbeResetInstant reports "none" on, and the bootstrap trigger
+// reuses it so "unknown" means exactly one thing.
+func smartProbeQuotaUnknown(ss session.SessionSnapshot, rs runs.RunSnapshot) bool {
+	return len(ss.QuotaByModel) == 0 && ss.Freebucks == nil && rs.RateLimitResetsAt.IsZero()
 }
 
 // smartProbeRetryDelay doubles the base per consecutive probe-429 step
@@ -111,9 +129,10 @@ func (p *Pool) markProbeDirty(entry *tokenEntry) {
 // and the Freebucks daily refill. Quota memory with no usable instant
 // falls back to the next Pacific midnight (the daily-refill rule
 // recoverAtForProbe applies when no window is known). No memory at all —
-// a never-active account — reports none, so idle accounts are never due.
+// a never-active account — reports none (see smartProbeQuotaUnknown; the
+// bootstrap trigger owns that case when SMART_PROBE_BOOTSTRAP is on).
 func smartProbeResetInstant(ss session.SessionSnapshot, rs runs.RunSnapshot, now time.Time) (time.Time, bool) {
-	if len(ss.QuotaByModel) == 0 && ss.Freebucks == nil && rs.RateLimitResetsAt.IsZero() {
+	if smartProbeQuotaUnknown(ss, rs) {
 		return time.Time{}, false
 	}
 	earliest := time.Time{}
@@ -145,9 +164,11 @@ func smartProbeResetInstant(ss session.SessionSnapshot, rs runs.RunSnapshot, now
 // smartProbeDueToken reports whether entry is due for a smart probe at
 // now, with a machine-readable reason for logs and tests. Guard order
 // mirrors the health gates: locked, quarantined, live-ban, cooling,
-// country, inflight, then the 60s fresh gate; only then do the triggers
-// (dirty mark, reset instant past its time and newer than the last fire)
-// apply.
+// country, inflight; then the one-shot unknown-account bootstrap (after
+// every health guard, before the freshness/debounce gates — an unknown
+// account carries no quota memory, so neither gate can hold it); then
+// the 60s fresh gate; only then do the triggers (dirty mark, reset
+// instant past its time and newer than the last fire) apply.
 func (p *Pool) smartProbeDueToken(tok *tokenEntry, now time.Time) (bool, string) {
 	if tok == nil {
 		return false, "no-entry"
@@ -172,6 +193,9 @@ func (p *Pool) smartProbeDueToken(tok *tokenEntry, now time.Time) (bool, string)
 		return false, "inflight"
 	}
 	ss := tok.session.Snapshot()
+	if smartProbeBootstrapEnabled(p.cfg.Load()) && !tok.probeBootstrapped.Load() && smartProbeQuotaUnknown(ss, rs) {
+		return true, "bootstrap"
+	}
 	if !ss.QuotaSavedAt.IsZero() && now.Sub(ss.QuotaSavedAt) < smartProbeFreshWindow {
 		return false, "fresh"
 	}
@@ -274,9 +298,11 @@ func (p *Pool) smartProbeTickAt(ctx context.Context, now time.Time) {
 // configured cap (first 429 = twice the base); a transport error parks
 // one quiet base interval without consuming a backoff step; any other
 // outcome clears the schedule — the next fire waits for fresh activity or
-// the next reset instant. The probe itself never installs cooldowns or
-// touches ledgers: quota truth arrives through ProbeTokenDetailed's
-// UpdateQuotaFromProbe write, everything else is scheduler-local.
+// the next reset instant. Every fire also consumes the one-shot
+// unknown-account bootstrap, so a bootstrap reason never repeats. The
+// probe itself never installs cooldowns or touches ledgers: quota truth
+// arrives through ProbeTokenDetailed's UpdateQuotaFromProbe write,
+// everything else is scheduler-local.
 func (p *Pool) smartProbeFireOne(ctx context.Context, idx int) {
 	toks := p.roster.Load()
 	if toks == nil || idx < 0 || idx >= len(*toks) {
@@ -293,6 +319,10 @@ func (p *Pool) smartProbeFireOne(ctx context.Context, idx int) {
 	now := time.Now()
 	tok.probeLastAt.Store(now.UnixNano())
 	tok.probeDirty.Store(false)
+	// The one-shot bootstrap is consumed by any fire — success or failure:
+	// an unknown account is probed once, then waits for fresh activity or
+	// a reset instant like every other known account.
+	tok.probeBootstrapped.Store(true)
 	var rle *upstream.RateLimitError
 	if errors.As(err, &rle) || errors.Is(err, upstream.ErrRateLimited) || outcome.Status == "rate_limited" {
 		// Refused: a parseable 429 body arrives as outcome rate_limited

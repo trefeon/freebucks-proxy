@@ -418,6 +418,16 @@
     "description": "Ceiling for the smart prober's 429-backoff doubling (Go duration; empty or non-positive values fall back to 30m). Applies live on reload."
   },
   {
+    "key": "SMART_PROBE_BOOTSTRAP",
+    "group": "pool",
+    "kind": "bool",
+    "default": "true",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "description": "Fire one session-less probe per unknown account (default true): accounts with no quota memory are probed once so the dashboard shows data, then go quiet until activity or a reset instant. False restores the strict trigger-only contract (idle accounts see zero traffic). Applies live on reload."
+  },
+  {
     "key": "SMART_PROBE_ENABLED",
     "group": "pool",
     "kind": "bool",

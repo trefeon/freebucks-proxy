@@ -240,3 +240,93 @@ export function thresholdSecs(raw) {
     Math.max(BALANCE_THRESHOLD_MIN_SECS, Math.round(queueWaitSecs(raw))),
   );
 }
+/**
+ * Parse the PIN_MODEL slot map ("0:model;1:model", backend
+ * config/pin_model.go) into a slot→model record for display. Malformed
+ * parts are skipped, never thrown: the overlay rejects bad writes, this
+ * only reads.
+ *
+ * @param {unknown} raw - serialized PIN_MODEL form value
+ * @returns {Record<number, string>}
+ */
+export function parsePinEntries(raw) {
+  const pins = {};
+  for (const part of String(raw ?? "").split(/;|\r?\n/)) {
+    const i = part.indexOf(":");
+    if (i < 0) continue;
+    const slot = Number(part.slice(0, i).trim());
+    const model = part.slice(i + 1).trim();
+    if (Number.isInteger(slot) && slot >= 0 && model) pins[slot] = model;
+  }
+  return pins;
+}
+
+/**
+ * Distinct pinned models in first-seen slot order. Empty when nothing is
+ * pinned (every lane serves any model).
+ *
+ * @param {unknown} raw - serialized PIN_MODEL form value
+ * @returns {string[]}
+ */
+export function distinctPinModels(raw) {
+  const seen = [];
+  for (const model of Object.values(parsePinEntries(raw))) {
+    if (!seen.includes(model)) seen.push(model);
+  }
+  return seen;
+}
+
+/**
+ * Predict the next account from the tokens snapshot: the first lane in
+ * roster order eligible for selectedModel, mirroring the gateway spill
+ * order (backend/internal/pool/spill_order.go) through the fields the
+ * token card actually carries (dashboard_cards.go tokenCard):
+ * locked, ban_type / session_status (quarantine proxy — the pool's
+ * terminal marker has no card field, so a ban type or a banned /
+ * quarantined status stands in), cooldown_active (the drawer parkedNote
+ * pattern), and pinned_model. Session warmth (active status) is reported
+ * on the pick, never reordered: the walk is strictly positional.
+ *
+ * Never guesses: null unless exactly one lane can be named — selectedModel
+ * null/undefined (pins disagree, the next model is unknown), no rows with
+ * a numeric index, or no eligible lane all return null so the caller
+ * renders the rule text without a name. Freebucks caps are invisible on
+ * the card and are not considered.
+ *
+ * @param {unknown} tokens - dashboard tokenCard rows
+ * @param {string|null|undefined} selectedModel - model to predict for;
+ *   "" = any-model (skip pinned lanes: they are reserved for their model);
+ *   null/undefined = ambiguous, always null
+ * @returns {{index:number,email:string,warm:boolean,pinnedModel:string}|null}
+ */
+export function predictNextAccount(tokens, selectedModel) {
+  if (
+    !Array.isArray(tokens) ||
+    selectedModel === null ||
+    selectedModel === undefined
+  ) {
+    return null;
+  }
+  const rows = tokens.filter(
+    (t) => t !== null && typeof t === "object" && Number.isFinite(t.index),
+  );
+  if (rows.length === 0) return null;
+  const ordered = [...rows].sort((a, b) => a.index - b.index);
+  for (const t of ordered) {
+    if (t.locked) continue;
+    if (t.ban_type) continue;
+    const status = t.session_status ?? "";
+    if (status === "banned" || status === "quarantined") continue;
+    if (t.cooldown_active) continue;
+    const pin = t.pinned_model ?? "";
+    if (selectedModel !== "" && pin !== "" && pin !== selectedModel) continue;
+    if (selectedModel === "" && pin !== "") continue;
+    return {
+      index: t.index,
+      email: typeof t.email === "string" ? t.email : "",
+      warm: status === "active",
+      pinnedModel: pin,
+    };
+  }
+  return null;
+}

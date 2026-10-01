@@ -169,6 +169,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return strconv.FormatBool(c.SmartProbeEnabled), false
 	case "SMART_PROBE_BACKOFF_MAX":
 		return c.SmartProbeBackoffMax.String(), false
+	case "SMART_PROBE_BOOTSTRAP":
+		return strconv.FormatBool(c.SmartProbeBootstrap), false
 	case "ACTING_USER_ID":
 		return c.ActingUserID, false
 	case "ADMIN_FORCE_SECURE_COOKIES":

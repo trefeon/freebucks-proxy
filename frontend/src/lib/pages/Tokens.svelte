@@ -818,6 +818,7 @@
       onSaved={settingsOverlaySaved}
       degraded={$settingsDegraded}
       tokenCount={data?.token_count ?? (data?.tokens ?? []).length}
+      tokens={data?.tokens ?? []}
     />
     <TrafficSettings
       cardTitle="Pool Controls"

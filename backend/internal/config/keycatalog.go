@@ -271,6 +271,11 @@ var keyCatalog = []KeyDef{
 		Description: `Ceiling for the smart prober's 429-backoff doubling (Go duration; empty or non-positive values fall back to 30m). Applies live on reload.`,
 	},
 	{
+		Key: "SMART_PROBE_BOOTSTRAP", Group: GroupPool, Kind: "bool",
+		Default:     "true",
+		Description: `Fire one session-less probe per unknown account (default true): accounts with no quota memory are probed once so the dashboard shows data, then go quiet until activity or a reset instant. False restores the strict trigger-only contract (idle accounts see zero traffic). Applies live on reload.`,
+	},
+	{
 		Key: "SMART_PROBE_ENABLED", Group: GroupPool, Kind: "bool",
 		Default:     "true",
 		Description: `Master switch for the smart zero-cost quota prober (default true): activity-triggered and reset-instant session-less probes keep parked quota fresh. False restores pre-scheduler behavior (manual probes only). Applies live on reload.`,

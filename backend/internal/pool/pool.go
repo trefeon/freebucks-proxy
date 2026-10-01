@@ -472,13 +472,18 @@ type tokenEntry struct {
 	// 429-backoff gate); probeInflight is the per-token single-flight;
 	// probeLastAt is the last smart-probe fire (reset catch-up compares
 	// against it); probeBackoffStep counts consecutive probe-429 outcomes
-	// for the doubling schedule. In-memory only: a restart re-derives
-	// everything from quota memory on the next pass.
-	probeDirty       atomic.Bool
-	probeNextAt      atomic.Int64
-	probeInflight    atomic.Bool
-	probeLastAt      atomic.Int64
-	probeBackoffStep atomic.Int64
+	// for the doubling schedule; probeBootstrapped records the one-shot
+	// unknown-account bootstrap fire (SMART_PROBE_BOOTSTRAP, default on):
+	// false until the first fire probes an account with no quota memory,
+	// then true forever. In-memory only: a restart re-derives
+	// everything from quota memory on the next pass (so a restart
+	// re-fires the bootstrap once per still-unknown account).
+	probeDirty        atomic.Bool
+	probeNextAt       atomic.Int64
+	probeInflight     atomic.Bool
+	probeLastAt       atomic.Int64
+	probeBackoffStep  atomic.Int64
+	probeBootstrapped atomic.Bool
 	// pinSkips counts Acquire-time single-pin skips for this slot
 	// (PIN_MODEL): requests for models the slot is not pinned to.
 	// Surfaced per-token in snapshots, cards, and metrics.

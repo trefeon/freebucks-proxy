@@ -149,6 +149,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideInt(&raw.MaturityTargetDays, "MATURITY_TARGET_DAYS")
 	overrideBool(&raw.SmartProbeEnabled, "SMART_PROBE_ENABLED")
 	overrideString(&raw.SmartProbeBackoffMax, "SMART_PROBE_BACKOFF_MAX")
+	overrideBool(&raw.SmartProbeBootstrap, "SMART_PROBE_BOOTSTRAP")
 	// Convert feature-translation modes (issue #277): COMPRESS_PROMPT,
 	// CACHE_CONTROL_INJECTION and REASONING_IN_CONTENT are resolved once
 	// here (so the dashboard config form and /admin/reload swaps apply) and
@@ -429,6 +430,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		MaturityTargetDays:       maturityTargetDays,
 		SmartProbeEnabled:        raw.SmartProbeEnabled,
 		SmartProbeBackoffMax:     smartProbeBackoffMax,
+		SmartProbeBootstrap:      raw.SmartProbeBootstrap,
 		EnvFile:                  envFileUsed,
 		CompressPrompt:           parseCompressPrompt(raw.CompressPrompt),
 		CacheControlInjection:    parseCacheControlInjection(raw.CacheControlInjection),
@@ -616,6 +618,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideIntFrom(&raw.MaturityTargetDays, get, "MATURITY_TARGET_DAYS")
 	overrideBoolFrom(&raw.SmartProbeEnabled, get, "SMART_PROBE_ENABLED")
 	overrideStringFrom(&raw.SmartProbeBackoffMax, get, "SMART_PROBE_BACKOFF_MAX")
+	overrideBoolFrom(&raw.SmartProbeBootstrap, get, "SMART_PROBE_BOOTSTRAP")
 	// Convert feature-translation modes (issue #277), mirroring Load.
 	overrideStringFrom(&raw.CompressPrompt, get, "COMPRESS_PROMPT")
 	overrideStringFrom(&raw.CacheControlInjection, get, "CACHE_CONTROL_INJECTION")

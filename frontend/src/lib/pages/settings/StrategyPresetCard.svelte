@@ -17,6 +17,13 @@
     BALANCE_THRESHOLD_MAX_SECS,
     detectStrategy,
     thresholdSecs,
+    slotsPerAccount,
+    queueWaitSecs,
+    queueDepth,
+    maxSpillAccounts,
+    parsePinEntries,
+    distinctPinModels,
+    predictNextAccount,
   } from "../../utils/poolStrategy.js";
 
   /**
@@ -36,6 +43,12 @@
    * DurationPicker is the primary editor) and writes the same field, so no
    * key ever gets two writers.
    *
+   * "How this runs" derives the live decision chain from the five owned
+   * keys (poolStrategy loader mirrors: slotsPerAccount, queueWaitSecs,
+   * queueDepth, maxSpillAccounts, parsePinEntries); "Next account" predicts
+   * the head of the spill walk from the tokens snapshot
+   * (predictNextAccount) and never guesses — no name without lane data.
+   *
    * @prop {Record<string, string>} formValues
    * @prop {(key: string, value: string) => void} onField
    * @prop {Record<string, string>} [sources] - ADR-0019 source tiers
@@ -46,6 +59,8 @@
    *   overlay saves render an honest offline note
    * @prop {string} [rawText] - .env document, for the rows' "default" chips
    * @prop {number} [tokenCount=0] - pooled accounts (pool-ceiling line)
+   * @prop {Array<object>} [tokens=[]] - dashboard tokenCard rows for the
+   *   next-account prediction (read-only; absent rows render rule text)
    * @prop {string} [query] - settings key-search text; hides the card on mismatch
    * @prop {(n: number) => void} [onMatchCount] - reports the visible-row count to the parent
    */
@@ -58,10 +73,10 @@
     degraded = false,
     rawText = "",
     tokenCount = 0,
+    tokens = [],
     query = "",
     onMatchCount = null,
   } = $props();
-
   const MASQ_LABEL = "MASQ";
   const MASQ_DESC =
     "Ordered Sticky Slot-Packing: 3 slots per account with 60s deferred scale-out and sticky session retention. Maximizes account session reuse.";
@@ -96,10 +111,10 @@
   const QDEPTH_HINT = "0 = no queueing (spill at once)";
 
   let env = $derived(parseEnv(rawText));
-  let slotsPerAccount = $derived(formValues.SLOTS_PER_ACCOUNT ?? "3");
-  let maxSpillAccounts = $derived(formValues.MAX_SPILL_ACCOUNTS ?? "0");
-  let queueWait = $derived(formValues.QUEUE_WAIT ?? "30s");
-  let queueDepth = $derived(formValues.QUEUE_DEPTH ?? "16");
+  let slotsRaw = $derived(formValues.SLOTS_PER_ACCOUNT ?? "3");
+  let spillRaw = $derived(formValues.MAX_SPILL_ACCOUNTS ?? "0");
+  let waitRaw = $derived(formValues.QUEUE_WAIT ?? "30s");
+  let depthRaw = $derived(formValues.QUEUE_DEPTH ?? "16");
 
   let strategy = $derived(
     detectStrategy({
@@ -115,12 +130,12 @@
   // Queue rows dim (never disable) while the per-account cap is unlimited
   // (0 = no slot gating) — nothing can park then, so the rows would do
   // nothing. The cap is the SLOTS_PER_ACCOUNT row below.
-  let queueParked = $derived(Number(slotsPerAccount) === 0);
+  let queueParked = $derived(Number(slotsRaw) === 0);
 
   // Honest pool ceiling: the per-account cap the gateway runs with × the
   // pooled accounts from the tokens snapshot. 0 = no slot gating at all.
   let ceiling = $derived.by(() => {
-    const cap = Number(String(slotsPerAccount).trim());
+    const cap = Number(String(slotsRaw).trim());
     const accounts = Math.max(0, Number(tokenCount) || 0);
     if (!Number.isFinite(cap) || cap <= 0) {
       return $tr("unlimited per account ({accounts} accounts)", { accounts });
@@ -128,6 +143,150 @@
     return $tr(
       "{cap} per account × {accounts} accounts = {total} concurrent turns",
       { cap, accounts, total: cap * accounts },
+    );
+  });
+  const HOW_TITLE = "How this runs";
+  const NEXT_TITLE = "Next account";
+
+  // Live decision chain ("How this runs") + head-of-walk prediction ("Next
+  // account"), both derived from the five owned keys through the same
+  // loader mirrors the badge classifies with — the block always names the
+  // numbers the gateway actually runs with, never the preset file text.
+  let slotsCap = $derived(slotsPerAccount(formValues.SLOTS_PER_ACCOUNT));
+  let waitSecs = $derived(queueWaitSecs(formValues.QUEUE_WAIT));
+  let depthCap = $derived(queueDepth(formValues.QUEUE_DEPTH));
+  let spillCap = $derived(maxSpillAccounts(formValues.MAX_SPILL_ACCOUNTS));
+  let pinEntries = $derived(parsePinEntries(formValues.PIN_MODEL ?? ""));
+  // The model the prediction runs for: the single pinned model when the
+  // map is unanimous, "" for any-model when nothing is pinned, null when
+  // pins disagree — ambiguous, so the prediction names no lane (never
+  // guess which model the next request carries).
+  let selectedModel = $derived.by(() => {
+    if (Object.keys(pinEntries).length === 0) return "";
+    const distinct = distinctPinModels(formValues.PIN_MODEL ?? "");
+    return distinct.length === 1 ? distinct[0] : null;
+  });
+  let nextPick = $derived(predictNextAccount(tokens, selectedModel));
+  let hasLaneRows = $derived(
+    Array.isArray(tokens) &&
+      tokens.some(
+        (t) => t !== null && typeof t === "object" && Number.isFinite(t.index),
+      ),
+  );
+  let presetName = $derived(
+    strategy === "masq"
+      ? "MASQ"
+      : strategy === "drain"
+        ? "Drain"
+        : strategy === "balance"
+          ? "Balance"
+          : "Custom",
+  );
+  // One-line posture with the ACTIVE preset's numbers, e.g. Balance:
+  // "parks 15s on a full lane (16 waiters), then spills".
+  let postureLine = $derived.by(() => {
+    const slots =
+      slotsCap === 0
+        ? $tr("unlimited slots per lane")
+        : $tr("{n} slots per lane", { n: slotsCap });
+    const park =
+      depthCap === 0
+        ? $tr("spills at once on a full lane (no queueing)")
+        : $tr("parks {wait}s on a full lane ({depth} waiters), then spills", {
+            wait: waitSecs,
+            depth: depthCap,
+          });
+    const tail =
+      spillCap === 0
+        ? $tr("down the full index chain")
+        : $tr("across up to {n} more account(s)", { n: spillCap });
+    return $tr("{label} runs {slots} — {park} {tail}.", {
+      label: presetName,
+      slots,
+      park,
+      tail,
+    });
+  });
+  // The five walk steps: index order → slot take → park → spill → tail,
+  // plus the pin rule. Each names live numbers.
+  let howSteps = $derived.by(() => {
+    const accounts = Math.max(0, Number(tokenCount) || 0);
+    const walk =
+      accounts > 0
+        ? $tr("Walk accounts #1…#{n} in roster index order.", { n: accounts })
+        : $tr("Walk accounts in roster index order.");
+    const take =
+      slotsCap === 0
+        ? $tr("No slot cap — every lane takes the turn at once.")
+        : $tr(
+            "Take a free slot — up to {n} live turn(s) per account-model lane.",
+            {
+              n: slotsCap,
+            },
+          );
+    const park =
+      depthCap === 0
+        ? $tr("A full lane spills at once (no queueing).")
+        : $tr(
+            "A full lane parks up to {wait}s ({depth} waiters), then spills.",
+            {
+              wait: waitSecs,
+              depth: depthCap,
+            },
+          );
+    const spill =
+      spillCap === 0
+        ? $tr("Spill down the full index chain (unbounded).")
+        : $tr("Spill across up to {n} more account(s).", { n: spillCap });
+    const tail = $tr(
+      "Tail: the end of the chain surfaces the existing 429 shape — never a new error code. A 429 quota requeue never consumes spill budget.",
+    );
+    const slots = Object.keys(pinEntries)
+      .map(Number)
+      .sort((a, b) => a - b);
+    const pins =
+      slots.length === 0
+        ? $tr("No pins — every lane serves any model.")
+        : $tr("Pins skip non-matching lanes: {list}.", {
+            list: slots.map((s) => `#${s + 1} → ${pinEntries[s]}`).join(", "),
+          });
+    return [walk, take, park, spill, tail, pins];
+  });
+  // The next-account line: a named lane when exactly one can be named,
+  // else the honest rule text without a name.
+  let nextLine = $derived.by(() => {
+    if (nextPick) {
+      const warmth = nextPick.warm
+        ? $tr("warm, live session")
+        : $tr("cold, needs admission");
+      const pin = nextPick.pinnedModel
+        ? $tr(" · pinned to {model}", { model: nextPick.pinnedModel })
+        : "";
+      const scope =
+        selectedModel !== ""
+          ? $tr(" — head of the lane for {model}", { model: selectedModel })
+          : "";
+      const who =
+        nextPick.email !== ""
+          ? $tr("Account #{n} ({email})", {
+              n: nextPick.index + 1,
+              email: nextPick.email,
+            })
+          : $tr("Account #{n}", { n: nextPick.index + 1 });
+      return `${who} — ${warmth}${pin}${scope}.`;
+    }
+    if (selectedModel === null) {
+      return $tr(
+        "Pins route per model — the next lane depends on the requested model, so no single lane is named.",
+      );
+    }
+    if (!hasLaneRows) {
+      return $tr(
+        "No lane data yet — the prediction needs the tokens snapshot.",
+      );
+    }
+    return $tr(
+      "Every lane is parked (locked, banned, cooling or pinned away) — no lane can take the next turn.",
     );
   });
 
@@ -160,8 +319,6 @@
       DRAIN_DESC,
       BALANCE_LABEL,
       BALANCE_DESC,
-      CUSTOM_LABEL,
-      CUSTOM_DESC,
       THRESHOLD_LABEL,
       THRESHOLD_DESC,
       KEYS_TITLE,
@@ -176,6 +333,12 @@
       QDEPTH_LABEL,
       QDEPTH_DESC,
       QDEPTH_HINT,
+      HOW_TITLE,
+      NEXT_TITLE,
+      "decision chain",
+      "next lane",
+      "spill",
+      "parks",
     )
       ? 1
       : 0,
@@ -277,6 +440,33 @@
         </p>
       {/if}
     </div>
+    <div class="pt-3 mt-1" data-testid="strategy-how-runs">
+      <p
+        class="text-xs font-semibold uppercase tracking-wider text-[var(--fp-muted)] pb-1 px-1"
+      >
+        {$tr(HOW_TITLE)}
+      </p>
+      <div
+        class="fp-inset p-3 rounded text-xs text-[var(--fp-muted)] space-y-2"
+      >
+        <p class="leading-relaxed text-[var(--fp-text)]">{postureLine}</p>
+        <ol class="list-decimal ml-4 space-y-1 leading-relaxed">
+          {#each howSteps as step, i (i)}
+            <li>{step}</li>
+          {/each}
+        </ol>
+      </div>
+    </div>
+
+    <div
+      class="flex items-center gap-2 pt-3 px-1 text-[11px] text-[var(--fp-muted)]"
+      data-testid="strategy-next-account"
+    >
+      <span class="uppercase tracking-wider text-[var(--fp-dim)]"
+        >{$tr(NEXT_TITLE)}</span
+      >
+      <span class="text-[var(--fp-text)]">{nextLine}</span>
+    </div>
 
     <div
       class="flex items-center gap-2 pt-3 px-1 text-[11px] text-[var(--fp-muted)]"
@@ -377,7 +567,7 @@
           {#snippet extra()}
             <DbOverrideSave
               settingKey="SLOTS_PER_ACCOUNT"
-              value={slotsPerAccount}
+              value={slotsRaw}
               source={sources.SLOTS_PER_ACCOUNT}
               {onReset}
               {onSaved}
@@ -387,7 +577,7 @@
 
           <div class="w-full sm:w-56">
             <NumberStepper
-              value={slotsPerAccount}
+              value={slotsRaw}
               min={0}
               step={1}
               ariaLabel="SLOTS_PER_ACCOUNT"
@@ -419,7 +609,7 @@
           {#snippet extra()}
             <DbOverrideSave
               settingKey="MAX_SPILL_ACCOUNTS"
-              value={maxSpillAccounts}
+              value={spillRaw}
               source={sources.MAX_SPILL_ACCOUNTS}
               {onReset}
               {onSaved}
@@ -429,7 +619,7 @@
 
           <div class="w-full sm:w-56">
             <NumberStepper
-              value={maxSpillAccounts}
+              value={spillRaw}
               min={0}
               step={1}
               ariaLabel="MAX_SPILL_ACCOUNTS"
@@ -474,7 +664,7 @@
         {#snippet extra()}
           <DbOverrideSave
             settingKey="QUEUE_WAIT"
-            value={queueWait}
+            value={waitRaw}
             source={sources.QUEUE_WAIT}
             {onReset}
             {onSaved}
@@ -484,7 +674,7 @@
 
         <div class="w-full sm:w-56">
           <DurationPicker
-            value={queueWait}
+            value={waitRaw}
             presets={["5s", "15s", "30s", "1m", "5m"]}
             ariaLabel="QUEUE_WAIT"
             placeholder="30s"
@@ -513,7 +703,7 @@
         {#snippet extra()}
           <DbOverrideSave
             settingKey="QUEUE_DEPTH"
-            value={queueDepth}
+            value={depthRaw}
             source={sources.QUEUE_DEPTH}
             {onReset}
             {onSaved}
@@ -523,7 +713,7 @@
 
         <div class="w-full sm:w-56">
           <NumberStepper
-            value={queueDepth}
+            value={depthRaw}
             min={0}
             step={1}
             ariaLabel="QUEUE_DEPTH"

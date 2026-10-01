@@ -208,6 +208,12 @@ type Config struct {
 	// (SMART_PROBE_BACKOFF_MAX; default 30m). Zero-tolerant like
 	// BURST_WINDOW: empty or non-positive values fall back to the default.
 	SmartProbeBackoffMax time.Duration
+	// SmartProbeBootstrap fires one session-less probe per unknown account
+	// (SMART_PROBE_BOOTSTRAP; default true): accounts with no quota memory
+	// are probed once so the dashboard shows data, then go quiet until
+	// activity or a reset instant. False restores the strict trigger-only
+	// contract (idle accounts see zero traffic). Applies live on reload.
+	SmartProbeBootstrap bool
 	// WaitingRoomChain, when enabled (WAITING_ROOM_CHAIN=false default),
 	// fires the reference ad-chain + streak requests before the next
 	// session create after an upstream 428 waiting_room_required (issue

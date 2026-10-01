@@ -87,6 +87,9 @@ type rawConfig struct {
 	// the smart prober (SMART_PROBE_BACKOFF_MAX; default "30m",
 	// zero-tolerant → 30m).
 	SmartProbeBackoffMax string `json:"SMART_PROBE_BACKOFF_MAX"`
+	// SmartProbeBootstrap fires one session-less probe per unknown account
+	// (SMART_PROBE_BOOTSTRAP; default true).
+	SmartProbeBootstrap bool `json:"SMART_PROBE_BOOTSTRAP"`
 	// SlotsPerAccount records SLOTS_PER_ACCOUNT (default 3, floor
 	// 0; 0 = unlimited live turns, no slot gating applies).
 	SlotsPerAccount *int `json:"SLOTS_PER_ACCOUNT"`
@@ -165,6 +168,7 @@ func defaultRawConfig() rawConfig {
 		QueueDepth:             ptrInt(16), // parked FIFO waiters per token (0 = fail over at once when full)
 		SmartProbeEnabled:      true,       // smart zero-cost quota prober on by default; set SMART_PROBE_ENABLED=false to disable
 		SmartProbeBackoffMax:   "30m",      // 429-backoff doubling ceiling
+		SmartProbeBootstrap:    true,       // one session-less probe per unknown account; set SMART_PROBE_BOOTSTRAP=false for strict trigger-only
 		SlotsPerAccount:        ptrInt(3),  // per account-model live turns (floor 1; bunker strictness is 1)
 		MaxSpillAccounts:       ptrInt(0),  // spill walk bound (0 = unbounded index chain)
 		PoolOrderedPlacement:   false,      // warm-lane grant keeps winning: prefer the lowest-index lane that can serve (set true to enable)

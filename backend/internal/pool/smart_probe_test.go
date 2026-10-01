@@ -19,35 +19,137 @@ func smartProbeTestPool(t *testing.T, mocks ...*testutil.MockUpstream) *Pool {
 	}, mocks...)
 }
 
-// TestSmartProbeIdleAccountsNeverProbed pins the trigger-only contract: a
-// pool with no activity and no quota memory dispatches nothing — no dirty
+// TestSmartProbeIdleAccountsNeverProbed pins the probe-once contract.
+// DELIBERATE amendment (probe-once for unknown accounts): production
+// defaults SMART_PROBE_BOOTSTRAP on, so a quiet pool IS due once per
+// unknown account (reason bootstrap) — Allowances fills on first pass.
+// With the knob off the strict trigger-only contract holds: no dirty
 // marks, no reset instants, zero upstream traffic.
 func TestSmartProbeIdleAccountsNeverProbed(t *testing.T) {
+	// Knob on (production default): every unknown account is due once
+	// with reason bootstrap — still no sweep, one fire each, then quiet.
 	mock0 := testutil.NewMock()
 	t.Cleanup(mock0.Close)
 	mock1 := testutil.NewMock()
 	t.Cleanup(mock1.Close)
-	p := smartProbeTestPool(t, mock0, mock1)
+	on := newTestPoolCfg(t, func(c *config.Config) {
+		c.SmartProbeEnabled = true
+		c.SmartProbeBootstrap = true
+	}, mock0, mock1)
 	now := time.Now()
-
-	if due := p.smartProbeDue(now); len(due) != 0 {
-		t.Fatalf("smartProbeDue on a quiet pool = %v, want none (no full sweeps)", due)
+	if due := on.smartProbeDue(now); len(due) != 2 || due[0] != 0 || due[1] != 1 {
+		t.Fatalf("smartProbeDue on a quiet pool = %v, want [0 1] (one bootstrap each)", due)
 	}
-	toks := p.roster.Load()
+	toks := on.roster.Load()
 	for i, tok := range *toks {
-		if ok, reason := p.smartProbeDueToken(tok, now); ok || reason != "idle" {
+		if ok, reason := on.smartProbeDueToken(tok, now); !ok || reason != "bootstrap" {
+			t.Errorf("token %d due = %v (%q), want true/bootstrap", i, ok, reason)
+		}
+	}
+
+	// Knob off: the old strict contract — nothing due, reason idle, the
+	// tick dispatches nothing, zero upstream traffic.
+	off0 := testutil.NewMock()
+	t.Cleanup(off0.Close)
+	off1 := testutil.NewMock()
+	t.Cleanup(off1.Close)
+	off := smartProbeTestPool(t, off0, off1)
+	if due := off.smartProbeDue(now); len(due) != 0 {
+		t.Fatalf("smartProbeDue with bootstrap off = %v, want none (no full sweeps)", due)
+	}
+	offToks := off.roster.Load()
+	for i, tok := range *offToks {
+		if ok, reason := off.smartProbeDueToken(tok, now); ok || reason != "idle" {
 			t.Errorf("token %d due = %v (%q), want false/idle", i, ok, reason)
 		}
 	}
-	p.smartProbeTickAt(context.Background(), now)
-	if got := mock0.SessionProbesSnapshot(); got != 0 {
+	off.smartProbeTickAt(context.Background(), now)
+	if got := off0.SessionProbesSnapshot(); got != 0 {
 		t.Errorf("account #1 probes = %d, want 0 (idle accounts see zero traffic)", got)
 	}
-	if got := mock1.SessionProbesSnapshot(); got != 0 {
+	if got := off1.SessionProbesSnapshot(); got != 0 {
 		t.Errorf("account #2 probes = %d, want 0 (idle accounts see zero traffic)", got)
 	}
-	if got := mock0.SessionCreatesSnapshot(); got != 0 {
+	if got := off0.SessionCreatesSnapshot(); got != 0 {
 		t.Errorf("account #1 session creates = %d, want 0", got)
+	}
+}
+
+// TestSmartProbeBootstrapFiresOnceThenQuiet pins the one-shot: an unknown
+// account fires exactly one session-less probe (no new session), then the
+// bootstrap is consumed and the account goes quiet until fresh activity
+// or a reset instant.
+func TestSmartProbeBootstrapFiresOnceThenQuiet(t *testing.T) {
+	mock := testutil.NewMock()
+	t.Cleanup(mock.Close)
+	p := newTestPoolCfg(t, func(c *config.Config) {
+		c.SmartProbeEnabled = true
+		c.SmartProbeBootstrap = true
+	}, mock)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tok := (*p.roster.Load())[0]
+	if ok, reason := p.smartProbeDueToken(tok, time.Now()); !ok || reason != "bootstrap" {
+		t.Fatalf("unknown account due = %v (%q), want true/bootstrap", ok, reason)
+	}
+	if due := p.smartProbeDue(time.Now()); len(due) != 1 || due[0] != 0 {
+		t.Fatalf("smartProbeDue on unknown account = %v, want [0] (bootstrap)", due)
+	}
+
+	p.smartProbeFireOne(ctx, 0)
+	if got := mock.SessionProbesSnapshot(); got != 1 {
+		t.Errorf("probes after bootstrap fire = %d, want 1 (the fire ran)", got)
+	}
+	if got := mock.SessionCreatesSnapshot(); got != 0 {
+		t.Errorf("session creates after bootstrap fire = %d, want 0 (probe is zero-cost, never admission)", got)
+	}
+	if !tok.probeBootstrapped.Load() {
+		t.Error("probeBootstrapped = false after fire, want true (one shot consumed)")
+	}
+	if due := p.smartProbeDue(time.Now()); len(due) != 0 {
+		t.Errorf("smartProbeDue after bootstrap fire = %v, want none (single fire, then quiet)", due)
+	}
+}
+
+// TestSmartProbeBootstrapSkipsUnhealthyAccounts pins the guard order for
+// the new trigger: locked, quarantined/banned accounts never bootstrap —
+// the health gates precede the bootstrap check, so unknown-but-dead
+// accounts see zero traffic.
+func TestSmartProbeBootstrapSkipsUnhealthyAccounts(t *testing.T) {
+	mock := testutil.NewMock()
+	t.Cleanup(mock.Close)
+	mock.Ban = true
+	p := newTestPoolCfg(t, func(c *config.Config) {
+		c.SmartProbeEnabled = true
+		c.SmartProbeBootstrap = true
+	}, mock)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if _, err := p.Acquire(ctx, modelA); err == nil {
+		t.Fatal("acquire on a banned account succeeded, want refusal")
+	}
+	tok := (*p.roster.Load())[0]
+	// The terminal ban quarantines the account, and the quarantine gate
+	// precedes the bootstrap check, so the reason is "quarantined" —
+	// never "bootstrap" — even with no quota memory.
+	if ok, reason := p.smartProbeDueToken(tok, time.Now()); ok || reason != "quarantined" {
+		t.Errorf("banned due = %v (%q), want false/quarantined", ok, reason)
+	}
+	p.smartProbeTickAt(ctx, time.Now())
+	if got := mock.SessionProbesSnapshot(); got != 0 {
+		t.Errorf("probes on banned account = %d, want 0", got)
+	}
+
+	// A locked account reports locked, never bootstraps.
+	mock.Ban = false
+	if err := p.LockToken(0); err != nil {
+		t.Fatalf("LockToken: %v", err)
+	}
+	t.Cleanup(func() { _ = p.UnlockLockToken(0) })
+	if ok, reason := p.smartProbeDueToken(tok, time.Now()); ok || reason != "locked" {
+		t.Errorf("locked due = %v (%q), want false/locked", ok, reason)
 	}
 }
 
