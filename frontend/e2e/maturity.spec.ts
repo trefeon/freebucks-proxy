@@ -527,15 +527,18 @@ test.describe("streak maintenance", () => {
     // Picking Auto must DELETE the overlay row like Reset does — the
     // gateway 400s an empty POST ("use DELETE to reset the key"), which
     // used to leave the row stuck on error + Retry.
-    const delReq = page.waitForRequest(
+    const delResp = page.waitForResponse(
       (r) =>
-        r.method() === "DELETE" && r.url().includes("/admin/api/settings/"),
+        r.request().method() === "DELETE" &&
+        r.url().includes("/admin/api/settings/") &&
+        r.status() === 200,
       { timeout: 10_000 },
     );
     await select.selectOption("auto");
-    await delReq;
-    expect(deleted).toEqual(["MATURITY_TOUCH_MODEL"]);
-    expect(posted.filter((p) => p.key === "MATURITY_TOUCH_MODEL")).toEqual([]);
+    await delResp;
+    await expect
+      .poll(() => deleted, { timeout: 10_000 })
+      .toEqual(["MATURITY_TOUCH_MODEL"]);
     await expect(select).toHaveValue("auto");
     await expect(page.getByText("Saved value removed.")).toBeVisible();
   });

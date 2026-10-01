@@ -258,20 +258,22 @@ test.describe("pool accounts (mock roster)", () => {
       table.locator("code").filter({ hasText: MODEL_A }),
     ).toHaveCount(1);
 
+    // Clearing the last pin DELETEs the overlay row (never POSTs empty):
+    // the gateway 400s an empty PIN_MODEL write ("use DELETE to reset").
     const unpinResp = page.waitForResponse(
       (r) =>
-        r.request().method() === "POST" &&
-        r.url().endsWith("/admin/api/settings") &&
+        r.request().method() === "DELETE" &&
+        r.url().endsWith("/admin/api/settings/PIN_MODEL") &&
         r.status() === 200,
     );
     const refetch2 = page.waitForResponse(
       (r) => r.url().includes("/admin/api/tokens") && r.status() === 200,
     );
     await table.getByRole("button", { name: "Clear pin" }).click();
-    expect(await (await unpinResp).request().postDataJSON()).toEqual({
-      key: "PIN_MODEL",
-      value: "",
-    });
+    await unpinResp;
+    expect(posted.filter((p) => p.key === "PIN_MODEL")).toEqual([
+      { key: "PIN_MODEL", value: `8:${MODEL_A}` },
+    ]);
     delete state.tokens[8].pinned_model;
     await refetch2;
     await expect(

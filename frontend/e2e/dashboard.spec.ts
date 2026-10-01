@@ -239,30 +239,34 @@ test.describe("dashboard hermetic mocks", () => {
       .toContain("0:mimo/mimo-v2.5");
   });
 
-  test("Token drawer clears a pin through PIN_MODEL save", async ({ page }) => {
+  test("Token drawer clears a pin through PIN_MODEL delete", async ({
+    page,
+  }) => {
     const f = loadFixtures();
     const pinnedTokens = JSON.parse(JSON.stringify(f.tokens));
     pinnedTokens.tokens[0].pinned_model = "mimo/mimo-v2.5";
     await mockDashboard(page, f, { tokens: pinnedTokens });
     const posted: PostedSetting[] = [];
-    await mockSettingsOverlay(page, posted);
+    const { deleted } = await mockSettingsOverlay(page, posted);
 
     await page.goto("http://127.0.0.1:4173/admin/#tokens");
     const table = page.locator("table.fp-table");
     await expect(table.getByText("Account #1")).toBeVisible({ timeout: 10000 });
     await table.locator('button[aria-label*="Expand details"]').first().click();
     await expect(page.getByText("mimo/mimo-v2.5").first()).toBeVisible();
+    // Clearing the last pin DELETEs the overlay row (never POSTs empty):
+    // the gateway 400s an empty PIN_MODEL write ("use DELETE to reset").
     await Promise.all([
       page.waitForRequest(
-        (r) => r.method() === "POST" && r.url().includes("/admin/api/settings"),
+        (r) =>
+          r.method() === "DELETE" &&
+          r.url().includes("/admin/api/settings/PIN_MODEL"),
         { timeout: 10000 },
       ),
       table.getByRole("button", { name: "Clear pin" }).click(),
     ]);
-    await expect
-      .poll(() => posted.filter((p) => p.key === "PIN_MODEL").length)
-      .toBeGreaterThan(0);
-    expect(posted.find((p) => p.key === "PIN_MODEL")?.value).toBe("");
+    await expect.poll(() => deleted, { timeout: 10000 }).toEqual(["PIN_MODEL"]);
+    expect(posted.filter((p) => p.key === "PIN_MODEL")).toEqual([]);
   });
 
   test("Quota Tracker shows Freebucks empty state, no session quota bars", async ({

@@ -14,7 +14,7 @@
     fetchModelOptions,
     cheapestFreeOption,
   } from "../modelOptions.js";
-  import { fetchAPI, postAPI } from "../api/client.js";
+  import { fetchAPI, postAPI, deleteAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import { refreshTokens } from "../stores/tokens.js";
   import { tr } from "../i18n.js";
@@ -155,10 +155,24 @@
       const setRes = await fetchAPI(adminApi.settings);
       const row = (setRes?.settings ?? []).find((e) => e.key === "PIN_MODEL");
       const value = patchSlotPin(row?.value ?? "", slot, model);
-      const res = await postAPI(adminApi.settingsSave, {
-        key: "PIN_MODEL",
-        value,
-      });
+      // Clearing the last pin serializes to "": the overlay rejects empty
+      // POSTs (use DELETE to reset), so drop the row instead — same as the
+      // API-keys editor. A 404 means no row exists, which is the goal.
+      let res;
+      if (value === "") {
+        try {
+          res = await deleteAPI(adminApi.settingsDelete("PIN_MODEL"));
+        } catch (e) {
+          if (!/no_override|nothing to reset|404/.test(e?.message || ""))
+            throw e;
+          res = { ok: true, message: "Pin already cleared." };
+        }
+      } else {
+        res = await postAPI(adminApi.settingsSave, {
+          key: "PIN_MODEL",
+          value,
+        });
+      }
       if (res && res.ok === false)
         throw new Error(res.message || "Save rejected");
       // Caveat-bearing saves (restart-only, env-shadowed) surface the
