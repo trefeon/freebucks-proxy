@@ -655,7 +655,7 @@ func (h *ompMimoMockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // TestOmpMiMoSimulation runs the end-to-end 4-turn agentic coding loop simulation for
-// the Oh My Pi (omp) harness interacting with mimo/mimo-v2.5 through freebucks-proxy.
+// the Oh My Pi (omp) harness interacting with mimo/mimo-v2.5 through freebuff-proxy.
 func TestOmpMiMoSimulation(t *testing.T) {
 	t.Run("OpenAI_NonStreaming", func(t *testing.T) {
 		mock := testutil.NewMock()

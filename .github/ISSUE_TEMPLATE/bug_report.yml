@@ -6,7 +6,7 @@ body:
     id: version
     attributes:
       label: Version / distribution
-      placeholder: e.g. ghcr.io/trefeon/freebucks-proxy:1.14.1 or binary version
+      placeholder: e.g. ghcr.io/trefeon/freebuff-proxy:1.14.1 or binary version
     validations:
       required: true
   - type: dropdown

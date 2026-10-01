@@ -494,7 +494,7 @@ func TestMetricsEndpoint(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, data)
 	}
 	body := string(data)
-	if !strings.Contains(body, "freebucks_proxy_uptime_seconds") || !strings.Contains(body, "freebucks_proxy_models_total") {
+	if !strings.Contains(body, "freebuff_proxy_uptime_seconds") || !strings.Contains(body, "freebuff_proxy_models_total") {
 		t.Errorf("metrics missing expected keys: %s", body)
 	}
 }
@@ -926,10 +926,10 @@ func TestMetricsQuotaLines(t *testing.T) {
 	}
 	body := string(data)
 	for _, want := range []string{
-		`freebucks_proxy_quota_recent{token="1",model="z-ai/glm-5.2",period="pacific_day"} 4`,
-		`freebucks_proxy_quota_limit{token="1",model="z-ai/glm-5.2",period="pacific_day"} 5`,
-		`freebucks_proxy_quota_remaining{token="1",model="z-ai/glm-5.2",period="pacific_day"} 1`,
-		fmt.Sprintf(`freebucks_proxy_session_remaining_seconds{token="1",model="%s"}`, modelA),
+		`freebuff_proxy_quota_recent{token="1",model="z-ai/glm-5.2",period="pacific_day"} 4`,
+		`freebuff_proxy_quota_limit{token="1",model="z-ai/glm-5.2",period="pacific_day"} 5`,
+		`freebuff_proxy_quota_remaining{token="1",model="z-ai/glm-5.2",period="pacific_day"} 1`,
+		fmt.Sprintf(`freebuff_proxy_session_remaining_seconds{token="1",model="%s"}`, modelA),
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics missing %s in:\n%s", want, body)
@@ -970,8 +970,8 @@ func TestMetricsLabelEscaping(t *testing.T) {
 	}
 	body := string(data)
 	for _, want := range []string{
-		`freebucks_proxy_quota_recent{token="1",model="weird\"model",period="p\"d"} 4`,
-		`freebucks_proxy_quota_limit{token="1",model="weird\"model",period="p\"d"} 5`,
+		`freebuff_proxy_quota_recent{token="1",model="weird\"model",period="p\"d"} 4`,
+		`freebuff_proxy_quota_limit{token="1",model="weird\"model",period="p\"d"} 5`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics missing %s in:\n%s", want, body)
@@ -1035,12 +1035,12 @@ func TestMetricsTransientRetryCounters(t *testing.T) {
 		t.Fatalf("metrics status = %d, want 200: %s", resp.StatusCode, data)
 	}
 	body := string(data)
-	if !strings.Contains(body, `freebucks_proxy_transient_retries_total{token="1"} 1`) {
+	if !strings.Contains(body, `freebuff_proxy_transient_retries_total{token="1"} 1`) {
 		t.Errorf("metrics missing transient retry line: %s", body)
 	}
 	// No TLS fingerprint is pinned in this setup, so no rotation happened
 	// and the fingerprint value line must not be emitted (only when > 0).
-	if strings.Contains(body, "freebucks_proxy_fingerprint_rotations_total{token=\"1\"}") {
+	if strings.Contains(body, "freebuff_proxy_fingerprint_rotations_total{token=\"1\"}") {
 		t.Errorf("metrics emitted a fingerprint rotation value with no rotation: %s", body)
 	}
 }
@@ -1297,7 +1297,7 @@ func TestPausedModelWithdrawnMessage(t *testing.T) {
 // additions, so a new family forces a conscious update here (the review
 // found families drifting untracked). The expected list mirrors
 // handleMetrics (server/health.go) plus the package counter it reads
-// (telemetry.ModelUnavailableSkips). freebucks_proxy_log_events_total is
+// (telemetry.ModelUnavailableSkips). freebuff_proxy_log_events_total is
 // emitted only when the dashboard log ring is wired, so it is pinned in the
 // ring variant below and must be ABSENT without one. The contract covers the
 // live namespace only.
@@ -1305,26 +1305,26 @@ func TestMetricsFamiliesContract(t *testing.T) {
 	// metricsFamilies maps family name -> TYPE value (the full contract
 	// minus the ring-conditional log_events_total).
 	metricsFamilies := map[string]string{
-		"freebucks_proxy_uptime_seconds":                "gauge",
-		"freebucks_proxy_models_total":                  "gauge",
-		"freebucks_proxy_tokens_total":                  "gauge",
-		"freebucks_proxy_rate_limit_rejected_total":     "counter",
-		"freebucks_proxy_model_unavailable_skips_total": "counter",
-		"freebucks_proxy_token_messages_24h":            "gauge",
-		"freebucks_proxy_token_requests_total":          "counter",
-		"freebucks_proxy_token_active_runs":             "gauge",
-		"freebucks_proxy_token_cooldown_active":         "gauge",
-		"freebucks_proxy_quota_recent":                  "gauge",
-		"freebucks_proxy_quota_limit":                   "gauge",
-		"freebucks_proxy_quota_remaining":               "gauge",
-		"freebucks_proxy_session_remaining_seconds":     "gauge",
-		"freebucks_proxy_transient_retries_total":       "counter",
-		// (Retired: freebucks_proxy_queue_retries_total was the always-0
+		"freebuff_proxy_uptime_seconds":                "gauge",
+		"freebuff_proxy_models_total":                  "gauge",
+		"freebuff_proxy_tokens_total":                  "gauge",
+		"freebuff_proxy_rate_limit_rejected_total":     "counter",
+		"freebuff_proxy_model_unavailable_skips_total": "counter",
+		"freebuff_proxy_token_messages_24h":            "gauge",
+		"freebuff_proxy_token_requests_total":          "counter",
+		"freebuff_proxy_token_active_runs":             "gauge",
+		"freebuff_proxy_token_cooldown_active":         "gauge",
+		"freebuff_proxy_quota_recent":                  "gauge",
+		"freebuff_proxy_quota_limit":                   "gauge",
+		"freebuff_proxy_quota_remaining":               "gauge",
+		"freebuff_proxy_session_remaining_seconds":     "gauge",
+		"freebuff_proxy_transient_retries_total":       "counter",
+		// (Retired: freebuff_proxy_queue_retries_total was the always-0
 		// same-session queue split — dropped with the snapshot columns.)
-		"freebucks_proxy_fingerprint_rotations_total": "counter",
-		"freebucks_proxy_rate_limit_events_total":     "counter",
-		"freebucks_proxy_model_locked_total":          "counter",
-		"freebucks_proxy_pin_skips_total":             "counter",
+		"freebuff_proxy_fingerprint_rotations_total": "counter",
+		"freebuff_proxy_rate_limit_events_total":     "counter",
+		"freebuff_proxy_model_locked_total":          "counter",
+		"freebuff_proxy_pin_skips_total":             "counter",
 	}
 
 	// assertFamilies checks every expected family has a HELP and a TYPE
@@ -1400,11 +1400,11 @@ func TestMetricsFamiliesContract(t *testing.T) {
 		body := string(data)
 		assertFamilies(t, body, metricsFamilies)
 		// The populated server's request counter must carry a real row.
-		if !strings.Contains(body, `freebucks_proxy_token_requests_total{token="1"} 1`) {
+		if !strings.Contains(body, `freebuff_proxy_token_requests_total{token="1"} 1`) {
 			t.Errorf("populated server missing token_requests_total{token=\"1\"} 1 row:\n%s", body)
 		}
 		// No ring wired: the log-ring family must be absent.
-		if strings.Contains(body, "freebucks_proxy_log_events_total") {
+		if strings.Contains(body, "freebuff_proxy_log_events_total") {
 			t.Error("log_events_total emitted without a dashboard log ring")
 		}
 	})
@@ -1427,12 +1427,12 @@ func TestMetricsFamiliesContract(t *testing.T) {
 			t.Fatalf("metrics status = %d, want 200", resp.StatusCode)
 		}
 		body := string(data)
-		want := map[string]string{"freebucks_proxy_log_events_total": "counter"}
+		want := map[string]string{"freebuff_proxy_log_events_total": "counter"}
 		for name, tval := range metricsFamilies {
 			want[name] = tval
 		}
 		assertFamilies(t, body, want)
-		if !strings.Contains(body, `freebucks_proxy_log_events_total{level="info",msg="chat request"}`) {
+		if !strings.Contains(body, `freebuff_proxy_log_events_total{level="info",msg="chat request"}`) {
 			t.Errorf("log_events_total missing the chat request row:\n%s", body)
 		}
 	})

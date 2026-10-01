@@ -542,7 +542,7 @@
 </script>
 
 <PageShell
-  crumb="freebucks-proxy / Admin / accounts.conf"
+  crumb="freebuff-proxy / Admin / accounts.conf"
   title={$tr("Accounts")}
   description={$tr(
     "Upstream account fleet, allowances, daily streaks, and pool strategy.",

@@ -296,7 +296,7 @@ def run_all_flows():
     # FLOW 4: Tool Result Feedback & Final Answer (Step 2)
     # --------------------------------------------------
     print_banner("Flow 4: Tool Result Feedback & Synthesis (Step 2)")
-    tool_exec_result = json.dumps({"files": ["freebucks-proxy", "openapi-emit", "wiregen"], "path": "backend/cmd"})
+    tool_exec_result = json.dumps({"files": ["freebuff-proxy", "openapi-emit", "wiregen"], "path": "backend/cmd"})
     messages_flow3.append({
         "role": "assistant",
         "content": text3 or "",

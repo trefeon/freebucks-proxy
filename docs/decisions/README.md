@@ -2,7 +2,7 @@
 
 Status: index. This directory carries the decisions that are safe to publish;
 the numbered series cited from code comments (ADR-0016, ADR-0019, ADR-0022,
-ADR-0027, …) lives in the project's private dev trail (`trefeon/freebucks-proxy-dev`),
+ADR-0027, …) lives in the project's private dev trail (`trefeon/freebuff-proxy-dev`),
 so a code comment naming one of those numbers will not resolve to a file here.
 
 | Document | Subject |

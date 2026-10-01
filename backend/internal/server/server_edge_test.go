@@ -381,8 +381,8 @@ func TestMetricsLabelEscapingBackslashNewline(t *testing.T) {
 	}
 	body := string(data)
 	for _, want := range []string{
-		`freebucks_proxy_quota_recent{token="1",model="weird\\mod\nel",period="p_day"} 4`,
-		`freebucks_proxy_quota_limit{token="1",model="weird\\mod\nel",period="p_day"} 5`,
+		`freebuff_proxy_quota_recent{token="1",model="weird\\mod\nel",period="p_day"} 4`,
+		`freebuff_proxy_quota_limit{token="1",model="weird\\mod\nel",period="p_day"} 5`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics missing %s in:\n%s", want, body)
@@ -401,15 +401,15 @@ func TestMetricsEmptyPool(t *testing.T) {
 	}
 	body := string(data)
 	for _, want := range []string{
-		"freebucks_proxy_uptime_seconds",
-		"freebucks_proxy_models_total",
-		"freebucks_proxy_tokens_total 0",
+		"freebuff_proxy_uptime_seconds",
+		"freebuff_proxy_models_total",
+		"freebuff_proxy_tokens_total 0",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics missing %s in:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "freebucks_proxy_token_messages_24h{") {
+	if strings.Contains(body, "freebuff_proxy_token_messages_24h{") {
 		t.Errorf("empty pool emitted a per-token line:\n%s", body)
 	}
 }
@@ -508,7 +508,7 @@ func truncate(s string, n int) string {
 
 // TestMetricsModelLockedTotal pins issue #160's metrics surface: a chat
 // that forces a model_locked admission (old slot released, desired model
-// re-admitted) renders freebucks_proxy_model_locked_total with the from→to
+// re-admitted) renders freebuff_proxy_model_locked_total with the from→to
 // model pair, per token.
 func TestMetricsModelLockedTotal(t *testing.T) {
 	mock := testutil.NewMock()
@@ -559,7 +559,7 @@ func TestMetricsModelLockedTotal(t *testing.T) {
 		t.Fatalf("metrics status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
 	body := string(data)
-	want := fmt.Sprintf(`freebucks_proxy_model_locked_total{token="1",from="%s",to="%s"} 1`, modelA, lockModel)
+	want := fmt.Sprintf(`freebuff_proxy_model_locked_total{token="1",from="%s",to="%s"} 1`, modelA, lockModel)
 	if !strings.Contains(body, want) {
 		t.Errorf("metrics missing %s in:\n%s", want, body)
 	}
@@ -567,7 +567,7 @@ func TestMetricsModelLockedTotal(t *testing.T) {
 
 // TestMetricsPinSkipsTotal pins the PIN_MODEL metrics surface: a chat for
 // a model slot 0 is pinned away from skips slot 0 and serves slot 1,
-// rendering freebucks_proxy_pin_skips_total.
+// rendering freebuff_proxy_pin_skips_total.
 func TestMetricsPinSkipsTotal(t *testing.T) {
 	mock0 := testutil.NewMock()
 	defer mock0.Close()
@@ -587,7 +587,7 @@ func TestMetricsPinSkipsTotal(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("metrics status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
 	}
-	if want := `freebucks_proxy_pin_skips_total{token="1"} 1`; !strings.Contains(string(data), want) {
+	if want := `freebuff_proxy_pin_skips_total{token="1"} 1`; !strings.Contains(string(data), want) {
 		t.Errorf("metrics missing %s", want)
 	}
 }

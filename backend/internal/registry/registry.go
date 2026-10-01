@@ -209,7 +209,7 @@ func fetchText(ctx context.Context, client *http.Client, src string) (string, er
 		return "", err
 	}
 	req.Header.Set("Accept", "text/plain")
-	req.Header.Set("User-Agent", "freebucks-proxy/1.0")
+	req.Header.Set("User-Agent", "freebuff-proxy/1.0")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

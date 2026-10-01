@@ -66,7 +66,7 @@ func TestClientRateLimiterHTTP429(t *testing.T) {
 		t.Fatalf("metrics status = %d: %s", mResp.StatusCode, mData)
 	}
 	metricsBody := string(mData)
-	if !strings.Contains(metricsBody, "freebucks_proxy_rate_limit_rejected_total 1") {
+	if !strings.Contains(metricsBody, "freebuff_proxy_rate_limit_rejected_total 1") {
 		t.Errorf("metrics missing rejected counter = 1; got:\n%s", metricsBody)
 	}
 }

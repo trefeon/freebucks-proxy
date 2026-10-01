@@ -6,7 +6,7 @@
 > - **Phase 3 (dashboard): IMPLEMENTED.**
 > - **Phase 4 (auth wizard): IMPLEMENTED.**
 >
-Detailed architectural specification and implementation roadmap for adapting the **freebucks-proxy** Go gateway backend and Svelte 5 frontend dashboard to upstream Freebuff free-tier wire protocol requirements.
+Detailed architectural specification and implementation roadmap for adapting the **freebuff-proxy** Go gateway backend and Svelte 5 frontend dashboard to upstream Freebuff free-tier wire protocol requirements.
 
 ---
 

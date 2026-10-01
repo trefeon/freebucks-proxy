@@ -235,7 +235,7 @@ def run_agentic_loop(model=DEFAULT_MODEL, target_dir="backend/cmd"):
     if os.path.exists(req_path):
         actual_entries = os.listdir(req_path)
     else:
-        actual_entries = ["freebucks-proxy", "openapi-emit", "wiregen"]
+        actual_entries = ["freebuff-proxy", "openapi-emit", "wiregen"]
 
     tool_result_content = json.dumps({"files": actual_entries, "path": req_path})
     print(f"Tool Execution Output:\n{tool_result_content}")

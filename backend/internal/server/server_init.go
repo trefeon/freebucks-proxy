@@ -1,5 +1,5 @@
 // Package server exposes the OpenAI-compatible HTTP surface of the
-// freebucks-proxy: POST /v1/chat/completions (stream + non-stream),
+// freebuff-proxy: POST /v1/chat/completions (stream + non-stream),
 // GET /v1/models, and GET /healthz. Stdlib only.
 //
 // Responsibilities (PRD §6 error matrix):
@@ -55,7 +55,7 @@ type Server struct {
 	started time.Time
 
 	// logs is the optional dashboard log viewer ring (nil = disabled); its
-	// Counts feed freebucks_proxy_log_events_total on /metrics.
+	// Counts feed freebuff_proxy_log_events_total on /metrics.
 	logs *logring.Handler
 
 	// dash is the embedded admin UI (Svelte SPA + vendored assets).

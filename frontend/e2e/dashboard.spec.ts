@@ -1952,7 +1952,7 @@ test.describe("dashboard hermetic mocks", () => {
     await expect(
       page
         .getByRole("heading", { name: "Admin" })
-        .or(page.getByText("freebucks-proxy")),
+        .or(page.getByText("freebuff-proxy")),
     ).toBeVisible();
 
     const tokenInput = page.locator("#token");

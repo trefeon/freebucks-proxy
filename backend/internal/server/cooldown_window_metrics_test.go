@@ -42,7 +42,7 @@ func TestFreebucksWindowSurfacedInMetricsAndHealthz(t *testing.T) {
 		t.Fatalf("metrics status = %d, want 200: %s", resp.StatusCode, data)
 	}
 	metrics := string(data)
-	if want := `freebucks_proxy_rate_limit_events_total{token="1",code="freebucks_window"} 1`; !strings.Contains(metrics, want) {
+	if want := `freebuff_proxy_rate_limit_events_total{token="1",code="freebucks_window"} 1`; !strings.Contains(metrics, want) {
 		t.Errorf("metrics missing %s in:\n%s", want, metrics)
 	}
 }

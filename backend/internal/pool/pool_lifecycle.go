@@ -72,7 +72,7 @@ func maintainToken(ctx context.Context, sess *session.Manager, runsMgr *runs.Run
 	runsMgr.Maintain(mCtx)
 	// Same in-flight gate as the poll loop: skip the queued-session GET while
 	// a chat is in flight so it cannot kick the active session
-	// (reference/freebucks-proxy-hengxin session-manager.js:37-49, 259-260).
+	// (reference/freebuff-proxy-hengxin session-manager.js:37-49, 259-260).
 	// Active-session liveness polls run on the jittered poll schedule
 	// (sessionPollTick) instead. Per-turn mint is unleased at the runs
 	// layer, so the caller passes the pool's outstanding-lease state.

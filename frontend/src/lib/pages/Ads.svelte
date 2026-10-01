@@ -149,7 +149,7 @@
 </script>
 
 <PageShell
-  crumb="freebucks-proxy / Admin / ads.conf"
+  crumb="freebuff-proxy / Admin / ads.conf"
   title={$tr("Ads")}
   description={$tr(
     "Upstream ad auction and impression legs fired by the proxy",

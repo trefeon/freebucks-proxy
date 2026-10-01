@@ -37,7 +37,7 @@ func defaultHintForCode(code, message string) string {
 	lowerMsg := strings.ToLower(message)
 	switch {
 	case code == "free_mode_cli_required" || strings.Contains(lowerMsg, "free_mode_cli_required"):
-		return "Upstream free tier gate requires official CLI traffic envelope. See FAQ: https://github.com/trefeon/freebucks-proxy#faq"
+		return "Upstream free tier gate requires official CLI traffic envelope. See FAQ: https://github.com/trefeon/freebuff-proxy#faq"
 	case code == "free_mode_invalid_agent_hierarchy" || strings.Contains(lowerMsg, "free_mode_invalid_agent_hierarchy"):
 		return "Upstream hierarchy gate rejected the subagent (not in its root's allowlist). Retry with a root agent id from the registry."
 	case code == "free_mode_cost_mode_required" || strings.Contains(lowerMsg, "free_mode_cost_mode_required"):

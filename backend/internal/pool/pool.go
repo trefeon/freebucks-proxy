@@ -226,7 +226,7 @@ type TokenSnapshot struct {
 	// ModelLocked tallies model-lock session releases keyed by from → to
 	// model pair (issue #160): each model_locked admission releases the
 	// old slot and re-admits with the requested model. Surfaced per-token
-	// in /metrics as freebucks_proxy_model_locked_total.
+	// in /metrics as freebuff_proxy_model_locked_total.
 	ModelLocked map[string]map[string]int64
 	// Locked is set when the token has been administratively locked by the
 	// operator; Acquire never selects a locked token.

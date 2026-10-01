@@ -217,16 +217,16 @@ class ControlMonitor:
                 self.add_invariant("Metrics HTTP 200", False, f"HTTP {status}", "METRICS")
             return None
 
-        has_uptime = "freebucks_proxy_uptime_seconds" in body
-        has_requests = "freebucks_proxy_requests_served" in body
-        has_rate_limits = "freebucks_proxy_rate_limit_events_total" in body
+        has_uptime = "freebuff_proxy_uptime_seconds" in body
+        has_requests = "freebuff_proxy_requests_served" in body
+        has_rate_limits = "freebuff_proxy_rate_limit_events_total" in body
 
         if record_invariants:
             self.add_invariant("Metrics Exposition Contract", has_uptime, "Prometheus text format intact", "METRICS")
 
         served = 0
         for line in body.splitlines():
-            if line.startswith("freebucks_proxy_requests_served"):
+            if line.startswith("freebuff_proxy_requests_served"):
                 parts = line.split()
                 if len(parts) >= 2:
                     try:

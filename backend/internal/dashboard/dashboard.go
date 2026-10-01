@@ -107,7 +107,7 @@ func New(cfg func() *config.Config, p *pool.Pool, reg *registry.Registry, logger
 }
 
 // releaseURL is where the update badge points (the releases page).
-const releaseURL = "https://github.com/trefeon/freebucks-proxy/releases"
+const releaseURL = "https://github.com/trefeon/freebuff-proxy/releases"
 
 // pickDefaultModel selects the catalog fallback (the mimo row) when present, or the first available model.
 func pickDefaultModel(models []string) string {
@@ -284,7 +284,7 @@ func isHexSHA(s string) bool {
 // the dashboard banner must always point at the current repo even if the
 // drift JSON is stale.
 func parseUpstreamSync(raw []byte) *upstreamSync {
-	const releasesURL = "https://github.com/trefeon/freebucks-proxy/releases"
+	const releasesURL = "https://github.com/trefeon/freebuff-proxy/releases"
 	sync := &upstreamSync{ReleasesURL: releasesURL}
 	if len(raw) == 0 {
 		return sync

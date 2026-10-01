@@ -41,7 +41,7 @@
 </script>
 
 <PageShell
-  crumb="freebucks-proxy / Admin / models.conf"
+  crumb="freebuff-proxy / Admin / models.conf"
   title={$tr("Models")}
   description={$tr("Served models catalog, list prices, and routing controls.")}
 >

@@ -47,7 +47,7 @@ tmp/
 .ruff_cache/
 
 # ── build outputs (Go binaries) ──
-/freebucks-proxy
+/freebuff-proxy
 *.exe
 *.test
 *.out
