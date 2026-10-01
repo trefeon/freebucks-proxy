@@ -460,6 +460,14 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 	if m.modelUnavailableShortCircuit(&targetModel) {
 		return nil
 	}
+	// Released-purchase wedge (session_claim_released.go): a purchase
+	// remembered as released fails fast with the honest 409 — zero
+	// upstream POSTs, zero claim churn — so the pool fails over exactly
+	// as before. Runs on the resolved targetModel (after the fallback
+	// rewrite above), keyed per model.
+	if rerr, ok := m.claimReleasedShortCircuit(targetModel); ok {
+		return rerr
+	}
 	claimRetried := false
 	for i := 0; i < maxRefreshIterations; i++ {
 		if err := ctx.Err(); err != nil {
@@ -513,6 +521,15 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 				m.rotateClaim(reasonAttemptClosed)
 				claimRetried = true
 				continue
+			}
+			// Released-purchase error form ({"error":"purchase_claim_released"},
+			// no status field — classifies to UpstreamError): remember it per
+			// model so later requests fail fast (session_claim_released.go).
+			// No rotation here — the rotation contract stays on the
+			// status-form path above — just the fail-fast memory, then the
+			// honest error surfaces unchanged below.
+			if isPurchaseClaimReleasedErr(err) {
+				m.recordClaimReleased(targetModel)
 			}
 			// #140: a 428 waiting_room_required on the queued row's
 			// refresh GET is session-ENDING (endsTheSession:true — the seat
@@ -695,7 +712,12 @@ func (m *Manager) refresh(ctx context.Context, requestedModel string, preemptive
 		case string(upstream.WireCodePurchaseClaimReleased):
 			// G4: a released claim is single-use (CLI claimRetired: "persist a new id before retrying").
 			// Rotate to a fresh claim ID and retry admission in the loop once before failing.
+			// The refusal is also remembered per model (session_claim_released.go):
+			// when the retry 409s too the purchase itself is gone upstream
+			// (no fresh claim can admit), so later requests fail fast
+			// instead of churning rotations + POSTs until the TTL re-probes.
 			m.noteAdmissionStatus(status, st)
+			m.recordClaimReleased(targetModel)
 			m.rotateClaim(string(upstream.WireCodePurchaseClaimReleased))
 			if i+1 < maxRefreshIterations && !claimRetried {
 				claimRetried = true

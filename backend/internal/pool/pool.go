@@ -205,6 +205,11 @@ type TokenSnapshot struct {
 	// render the pending-refund line.
 	LastRefund    *float64 `json:"last_refund,omitempty"`
 	PendingRefund string   `json:"pending_refund,omitempty"`
+	// ReleasedModels mirrors session.SessionSnapshot: the models inside
+	// their remembered purchase_claim_released window (the purchase is
+	// gone upstream — this token needs a fresh purchase/login for these
+	// models). Sorted, omitted when none.
+	ReleasedModels []string `json:"released_models,omitempty"`
 	// UpgradeHint is the upstream upgradeHint block ({url, message})
 	// broadcast by the session server; nil when absent.
 	UpgradeHint *upstream.SessionUpgradeHint `json:"upgrade_hint,omitempty"`

@@ -2,9 +2,8 @@ package session
 
 import (
 	"encoding/json"
-	"time"
-
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
 
 // SessionSnapshot is a lock-free best-effort view of the cached session
@@ -88,6 +87,12 @@ type SessionSnapshot struct {
 	// freebucksRefundPending ("" when none): replayed by RefreshRefund.
 	LastRefund    *float64 `json:"last_refund,omitempty"`
 	PendingRefund string   `json:"pending_refund,omitempty"`
+	// ReleasedModels lists the models inside their remembered
+	// purchase_claim_released window (session_claim_released.go): the
+	// purchase is gone upstream, so admissions for these models fail fast
+	// with the honest 409 until the window re-probes. Sorted, nil when
+	// none — the operator's "this token needs a fresh purchase" signal.
+	ReleasedModels []string `json:"released_models,omitempty"`
 }
 
 // QuotaSnapshot is one model's live session quota for healthz/metrics

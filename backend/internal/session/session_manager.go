@@ -8,11 +8,10 @@ package session
 import (
 	"context"
 	"errors"
+	"freebuff-proxy/backend/internal/upstream"
 	"log/slog"
 	"sync"
 	"time"
-
-	"freebuff-proxy/backend/internal/upstream"
 )
 
 // Manager owns the cached session state for one token.
@@ -114,6 +113,14 @@ type Manager struct {
 	// model (issue #158); entry.until = min(next window opening, now+TTL).
 	unavailableTTL   time.Duration
 	modelUnavailable map[string]modelUnavailableEntry
+	// claimReleased remembers purchase_claim_released refusals per model
+	// (session_claim_released.go, token-1 deepseek wedge 2026-10-01): a
+	// purchase gone upstream stays refused no matter how fresh the claim,
+	// so inside claimReleasedTTL admissions for that model fail fast with
+	// the honest 409 instead of burning a rotation + two POSTs per
+	// request. Per-model: a released deepseek purchase never blocks
+	// luna/mimo on the same token. Guarded by mu.
+	claimReleased map[string]releasedClaimEntry
 	// snap holds the manager's dashboard-resilience / observability state
 	// (issue #267): the saved fields that keep the dashboard quota table
 	// between quota-carrying responses, and the rolling recorders that feed

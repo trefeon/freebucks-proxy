@@ -503,6 +503,7 @@ func (m *Manager) Snapshot() SessionSnapshot {
 			LimitedOfferReason: m.snap.savedLimitedOfferReason,
 			CountryCode:        m.snap.savedCountryCode,
 			CountryBlockReason: m.snap.savedCountryBlockReason,
+			ReleasedModels:     m.releasedModelsLocked(m.now()),
 		}
 	}
 	quota := make(map[string]QuotaSnapshot, len(m.state.quotaByModel))
@@ -556,6 +557,7 @@ func (m *Manager) Snapshot() SessionSnapshot {
 		SubscriptionTierID: m.state.subscriptionTierID,
 		LimitedModelOffers: m.state.limitedModelOffers,
 		LimitedOfferReason: m.state.limitedOfferReason,
+		ReleasedModels:     m.releasedModelsLocked(m.now()),
 	}
 }
 

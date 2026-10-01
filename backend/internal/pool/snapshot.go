@@ -2,9 +2,8 @@
 package pool
 
 import (
-	"time"
-
 	"freebuff-proxy/backend/internal/upstream"
+	"time"
 )
 
 // banView derives the snapshot ban view from a remembered runs ban
@@ -251,6 +250,7 @@ func (p *Pool) Snapshot() []TokenSnapshot {
 			Freebucks:               ss.Freebucks,
 			LastRefund:              ss.LastRefund,
 			PendingRefund:           ss.PendingRefund,
+			ReleasedModels:          ss.ReleasedModels,
 			Streak:                  streak,
 			TodayUsed:               todayUsed,
 			LastUsageDate:           lastUsage,
