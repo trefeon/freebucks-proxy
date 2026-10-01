@@ -2,6 +2,7 @@ package pool
 
 import (
 	"fmt"
+
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/registry"
 )
@@ -53,4 +54,28 @@ func allPinnedOut(toks *[]*tokenEntry, cfg *config.Config, reg *registry.Registr
 // misconfiguration instead of an upstream outage.
 func pinFailFastError(model string, slots int) error {
 	return fmt.Errorf("pool: no account pinned to model %q (all %d pool slot(s) pinned to other models); no upstream admission attempted — adjust PIN_MODEL", model, slots)
+}
+
+// allLockedOut reports whether every pool slot is administratively locked.
+// Callers fail fast with lockedFailFastError instead of the generic
+// combined error, which would otherwise read as an upstream outage while no
+// upstream admission was ever attempted.
+func allLockedOut(toks *[]*tokenEntry) bool {
+	if toks == nil || len(*toks) == 0 {
+		return false
+	}
+	for _, tok := range *toks {
+		if tok == nil || !tok.locked.Load() {
+			return false
+		}
+	}
+	return true
+}
+
+// lockedFailFastError is the client-facing error when no pool account can
+// serve because every slot is administratively locked. It names the lock
+// and states that no upstream admission was attempted, so operators
+// recognize an operator lock instead of an upstream outage.
+func lockedFailFastError(slots int) error {
+	return fmt.Errorf("pool: all %d pool account(s) administratively locked; no upstream admission attempted — unlock a token", slots)
 }

@@ -256,11 +256,17 @@ func (p *Pool) leaseFromOrder(ctx context.Context, model string, agentID string,
 func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 	cfg := ws.cfg
 	model := ws.model
+	name := fmt.Sprintf("token-%d", idx+1)
 	// Administratively locked tokens are never eligible for leasing.
+	// Recorded (unlike a silent skip): an all-locked pool would otherwise
+	// reach the walk tail with every bucket empty and surface the generic
+	// "unable to acquire run" 502, which reads as an upstream outage
+	// instead of an operator lock.
 	if tok.locked.Load() {
+		ws.errs = append(ws.errs, fmt.Sprintf("%s: administratively locked", name))
+		p.logger.Debug("pool: token skipped (locked)", "token", idx+1, "model", model, "reason", "administratively locked")
 		return true
 	}
-	name := fmt.Sprintf("token-%d", idx+1)
 	// Terminal-cooldown hint: skip one doomed probe (see walkState). Live
 	// cooldown/ban memory below stays authoritative; the hint only
 	// covers what a restart forgot.
@@ -1187,11 +1193,12 @@ func (p *Pool) legacyLoop(ws *walkState) (*Lease, error) {
 // generic combined error.
 func (p *Pool) walkTail(ws *walkState) (*Lease, error) {
 	ws.rateLimited = append(ws.rateLimited, ws.quotaLimited...)
-	// Every slot pinned away from the model (direct-order callers reach
-	// here via the loop gates): the dedicated routing error beats the
-	// generic combined one.
-	if allPinnedOut(ws.toks, ws.cfg, p.reg, ws.model) {
-		return nil, pinFailFastError(ws.model, len(*ws.toks))
+	// Every slot administratively locked (mirrors the all-pinned-out
+	// fast-fail above): name the lock instead of the generic combined
+	// error, which otherwise reads as an upstream outage. allLockedOut
+	// lives beside allPinnedOut in pin.go.
+	if allLockedOut(ws.toks) {
+		return nil, lockedFailFastError(len(*ws.toks))
 	}
 	if len(ws.banned) > 0 {
 		return nil, ws.banned[0]
