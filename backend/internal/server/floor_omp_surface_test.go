@@ -15,6 +15,8 @@ import (
 // ompDispatchableToolNames is OMP's complete callable surface as the client
 // dispatches it: BUILTIN_TOOL_NAMES + HIDDEN_TOOL_NAMES
 // (pi-coding-agent/src/tools/builtin-names.ts, omp 18.4.x) plus the
+// ADVISOR-role `advise` tool (role-scoped, absent from builtin-names.ts,
+// called from prompt vocabulary on floor-only wires) plus the
 // `mcp__<server>_<tool>` external namespace. A floor-only relay must never
 // hand the client a name outside this set, and must never mangle a name
 // inside it.
@@ -27,6 +29,9 @@ var ompDispatchableToolNames = []string{
 	"learn", "manage_skill",
 	// hidden
 	"yield", "goal", "think",
+	// ADVISOR-role (omp 18.4.3, intentTracing:false): never declared on
+	// the wire, restored by identity from prompt-vocabulary emissions.
+	"advise",
 	// external / MCP
 	"mcp__resend_send", "mcp__postgres_query",
 	// subagent + coordination capabilities the model reaches through the
@@ -378,5 +383,69 @@ func TestFloorUnroutableNamesNeverRelayed(t *testing.T) {
 				t.Errorf("finish_reason = %v, want stop", choice["finish_reason"])
 			}
 		})
+	}
+}
+
+// advisorRoleTools is the ADVISOR-role declaration (omp 18.4.3): plain
+// schemas, no injected intent-`i` (intentTracing:false), no other
+// OMP-signature name. Detection keys on `advise` alone.
+const advisorRoleTools = `[{"type":"function","function":{"name":"advise","description":"Leave review feedback","parameters":{"type":"object","properties":{"note":{"type":"string"},"severity":{"type":"string"}}}}},` +
+	`{"type":"function","function":{"name":"read","description":"Read","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}},` +
+	`{"type":"function","function":{"name":"grep","description":"Search","parameters":{"type":"object","properties":{"pattern":{"type":"string"}}}}},` +
+	`{"type":"function","function":{"name":"glob","description":"Glob","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}]`
+
+// ADVISOR role end to end (omp 18.4.3, intentTracing:false): the request
+// carries advise+read+grep+glob with zero OMP family signals except the
+// `advise` name. The wire must still be the floor (16+end_turn, no advise
+// rider — the gate 503s on any foreign definition), and a fragmented advise
+// call streams through verbatim: no reshape rule withholds its fragments,
+// no text fallback strips it, the turn stays a tool_calls turn.
+func TestFloorAdvisorStreamVerbatim(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+	const adviseArgs = `{"note":"extract this helper","severity":"concern"}`
+	const adviseFrag1 = `{"note":"extract this `
+	const adviseFrag2 = `helper","severity":"concern"}`
+	mock := testutil.NewMock()
+	defer mock.Close()
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-adv", 1,
+			`"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_adv_1","type":"function","function":{"name":"advise"}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-adv", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(adviseFrag1)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-adv", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(adviseFrag2)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-adv", 1,
+			`"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":40,"completion_tokens":20,"total_tokens":60}`)))
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	ts, _ := newTestServer(t, nil, mock)
+	body := `{"model":"` + modelA + `","messages":[{"role":"user","content":"review this"}],"stream":true,"tools":` + advisorRoleTools + `}`
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", []byte(body), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
+	}
+	// Floor-only despite zero intent-`i`: 16 canonical + end_turn, and the
+	// foreign advise definition never rides.
+	assertFloorOnlyWire(t, mock)
+	if recorded := mock.LastChatBody(); strings.Contains(recorded, `"advise"`) {
+		t.Errorf("floor-only wire carries advise rider: %s", truncate(recorded, 300))
+	}
+	frames, done := collectOpenAIFrames(t, string(data))
+	if !done {
+		t.Error("stream missing [DONE]")
+	}
+	if name := toolCallName(frames, 0); name != "advise" {
+		t.Errorf("index 0 name = %q, want advise (must dispatch under its own name)", name)
+	}
+	if args := joinToolArgs(frames, 0); args != adviseArgs {
+		t.Errorf("index 0 args = %q, want verbatim advise args %q", args, adviseArgs)
+	}
+	last := frames[len(frames)-1]
+	if fr, _ := last["choices"].([]any)[0].(map[string]any)["finish_reason"].(string); fr != "tool_calls" {
+		t.Errorf("finish_reason = %q, want tool_calls", fr)
 	}
 }

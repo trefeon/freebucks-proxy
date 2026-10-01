@@ -28,9 +28,11 @@ Order: `NewToolMapper` → normalize → `ToUpstream` (rename) →
 ### Detection (`convert/tools_floor.go:47-78`)
 
 OMP-family iff **any** tool schema carries the injected intent-`i` property
-(`parameters.properties.i`), **or** 2+ of the signature names appear:
+(`parameters.properties.i`), **or** a tool named exactly `advise` appears
+(single hit), **or** 2+ of the signature names appear:
 
-- `eval`, `learn`, `manage_skill`, `context_notes` (`ompSignatureNames`, `:28-33`)
+- `advise` — the ADVISOR role (`advise`+`read`+`grep`+`glob`, `intentTracing:false`, so no `i` is injected and no other signature name appears; `advise` is OMP-unique — absent from `BUILTIN_TOOL_NAMES`/`HIDDEN_TOOL_NAMES` and every other harness in the corpus)
+- `eval`, `learn`, `manage_skill`, `context_notes` (`ompSignatureNames`, `:28-33` — 2-of-4 threshold unchanged)
 
 Invalid bodies report false — never floor-only on doubt. OMP is checked FIRST,
 so a stripped OMP toolset cannot read as pi (the two families restore different
@@ -169,7 +171,7 @@ through untouched.
 |---|---|---|
 | Loop / subagent | `wait`, `hub` | verbatim both ways |
 | Delegation | `task` | name verbatim (incl. an `mcp__task` emission — the model namespaces a prose-only tool by the `mcp__` convention saturating its context; the rule keys on it pre-restore); args gain synthesized `tasks[]` batch (singular-to-batch normalization — the harness validates non-empty `tasks[]`, valid batches and stringified batches pass through/parse) |
-| OMP-only builtins | `eval`, `learn`, `manage_skill`, `context_notes`, `new_context`, `debug`, `ida`, `security_scan`, `checkpoint`, `rewind`, `github`, `lsp`, `ast_grep`, `ast_edit` | verbatim |
+| OMP-only builtins | `eval`, `learn`, `manage_skill`, `context_notes`, `new_context`, `debug`, `ida`, `security_scan`, `checkpoint`, `rewind`, `github`, `lsp`, `ast_grep`, `ast_edit`, `advise`, `recall` | verbatim (incl. the ADVISOR-role `advise` feedback tool — role-scoped, never on the wire) |
 | Hidden | `yield`, `goal`, `think` | verbatim |
 | `xd://` devices | ast_grep/ast_edit/lsp/github/debug/checkpoint/rewind/mem_*/security_scan/… | ride through the model's `write`/`read` calls (reshaped to OMP shape, `xd://` path preserved) |
 | External | `mcp__<server>_<tool>` | verbatim, namespace preserved |
@@ -199,8 +201,9 @@ system marker (`upstream/chat.go`: `ompFloorCapabilityReminder`,
 with their exact required arg shapes — `task` (`tasks` non-empty
 `[{name?, agent?, task}]`), the `todo` op-machine, `ask` (`questions` with
 per-question `id`), `eval`, bare `wait` / `new_context`, `context_notes`,
-`learn`, `manage_skill` — stated as callable by name with these args though
-absent from `tools[]`. Gate-safety: system-prompt text is exonerated (§1 —
+`learn`, `manage_skill`, `advise` (`note`, optional `severity`:
+nit|concern|blocker, omitted for a plain nit) — stated as callable by name
+with these args though absent from `tools[]`. Gate-safety: system-prompt text is exonerated (§1 —
 the full 77 KB OMP prompt returns 200), the canonical opening stays the
 trimmed prefix at position 0, and the wire stays 16 + `end_turn` (pinned by
 `TestInjectEnvelopeOMPFloorReminderWireUntouched`). OMP-only: pi and

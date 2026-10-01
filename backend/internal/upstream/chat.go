@@ -456,7 +456,8 @@ const ompFloorCapabilityReminder = `Harness tools callable by name with these ex
 - todo op-machine {"op",...}: init {list:[{phase,items:[string]}]}, done {task}, view.
 - ask {"questions":[{"id","question","options"}]} — every question needs its id.
 - eval {"language","code"}; wait (no arguments); new_context (no arguments).
-- context_notes {"text"}; learn {"memory"}; manage_skill {"action",...}.`
+- context_notes {"text"}; learn {"memory"}; manage_skill {"action",...}.
+- advise {"note","severity"?} — nit|concern|blocker, omit severity for plain nit.`
 
 // appendOMPFloorReminder appends ompFloorCapabilityReminder to the first
 // system message (string content gains a trailing paragraph, parts content a

@@ -26,7 +26,8 @@ import "encoding/json"
 // to find — see clientToOfficial + fanoutGlobArgs.)
 //
 // When the client toolset is OMP-family (intent-`i` schemas OMP injects per
-// request, or OMP-signature tool names no other harness declares), the wire
+// request, the ADVISOR-role `advise` name, or OMP-signature tool names no
+// other harness declares), the wire
 // carries exactly the 16 canonical CLI definitions plus the end_turn/decide
 // pins. Dropped client tools never reach the model, so their calls never
 // need restoring; the model fills CLI-shaped args for the floor tools and
@@ -169,8 +170,8 @@ func detectFamilyBody(body []byte) clientFamily {
 }
 
 // isOMPToolset reports whether raw client tools come from the OMP family:
-// any parameters.properties carrying the injected `i` intent field, or two
-// or more OMP-signature names.
+// any parameters.properties carrying the injected `i` intent field, a tool
+// named exactly `advise`, or two or more OMP-signature names.
 func isOMPToolset(tools []any) bool {
 	sig := 0
 	seen := map[string]bool{}
@@ -190,7 +191,16 @@ func isOMPToolset(tools []any) bool {
 				}
 			}
 		}
-		if name, _ := fn["name"].(string); name != "" && ompSignatureNames[name] && !seen[name] {
+		name, _ := fn["name"].(string)
+		// ADVISOR role (omp 18.4.3): advise+read+grep+glob with
+		// intentTracing:false — no `i` is injected and no other signature
+		// name appears. `advise` is OMP-unique (absent from
+		// BUILTIN/HIDDEN_TOOL_NAMES and every other harness in the corpus),
+		// so the name alone identifies the family.
+		if name == "advise" {
+			return true
+		}
+		if name != "" && ompSignatureNames[name] && !seen[name] {
 			seen[name] = true
 			sig++
 			if sig >= 2 {
