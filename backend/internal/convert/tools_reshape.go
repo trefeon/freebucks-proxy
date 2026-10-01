@@ -321,6 +321,17 @@ func resolveReshapeRule(name string) string {
 	if _, ok := reshapeRules[name]; ok {
 		return name
 	}
+	// Live 2026-10-02 (deepseek via real OMP): the model emits `mcp__task`
+	// for the harness-only delegation tool — its context is saturated with
+	// mcp__* names (MCP catalog in the system prompt), so it namespaces a
+	// tool it knows only from prose by that convention. The name restores
+	// to `task` (request-leg reverse entry), so the task rule must key on
+	// it here, pre-restore; without this the stringified-tasks emission
+	// streams through verbatim and the harness rejects it. pi has no task
+	// rule (piReshapeWires), so pi mcp__ emissions stay untouched.
+	if name == "mcp__task" {
+		return "task"
+	}
 	if wire, ok := ompClientToWire[name]; ok {
 		return wire
 	}
@@ -340,6 +351,12 @@ var reshapeCliKeys = map[string][]string{
 	"write_todos":          {"todos"},
 	"web_search":           {"depth"},
 	"gravity_index":        {"action", "search_id", "category", "slug"},
+	// `task` needs no guard on its own name (resolved == wireName skips
+	// it; the rule is total and self-guarding), but the namespaced
+	// `mcp__task` emission resolves across names and must not be blocked:
+	// any task-ish key lets the rule run, and the rule itself passes
+	// valid batches and unusable shapes through untouched.
+	"task": {"tasks", "task", "agent", "name"},
 }
 
 func hasAnyKey(m map[string]any, keys []string) bool {

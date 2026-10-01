@@ -168,7 +168,7 @@ through untouched.
 | Group | Names | Path |
 |---|---|---|
 | Loop / subagent | `wait`, `hub` | verbatim both ways |
-| Delegation | `task` | name verbatim; args gain synthesized `tasks[]` batch (singular-to-batch normalization — the harness validates non-empty `tasks[]`, valid batches pass through) |
+| Delegation | `task` | name verbatim (incl. an `mcp__task` emission — the model namespaces a prose-only tool by the `mcp__` convention saturating its context; the rule keys on it pre-restore); args gain synthesized `tasks[]` batch (singular-to-batch normalization — the harness validates non-empty `tasks[]`, valid batches and stringified batches pass through/parse) |
 | OMP-only builtins | `eval`, `learn`, `manage_skill`, `context_notes`, `new_context`, `debug`, `ida`, `security_scan`, `checkpoint`, `rewind`, `github`, `lsp`, `ast_grep`, `ast_edit` | verbatim |
 | Hidden | `yield`, `goal`, `think` | verbatim |
 | `xd://` devices | ast_grep/ast_edit/lsp/github/debug/checkpoint/rewind/mem_*/security_scan/… | ride through the model's `write`/`read` calls (reshaped to OMP shape, `xd://` path preserved) |
@@ -180,7 +180,9 @@ asserts the name restores). Delegation args specifically:
 stays `tool_calls`, task args carry the synthesized `tasks[]`) and
 `TestFloorOmpDelegationAcrossSurfaces` (Anthropic + Responses);
 `convert/tools_reshape_test.go` (`TestReshapeTaskSingularToTasksBatch`:
-singular → batch, valid-batch and empty passthrough, pi untouched).
+singular → batch, valid-batch and empty passthrough, pi untouched;
+`TestReshapeNamespacedTaskEmission`: `mcp__task` keys the task rule
+pre-restore, stringified batch parses, pi/`mcp__eval` untouched).
 
 ### 3c. Floor-only capability reminder (system prompt)
 

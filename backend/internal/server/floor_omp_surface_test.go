@@ -169,6 +169,63 @@ func TestFloorOmpDelegationStreamsVerbatim(t *testing.T) {
 	}
 }
 
+// Live 2026-10-02 (deepseek via real OMP): the model emits `mcp__task`
+// for the harness-only delegation tool and stringifies the batch. The
+// response leg must buffer it (reshape rule keys pre-restore), parse the
+// batch, and restore the name — the client dispatches `task` with a real
+// tasks[] array, which is what the harness validates.
+func TestFloorOmpDelegationNamespacedTaskStream(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+	mock := testutil.NewMock()
+	defer mock.Close()
+	// The exact live shape: stringified tasks[] split across fragments.
+	frag1 := `{"context":"ctx","tasks":"`
+	frag2 := `[{\"agent\":\"scout\",\"task\":\"say DONE\"}]`
+	frag3 := `"}`
+	mock.ChatHandler = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-ns", 1,
+			`"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_n1","type":"function","function":{"name":"mcp__task"}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-ns", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(frag1)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-ns", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(frag2)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-ns", 1,
+			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(frag3)+`}}]},"finish_reason":null}]`)))
+		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-ns", 1,
+			`"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":40,"completion_tokens":20,"total_tokens":60}`)))
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	ts, _ := newTestServer(t, nil, mock)
+	// OMP declares `task` (with intent-i): the request leg records the
+	// mcp__task reverse entry the restore relies on.
+	tools := `[{"type":"function","function":{"name":"bash","description":"Run","parameters":{"type":"object","properties":{"command":{"type":"string"},"i":{"type":"string"}},"required":["command","i"]}}},` +
+		`{"type":"function","function":{"name":"task","description":"Spawn","parameters":{"type":"object","properties":{"agent":{"type":"string"},"task":{"type":"string"},"context":{"type":"string"},"i":{"type":"string"}},"required":["task"]}}}]`
+	body := `{"model":"` + modelA + `","messages":[{"role":"user","content":"delegate it"}],"stream":true,"tools":` + tools + `}`
+	resp, data := doJSON(t, http.MethodPost, ts.URL+"/v1/chat/completions", []byte(body), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, truncate(string(data), 200))
+	}
+	assertFloorOnlyWire(t, mock)
+	frames, done := collectOpenAIFrames(t, string(data))
+	if !done {
+		t.Error("stream missing [DONE]")
+	}
+	if name := toolCallName(frames, 0); name != "task" {
+		t.Errorf("index 0 name = %q, want task (mcp__task must restore)", name)
+	}
+	want := `{"context":"ctx","tasks":[{"agent":"scout","task":"say DONE"}]}`
+	if args := joinToolArgs(frames, 0); args != want {
+		t.Errorf("index 0 args = %q, want parsed batch %q", args, want)
+	}
+	if strings.Contains(string(data), "mcp__") {
+		t.Errorf("namespaced wire name leaked to client: %s", truncate(string(data), 300))
+	}
+}
+
 // Non-streaming Anthropic + Responses surfaces: the same task call arrives
 // with its own name and its own args on both, so a pi/OMP client that speaks
 // either surface delegates identically.

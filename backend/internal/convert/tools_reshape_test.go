@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -296,5 +297,63 @@ func TestReshapeTaskSingularToTasksBatch(t *testing.T) {
 	}
 	if got, ok := pi.ReshapeArgsFor("task", `{"task":"x"}`); ok {
 		t.Errorf("pi ReshapeArgsFor(task) = %q, want passthrough", got)
+	}
+}
+
+// Live 2026-10-02 (deepseek via real OMP): the model emits `mcp__task` for
+// the harness-only delegation tool — its context is saturated with mcp__*
+// names, so it namespaces a prose-only tool by that convention. The name
+// restores to `task` (request-leg reverse entry), so the task rule must key
+// on it pre-restore; otherwise the stringified-tasks emission streams
+// through verbatim and the harness rejects it with "Missing `tasks`".
+func TestReshapeNamespacedTaskEmission(t *testing.T) {
+	m := ToolMapper{family: familyOMP}
+	if !m.HasReshapeRule("mcp__task") {
+		t.Error("HasReshapeRule(mcp__task) = false, want true (streaming buffer gate)")
+	}
+	// Stringified tasks[] (the exact live shape) parses to a real batch,
+	// every original key preserved.
+	got, ok := m.ReshapeArgsFor("mcp__task",
+		`{"context":"ctx","tasks":"[{\"agent\":\"scout\",\"task\":\"x\"}]"}`)
+	if !ok {
+		t.Fatal("ReshapeArgsFor(mcp__task, stringified) = not-ok, want parse")
+	}
+	var gotM map[string]any
+	if err := json.Unmarshal([]byte(got), &gotM); err != nil {
+		t.Fatalf("reshaped mcp__task args invalid JSON: %v", err)
+	}
+	batch, _ := gotM["tasks"].([]any)
+	if len(batch) != 1 {
+		t.Errorf("reshaped mcp__task tasks = %v, want 1 parsed entry", gotM["tasks"])
+	} else if item, _ := batch[0].(map[string]any); item["agent"] != "scout" || item["task"] != "x" {
+		t.Errorf("reshaped mcp__task tasks[0] = %v, want {agent task}", batch[0])
+	}
+	if gotM["context"] != "ctx" {
+		t.Errorf("reshaped mcp__task lost context: %v", gotM)
+	}
+	// Bare singular under the namespaced emission synthesizes too.
+	got, ok = m.ReshapeArgsFor("mcp__task", `{"agent":"r","task":"y"}`)
+	if !ok {
+		t.Fatal("ReshapeArgsFor(mcp__task, singular) = not-ok, want synthesis")
+	}
+	if !strings.Contains(got, `"tasks":[{"agent":"r","task":"y"}]`) {
+		t.Errorf("reshaped mcp__task singular = %s, want synthesized batch", got)
+	}
+	// Valid batch under the namespaced name passes through (restore still
+	// strips it to `task` downstream).
+	if got, ok := m.ReshapeArgsFor("mcp__task", `{"tasks":[{"task":"one"}]}`); ok {
+		t.Errorf("ReshapeArgsFor(mcp__task, batch) = %q, want passthrough", got)
+	}
+	// pi mcp__ emissions stay untouched (no task rule on that family).
+	pi := ToolMapper{family: familyPi}
+	if pi.HasReshapeRule("mcp__task") {
+		t.Error("pi HasReshapeRule(mcp__task) = true, want false")
+	}
+	if got, ok := pi.ReshapeArgsFor("mcp__task", `{"task":"x"}`); ok {
+		t.Errorf("pi ReshapeArgsFor(mcp__task) = %q, want passthrough", got)
+	}
+	// Unrelated mcp__ names gain no rule (genuine MCP tools unaffected).
+	if m.HasReshapeRule("mcp__eval") {
+		t.Error("HasReshapeRule(mcp__eval) = true, want false")
 	}
 }
