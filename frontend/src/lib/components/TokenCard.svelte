@@ -37,6 +37,8 @@
    * @prop {string} [spawnModel] — bindable
    * @prop {boolean} [actionPending]
    * @prop {boolean} [devToolsEnabled=false]
+   * @prop {boolean} [hideStatus=false] — R4: hide the Status cell
+   * @prop {boolean} [hideInstance=false] — R4: hide the Instance cell
    * @prop {() => void} onToggle
    * @prop {(action: string) => void} onAction
    * @prop {(model: string) => void} onSpawn
@@ -52,6 +54,10 @@
     spawnModel = $bindable(""),
     actionPending,
     devToolsEnabled = false,
+    // R4 column visibility: hide the Status and/or Instance cells (the
+    // header in TokenTable hides in step; the drawer colspan shrinks below).
+    hideStatus = false,
+    hideInstance = false,
     onToggle,
     onAction,
     onSpawn,
@@ -201,71 +207,76 @@
       {/if}
     </div></td
   >
-  <td class="w-[1%] whitespace-nowrap">
-    <div class="flex flex-col items-start gap-1">
-      <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
-      {#if token.session_status === "active" && sessionRemaining > 0}
-        <span
-          class="fp-num text-[11px] text-[var(--fp-accent)] whitespace-nowrap"
-          aria-label={`Session time remaining: ${sessionCountdownLabel(sessionRemaining)}`}
-        >
-          {sessionCountdownLabel(sessionRemaining)}
-        </span>
-      {:else if isExhausted(token)}
-        {@const resetAt = resetTimeFor(token)}
-        {@const cd = cooldownLabel(token, nowTick)}
-        <span
-          class="fp-num text-[11px] text-[var(--fp-warning)] whitespace-nowrap"
-          title={resetAt ? `Resets at ${formatLocalDate(resetAt)}` : ""}
-          aria-label={`Resets in ${cd}`}
-        >
-          resets in {cd}
-        </span>
-      {:else if token.cooldown_active}
-        {@const cd = cooldownLabel(token, nowTick)}
-        <span
-          class="fp-num text-[11px] text-[var(--fp-muted)] whitespace-nowrap"
-          aria-label={`Cooldown remaining: ${cd}`}
-        >
-          {cd}
-        </span>
-      {/if}
-    </div></td
-  >
-  <td>
-    {#if token.session_instance || token.session_model}
-      <div class="flex min-w-0 flex-wrap items-center gap-3">
-        <div class="flex min-w-0 flex-col items-start gap-1">
-          {#if token.session_instance}
-            <code
-              class="fp-num block min-w-0 truncate text-xs text-[var(--fp-muted)] whitespace-nowrap select-all max-w-[120px] @min-[820px]:max-w-[240px] @min-[1100px]:max-w-[400px]"
-              title={token.session_instance}>{token.session_instance}</code
+  {#if !hideStatus}
+    <td class="w-[1%] whitespace-nowrap">
+      <div class="flex flex-col items-start gap-1">
+        <StatusBadge status={st.label} tone={st.tone} pulse={st.pulse} />
+        {#if token.session_status === "active" && sessionRemaining > 0}
+          <span
+            class="fp-num text-[11px] text-[var(--fp-accent)] whitespace-nowrap"
+            aria-label={`Session time remaining: ${sessionCountdownLabel(sessionRemaining)}`}
+          >
+            {sessionCountdownLabel(sessionRemaining)}
+          </span>
+        {:else if isExhausted(token)}
+          {@const resetAt = resetTimeFor(token)}
+          {@const cd = cooldownLabel(token, nowTick)}
+          <span
+            class="fp-num text-[11px] text-[var(--fp-warning)] whitespace-nowrap"
+            title={resetAt ? `Resets at ${formatLocalDate(resetAt)}` : ""}
+            aria-label={`Resets in ${cd}`}
+          >
+            resets in {cd}
+          </span>
+        {:else if token.cooldown_active}
+          {@const cd = cooldownLabel(token, nowTick)}
+          <span
+            class="fp-num text-[11px] text-[var(--fp-muted)] whitespace-nowrap"
+            aria-label={`Cooldown remaining: ${cd}`}
+          >
+            {cd}
+          </span>
+        {/if}
+      </div></td
+    >
+  {/if}
+  {#if !hideInstance}
+    <td>
+      {#if token.session_instance || token.session_model}
+        <div class="flex min-w-0 flex-wrap items-center gap-3">
+          <div class="flex min-w-0 flex-col items-start gap-1">
+            {#if token.session_instance}
+              <code
+                class="fp-num block min-w-0 truncate text-xs text-[var(--fp-muted)] whitespace-nowrap select-all max-w-[120px] @min-[820px]:max-w-[240px] @min-[1100px]:max-w-[400px]"
+                title={token.session_instance}>{token.session_instance}</code
+              >
+            {/if}
+            {#if token.session_model}
+              <StatusBadge tone="info" status={token.session_model} />
+            {/if}
+          </div>
+          {#if token.session_status === "active" && token.session_instance && token.session_remaining_seconds > 0 && token.session_model}
+            <Button
+              variant="secondary"
+              size="sm"
+              class="shrink-0"
+              disabled={actionPending}
+              aria-label={$tr("Drop Session")}
+              title={$tr("Drop Session")}
+              onclick={() => onDropSession?.()}
             >
-          {/if}
-          {#if token.session_model}
-            <StatusBadge tone="info" status={token.session_model} />
+              <LogOut size={13} />
+              <span class="hidden @min-[840px]:inline"
+                >{$tr("Drop Session")}</span
+              >
+            </Button>
           {/if}
         </div>
-        {#if token.session_status === "active" && token.session_instance && token.session_remaining_seconds > 0 && token.session_model}
-          <Button
-            variant="secondary"
-            size="sm"
-            class="shrink-0"
-            disabled={actionPending}
-            aria-label={$tr("Drop Session")}
-            title={$tr("Drop Session")}
-            onclick={() => onDropSession?.()}
-          >
-            <LogOut size={13} />
-            <span class="hidden @min-[840px]:inline">{$tr("Drop Session")}</span
-            >
-          </Button>
-        {/if}
-      </div>
-    {:else}
-      <span class="text-xs text-[var(--fp-dim)]">—</span>
-    {/if}
-  </td>
+      {:else}
+        <span class="text-xs text-[var(--fp-dim)]">—</span>
+      {/if}
+    </td>
+  {/if}
   <td class="text-right whitespace-nowrap">
     <div class="inline-flex items-center gap-1.5 justify-end">
       {#if token.cooldown_active}
@@ -318,7 +329,10 @@
 </tr>
 {#if expanded}
   <tr>
-    <td colspan="5" class="!p-0">
+    <td
+      colspan={5 - (hideStatus ? 1 : 0) - (hideInstance ? 1 : 0)}
+      class="!p-0"
+    >
       <div class="m-2">
         <TokenDetailsDrawer
           {token}

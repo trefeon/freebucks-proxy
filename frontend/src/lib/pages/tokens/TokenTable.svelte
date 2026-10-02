@@ -40,6 +40,12 @@
     now,
     devToolsEnabled = false,
     spawnModels = $bindable({}),
+    // R4 table prefs (owned + persisted by Tokens.svelte): compact density
+    // tightens row padding via .density-compact; hiddenCols lists hidden
+    // desktop columns ("status" | "instance"). Mobile cards are not columns
+    // and keep every section.
+    density = "comfortable",
+    hiddenCols = [],
     onToggle,
     onAction,
     onSpawn,
@@ -49,6 +55,9 @@
     onMove,
     onRetry,
   } = $props();
+
+  const hideStatus = $derived(hiddenCols.includes("status"));
+  const hideInstance = $derived(hiddenCols.includes("instance"));
 
   let draggingIndex = $state(null);
   let dragOverIndex = $state(null);
@@ -156,7 +165,11 @@
       instead of pushing the table into horizontal scroll.
       Padding drops to 4px under an 820px container for the same reason;
       the colspan drawer row is excluded so its own padding survives. -->
-    <div class="hidden lg:block overflow-x-auto @container">
+    <div
+      class="hidden lg:block overflow-x-auto @container {density === 'compact'
+        ? 'density-compact'
+        : ''}"
+    >
       <table
         class="fp-table w-full [&_td:not([colspan])]:!px-2 [&_th]:!px-2 @max-[820px]:[&_td:not([colspan])]:!px-1 @max-[820px]:[&_th]:!px-1"
       >
@@ -166,8 +179,12 @@
             <th class="min-w-[180px] w-[180px] whitespace-nowrap"
               >{$tr("Account")}</th
             >
-            <th class="w-[1%] whitespace-nowrap">{$tr("Status")}</th>
-            <th>{$tr("Instance")}</th>
+            {#if !hideStatus}
+              <th class="w-[1%] whitespace-nowrap">{$tr("Status")}</th>
+            {/if}
+            {#if !hideInstance}
+              <th>{$tr("Instance")}</th>
+            {/if}
             <th class="text-right w-[1%] whitespace-nowrap">{$tr("Actions")}</th
             >
           </tr>
@@ -183,6 +200,8 @@
               bind:spawnModel={spawnModels[idx]}
               {actionPending}
               {devToolsEnabled}
+              {hideStatus}
+              {hideInstance}
               dragging={draggingIndex === idx}
               dragOver={dragOverIndex === idx}
               onDragStart={handleDragStart}
@@ -214,6 +233,7 @@
           {actionPending}
           {now}
           {devToolsEnabled}
+          {density}
           dragging={draggingIndex === idx}
           dragOver={dragOverIndex === idx}
           onDragStart={handleDragStart}

@@ -9,6 +9,7 @@
   import KpiGrid from "../components/KpiGrid.svelte";
   import ApiKeysEditor from "../components/ApiKeysEditor.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
+  import StaleBadge from "../components/StaleBadge.svelte";
   import Card from "../components/Card.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import {
@@ -19,6 +20,7 @@
   import { fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
   import { createQueryStore } from "../stores/query.js";
+  import { readColdCache, writeColdCache } from "../utils/coldCache.js";
   import { tr } from "../i18n.js";
   import { recordPageVisit } from "../stores/pageState.js";
   import {
@@ -110,6 +112,9 @@
   // and the full/live cadence (full on first poll, every 30 polls, every 5min,
   // on refresh). The static merge above stays page-local: full shapes refresh
   // the static cache in the data subscription below.
+  let releaseQuery = null;
+  let unsubData = null;
+  let unsubError = null;
   const LIVE_QS = "?view=live";
   const overviewQuery = createQueryStore({
     intervalMs: 15000,
@@ -117,10 +122,20 @@
     fetchLive: (signal) => fetchAPI(adminApi.overview + LIVE_QS, { signal }),
     merge: (_cached, live) => mergeLive(live),
   });
+  const overviewStale = overviewQuery.stale;
 
-  let releaseQuery = null;
-  let unsubData = null;
-  let unsubError = null;
+  // R3 cold render: paint the last overview snapshot instantly with a stale
+  // badge instead of a skeleton. Only full shapes seed (the merge needs the
+  // static keys); the subscription below refreshes the static cache and
+  // rewrites the cold cache on every confirmed pass.
+  let seededAt = $state(0);
+  {
+    const cached = readColdCache("overview");
+    const v = cached?.value;
+    if (v && typeof v.mode === "string" && Array.isArray(v.tokens)) {
+      if (overviewQuery.seed(v)) seededAt = cached.savedAt;
+    }
+  }
   onMount(() => {
     recordPageVisit("overview");
     fetchRecentErrors();
@@ -133,6 +148,9 @@
         data = v;
         loading = false;
         error = "";
+        // Refresh the cold-render cache for the next mount (warn-only,
+        // size-capped; oversized snapshots simply skip the write).
+        writeColdCache("overview", v);
       }
     });
     unsubError = overviewQuery.error.subscribe((e) => {
@@ -315,6 +333,9 @@
 >
   {#snippet actions()}
     {#if data}
+      {#if $overviewStale}
+        <StaleBadge savedAt={seededAt} />
+      {/if}
       <StatusBadge status={data.mode} tone="info" />
       <span class="fp-num text-xs text-[var(--fp-dim)]">up {data.uptime}</span>
     {/if}

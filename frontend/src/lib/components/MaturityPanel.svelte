@@ -9,7 +9,8 @@
   import DbOverrideSave from "./DbOverrideSave.svelte";
   import {
     push as pushToast,
-    dismiss as dismissToast,
+    notifyOnce,
+    clearNotify,
   } from "../stores/toast.js";
   import { postAPI, fetchAPI } from "../api/client.js";
   import { adminApi, adminActions } from "../api/paths.js";
@@ -52,16 +53,13 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
-  let errorToast = $state(0);
-  let lastErrorMsg = "";
+  // R5 discipline: one toast per distinct message under the "maturity" key.
   function notifyError(msg) {
-    // The shared tokens poll re-fails with the same message: only replace
-    // the toast when it actually changes, so it never flickers and a
-    // manual dismiss is respected until the next distinct failure.
-    if (msg === lastErrorMsg) return;
-    lastErrorMsg = msg;
-    if (errorToast) dismissToast(errorToast);
-    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+    if (!msg) {
+      clearNotify("maturity");
+      return;
+    }
+    notifyOnce("maturity", { tone: "error", title: msg });
   }
   function retryLoad() {
     error = "";

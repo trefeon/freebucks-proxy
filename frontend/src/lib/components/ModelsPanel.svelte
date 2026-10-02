@@ -3,10 +3,7 @@
   import Stat from "./Stat.svelte";
   import Card from "./Card.svelte";
   import Button from "./Button.svelte";
-  import {
-    push as pushToast,
-    dismiss as dismissToast,
-  } from "../stores/toast.js";
+  import { notifyOnce, clearNotify } from "../stores/toast.js";
   import EmptyState from "./EmptyState.svelte";
   import StatusBadge from "./StatusBadge.svelte";
   import CopyButton from "./CopyButton.svelte";
@@ -54,16 +51,17 @@
   let live = $state(null);
   let loading = $state(true);
   let error = $state("");
-  let errorToast = $state(0);
+  // R5 discipline: one toast per distinct message under the "models" key.
   function notifyError(msg) {
-    if (errorToast) dismissToast(errorToast);
-    errorToast = msg
-      ? pushToast({
-          tone: "error",
-          title: $tr("Failed to load models"),
-          body: msg,
-        })
-      : 0;
+    if (!msg) {
+      clearNotify("models");
+      return;
+    }
+    notifyOnce("models", {
+      tone: "error",
+      title: $tr("Failed to load models"),
+      body: msg,
+    });
   }
 
   // Row state: withdrawn rows (admission-refused, replacement named) render

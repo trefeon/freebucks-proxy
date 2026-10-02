@@ -2,7 +2,11 @@
   import { onDestroy } from "svelte";
   import { RotateCcw } from "@lucide/svelte";
   import { postAPI } from "../api/client.js";
-  import { notePendingSave, clearPendingSave } from "../stores/settings.js";
+  import {
+    notePendingSave,
+    clearPendingSave,
+    loading as settingsLoading,
+  } from "../stores/settings.js";
   import { adminApi } from "../api/paths.js";
   import { tr } from "../i18n.js";
 
@@ -54,6 +58,9 @@
   let status = $state(null); // { ok, text } — inline row outcome
   // Baseline set on mount and never POSTed; every later change writes.
   let lastSent = $state(undefined);
+  // Last value this row POSTed: a refetch echo of it is adopted, never
+  // re-posted (maturity:419 double-fire).
+  let lastPosted = $state(undefined);
   // Set around Reset so the refetch-driven display revert is adopted, not
   // re-posted (which would resurrect the just-deleted overlay row).
   let suppress = false;
@@ -64,6 +71,13 @@
 
   $effect(() => {
     const v = value;
+    // Settings not loaded yet: on first mount the tokens cold-seed can
+    // render seeded rows before fetchSettings resolves, so the draft still
+    // holds the empty default. Never baseline or fire on it — the effect
+    // re-runs when loading flips and baselines the loaded value instead.
+    // Without this the loaded saved value looks like an edit and re-POSTs
+    // what is already saved (maturity:419 double-fire).
+    if ($settingsLoading) return;
     if (lastSent === undefined) {
       lastSent = v;
       return;
@@ -74,6 +88,11 @@
     }
     if (degraded) return;
     if (v === lastSent) return;
+    // Echo of our own POST arriving back via refetch: adopt, don't re-post.
+    if (v === lastPosted) {
+      lastSent = v;
+      return;
+    }
     // A blank display with no overlay row is the post-reset state (or an
     // untouched default): POSTing it can never succeed — the gateway 400s
     // empty writes — so adopt it instead of firing a doomed save that
@@ -124,6 +143,7 @@
         value: v ?? "",
       });
       lastSent = v;
+      lastPosted = v;
       status = {
         ok: true,
         text: res?.message || $tr("Saved."),

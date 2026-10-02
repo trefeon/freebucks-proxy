@@ -131,6 +131,23 @@ export const tokensData = store.data;
 export const tokensError = store.error;
 
 /**
+ * True while the rendered snapshot is a cold-render seed no poll has
+ * confirmed yet (Phase 4 R3). Pages badge it with StaleBadge.
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const tokensStale = store.stale;
+
+/**
+ * Cold-render seed: paint a cached tokens snapshot instantly. Never
+ * overwrites the live shared value; the first confirmed poll (or SSE push)
+ * clears the stale badge.
+ * @param {any} value - cached snapshot
+ * @returns {boolean} true when the seed was applied
+ */
+export function seedTokensStore(value) {
+  return store.seed(value);
+}
+/**
  * Reference-counted activation: a page calls this in onMount, keeps holding
  * the store alive until it unmounts. First consumer starts the poll + SSE;
  * the last release stops them (the cached value stays for the next page).

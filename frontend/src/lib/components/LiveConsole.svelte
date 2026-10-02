@@ -18,7 +18,8 @@
   import SegmentedControl from "./SegmentedControl.svelte";
   import {
     push as pushToast,
-    dismiss as dismissToast,
+    notifyOnce as notifyErrorOnce,
+    clearNotify,
   } from "../stores/toast.js";
   import { fetchAPI } from "../api/client.js";
   import { adminApi, adminRoot } from "../api/paths.js";
@@ -62,6 +63,24 @@
   // R2 global page-size memory: one `fp-page-size` key shared by all tables.
   // Invalid/stale stored values fall back to 10 inside loadPageSize.
   let pageSize = $state(loadPageSize());
+  // R4 table prefs: compact density + hideable table columns (time, account
+  // chip, details block). Level/message stay — they are the row. Persisted
+  // in pages_state ("logs") with the filters below; defaults show everything.
+  let density = $state("comfortable");
+  let hiddenLogCols = $state([]);
+  const VALID_LOG_COLS = ["time", "account", "details"];
+  const hideLogTime = $derived(hiddenLogCols.includes("time"));
+  const hideLogAccount = $derived(hiddenLogCols.includes("account"));
+  const hideLogDetails = $derived(hiddenLogCols.includes("details"));
+  function toggleDensity() {
+    density = density === "compact" ? "comfortable" : "compact";
+  }
+  function toggleLogColumn(col) {
+    if (!VALID_LOG_COLS.includes(col)) return;
+    hiddenLogCols = hiddenLogCols.includes(col)
+      ? hiddenLogCols.filter((c) => c !== col)
+      : [...hiddenLogCols, col];
+  }
   // Console time window. "" = no override (the server applies
   // LOG_CONSOLE_WINDOW, its default view window); picking an option sends
   // ?window= for this browser. View-only: the server keeps storing rows for
@@ -88,20 +107,21 @@
     hideAdmin,
     viewMode,
     page,
+    density,
+    hiddenLogCols,
   }));
-  // Oversized-snapshot hint from the pageState store (PUT 413 eviction).
   // It surfaces as a warning toast (10s fade, like every toast), then clears
   // — no inline banner.
-  let errorToast = $state(0);
-  let lastErrorMsg = "";
-  function notifyError(msg) {
-    // The 1s auto-poll re-fails with the same message: only replace the
-    // toast when the message actually changes, so it never flickers and a
-    // manual dismiss is respected until the next distinct failure.
-    if (msg === lastErrorMsg) return;
-    lastErrorMsg = msg;
-    if (errorToast) dismissToast(errorToast);
-    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+  // Fetch errors use the shared R5 discipline (toast.js notifyOnce/clearNotify
+  // under the "logs" key): one toast per distinct message, inline always.
+  // Background auto-poll ticks stay inline-only so the 1s loop can never
+  // double-report; mount and manual actions toast once.
+  function notifyError(msg, manual) {
+    if (!msg) {
+      clearNotify("logs");
+      return;
+    }
+    if (manual) notifyErrorOnce("logs", { tone: "error", title: msg });
   }
   let unsubNotice = null;
   let releaseTokens = null;
@@ -722,7 +742,7 @@
   $effect(() => {
     if (page >= totalPages) page = Math.max(0, totalPages - 1);
   });
-  async function fetchLogs() {
+  async function fetchLogs(manual = true) {
     try {
       // eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient local query builder, not reactive state
       const query = new URLSearchParams();
@@ -738,14 +758,14 @@
       const res = await fetchAPI(`${adminApi.logs}?${query.toString()}`);
       data = res;
       error = "";
-      notifyError("");
+      notifyError("", manual);
       // No page reset here: the clamp effect above keeps the pager in range
       // without yanking the table back to page 0 on every 1s poll.
     } catch (e) {
       error = e.message
         ? $tr("Could not load log entries: {reason}", { reason: e.message })
         : $tr("Could not load log entries");
-      notifyError(error);
+      notifyError(error, manual);
     } finally {
       loading = false;
       manualRefresh = false;
@@ -753,7 +773,7 @@
   }
   async function refresh() {
     manualRefresh = true;
-    await fetchLogs();
+    await fetchLogs(true);
   }
 
   // Shared time cursor from the Activity page ("Refresh all"): refetch when
@@ -761,7 +781,7 @@
   // effect dependencies.
   $effect(() => {
     const c = cursor;
-    if (c) untrack(() => fetchLogs());
+    if (c) untrack(() => fetchLogs(false));
   });
 
   function handleFilterChange() {
@@ -778,9 +798,9 @@
   }
 
   // Deep page state: the full filter set (level, message, admin toggle,
-  // view, page) survives restarts via pages_state. Guarded by filtersReady
-  // so mount defaults never persist over the stored snapshot before the
-  // restore below resolves.
+  // view, page) plus the R4 table prefs (density, hidden columns) survive
+  // restarts via pages_state. Guarded by filtersReady so mount defaults
+  // never persist over the stored snapshot before the restore below resolves.
   $effect(() => {
     if (!filtersReady) return;
     savePageState("logs", {
@@ -789,6 +809,8 @@
       hideAdmin,
       viewMode,
       page,
+      density,
+      hiddenLogCols,
     });
   });
 
@@ -856,6 +878,18 @@
           viewMode === mountFilters.viewMode
         )
           viewMode = d.viewMode;
+        if (
+          (d.density === "compact" || d.density === "comfortable") &&
+          density === mountFilters.density
+        )
+          density = d.density;
+        if (
+          Array.isArray(d.hiddenLogCols) &&
+          hiddenLogCols === mountFilters.hiddenLogCols
+        )
+          hiddenLogCols = d.hiddenLogCols.filter((c) =>
+            VALID_LOG_COLS.includes(c),
+          );
       }
       // R1: an explicit pasted URL overlays the stored snapshot (shareable
       // links win), but never in-flight keystrokes — each key applies only
@@ -929,7 +963,7 @@
   // Auto-poll every 1s while enabled; the first tick waits for the filter
   // restore above. Manual refresh / filter changes always fetch.
   usePolling(async () => {
-    if (autoPoll && filtersReady) await fetchLogs();
+    if (autoPoll && filtersReady) await fetchLogs(false);
   }, 1000);
 
   function isNearBottom() {
@@ -1119,6 +1153,16 @@
                 })}
               </Button>
               <Button
+                variant={density === "compact" ? "secondary" : "ghost"}
+                size="sm"
+                aria-pressed={density === "compact"}
+                onclick={toggleDensity}
+                title={$tr("Toggle compact row density")}
+                class="shrink-0"
+              >
+                {$tr("Compact")}
+              </Button>
+              <Button
                 variant="secondary"
                 size="sm"
                 aria-label={$tr("Refresh")}
@@ -1163,7 +1207,9 @@
           {:else}
             {#each requestGroups as g (g.id)}
               <div
-                class="hover:bg-[var(--fp-surface-2)]/60 px-1.5 py-1 rounded transition-colors leading-relaxed min-w-0 overflow-hidden"
+                class="hover:bg-[var(--fp-surface-2)]/60 {density === 'compact'
+                  ? 'px-1 py-0.5'
+                  : 'px-1.5 py-1'} rounded transition-colors leading-relaxed min-w-0 overflow-hidden"
               >
                 <div class="break-words">
                   <span class="text-[var(--fp-dim)]">[{g.time}]</span>
@@ -1434,6 +1480,33 @@
                 })}
               </Button>
               <Button
+                variant={density === "compact" ? "secondary" : "ghost"}
+                size="sm"
+                aria-pressed={density === "compact"}
+                onclick={toggleDensity}
+                title={$tr("Toggle compact row density")}
+                class="shrink-0"
+              >
+                {$tr("Compact")}
+              </Button>
+              <span class="text-xs text-[var(--fp-dim)]" aria-hidden="true"
+                >{$tr("Columns:")}</span
+              >
+              {#each [{ id: "time", label: $tr("Time") }, { id: "account", label: "ACCT" }, { id: "details", label: $tr("Details") }] as col (col.id)}
+                <Button
+                  variant={hiddenLogCols.includes(col.id)
+                    ? "ghost"
+                    : "secondary"}
+                  size="sm"
+                  aria-pressed={!hiddenLogCols.includes(col.id)}
+                  onclick={() => toggleLogColumn(col.id)}
+                  title={$tr("Toggle {name} column", { name: col.label })}
+                  class="shrink-0"
+                >
+                  {col.label}
+                </Button>
+              {/each}
+              <Button
                 variant="secondary"
                 size="sm"
                 aria-label={$tr("Refresh")}
@@ -1487,18 +1560,22 @@
                   2,
                 )}
                 <li
-                  class="px-4 py-2.5 hover:bg-[var(--fp-surface-2)] transition-colors"
+                  class="{density === 'compact'
+                    ? 'px-3 py-1'
+                    : 'px-4 py-2.5'} hover:bg-[var(--fp-surface-2)] transition-colors"
                 >
                   <div class="flex items-center gap-3">
                     <StatusBadge status={e.level} tone={levelTone(e.level)} />
-                    <span class="fp-num text-xs text-[var(--fp-dim)] shrink-0"
-                      >{formatTime(e.time)}</span
-                    >
+                    {#if !hideLogTime}
+                      <span class="fp-num text-xs text-[var(--fp-dim)] shrink-0"
+                        >{formatTime(e.time)}</span
+                      >
+                    {/if}
                     <span
                       class="font-mono text-sm text-[var(--fp-text)] min-w-0 flex-1 truncate"
                       >{e.message}</span
                     >
-                    {#if tokField}
+                    {#if !hideLogAccount && tokField}
                       {@const tidx = accIndex(tokField.value)}
                       {#if tidx !== null}
                         <button
@@ -1527,7 +1604,7 @@
                       <CopyButton text={entryJson} label="Copy" />
                     </span>
                   </div>
-                  {#if fields.length > 0}
+                  {#if !hideLogDetails && fields.length > 0}
                     <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 pl-1">
                       {#each fields as f, j (j)}
                         <span

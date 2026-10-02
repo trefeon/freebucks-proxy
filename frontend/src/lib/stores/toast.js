@@ -58,6 +58,7 @@ export function push({ tone = "info", title = "", body = "", sticky } = {}) {
 export function dismiss(id) {
   clearTimeout(timers.get(id));
   timers.delete(id);
+  markNotifyGone(id);
   let removed = false;
   toasts.update((list) => {
     const next = list.filter((t) => t.id !== id);
@@ -73,4 +74,57 @@ export function clear() {
   timers.clear();
   toasts.set([]);
   toastQueue.set([]);
+  notifyState.clear();
+}
+
+// Mutation-toast discipline (Phase 4 R5): the single shared convention for
+// error surfaces. Every panel keys its error toast; the same key+message
+// renders exactly one toast no matter how often the poll re-fails, and a
+// manual dismiss is respected until the message actually changes (the entry
+// survives dismiss, so re-failing with the identical text stays silent).
+// Panels whose inline state already shows the error call clearNotify on
+// success; auto-poll ticks skip the toast entirely (inline only).
+/** key -> { id, title, body, live } */
+const notifyState = new Map();
+
+function markNotifyGone(id) {
+  for (const s of notifyState.values()) {
+    if (s.id === id) s.live = false;
+  }
+}
+
+/**
+ * Push (or keep) the keyed error toast. Same key+text while live or
+ * user-dismissed is a no-op — only a changed message replaces it.
+ * @param {string} key - stable per-surface key (e.g. 'logs', 'traces')
+ * @param {{ tone?: 'info'|'success'|'warning'|'error', title?: string, body?: string, sticky?: boolean }} toast
+ * @returns {number} toast id (0 when nothing is shown)
+ */
+export function notifyOnce(
+  key,
+  { tone = "error", title = "", body = "" } = {},
+) {
+  if (!title && !body) {
+    clearNotify(key);
+    return 0;
+  }
+  const prev = notifyState.get(key);
+  if (prev && prev.title === title && (prev.body ?? "") === (body ?? "")) {
+    return prev.id;
+  }
+  if (prev && prev.live) dismiss(prev.id);
+  const id = push({ tone, title, body });
+  notifyState.set(key, { id, title, body: body ?? "", live: true });
+  return id;
+}
+
+/**
+ * Dismiss the keyed toast and forget its text, so the next failure toasts
+ * again. Call on success (and unmount for poll-owned keys).
+ * @param {string} key
+ */
+export function clearNotify(key) {
+  const prev = notifyState.get(key);
+  notifyState.delete(key);
+  if (prev && prev.live) dismiss(prev.id);
 }

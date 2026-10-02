@@ -3,10 +3,7 @@
   import { RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
   import Stat from "./Stat.svelte";
-  import {
-    push as pushToast,
-    dismiss as dismissToast,
-  } from "../stores/toast.js";
+  import { notifyOnce, clearNotify } from "../stores/toast.js";
   import Button from "./Button.svelte";
   import SegmentedControl from "./SegmentedControl.svelte";
   import { fetchAPI } from "../api/client.js";
@@ -28,15 +25,20 @@
   let usage = $state(null);
   let usageLoading = $state(true);
   let usageError = $state("");
-  let errorToast = $state(0);
-  let usageToast = $state(0);
+  // R5 discipline: one toast per distinct message under per-surface keys.
   function notifyError(msg) {
-    if (errorToast) dismissToast(errorToast);
-    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+    if (!msg) {
+      clearNotify("metrics");
+      return;
+    }
+    notifyOnce("metrics", { tone: "error", title: msg });
   }
   function notifyUsageError(msg) {
-    if (usageToast) dismissToast(usageToast);
-    usageToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+    if (!msg) {
+      clearNotify("metrics-usage");
+      return;
+    }
+    notifyOnce("metrics-usage", { tone: "error", title: msg });
   }
 
   async function fetchData() {

@@ -54,6 +54,9 @@
     actionPending,
     devToolsEnabled = false,
     now,
+    // R4 density (desktop column visibility does not apply: the card is not
+    // a column layout and keeps every section).
+    density = "comfortable",
     onToggle,
     onAction,
     onSpawn,
@@ -105,8 +108,10 @@
   aria-label={totalTokens > 1
     ? $tr("Draggable account card {index}", { index: idx + 1 })
     : undefined}
-  class="fp-inset rounded p-3.5 flex flex-col gap-2.5 transition-all {totalTokens >
-    1 && !actionPending
+  class="fp-inset rounded {density === 'compact'
+    ? 'p-2 flex flex-col gap-1.5'
+    : 'p-3.5 flex flex-col gap-2.5'} transition-all {totalTokens > 1 &&
+  !actionPending
     ? 'cursor-grab active:cursor-grabbing'
     : ''} {dragging
     ? 'opacity-30 bg-[var(--fp-surface-2)]/60'

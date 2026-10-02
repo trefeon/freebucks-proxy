@@ -2,10 +2,7 @@
   import { onMount } from "svelte";
   import { ChevronDown, ChevronRight, RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
-  import {
-    push as pushToast,
-    dismiss as dismissToast,
-  } from "../stores/toast.js";
+  import { notifyOnce, clearNotify } from "../stores/toast.js";
   import Button from "./Button.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { fetchAPI } from "../api/client.js";
@@ -23,16 +20,20 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
-  let errorToast = $state(0);
-  function notifyError(msg) {
-    if (errorToast) dismissToast(errorToast);
-    errorToast = msg
-      ? pushToast({
-          tone: "error",
-          title: $tr("Could not load this page"),
-          body: msg,
-        })
-      : 0;
+  // R5 discipline (toast.js notifyOnce/clearNotify under the "traces" key):
+  // one toast per distinct message, inline always. Cursor-driven refetches
+  // stay inline-only; mount and manual Retry toast once.
+  function notifyError(msg, manual) {
+    if (!msg) {
+      clearNotify("traces");
+      return;
+    }
+    if (manual)
+      notifyOnce("traces", {
+        tone: "error",
+        title: $tr("Could not load this page"),
+        body: msg,
+      });
   }
   // Local focus dismissal: the parent sets focusReqId (log→trace link); the
   // "Clear" chip below resets to the full list without round-tripping.
@@ -52,26 +53,26 @@
     showAll = false;
   });
 
-  async function fetchData() {
+  async function fetchData(manual = true) {
     try {
       data = await fetchAPI(adminApi.traces);
       error = "";
-      notifyError("");
+      notifyError("", manual);
     } catch (e) {
       error = e.message || $tr("Failed to load traces");
-      notifyError(error);
+      notifyError(error, manual);
     } finally {
       loading = false;
     }
   }
 
-  onMount(fetchData);
+  onMount(() => fetchData(true));
 
   // Shared time cursor from the Activity page ("Refresh all"): refetch when
   // it advances. fetchData reads no reactive state, so cursor is the only
   // dependency.
   $effect(() => {
-    if (cursor) fetchData();
+    if (cursor) fetchData(false);
   });
 
   const rowReqId = (t) => t.req_id ?? t.reqId ?? "";

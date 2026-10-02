@@ -150,4 +150,55 @@ describe("createQueryStore race-safe lifecycle", () => {
     assert.equal(calls, frozen, "no poll after session death");
     release();
   });
+
+  it("seed paints cold data with a stale badge until the first poll confirms", async () => {
+    const gate = deferred();
+    const store = createQueryStore({
+      intervalMs: 60_000,
+      fetchFull: () => gate.promise,
+    });
+    assert.equal(get(store.stale), false, "no badge before any seed");
+    assert.equal(store.seed(null), false, "null seed is a no-op");
+    assert.equal(store.seed(undefined), false, "undefined seed is a no-op");
+    assert.equal(
+      store.seed({ tokens: [1] }),
+      true,
+      "empty store takes the seed",
+    );
+    assert.deepEqual(get(store.data), { tokens: [1] });
+    assert.equal(get(store.stale), true, "seed raises the stale badge");
+    assert.equal(
+      store.seed({ tokens: [2] }),
+      false,
+      "seed never overwrites live data",
+    );
+    assert.deepEqual(get(store.data), { tokens: [1] });
+    const release = store.ensure();
+    gate.resolve({ tokens: [2] });
+    await gate.promise;
+    await tick();
+    assert.deepEqual(get(store.data), { tokens: [2] });
+    assert.equal(
+      get(store.stale),
+      false,
+      "first confirmed poll drops the badge",
+    );
+    release();
+  });
+
+  it("a failed first poll keeps the stale badge up", async () => {
+    const gate = deferred();
+    const store = createQueryStore({
+      intervalMs: 60_000,
+      fetchFull: () => gate.promise,
+    });
+    assert.equal(store.seed({ mode: "pooled" }), true);
+    const release = store.ensure();
+    gate.reject(new Error("down"));
+    await gate.promise.catch(() => {});
+    await tick();
+    assert.equal(get(store.stale), true, "badge survives poll failure");
+    assert.deepEqual(get(store.data), { mode: "pooled" });
+    release();
+  });
 });

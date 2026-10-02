@@ -5,6 +5,7 @@
   import Card from "../components/Card.svelte";
   import Alert from "../components/Alert.svelte";
   import { push as pushToast } from "../stores/toast.js";
+  import StaleBadge from "../components/StaleBadge.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import PageShell from "../components/PageShell.svelte";
   import TokenTable from "./tokens/TokenTable.svelte";
@@ -33,9 +34,12 @@
   import {
     tokensData as tokensStore,
     tokensError as tokensErrorStore,
+    tokensStale as tokensStaleStore,
     ensureTokensStore,
     refreshTokens,
+    seedTokensStore,
   } from "../stores/tokens.js";
+  import { readColdCache, writeColdCache } from "../utils/coldCache.js";
   import { tr } from "../i18n.js";
   import { fleetCountrySummary } from "../utils/country.js";
   import { formatLocalDateTime } from "../utils/format.js";
@@ -94,6 +98,41 @@
   let spawnModels = $state({});
   let actionPending = $state(false);
   let now = $state(Date.now());
+  // R4 table prefs: compact density + hideable Status/Instance columns,
+  // persisted in pages_state ("tokens") on every toggle. Defaults keep
+  // every column visible so existing row/cell assertions hold.
+  let tokenDensity = $state("comfortable");
+  let hiddenTokenCols = $state([]);
+  const VALID_TOKEN_COLS = ["status", "instance"];
+  function persistTokenView() {
+    savePageState("tokens", {
+      tokenDensity,
+      hiddenTokenCols,
+      expandedToken,
+    });
+  }
+  function toggleTokenDensity() {
+    tokenDensity = tokenDensity === "compact" ? "comfortable" : "compact";
+    persistTokenView();
+  }
+  function toggleTokenColumn(col) {
+    if (!VALID_TOKEN_COLS.includes(col)) return;
+    hiddenTokenCols = hiddenTokenCols.includes(col)
+      ? hiddenTokenCols.filter((c) => c !== col)
+      : [...hiddenTokenCols, col];
+    persistTokenView();
+  }
+  // R3 cold render: paint the last tokens snapshot instantly with a stale
+  // badge instead of a skeleton. The shared store replaces it on the first
+  // confirmed poll (or SSE push).
+  let tokensSeededAt = $state(0);
+  {
+    const cached = readColdCache("tokens");
+    const v = cached?.value;
+    if (v && Array.isArray(v.tokens)) {
+      if (seedTokensStore(v)) tokensSeededAt = cached.savedAt;
+    }
+  }
   // Fleet region view: per-account upstream country + remembered
   // country_blocked reasons (live keys `country_code` /
   // `country_block_reason`, absent on older servers — the summary is empty
@@ -126,6 +165,8 @@
     clampExpandedToken();
     error = "";
     loading = false;
+    // Refresh the cold-render cache for the next mount (size-capped).
+    writeColdCache("tokens", v);
   }
 
   // A restored expandedToken may point past the live list (the pool shrank
@@ -461,13 +502,16 @@
       oauthStarting = false;
     }
   }
+
   function toggleExpand(idx) {
     expandedToken = expandedToken === idx ? null : idx;
+    persistTokenView();
   }
 
-  // Deep page state: the expanded token row survives restarts via
-  // pages_state (warn-only; an out-of-range index is dropped). A cross-page
-  // account-expand link ("fp-tokens-expand") wins one-shot when present.
+  // Deep page state: the expanded token row and the R4 table prefs (density,
+  // hidden columns) survive restarts via pages_state (warn-only; an
+  // out-of-range index is dropped). A cross-page account-expand link
+  // ("fp-tokens-expand") wins one-shot when present.
   function restoreExpandedToken() {
     try {
       const raw = sessionStorage.getItem("fp-tokens-expand");
@@ -501,6 +545,12 @@
     loadPageState("tokens").then((d) => {
       if (Number.isInteger(d?.expandedToken) && d.expandedToken >= 0)
         expandedToken = d.expandedToken;
+      if (d?.tokenDensity === "compact" || d?.tokenDensity === "comfortable")
+        tokenDensity = d.tokenDensity;
+      if (Array.isArray(d?.hiddenTokenCols))
+        hiddenTokenCols = d.hiddenTokenCols.filter((c) =>
+          VALID_TOKEN_COLS.includes(c),
+        );
     });
   }
 
@@ -657,6 +707,9 @@
         </dd>
       </div>
     </dl>
+    {#if $tokensStaleStore && data}
+      <StaleBadge savedAt={tokensSeededAt} />
+    {/if}
   {/snippet}
   {#if oauthStatus?.loginUrl}
     <div
@@ -831,12 +884,44 @@
         </Alert>
       </div>
     {/if}
+    <!-- R4 table prefs: density toggle + per-column visibility. Persisted in
+      pages_state on every toggle (persistTokenView); defaults keep every
+      column visible. -->
+    <div
+      class="flex flex-wrap items-center gap-2"
+      role="group"
+      aria-label={$tr("Table view options")}
+    >
+      <Button
+        variant={tokenDensity === "compact" ? "secondary" : "ghost"}
+        size="sm"
+        aria-pressed={tokenDensity === "compact"}
+        onclick={toggleTokenDensity}
+        title={$tr("Toggle compact row density")}
+      >
+        {$tr("Compact")}
+      </Button>
+      <span class="text-xs text-[var(--fp-dim)]">{$tr("Columns:")}</span>
+      {#each [{ id: "status", label: $tr("Status") }, { id: "instance", label: $tr("Instance") }] as col (col.id)}
+        <Button
+          variant={hiddenTokenCols.includes(col.id) ? "ghost" : "secondary"}
+          size="sm"
+          aria-pressed={!hiddenTokenCols.includes(col.id)}
+          onclick={() => toggleTokenColumn(col.id)}
+          title={$tr("Toggle {name} column", { name: col.label })}
+        >
+          {col.label}
+        </Button>
+      {/each}
+    </div>
     <TokenTable
       tokens={data?.tokens ?? []}
       tokenCount={data?.token_count ?? 0}
       {loading}
       {error}
       {expandedToken}
+      density={tokenDensity}
+      hiddenCols={hiddenTokenCols}
       {actionPending}
       {now}
       {devToolsEnabled}

@@ -2,10 +2,7 @@
   import { onMount } from "svelte";
   import { RefreshCw } from "@lucide/svelte";
   import Card from "./Card.svelte";
-  import {
-    push as pushToast,
-    dismiss as dismissToast,
-  } from "../stores/toast.js";
+  import { notifyOnce, clearNotify } from "../stores/toast.js";
   import Button from "./Button.svelte";
   import { fetchAPI } from "../api/client.js";
   import { adminApi } from "../api/paths.js";
@@ -22,16 +19,13 @@
   let payload = $state(null);
   let loading = $state(true);
   let error = $state("");
-  let errorToast = $state(0);
-  let lastErrorMsg = "";
+  // R5 discipline: one toast per distinct message under the "team-usage" key.
   function notifyError(msg) {
-    // Concurrent refetches fail with the same message: only replace the
-    // toast when it actually changes, so one failure renders one toast
-    // and a manual dismiss is respected until the next distinct failure.
-    if (msg === lastErrorMsg) return;
-    lastErrorMsg = msg;
-    if (errorToast) dismissToast(errorToast);
-    errorToast = msg ? pushToast({ tone: "error", title: msg }) : 0;
+    if (!msg) {
+      clearNotify("team-usage");
+      return;
+    }
+    notifyOnce("team-usage", { tone: "error", title: msg });
   }
 
   async function fetchTeam() {

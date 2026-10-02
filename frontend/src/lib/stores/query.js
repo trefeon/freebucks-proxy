@@ -1,6 +1,5 @@
 import { writable } from "svelte/store";
 import { isSessionDead } from "./session.js";
-
 // Shared query store behind every rewired page. One owner per endpoint: a
 // refcounted poll loop (visibility-aware, dead-session gated, race-safe)
 // plus an optional push subscription (SSE). Pages render from `data` and
@@ -42,7 +41,12 @@ export function createQueryStore({
 }) {
   const data = writable(null);
   const error = writable("");
-
+  // R3 cold render: `seed()` paints the last snapshot instantly (from the
+  // pageState snapshot or the tiny localStorage cold cache) and raises
+  // `stale` so pages badge it until the first poll (or push) confirms fresh
+  // data. Seed never overwrites live data; only a confirmed pass clears the
+  // badge.
+  const stale = writable(false);
   let consumers = 0;
   let timer = null;
   let polls = 0;
@@ -83,7 +87,7 @@ export function createQueryStore({
       if (full) queuedRefresh = true;
       return;
     }
-    const stale =
+    const needsFull =
       full ||
       lastFullAt === 0 ||
       polls % FULL_EVERY_POLLS === 0 ||
@@ -93,7 +97,7 @@ export function createQueryStore({
     activeAbort = ctrl;
     try {
       polls += 1;
-      if (!fetchLive || !merge || stale) {
+      if (!fetchLive || !merge || needsFull) {
         const v = await fetchFull(ctrl.signal);
         if (mySeq === seq) remember(v);
       } else {
@@ -102,8 +106,11 @@ export function createQueryStore({
       }
       // A superseded pass stays silent even on success: the newer data
       // (push or queued refresh) already owns the view.
-      if (mySeq === seq) error.set("");
-      consecutiveErrors = 0;
+      if (mySeq === seq) {
+        error.set("");
+        // Confirmed fresh: the cold-render badge (if any) comes down.
+        stale.set(false);
+      }
     } catch (e) {
       // AbortError = this pass was superseded (refresh-while-flying aborts
       // it below) — never surface it as a page error.
@@ -158,6 +165,8 @@ export function createQueryStore({
           subscribe((v) => {
             seq += 1;
             remember(v);
+            // A push is confirmed-fresh: drop any cold-render badge.
+            stale.set(false);
           }) ?? null;
       } catch {
         unsubPush = null;
@@ -188,6 +197,28 @@ export function createQueryStore({
     };
   }
 
+  /**
+   * Cold-render seed (Phase 4 R3): paint a cached snapshot instantly so the
+   * page renders with a `stale` badge instead of a skeleton. Never
+   * overwrites live data — returns false when the store already holds a
+   * value. The first confirmed poll (or push) clears `stale`.
+   * @param {any} value - cached snapshot
+   * @returns {boolean} true when the seed was applied
+   */
+  function seed(value) {
+    if (value === null || value === undefined) return false;
+    let applied = false;
+    data.update((cur) => {
+      if (cur === null || cur === undefined) {
+        applied = true;
+        return value;
+      }
+      return cur;
+    });
+    if (applied) stale.set(true);
+    return applied;
+  }
+
   /** Force a full refresh now (page mutations call this). */
   function refresh() {
     if (activeAbort) {
@@ -201,5 +232,5 @@ export function createQueryStore({
     return poll(true);
   }
 
-  return { data, error, ensure, refresh };
+  return { data, error, stale, ensure, refresh, seed };
 }

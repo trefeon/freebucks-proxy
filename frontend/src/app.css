@@ -602,3 +602,12 @@ select.fp-input[aria-invalid="true"] {
     transform: none;
   }
 }
+
+/* R4 compact density (TokenTable desktop + LiveConsole table) */
+.density-compact .fp-table tbody td:not([colspan]) {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+.density-compact .fp-table {
+  font-size: 12px;
+}

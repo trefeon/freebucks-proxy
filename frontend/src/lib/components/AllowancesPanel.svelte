@@ -6,7 +6,8 @@
   import Button from "./Button.svelte";
   import {
     push as pushToast,
-    dismiss as dismissToast,
+    notifyOnce,
+    clearNotify,
   } from "../stores/toast.js";
   import EmptyState from "./EmptyState.svelte";
   import RefundLines from "./RefundLines.svelte";
@@ -33,22 +34,17 @@
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
-  let errorToast = $state(0);
-  let lastErrorMsg = "";
+  // R5 discipline: one toast per distinct message under the "allowances" key.
   function notifyError(msg) {
-    // The shared tokens poll re-fails with the same message: only replace
-    // the toast when it actually changes, so it never flickers and a
-    // manual dismiss is respected until the next distinct failure.
-    if (msg === lastErrorMsg) return;
-    lastErrorMsg = msg;
-    if (errorToast) dismissToast(errorToast);
-    errorToast = msg
-      ? pushToast({
-          tone: "error",
-          title: $tr("Could not load this page"),
-          body: msg,
-        })
-      : 0;
+    if (!msg) {
+      clearNotify("allowances");
+      return;
+    }
+    notifyOnce("allowances", {
+      tone: "error",
+      title: $tr("Could not load this page"),
+      body: msg,
+    });
   }
   // Countdown tick: the global reset strip re-renders "resets in" against
   // this clock every second. Refetches nothing on its own.
@@ -258,7 +254,7 @@
       unsubStore?.();
       unsubErr?.();
       clearInterval(tick);
-      if (errorToast) dismissToast(errorToast);
+      clearNotify("allowances");
     };
   });
 </script>
