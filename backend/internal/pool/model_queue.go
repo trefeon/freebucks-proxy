@@ -191,6 +191,14 @@ func (p *Pool) laneAdmissible(tok *tokenEntry, idx int, model string, cfg *confi
 	if tok.runs.ModelRateLimit(model) != nil {
 		return false
 	}
+	// Lane breaker (breaker.go): consecutive failures park the lane on
+	// every path that observes eligibility — scan, handoff, queue stats —
+	// not just the walk. A lane that keeps failing must not serve warm
+	// either. Fresh breakers are closed, so green paths never reach this
+	// branch. Lock-safe: the breaker registry never nests with routeMu.
+	if p.breakerOpen(model, idx) {
+		return false
+	}
 	if skipHinted && tok.token != "" && p.cooldownHintFresh(poolTokenHash(tok.token), now) {
 		return false
 	}

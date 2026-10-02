@@ -778,6 +778,102 @@
         ],
         "type": "object"
       },
+      "activityRollupData": {
+        "properties": {
+          "buckets": {
+            "items": {
+              "properties": {
+                "errors": {
+                  "type": "integer"
+                },
+                "total": {
+                  "type": "integer"
+                },
+                "ts": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "errors",
+                "total",
+                "ts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "granularity": {
+            "type": "string"
+          },
+          "since": {
+            "type": "integer"
+          },
+          "until": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "buckets",
+          "enabled",
+          "granularity",
+          "since",
+          "until"
+        ],
+        "type": "object"
+      },
+      "activityTopData": {
+        "properties": {
+          "dimension": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "properties": {
+                "errors": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "errors",
+                "name",
+                "total"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "since": {
+            "type": "integer"
+          },
+          "until": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dimension",
+          "enabled",
+          "limit",
+          "rows",
+          "since",
+          "until"
+        ],
+        "type": "object"
+      },
       "configData": {
         "properties": {
           "effective": {
@@ -3223,6 +3319,125 @@
           }
         ],
         "summary": "SPA shell (HTML)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/admin/api/activity/rollup": {
+      "get": {
+        "operationId": "getActivityRollup",
+        "parameters": [
+          {
+            "description": "Unix-millis lower bound (default 0, clamped to 168h)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix-millis upper bound (default now)",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "day (default) | hour",
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/activityRollupData"
+                }
+              }
+            },
+            "description": "Per-day/per-hour UTC request buckets with error counts (pre-aggregated GROUP BYs)"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Per-day/per-hour UTC request buckets with error counts (pre-aggregated GROUP BYs)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/admin/api/activity/top": {
+      "get": {
+        "operationId": "getActivityTop",
+        "parameters": [
+          {
+            "description": "Unix-millis lower bound (default 0, clamped to 168h)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix-millis upper bound (default now)",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "model (default) | token",
+            "in": "query",
+            "name": "dimension",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max rows (default 10, clamped to 100)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/activityTopData"
+                }
+              }
+            },
+            "description": "TopN models or token lanes by volume (capped, ties alphabetical)"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "TopN models or token lanes by volume (capped, ties alphabetical)",
         "tags": [
           "views"
         ]

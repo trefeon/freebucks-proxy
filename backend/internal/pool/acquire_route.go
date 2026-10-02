@@ -22,15 +22,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/notify"
 	"freebuff-proxy/backend/internal/phasetiming"
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"strings"
+	"time"
 )
 
 // tagRateLimitModel stamps the requested model on a WALK-LOCAL copy of a
@@ -115,6 +114,11 @@ func (p *Pool) rememberModelRateLimit(tok *tokenEntry, model string, rle *upstre
 		return
 	}
 	p.logger.Info("pool: admission rate limit remembered", args...)
+	// Gateway failover (breaker.go/keypool.go): the same refusal feeds the
+	// consecutive-failure breaker and parks the (model, account) rotation
+	// lane — 429 rotates without backoff. Opaque refusals (no usable
+	// expiry) return above and never touch the failover machines.
+	p.noteLaneRateLimit(tok, model, &cp)
 }
 
 // Acquire resolves the model's agent and walks the strict index order
@@ -133,11 +137,13 @@ func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 	if len(*toks) == 0 {
 		return nil, errors.New("pool: no auth tokens configured")
 	}
+	// Virtual-model alias expansion (gateway.go): compiled tables only;
+	// unaliased models pass through unchanged.
+	model = p.resolveModel(model)
 	agentID, err := p.reg.AgentForModel(model)
 	if err != nil {
 		return nil, err
 	}
-
 	// Single-pin fail-fast (PIN_MODEL): when every slot is pinned away
 	// from the requested model, no admission can succeed — surface the
 	// routing error without touching upstream at all.
@@ -155,6 +161,9 @@ func (p *Pool) Acquire(ctx context.Context, model string) (*Lease, error) {
 	// per-entry single-flight in the session manager, so no leader gate
 	// is needed to prevent duplicate session creates.
 	order, quotaLimited := p.spillOrder(toks, model)
+	// Named lane-choice policy (gateway.go): fallback returns the order
+	// untouched; opt-in policies reorder with a verbatim reason.
+	order = p.routeOrder(model, order)
 	return p.leaseFromOrder(ctx, model, agentID, cfg, toks, order, quotaLimited)
 }
 
@@ -382,6 +391,17 @@ func (p *Pool) walkGates(ws *walkState, idx int, tok *tokenEntry) (skip bool) {
 			mrUntil = time.Now().Add(tagged.RetryAfter)
 		}
 		p.logger.Debug("pool: token skipped (remembered model rate limit)", "token", idx+1, "model", model, "retry_after", tagged.RetryAfter, "until", formatLogUntil(mrUntil))
+		return true
+	}
+	// Lane breaker (breaker.go): an open (model, account) breaker skips
+	// the lane with no upstream contact. Fresh breakers are closed, so
+	// this gate is a no-op until consecutive failures open it; terminal
+	// states above short-circuit first and never reach it. Recorded in
+	// errs only — the breaker is a fail-fast overlay, not a refusal
+	// bucket, so tail precedence is unchanged.
+	if p.breakerOpen(model, idx) {
+		ws.errs = append(ws.errs, fmt.Sprintf("%s: lane breaker open for model %q (consecutive failures, no upstream contact)", name, model))
+		p.logger.Debug("pool: token skipped (breaker open)", "token", idx+1, "model", model, "reason", "lane breaker open")
 		return true
 	}
 	return false
@@ -1099,6 +1119,10 @@ func (p *Pool) admitOnLane(ws *walkState, idx int, tok *tokenEntry, routeSlot *s
 	// Incremented here (the single grant point all walks funnel through),
 	// decremented on LeaseRelease/LeaseAbandon.
 	tok.leases.Add(1)
+	// Gateway failover (breaker.go): a granted lease is a healthy lane
+	// signal — it closes the (model, account) breaker. Keyed on the
+	// requested model to match the walkGates check.
+	p.noteLaneSuccess(ws.model, idx)
 	lease := &Lease{
 		Token: idx, Model: effectiveModel, AgentID: effectiveAgentID, Run: run, SessionInstanceID: instanceID,
 		entry: tok, routeSlot: routeSlot, QueueWait: ws.queueWait, AcquiredAt: time.Now(),

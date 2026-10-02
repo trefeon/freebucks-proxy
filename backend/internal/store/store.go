@@ -140,6 +140,11 @@ type Store struct {
 	// the detected from-version plus the goose versions that actually ran.
 	// In-memory only (no DB reads); MigrateStatus returns a copy.
 	status MigrateStatus
+	// asyncMu guards asyncRec, the opt-in async request-record path
+	// (async_log.go). Nil means synchronous writes (the default); set
+	// by EnableAsyncRecord, cleared by DisableAsyncRecord.
+	asyncMu  sync.Mutex
+	asyncRec *AsyncRecorder
 }
 
 // MigrateStatus is the boot-time smart-migration report for one DB file:

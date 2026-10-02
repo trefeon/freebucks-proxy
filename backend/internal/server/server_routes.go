@@ -99,6 +99,10 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return http.HandlerFunc(s.dash.APILogsExport)
 	case "POST /admin/api/logs/import":
 		return http.HandlerFunc(s.dash.APILogsImport)
+	case "GET /admin/api/activity/rollup":
+		return http.HandlerFunc(s.dash.APIActivityRollup)
+	case "GET /admin/api/activity/top":
+		return http.HandlerFunc(s.dash.APIActivityTop)
 	case "GET /admin/api/metrics":
 		return s.dash.APIHandler("metrics")
 	case "GET /admin/api/usage":

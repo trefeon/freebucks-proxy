@@ -196,6 +196,18 @@
   },
   {
     "method": "GET",
+    "path": "/admin/api/activity/rollup",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "GET",
+    "path": "/admin/api/activity/top",
+    "auth": "sensitive",
+    "js": null
+  },
+  {
+    "method": "GET",
     "path": "/admin/api/metrics",
     "auth": "dashboard",
     "js": {

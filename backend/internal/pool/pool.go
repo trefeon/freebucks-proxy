@@ -417,6 +417,14 @@ type Pool struct {
 	// Maturity backoff (maturity.go): pauses nightly touch walk after a 429.
 	maturityBackoffUntil time.Time
 	maturityBackoffMu    sync.Mutex
+
+	// Gateway routing machines (gateway.go: breaker registry, key
+	// rotation, route policy, aliases). Lazy-initialized under gwMu;
+	// every machine defaults to today's behavior so green paths are
+	// unchanged until failures trip the breaker/keypool or the operator
+	// opts into a policy/alias table.
+	gwMu sync.Mutex
+	gw   *gatewayState
 }
 
 type tokenEntry struct {

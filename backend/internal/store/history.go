@@ -114,6 +114,16 @@ func (s *Store) RecordRequest(rec RequestRecord) error {
 	if rec.ReqID == "" {
 		return nil
 	}
+	// Opt-in async path (async_log.go): non-blocking enqueue, drops
+	// counted on the recorder. Default (nil recorder) is the synchronous
+	// write below — green paths never change shape.
+	s.asyncMu.Lock()
+	a := s.asyncRec
+	s.asyncMu.Unlock()
+	if a != nil {
+		a.Record(rec)
+		return nil
+	}
 	noteHistoryWrite()
 	return s.withWrite(func() error {
 		if _, err := s.db.Exec(
