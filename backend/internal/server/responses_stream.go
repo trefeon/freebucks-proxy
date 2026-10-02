@@ -10,13 +10,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
 )
 
 // responsesItem is one output item being assembled during stream relay:
@@ -31,6 +30,29 @@ type responsesItem struct {
 	args        strings.Builder
 	contentIdx  int
 	started     bool
+	// wire is the pre-restore upstream tool name, recorded on first sight.
+	wire string
+	// withhold buffers fragments for terminal reshape/fallback instead of
+	// relaying live (stream_parity.go); decided once from the wire name.
+	withhold bool
+	// flushed marks a withheld call already emitted at finalize.
+	flushed bool
+	// announced marks the live output_item.added already sent.
+	announced bool
+	// dropped marks an absorbed withheld call: excluded from the terminal
+	// done-event walk + completed output (stream_parity.go sets it).
+	dropped bool
+}
+
+// announceResponsesItem sends the live output_item.added for a
+// non-withheld function_call item once. Withheld items announce at
+// finalize with their resolved identity instead.
+func announceResponsesItem(send func(string, map[string]any), item *responsesItem) {
+	if item.announced {
+		return
+	}
+	item.announced = true
+	send("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": item.outputIndex, "item": map[string]any{"id": item.id, "type": "function_call", "status": "in_progress", "call_id": "", "name": "", "arguments": ""}})
 }
 
 // responsesStreamState tracks the relayed output items.
@@ -155,6 +177,9 @@ func (s *Server) relayResponsesStream(ctx context.Context, w http.ResponseWriter
 			}
 			if lc.done {
 				flushXMLCalls()
+				// Terminal: flush buffered family calls (reshape/fallback)
+				// before the done-event walk + response.completed.
+				s.finalizeResponsesWithheld(st, send)
 				s.endResponsesStream(w, send, st, model, respID, createdAt, false, nil)
 				return
 			}
@@ -393,21 +418,32 @@ func (s *Server) accumulateResponsesChunk(st *responsesStreamState, chunk map[st
 				st.nextIndex++
 				st.toolByUpIdx[upIdx] = item
 				st.items = append(st.items, item)
-				send("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": item.outputIndex, "item": map[string]any{"id": item.id, "type": "function_call", "status": "in_progress", "call_id": "", "name": "", "arguments": ""}})
+			}
+			// Dispatch id first: later branches continue past this point for
+			// buffered fragments, so capture it before anything can skip it.
+			if id, ok := tc["id"].(string); ok && id != "" && item.callID == "" {
+				item.callID = id
 			}
 			if fn, ok := tc["function"].(map[string]any); ok {
-				if name, ok := fn["name"].(string); ok && name != "" && item.name == "" {
-					item.name = st.toolMap.RestoreName(name)
+				if name, ok := fn["name"].(string); ok && name != "" && item.wire == "" {
+					item.wire = name
+					item.withhold = st.toolMap.WithholdStreamArgs(name)
+					if !item.withhold {
+						item.name = st.toolMap.RestoreName(name)
+						announceResponsesItem(send, item)
+					}
 				}
 				if args, ok := fn["arguments"].(string); ok && args != "" {
-					// Floor-only fan-out is intentionally NOT applied here:
-					// argument fragments relay live as delta events before the
-					// whole is known, so a multi-path read cannot expand to N
-					// function_call items mid-stream (unlike the chat relay,
-					// nothing withholds fragments for a terminal reshape+inject).
-					// OMP speaks the OpenAI chat surface, where both legs fan
-					// out; the Responses streaming fan-out needs a withhold-buffer
-					// redesign of this accumulator and stays deferred.
+					if item.withhold {
+						if item.flushed {
+							continue
+						}
+						item.args.WriteString(args)
+						continue
+					}
+					if !item.announced {
+						announceResponsesItem(send, item)
+					}
 					item.args.WriteString(args)
 					send("response.function_call_arguments.delta", map[string]any{"type": "response.function_call_arguments.delta", "item_id": item.id, "output_index": item.outputIndex, "delta": args})
 					// The spec's newer event name for the same fragment: codex
@@ -415,9 +451,6 @@ func (s *Server) accumulateResponsesChunk(st *responsesStreamState, chunk map[st
 					// function_call_arguments.* — emit both.
 					send("response.custom_tool_call_input.delta", map[string]any{"type": "response.custom_tool_call_input.delta", "item_id": item.id, "output_index": item.outputIndex, "delta": args})
 				}
-			}
-			if id, ok := tc["id"].(string); ok && id != "" && item.callID == "" {
-				item.callID = id
 			}
 		}
 	}

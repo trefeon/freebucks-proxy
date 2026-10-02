@@ -15,14 +15,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"freebuff-proxy/backend/internal/convert"
+	"freebuff-proxy/backend/internal/phasetiming"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/convert"
-	"freebuff-proxy/backend/internal/phasetiming"
 )
 
 // --- streaming translation ---
@@ -40,19 +39,29 @@ type anthropicToolState struct {
 	// the client (the client assembles input per block INDEX, so the new
 	// incarnation is missing the fragments delivered to the first one).
 	args strings.Builder
+	// wire is the pre-restore upstream tool name, recorded on first sight.
+	wire string
+	// withhold buffers fragments for terminal reshape/fallback instead of
+	// relaying live (stream_parity.go); decided once from the wire name.
+	withhold        bool
+	withholdChecked bool
+	// flushed marks a withheld call already emitted at finalize.
+	flushed bool
 }
 
 type anthropicStreamState struct {
-	messageID          string
-	model              string
-	inputTokens        int
-	thinkingStarted    bool
-	thinkingIndex      int
-	thinkingClosed     bool
-	textStarted        bool
-	textIndex          int
-	textClosed         bool
-	nextBlockIdx       int
+	messageID       string
+	model           string
+	inputTokens     int
+	thinkingStarted bool
+	thinkingIndex   int
+	thinkingClosed  bool
+	textStarted     bool
+	textIndex       int
+	textClosed      bool
+	nextBlockIdx    int
+	// nextFanout sequences fan-out extra block keys (fanoutKeyBase space).
+	nextFanout         int
 	toolCalls          map[int]*anthropicToolState
 	endTurnCallIndexes map[int]bool
 	finishReason       string
@@ -143,6 +152,9 @@ func (s *Server) relayAnthropicStream(ctx context.Context, w http.ResponseWriter
 			}
 			if lc.done {
 				s.flushAnthropicXMLToolCalls(send, st, xmlExtractor, &xmlCallIndex)
+				// EOF without finish_reason (or after it): flush buffered
+				// family calls before the terminal message_delta/stop.
+				s.finalizeAnthropicWithheld(send, st)
 				s.finalizeAnthropicStream(send, st)
 				return
 			}
@@ -330,13 +342,15 @@ func (s *Server) accumulateAnthropicChunk(send func(map[string]any), st *anthrop
 				upIdx = int(i)
 			}
 			fn, _ := tc["function"].(map[string]any)
-			name := ""
+			wire := ""
 			if fn != nil {
-				name, _ = fn["name"].(string)
+				wire, _ = fn["name"].(string)
 			}
 			// Restore client tool names (#140): the request renamed
 			// mapped client tools to official signature names upstream; a
 			// tool_use block must open with the CLIENT's dispatch name.
+			// Rules below key on the pre-restore wire name.
+			name := wire
 			if name != "" {
 				name = st.toolMap.RestoreName(name)
 			}
@@ -347,13 +361,6 @@ func (s *Server) accumulateAnthropicChunk(send func(map[string]any), st *anthrop
 			if st.endTurnCallIndexes[upIdx] {
 				continue
 			}
-			st.sawToolCall = true
-			// Sequential block lifecycle: at most one tool_use block may be
-			// open at a time. A fragment for a different upstream index than
-			// the currently open block closes that block first, so the new
-			// block's start cannot straddle it (stops deferred to finalize
-			// would leave two open blocks on multi-tool turns).
-			st.closeOtherOpenToolCalls(upIdx, send)
 			ts := st.toolState(upIdx)
 			if id, ok := tc["id"].(string); ok && id != "" {
 				ts.id = id
@@ -369,20 +376,39 @@ func (s *Server) accumulateAnthropicChunk(send func(map[string]any), st *anthrop
 					}
 				}
 			}
+			// wires buffer fragments for terminal reshape/fallback instead
+			// of opening a live block. Unruled calls fall through to the
+			// live path byte-identically (unmapped families always do:
+			// WithholdStreamArgs is false for familyNone).
+			withheld := noteAnthropicWithhold(st, ts, wire)
+			if !withheld {
+				st.sawToolCall = true
+				// Sequential block lifecycle: at most one tool_use block
+				// may be open at a time. A fragment for a different
+				// upstream index than the currently open block closes that
+				// block first, so the new block's start cannot straddle it
+				// (stops deferred to finalize would leave two open blocks
+				// on multi-tool turns).
+				st.closeOtherOpenToolCalls(upIdx, send)
+			}
 			if name != "" && ts.name == "" {
 				ts.name = name
-				st.ensureStarted(ts, send)
+				if !withheld {
+					st.ensureStarted(ts, send)
+				}
 			}
 			if args, ok := fn["arguments"].(string); ok && args != "" {
-				// Floor-only fan-out is intentionally NOT applied here:
-				// argument fragments relay live as input_json_delta bytes
-				// before the whole is known, so a multi-path read cannot
-				// expand to N tool_use blocks mid-stream (unlike the chat
-				// relay, nothing withholds fragments for a terminal
-				// reshape+inject). OMP speaks the OpenAI chat surface, where
-				// both legs fan out; the Anthropic streaming fan-out needs a
-				// withhold-buffer redesign of this state machine and stays
-				// deferred.
+				if withheld {
+					if ts.flushed {
+						// Straggler fragment for a finalized call (terminal
+						// semantics say none should arrive): the complete
+						// call was already delivered, so extra bytes are
+						// duplicates, not content.
+						continue
+					}
+					ts.args.WriteString(args)
+					continue
+				}
 				if ts.name != "" {
 					// ensureStarted replays the accumulated prefix when the
 					// block (re)opens; the new fragment is emitted after it.
@@ -400,6 +426,12 @@ func (s *Server) accumulateAnthropicChunk(send func(map[string]any), st *anthrop
 				}
 			}
 		}
+	}
+	// Terminal chunk: flush buffered family calls now that every
+	// fragment of the turn is in (idempotent; EOF path below covers a
+	// stream that ends without finish_reason).
+	if fr, ok := choice["finish_reason"].(string); ok && fr != "" {
+		s.finalizeAnthropicWithheld(send, st)
 	}
 }
 

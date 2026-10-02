@@ -35,6 +35,7 @@ with the 16 canonical CLI defs + end_turn pin
 | OMP/pi (Anthropic) | `http://HOST:3457` (no `/v1`) | `x-api-key: <proxy-key>` | same | SDK appends `/v1/messages` |
 | claude-code | `ANTHROPIC_BASE_URL=http://HOST:3457` | `ANTHROPIC_API_KEY=<proxy-key>` | served id | strip `cc_*` markers (also done server-side) |
 | codex | `config.toml model_provider + base_url=http://HOST:3457/v1`, `wire_api=responses` | `env_key` → proxy key | served id | Responses ordering preserved; `wire_api="chat"` is a hard config error, not a fallback (`reference/agents/codex/WIRE-NOTES.md:17-19`) |
+| chatgpt-desktop | same Codex provider entry (`~/.codex/config.toml` `[model_providers.<id>]` + `openai_base_url`) — no in-app base-URL field | same `env_key` → proxy key | served id | Compat == Codex-provider compat (§3.3 conformance); the app has no custom provider UI, so the shared Codex config is the only route. Transport is SSE-only: if the route selects `openCodexWebSocketTransport`, it must negotiate `supports_websockets=false` down to SSE (the gateway serves no WS). |
 | opencode | `provider.<id>.options{baseURL:http://HOST:3457/v1,apiKey}` | `OPENCODE_API_KEY` or options | served id | keep item order + reasoning_text |
 | crush/kimi/jcode/goose/hermes | `*_BASE_URL=http://HOST:3457/v1` (or provider JSON `base_url`) | corresponding key env → proxy key | served id | never send vendor env names upstream |
 | openclaw/openhands/swe-agent | `baseUrl/base_url/api_base=http://HOST:3457/v1` | `apiKey/api_key` → proxy key | served id | keep tool history when trimming tools |
