@@ -28,6 +28,7 @@ type rawConfig struct {
 	APIKeys            []string `json:"API_KEYS"`
 	AdminToken         string   `json:"ADMIN_TOKEN"`
 	CostMode           string   `json:"COST_MODE"`
+	WalletSpendLimit   string   `json:"WALLET_SPEND_LIMIT"`
 	ActingUserID       string   `json:"ACTING_USER_ID"`
 	// LegacyActingUserID is the pre-rename JSON key (USER_ID) — merged at
 	// the end of Load when no ACTING_USER_ID source set a value (#126).
@@ -146,6 +147,7 @@ func defaultRawConfig() rawConfig {
 		HTTPReadTimeout:        "60s",
 		SessionCallTimeout:     "30s",
 		CostMode:               "free",
+		WalletSpendLimit:       "0", // headless default: no wallet spend authorized (WALLET_SPEND_LIMIT)
 		RegistryRefresh:        "6h",
 		IdleRotationTimeout:    "",   // "" = disabled (unset → SAFE_MODE preset may fill)
 		SafeMode:               true, // anti-ban presets on by default; set SAFE_MODE=false to disable

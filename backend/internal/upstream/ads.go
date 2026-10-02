@@ -247,6 +247,10 @@ func (c *Client) requestAdsForSurface(ctx context.Context, provider, surface str
 	// chat ai-sdk UA newRequest set — the CLI's ads POST carries exactly
 	// this product UA (#124).
 	req.Header.Set("User-Agent", freebuffCliUA)
+	// The environment descriptor rides every ad request (vendor
+	// clientEnvironmentHeaders spread into ad-request.ts / partner-ads.ts /
+	// use-gravity-ad.ts fetches).
+	stampClientEnv(req.Header)
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
 		return auctionedAd{}, classErr
@@ -597,6 +601,7 @@ func (c *Client) postFirstPartyAttempt(ctx context.Context, body []byte, eventID
 	}
 	req.Header.Set("User-Agent", freebuffCliUA)
 	req.Header.Set(adEventIDHeader, eventID)
+	stampClientEnv(req.Header)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -666,6 +671,7 @@ func (c *Client) postAdEvent(ctx context.Context, path string, payload map[strin
 		req.Header.Set("User-Agent", freebuffCliUA)
 	}
 	req.Header.Set(adEventIDHeader, eventID)
+	stampClientEnv(req.Header)
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
 		return 0, classErr

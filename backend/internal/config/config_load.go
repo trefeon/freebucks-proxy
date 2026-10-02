@@ -97,7 +97,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 	overrideCSV(&raw.APIKeys, "API_KEYS")
 	overrideString(&raw.AdminToken, "ADMIN_TOKEN")
 	overrideString(&raw.CostMode, "COST_MODE")
-	// ACTING_USER_ID / legacy USER_ID (#126): the alias is read from the
+	overrideString(&raw.WalletSpendLimit, "WALLET_SPEND_LIMIT")
 	// SAME env source as the primary, so a real-environment USER_ID beats a
 	// lower-precedence .env/JSON ACTING_USER_ID instead of being silently
 	// dropped; ACTING_USER_ID wins when both are set in one source.
@@ -385,6 +385,7 @@ func LoadOpts(configPath string, opts LoadOptions) (Config, error) {
 		DashboardRequireLogin:    dashboardRequireLogin,
 		HTTP2Upstream:            raw.HTTP2Upstream,
 		CostMode:                 strings.TrimSpace(raw.CostMode),
+		WalletSpendLimit:         strings.TrimSpace(raw.WalletSpendLimit),
 		ActingUserID:             strings.TrimSpace(raw.ActingUserID),
 		TLSFingerprint:           strings.TrimSpace(raw.TLSFingerprint),
 		UpstreamEgressProxy:      strings.TrimSpace(raw.UpstreamEgressProxy),
@@ -566,7 +567,7 @@ func applyMappedValues(raw *rawConfig, get func(string) string) {
 	overrideCSVFrom(&raw.APIKeys, get, "API_KEYS")
 	overrideStringFrom(&raw.AdminToken, get, "ADMIN_TOKEN")
 	overrideStringFrom(&raw.CostMode, get, "COST_MODE")
-	// A .env ACTING_USER_ID beats a JSON ACTING_USER_ID (dotenv outranks
+	overrideStringFrom(&raw.WalletSpendLimit, get, "WALLET_SPEND_LIMIT")
 	// JSON); ACTING_USER_ID wins when both are in the .env.
 	overrideStringAlias(&raw.ActingUserID, get, "ACTING_USER_ID", "USER_ID")
 	overrideStringFrom(&raw.TLSFingerprint, get, "TLS_FINGERPRINT")

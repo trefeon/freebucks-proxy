@@ -41,7 +41,12 @@ type Client struct {
 	requestJitter      time.Duration
 	costMode           string
 	userID             string // optional x-freebuff-acting-user-id (ACTING_USER_ID; see New's doc + client.go acting-user comment: only the token's OWN account id is safe)
-	debugDump          bool
+	// walletSpendLimit is the per-request wallet spend cap stamped on the
+	// admission POST (WALLET_SPEND_LIMIT; see normalizeWalletSpendLimit).
+	// atomic.Value-of-string (like consistencyZone) so a reloaded config
+	// can take effect without rebuilding the client.
+	walletSpendLimit atomic.Value // string
+	debugDump        bool
 
 	// transientRetriesLimit is TRANSIENT_RETRIES: the maximum number of
 	// additional attempts after a transient transport failure (0 disables
@@ -198,6 +203,9 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 		http2Upstream:         cfg.HTTP2Upstream,
 		rateLimitEvents:       make(map[string]*atomic.Int64),
 	}
+	// The standing wallet-spend consent (WALLET_SPEND_LIMIT): validated at
+	// config load, normalized here so a hand-built Config stays canonical.
+	c.walletSpendLimit.Store(normalizeWalletSpendLimit(cfg.WalletSpendLimit))
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// Low-latency pooling for SG→US high-BDP link (240ms): keep many idle
@@ -401,6 +409,51 @@ func NewWithIndex(token string, tokenIndex int, cfg *config.Config) (*Client, er
 		},
 	}
 	return c, nil
+}
+
+// normalizeWalletSpendLimit canonicalizes the operator-set wallet spend cap
+// (vendor FreebuffWalletSpendLimit: number | 'session', sent as
+// String(limit)): "session" passes through, a digit string passes through
+// with leading zeros stripped, and anything else (including empty) falls
+// back to the headless default "0" — no wallet spend is ever authorized by
+// accident.
+func normalizeWalletSpendLimit(raw string) string {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return DefaultWalletSpendLimit
+	}
+	if v == "session" {
+		return v
+	}
+	digits := true
+	for i := range len(v) {
+		if v[i] < '0' || v[i] > '9' {
+			digits = false
+			break
+		}
+	}
+	if !digits || len(v) > 10 {
+		return DefaultWalletSpendLimit
+	}
+	v = strings.TrimLeft(v, "0")
+	if v == "" {
+		return "0"
+	}
+	return v
+}
+
+// SetWalletSpendLimit replaces the admission spend cap at runtime (config
+// reload path); the value is normalized exactly like construction.
+func (c *Client) SetWalletSpendLimit(raw string) {
+	c.walletSpendLimit.Store(normalizeWalletSpendLimit(raw))
+}
+
+// walletSpend reports the spend cap stamped on each admission POST.
+func (c *Client) walletSpend() string {
+	if v, _ := c.walletSpendLimit.Load().(string); v != "" {
+		return v
+	}
+	return DefaultWalletSpendLimit
 }
 
 // socksBaseDial returns the TCP dial func that opens the origin stream

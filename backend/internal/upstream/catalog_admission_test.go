@@ -114,7 +114,8 @@ func assertCatalogClaimShape(t *testing.T, h http.Header) {
 
 // Case A: handle+protocol byte-exact. The held catalog maps the requested
 // id to its handle; the POST carries the handle plus the protocol version
-// and the fetch id — and no device trio (documented residual gap).
+// and the fetch id. The device trio stays absent here because this fake has
+// no device-keys endpoint (registration 404s → unsupported → unsigned).
 func TestCatalogAdmissionHandleAndProtocol(t *testing.T) {
 	fake := &catalogAdmitFake{
 		catalogSeq: []string{catalogTestBody("deepseek/deepseek-v4-flash", "fbm1.test-handle-1", "fetch-1")},
@@ -148,9 +149,12 @@ func TestCatalogAdmissionHandleAndProtocol(t *testing.T) {
 	if got := h.Get("x-freebuff-catalog-fetch"); got != "fetch-1" {
 		t.Errorf("x-freebuff-catalog-fetch = %q, want fetch-1", got)
 	}
-	for _, name := range deviceHeadersAbsent {
+	// No device-keys endpoint on this fake: the registration is refused as
+	// unsupported, so the admission goes out unsigned (vendor-supported
+	// degradation); see deviceHeaderNames.
+	for _, name := range deviceHeaderNames {
 		if got := h.Get(name); got != "" {
-			t.Errorf("%s = %q, want absent (device signing not shipped; see deviceHeadersAbsent)", name, got)
+			t.Errorf("%s = %q, want absent (no device-keys endpoint on this fake: registration unsupported → unsigned)", name, got)
 		}
 	}
 	assertCatalogClaimShape(t, h)

@@ -652,6 +652,17 @@
     "description": "US-consistency preset: pins every client-controlled signal to US values (session calls declare America/New_York unless SESSION_TIMEZONE is explicitly set; the ads device block follows the declared zone with an en-US locale). Aligns consistency signals ONLY - it NEVER changes the server-resolved country, which the upstream derives from the egress IP alone: a non-US or anonymized (VPN/proxy/Tor/hosting/relay) egress still resolves non-US. To read as US, egress every session admission, poll, and chat call from a clean, non-anonymized US IP; when a block persists after moving, verify the account country in the human web flow at /account?tab=country. Applies live on reload."
   },
   {
+    "key": "WALLET_SPEND_LIMIT",
+    "group": "upstream",
+    "kind": "text",
+    "default": "0",
+    "restart_only": false,
+    "secret": false,
+    "essential": false,
+    "hidden": true,
+    "description": "Standing wallet-spend consent stamped on each session admission POST (x-freebuff-wallet-spend-limit). The vendor CLI sends the user-confirmed consent per model; the headless proxy has no per-request gesture, so this operator-set cap stands in. \"0\" = no wallet spend (headless default); a number authorizes up to that spend; \"session\" authorizes the session's quoted price. Set only with the account holder's consent — it spends real wallet balance."
+  },
+  {
     "key": "ADMIN_FORCE_SECURE_COOKIES",
     "group": "security",
     "kind": "bool",

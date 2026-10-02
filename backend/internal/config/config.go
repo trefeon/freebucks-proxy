@@ -44,6 +44,17 @@ type Config struct {
 	// auto-deriving each token's own id once via GET /api/v1/me — is
 	// deferred; see the gap analysis item 24.)
 	ActingUserID string
+	// WalletSpendLimit is the standing wallet-spend consent stamped on each
+	// session admission POST as x-freebuff-wallet-spend-limit
+	// (WALLET_SPEND_LIMIT; default "0"). The vendor CLI sends the
+	// user-confirmed consent for the model (a number or 'session' for the
+	// whole session) and 0 otherwise; the headless proxy holds no
+	// per-request gesture, so it sends this operator-set standing cap
+	// instead. "0" authorizes no wallet spend beyond the Freebucks meter;
+	// a number authorizes up to that spend per admission, 'session'
+	// authorizes the session's quoted price. Set it only with the account
+	// holder's consent — it spends real wallet balance.
+	WalletSpendLimit string
 	// AutoDiscoverToken records the effective AUTO_DISCOVER_TOKEN knob
 	// (default true, env-only): the process environment alone decides; a DB
 	// overlay row is inert (SettingsBlockedKeys).

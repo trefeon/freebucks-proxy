@@ -176,7 +176,10 @@ func (c *Client) CreateSessionForModelWithClaim(ctx context.Context, model, clai
 			return nil, err
 		}
 		stampCatalogModel(req, model, cat)
-		req.Header.Set(WalletSpendLimitHeader, DefaultWalletSpendLimit)
+		// The per-request wallet spend cap (vendor callFreebuffSession sends
+		// String(walletSpendLimit ?? 0)): the operator-set standing consent,
+		// headless default "0" (WALLET_SPEND_LIMIT).
+		req.Header.Set(WalletSpendLimitHeader, c.walletSpend())
 		if attemptMode && instanceID != "" {
 			req.Header.Set(sessionInstanceIDHeader, instanceID)
 			if attemptID != "" {
@@ -534,9 +537,9 @@ func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRef
 		req.Header.Set(sessionPurchaseContinuityHeader, "1")
 		req.Header.Set(sessionDesktopAttemptIDHeader, attemptID)
 	}
-	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
-	req.Header.Set(FirstTabDiscountHeader, "0")
-
+	// Locality, first-tab, env, and (under a held catalog) protocol/fetch +
+	// device signature — same stamper as every other session call.
+	c.stampSessionCall(ctx, req)
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
 		return nil, classErr
@@ -547,6 +550,7 @@ func (c *Client) EndSession(ctx context.Context, instanceID string) (*SessionRef
 		return nil, nil // nothing to end
 	}
 	body := drainBody(resp.Body)
+	c.noteDeviceKeyErrorFromBody(body)
 	// Same precedence as sessionCall: a structured body wins (the ended
 	// receipt carries the refund), an unparseable one falls back to the
 	// classified error do() already produced (issue #305).
@@ -720,19 +724,10 @@ func (c *Client) FinishRun(ctx context.Context, runID, status string, totalSteps
 
 // sessionCall performs a session control call: parse the JSON body into a
 // SessionState; errors are classified through the standard matrix. Every
-// session call funnels through here (admission POST, poll GET, probe GET), so
-// this is where the locality header is stamped: the vendor's
-// callFreebuffSession spreads freebucksTimeZoneHeaders() into EVERY session
-// call, and the upstream server derives the account's daily reset zone from
-// it at admission time — the call where it matters most.
+// session call funnels through here (admission POST, poll GET, probe GET),
+// so the CLI-parity headers are stamped here (see stampSessionCall).
 func (c *Client) sessionCall(req *http.Request) (*SessionState, error) {
-	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
-	// First-tab offer state rides every session call (callFreebuffSession
-	// stamps [FIRST_TAB_DISCOUNT_HEADER] on POST/GET/DELETE alike). The proxy
-	// holds no user-confirmed offer state, so it always sends the boring "0"
-	// exactly like a CLI call with firstTabDiscount unset; a real offer change
-	// surfaces as 409 first_tab_discount_changed through the classify matrix.
-	req.Header.Set(FirstTabDiscountHeader, "0")
+	c.stampSessionCall(req.Context(), req)
 	resp, cancel, classErr := c.do(req, c.sessionCallTimeout)
 	if classErr != nil && resp == nil {
 		return nil, classErr
@@ -740,6 +735,10 @@ func (c *Client) sessionCall(req *http.Request) (*SessionState, error) {
 	defer releaseCancel(cancel)
 	defer func() { _ = resp.Body.Close() }()
 	body := drainBody(resp.Body)
+	// A device-key-unknown refusal forgets this account's registration so
+	// the next call registers again (vendor noteFreebuffDeviceKeyError);
+	// any other body is untouched.
+	c.noteDeviceKeyErrorFromBody(body)
 	// A session control call always tries to parse the body first: a
 	// structured 4xx/5xx carries the session status the callers switch on
 	// (model_locked/model_unavailable/ip_capped/spend_limited/...), and a
@@ -760,4 +759,37 @@ func (c *Client) sessionCall(req *http.Request) (*SessionState, error) {
 		return nil, classErr
 	}
 	return nil, perr
+}
+
+// stampSessionCall stamps the headers the vendor's callFreebuffSession
+// spreads into EVERY session call (POST, GET and DELETE alike):
+// Authorization rides newRequest; here the locality timezone (the server
+// derives the account's daily reset zone from it at admission time), the
+// first-tab offer flag (always the boring "0": the proxy holds no
+// user-confirmed offer state, exactly like a CLI call with firstTabDiscount
+// unset — a real offer change surfaces as 409 first_tab_discount_changed),
+// and the static client-environment descriptor.
+//
+// Under a held catalog (catalog mode) the call also carries the protocol
+// header, the fetch id, and this install's device signature over the
+// body-less request (vendor requestFreebuffSession: session calls send no
+// body, so the signature covers the empty one). Nil catalog is fallback —
+// the pre-catalog shape, byte-identical to before. Registration runs when
+// needed (register=true): the first catalog GET never registers, but every
+// session call after a catalog is held does.
+func (c *Client) stampSessionCall(ctx context.Context, req *http.Request) {
+	req.Header.Set(FreebucksTimezoneHeader, c.sessionTimezone())
+	req.Header.Set(FirstTabDiscountHeader, "0")
+	stampClientEnv(req.Header)
+	held := c.heldModelCatalog()
+	if held == nil {
+		return
+	}
+	req.Header.Set(CatalogProtocolHeader, CatalogProtocolVersion)
+	if held.FetchID != "" {
+		req.Header.Set(CatalogFetchHeader, held.FetchID)
+	}
+	for name, value := range c.deviceHeaders(ctx, req.Method, req.URL.String(), nil, held.FetchID, true) {
+		req.Header.Set(name, value)
+	}
 }

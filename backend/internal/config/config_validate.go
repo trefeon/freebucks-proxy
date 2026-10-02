@@ -40,6 +40,8 @@ func (c Config) Validate() error {
 		return errors.New("SESSION_STATE_FILE cannot be empty when SESSION_PERSIST is enabled")
 	case c.CostMode != "" && c.CostMode != "free":
 		return errors.New(`COST_MODE must be "free" or unset -- any other value (e.g. a typo) routes requests as PAID and fresh free accounts get 402 "Out of credits"`)
+	case !validWalletSpendLimit(c.WalletSpendLimit):
+		return errors.New(`WALLET_SPEND_LIMIT must be "0", a non-negative number, or "session" -- anything else authorizes nothing and is rejected so a typo cannot silently widen wallet spend`)
 	case math.IsNaN(c.RateLimitPerIP) || math.IsInf(c.RateLimitPerIP, 0):
 		return errors.New("RATE_LIMIT_PER_IP must be a finite number (requests/second, 0 disables)")
 	case c.RateLimitPerIP < 0:
@@ -210,4 +212,25 @@ func normalizeUpstreamBaseURL(raw string) (string, error) {
 	}
 
 	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+// validWalletSpendLimit reports whether a WALLET_SPEND_LIMIT value is
+// expressible on the wire (vendor FreebuffWalletSpendLimit: number |
+// 'session'): empty (unset → headless default "0"), "session", or a digit
+// string. Anything else is rejected at load so a typo cannot silently widen
+// wallet spend.
+func validWalletSpendLimit(raw string) bool {
+	v := strings.TrimSpace(raw)
+	if v == "" || v == "session" {
+		return true
+	}
+	if len(v) > 10 {
+		return false
+	}
+	for i := range len(v) {
+		if v[i] < '0' || v[i] > '9' {
+			return false
+		}
+	}
+	return len(v) > 0
 }

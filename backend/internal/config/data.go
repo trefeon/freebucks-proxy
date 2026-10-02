@@ -61,6 +61,8 @@ func renderKey(c *Config, key string) (val string, valueIsSecret bool) {
 		return c.SessionCallTimeout.String(), false
 	case "COST_MODE":
 		return c.CostMode, false
+	case "WALLET_SPEND_LIMIT":
+		return c.WalletSpendLimit, false
 	case "TLS_FINGERPRINT":
 		return c.TLSFingerprint, false
 	case "UPSTREAM_EGRESS_PROXY":

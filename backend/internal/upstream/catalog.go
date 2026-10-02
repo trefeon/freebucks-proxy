@@ -14,13 +14,12 @@
 // minted per account and rotate, so none of this is ever written to disk
 // (vendor freebuff-catalog-store.ts).
 //
-// Device signing is deliberately ABSENT (see the residual-gap note on
-// deviceHeadersAbsent): the proxy holds bearer tokens, not an install-bound
-// Ed25519 device key, and minting/registering one per proxied account would
-// be an account-mutating side effect with no user gesture. The vendor
-// tolerates unsigned requests (freebuffDeviceHeaders returns {} with no
-// signer), so handle+protocol without device headers is a supported
-// degradation, not a second convention.
+// Device signing rides every catalog-mode call (device.go): the proxy holds
+// a per-(token, host) Ed25519 keypair in process memory, registers it once
+// per account, and signs with the vendor payload shape. A request without a
+// registration goes out unsigned (the vendor-supported degradation), and the
+// first catalog GET never registers (register:false until a catalog is
+// held).
 package upstream
 
 import (
@@ -251,9 +250,11 @@ const (
 )
 
 // fetchModelCatalog GETs the catalog for one account: Authorization plus
-// the protocol/client headers (vendor fetchFreebuffModelCatalog, minus the
-// device signature — see the file note). Exactly one upstream hit, bounded
-// by timeout, never retried here.
+// the protocol/client headers (vendor fetchFreebuffModelCatalog), with the
+// install's device signature once this account holds a catalog (vendor
+// register:false while none is held — the first GET goes out unsigned and
+// registers nothing). Exactly one upstream hit, bounded by timeout, never
+// retried here.
 func (c *Client) fetchModelCatalog(ctx context.Context, timeout time.Duration) (*modelCatalog, catalogFetchKind) {
 	if c.http == nil {
 		return nil, catalogFetchError
@@ -266,19 +267,27 @@ func (c *Client) fetchModelCatalog(ctx context.Context, timeout time.Duration) (
 	}
 	req.Header.Set(CatalogProtocolHeader, CatalogProtocolVersion)
 	req.Header.Set(CatalogClientHeader, CatalogClientCLI)
+	// Registration waits until this account holds a catalog; a key
+	// registered earlier signs this GET in either mode (vendor
+	// fetchFreebuffModelCatalog deviceHeaders {register: catalog !== null}).
+	for name, value := range c.deviceHeaders(fetchCtx, http.MethodGet, c.baseURL+ModelCatalogPath, nil, "", c.heldModelCatalog() != nil) {
+		req.Header.Set(name, value)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, catalogFetchError
 	}
 	defer func() { _ = resp.Body.Close() }()
 	// Vendor: 408/429/5xx are errors; any other non-ok is unsupported
-	// (a server predating catalogs).
 	if resp.StatusCode == http.StatusRequestTimeout ||
 		resp.StatusCode == http.StatusTooManyRequests ||
 		resp.StatusCode >= 500 {
 		return nil, catalogFetchError
 	}
 	if resp.StatusCode/100 != 2 {
+		if raw, rerr := io.ReadAll(io.LimitReader(resp.Body, 2<<10)); rerr == nil {
+			c.noteDeviceKeyErrorFromBody(string(raw))
+		}
 		return nil, catalogFetchUnsupported
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, catalogBodyLimit))
@@ -290,6 +299,20 @@ func (c *Client) fetchModelCatalog(ctx context.Context, timeout time.Duration) (
 		return nil, catalogFetchUnsupported
 	}
 	return cat, catalogFetchOK
+}
+
+// heldModelCatalog returns the catalog held for this client's account
+// without any I/O: nil when nothing is held (fallback mode) or the fetch
+// schedule has not run yet. Session and chat stampers use this so a probe
+// or turn on a cold account never blocks on a catalog fetch — only the
+// admission path fetches (ensureModelCatalog).
+func (c *Client) heldModelCatalog() *modelCatalog {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	if e, ok := catalogEntries[catalogAccountKey(c.token, c.baseURL)]; ok {
+		return e.catalog
+	}
+	return nil
 }
 
 // storeCatalogFetch applies a fetch answer to the entry, returning the kind
@@ -464,27 +487,12 @@ func isCatalogStaleResult(st *SessionState, err error) bool {
 	return st != nil && st.Status == CatalogStaleCode
 }
 
-// deviceHeadersAbsent documents the residual gap the proxy ships with: the
-// vendor signs every catalog-mode session call with the install's Ed25519
-// device key (x-freebuff-device-key / -ts / -sig over method, path,
-// timestamp, empty-body SHA-256 and fetchId — vendor
-// common/src/util/freebuff-device-signing.ts signFreebuffDeviceRequest +
-// common/src/types/freebuff-model-catalog.ts freebuffDeviceSignaturePayload).
-// The signing input IS portable to Go (crypto/ed25519 + sha256 stdlib), but
-// the KEY is not: a client generates one pair per install, stores the
-// private key owner-only on disk, and registers the public key once per
-// account via POST /api/v1/freebuff/device-keys. The proxy is a
-// multi-account server holding bearer tokens — it has no install identity
-// to bind a key to, no stable home for the private key (in-memory-only
-// rule would re-register every boot: key churn on live user accounts), and
-// no user gesture authorizing an account-mutating registration. So
-// catalog-mode admissions carry handle+protocol WITHOUT the device trio,
-// exactly like a CLI whose signer is unavailable (freebuffDeviceHeaders
-// returns {} with no signer — a vendor-supported degradation). If the
-// server ever hard-requires device signatures, catalog admissions will
-// fail loudly (not silently downgrade): watch for device_key error codes
-// in admission refusals.
-var deviceHeadersAbsent = [3]string{
+// deviceHeaderNames lists the device trio (vendor FREEBUFF_DEVICE_KEY_HEADER
+// / TIMESTAMP / SIGNATURE): x-freebuff-device-key / -ts / -sig, signed over
+// method, path, timestamp, empty-body SHA-256 and fetchId (device.go). Tests
+// pin their absence wherever a request must go out unsigned (fallback mode,
+// or a server that answered the registration with 404/405).
+var deviceHeaderNames = [3]string{
 	"x-freebuff-device-key",
 	"x-freebuff-device-ts",
 	"x-freebuff-device-sig",

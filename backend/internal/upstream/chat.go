@@ -119,6 +119,17 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 	if err != nil {
 		return nil, fmt.Errorf("upstream: envelope: %w", err)
 	}
+	// Catalog mode (vendor freebuff-catalog-agent.ts + codebuff-client.ts
+	// requestHeaders hook): the turn runs as the row's HANDLE, not the raw
+	// id, and the POST carries the held fetch id plus a device signature
+	// over the exact bytes sent. Nil catalog is fallback — the raw id with
+	// no extra headers, today's exact shape.
+	held := c.heldModelCatalog()
+	if held != nil {
+		if handle := chatHandleFor(held, opts, enveloped); handle != "" {
+			enveloped = rewriteChatModel(enveloped, handle)
+		}
+	}
 
 	// No in-request retry: a refused turn fails here and recovery happens
 	// at the engine level with a fresh run (CLI parity). Re-POSTing the
@@ -150,6 +161,18 @@ func (c *Client) ChatCompletions(ctx context.Context, opts ChatOptions, body []b
 	// ai-sdk UA (+ optional acting-user-id) on chat
 	// (upstream/freebuff model-provider.ts:146-152); the model and
 	// instance id ride only in the body metadata (injectEnvelope).
+	if held != nil {
+		// The completion headers (vendor freebuffCatalogCompletionHeaders):
+		// the fetch id the handle came from, plus the device signature
+		// over the exact enveloped bytes. Unsigned when unregistered —
+		// the same degradation as the session path.
+		if held.FetchID != "" {
+			req.Header.Set(CatalogFetchHeader, held.FetchID)
+		}
+		for name, value := range c.deviceHeaders(ctx, http.MethodPost, req.URL.String(), enveloped, held.FetchID, true) {
+			req.Header.Set(name, value)
+		}
+	}
 	if c.userID != "" {
 		// The official CLI sends x-freebuff-acting-user-id on every
 		// chat call with the account's OWN id, derived from
@@ -534,6 +557,54 @@ func agentModeCostMode(mode string) string {
 	default:
 		return ""
 	}
+}
+
+// chatHandleFor resolves the model a catalog-mode turn runs as: the held
+// catalog's handle for the requested model (vendor freebuff-catalog-agent.ts
+// builds the root with model: row.handle — the server resolves it and
+// admits no plain id on that root). Empty when the catalog names no row for
+// the id: the caller sends the raw id (vendor freebuffCatalogHandleFor ??
+// model), and the server answers stale if it must. The requested model is
+// the caller's explicit option, else the body's own model field.
+func chatHandleFor(held *modelCatalog, opts ChatOptions, body []byte) string {
+	if held == nil {
+		return ""
+	}
+	model := opts.Model
+	if model == "" {
+		model = chatBodyModel(body)
+	}
+	return catalogHandleFor(held, model)
+}
+
+// chatBodyModel extracts the body's top-level model field, "" when absent
+// or not a string.
+func chatBodyModel(body []byte) string {
+	var payload struct {
+		Model any `json:"model"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	model, _ := payload.Model.(string)
+	return model
+}
+
+// rewriteChatModel swaps the enveloped body's top-level model field for the
+// catalog handle. It fails open to the input bytes (a body that cannot
+// round-trip is sent as-is — the device signature below always covers the
+// exact bytes that go out, so the two can never disagree).
+func rewriteChatModel(body []byte, handle string) []byte {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || handle == "" {
+		return body
+	}
+	payload["model"] = handle
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 func injectEnvelope(body []byte, costMode string, opts ChatOptions) ([]byte, error) {

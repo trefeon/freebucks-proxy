@@ -830,6 +830,11 @@ func (p *Pool) SetConfig(cfg *config.Config) {
 		tok.session.SetReAdmitLead(cfg.SessionReAdmitLead)
 		tok.session.SetReAdmitGate(tok.seat.idle)
 		tok.session.SetModelUnavailableCacheTTL(cfg.ModelUnavailableCacheTTL)
+		// The standing wallet-spend consent follows reloads like the
+		// session knobs above (no client rebuild needed — atomic).
+		if tok.client != nil {
+			tok.client.SetWalletSpendLimit(cfg.WalletSpendLimit)
+		}
 	}
 	// AUTH_TOKENS slot reconciliation. A quarantine is bound to the exact
 	// account string an entry was built from; when a reload replaces the
