@@ -1,6 +1,9 @@
 package convert
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Client toolset families whose response leg needs translation beyond the
 // name restore every mapped client gets.
@@ -265,6 +268,208 @@ func floorOnlyOMP(payload map[string]any) {
 	}
 }
 
+// foldResumedHistoryCalls neutralizes resumed history tool calls that name
+// tools with no wire definition on a floor-only wire. RenameMessagesToolCalls
+// maps them onto virtualized names (task -> mcp__task) but floorOnlyOMP
+// dropped their definitions, so upstream sees a call to an undeclared tool
+// and errors the stream before the tool runs. The wire must therefore carry
+// only calls the response leg can restore (declared floor defs restore by
+// identity or map, the same joint guarantee live turns rely on).
+//
+// Each undeclared history call is folded into its assistant message's content
+// as quoted text (call name + arguments, plus the matching tool result when
+// the echo is present), and the consumed role:tool echo is dropped. A tool
+// echo whose tool_call_id matches no surviving assistant call at all
+// (compacted-resume orphan) is dropped too: a result with no call is
+// meaningless context and risks the same undeclared-tool refusal. Total:
+// malformed entries ride through untouched, and a message whose every call
+// folds becomes a plain text turn — the turn never breaks.
+func foldResumedHistoryCalls(payload map[string]any) {
+	tools, ok := payload["tools"].([]any)
+	if !ok {
+		return
+	}
+	defs := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		m, _ := t.(map[string]any)
+		if m == nil {
+			continue
+		}
+		fn, _ := m["function"].(map[string]any)
+		if name, _ := fn["name"].(string); name != "" {
+			defs[name] = true
+		}
+	}
+	msgs, ok := payload["messages"].([]any)
+	if !ok || len(msgs) == 0 {
+		return
+	}
+	// First pass: fold undeclared calls into assistant text, consuming
+	// their echoes' contents. Echo lookup is by id across all messages.
+	echoByID := map[string][]int{}
+	for i, m := range msgs {
+		mm, _ := m.(map[string]any)
+		if mm == nil {
+			continue
+		}
+		if role, _ := mm["role"].(string); role != "tool" {
+			continue
+		}
+		if id, _ := mm["tool_call_id"].(string); id != "" {
+			echoByID[id] = append(echoByID[id], i)
+		}
+	}
+	consumedEcho := map[int]bool{}
+	for _, m := range msgs {
+		mm, _ := m.(map[string]any)
+		if mm == nil {
+			continue
+		}
+		if role, _ := mm["role"].(string); role != "assistant" {
+			continue
+		}
+		tcs, _ := mm["tool_calls"].([]any)
+		if len(tcs) == 0 {
+			continue
+		}
+		kept := make([]any, 0, len(tcs))
+		var folded []string
+		for _, tc := range tcs {
+			tcm, _ := tc.(map[string]any)
+			if tcm == nil {
+				kept = append(kept, tc)
+				continue
+			}
+			fn, _ := tcm["function"].(map[string]any)
+			name, _ := fn["name"].(string)
+			if name == "" || defs[name] {
+				kept = append(kept, tc)
+				continue
+			}
+			line := "[history: previously called `" + name + "` with " + compactArgs(fn) + "]"
+			if id, _ := tcm["id"].(string); id != "" {
+				for _, ei := range echoByID[id] {
+					em, _ := msgs[ei].(map[string]any)
+					if em == nil || consumedEcho[ei] {
+						continue
+					}
+					if res := toolEchoText(em); res != "" {
+						line += "\n[history: result] " + res
+					}
+					consumedEcho[ei] = true
+				}
+			}
+			folded = append(folded, line)
+		}
+		if len(folded) == 0 {
+			continue
+		}
+		appendAssistantText(mm, strings.Join(folded, "\n"))
+		if len(kept) == 0 {
+			delete(mm, "tool_calls")
+		} else {
+			mm["tool_calls"] = kept
+		}
+	}
+	// Second pass: drop consumed echoes plus orphan echoes (a tool_call_id
+	// matching no surviving assistant call). Survivors are collected after
+	// the fold so folded calls never strand their echo here.
+	live := map[string]bool{}
+	for _, m := range msgs {
+		mm, _ := m.(map[string]any)
+		if mm == nil {
+			continue
+		}
+		if role, _ := mm["role"].(string); role != "assistant" {
+			continue
+		}
+		tcs, _ := mm["tool_calls"].([]any)
+		for _, tc := range tcs {
+			tcm, _ := tc.(map[string]any)
+			if tcm == nil {
+				continue
+			}
+			if id, _ := tcm["id"].(string); id != "" {
+				live[id] = true
+			}
+		}
+	}
+	kept := msgs[:0]
+	for i, m := range msgs {
+		mm, _ := m.(map[string]any)
+		if mm != nil {
+			if role, _ := mm["role"].(string); role == "tool" {
+				if consumedEcho[i] {
+					continue
+				}
+				if id, _ := mm["tool_call_id"].(string); id != "" && !live[id] {
+					continue
+				}
+			}
+		}
+		kept = append(kept, m)
+	}
+	for i := len(kept); i < len(msgs); i++ {
+		msgs[i] = nil
+	}
+	payload["messages"] = kept
+}
+
+// compactArgs renders a history tool call's arguments for the folded text:
+// string args ride verbatim, structured args marshal compactly, missing args
+// render empty (never a failure).
+func compactArgs(fn map[string]any) string {
+	args, ok := fn["arguments"]
+	if !ok || args == nil {
+		return "{}"
+	}
+	if s, ok := args.(string); ok {
+		if s == "" {
+			return "{}"
+		}
+		return s
+	}
+	if b, err := json.Marshal(args); err == nil {
+		return string(b)
+	}
+	return "{}"
+}
+
+// toolEchoText extracts a role:tool message's result content as text: string
+// content rides verbatim, structured content marshals compactly.
+func toolEchoText(mm map[string]any) string {
+	content, ok := mm["content"]
+	if !ok || content == nil {
+		return ""
+	}
+	if s, ok := content.(string); ok {
+		return s
+	}
+	if b, err := json.Marshal(content); err == nil {
+		return string(b)
+	}
+	return ""
+}
+
+// appendAssistantText appends text to an assistant message's content: string
+// content gains a paragraph, null/missing content becomes the text, parts
+// content gains a trailing text part. Anything else is replaced (degenerate,
+// never observed) so the fold cannot strand a call.
+func appendAssistantText(mm map[string]any, text string) {
+	switch content := mm["content"].(type) {
+	case string:
+		if content == "" {
+			mm["content"] = text
+		} else {
+			mm["content"] = content + "\n\n" + text
+		}
+	case []any:
+		mm["content"] = append(content, map[string]any{"type": "text", "text": text})
+	default:
+		mm["content"] = text
+	}
+}
+
 // floorFallbacks routes floor tools the OMP family never declares to the
 // OMP equivalent: the model sees all 16 floor defs (gate requirement) but
 // OMP dispatches only its own names. list_directory rides arg-verbatim
@@ -298,8 +503,20 @@ var floorFallbacks = map[string]string{
 
 // RegisterFloorFallbacks records the fallback routes on the mapper so
 // response calls to undeclared floor tools restore + reshape to the OMP
-// equivalent. Never overrides a real mapping (first claim wins).
+// equivalent. Never overrides a real mapping (first claim wins) — with one
+// exception: a wire glob claimed by the client's `find` restores to the
+// registered `glob` name, not `find`. OMP has no `find` dispatch target
+// (legacy selection alias only; the registered tool is GlobTool name
+// "glob"), so a restored `find` answers "Tool find not found". Other
+// families keep their own find→glob restore (pi dispatches find from its
+// own vocabulary; custom clients dispatch their own declared find).
 func (m *ToolMapper) RegisterFloorFallbacks() {
+	if m.upstreamToClient == nil || m.clientToUpstream == nil {
+		return
+	}
+	if m.upstreamToClient["glob"] == "find" {
+		m.upstreamToClient["glob"] = "glob"
+	}
 	if m.upstreamToClient == nil || m.clientToUpstream == nil {
 		return
 	}

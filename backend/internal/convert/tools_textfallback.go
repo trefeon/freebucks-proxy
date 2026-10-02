@@ -18,12 +18,13 @@ import (
 // — OMP and pi share the agent loop).
 //
 // OMP: four of the sixteen have no OMP equivalent AT ALL — verified against
-// OMP's builtin registry
-// (pi-coding-agent/src/tools/builtin-names.ts: read, bash, edit, ast_grep,
-// ast_edit, ask, debug, ida, eval, github, glob, grep, find, lsp, checkpoint,
-// rewind, context_notes, new_context, security_scan, task, wait, todo,
-// web_search, write, memory_edit, retain, recall, reflect, learn,
-// manage_skill, plus hidden yield/goal/think). A call to one of those restores
+// OMP's builtin registry (pi-coding-agent/src/tools/builtin-names.ts: read,
+// bash, edit, ast_grep, ast_edit, ask, debug, eval, github, glob, grep, lsp,
+// inspect_image, browser, computer, checkpoint, rewind, security_scan, task,
+// hub, todo, web_search, write, memory_edit, retain, recall, reflect,
+// learn, manage_skill, plus hidden yield/goal/think; `find` is a legacy
+// selection alias for glob and `wait`/`new_context`/`context_notes` are not
+// registered tools at all). A call to one of those restores
 // by identity to a CLI name and the OMP dispatcher answers
 // "Tool <name> not found" (pi-agent-core/src/agent-loop.ts:2828-2839).
 //

@@ -161,21 +161,24 @@ func TestReshapeMessageCallsFanout(t *testing.T) {
 }
 
 func TestFindGlobRestore(t *testing.T) {
-	// A request that claimed wire glob for the client's find tool.
+	// OMP has no `find` dispatch target (legacy selection alias only; the
+	// registered tool is GlobTool name "glob"), so a wire glob claimed by
+	// the client's find tool restores to the registered `glob {path}`
+	// shape — never `find {pattern}`, which answers "Tool find not found".
 	findMapper := ToolMapper{
 		family:           familyOMP,
-		upstreamToClient: map[string]string{"glob": "find"},
+		upstreamToClient: map[string]string{"glob": "glob"},
 		clientToUpstream: map[string]string{"find": "glob"},
 	}
-	// CLI glob shape restores to OMP find {pattern}; extras dropped.
+	// CLI glob shape restores to glob {path}; extras dropped.
 	outs := fanoutBodies(t, findMapper, "glob", `{"pattern":"*.go","cwd":"src","max_results":5}`)
-	if len(outs) != 1 || outs[0]["pattern"] != "*.go" || len(outs[0]) != 1 {
-		t.Fatalf("ex-find glob = %v, want [{pattern:*.go}]", outs)
+	if len(outs) != 1 || outs[0]["path"] != "*.go" || len(outs[0]) != 1 {
+		t.Fatalf("ex-find glob = %v, want [{path:*.go}]", outs)
 	}
-	// Live-prompt query vocabulary maps to pattern too.
+	// Live-prompt query vocabulary maps to path too.
 	outs = fanoutBodies(t, findMapper, "glob", `{"query":"*.ts","grep_keywords":["x"]}`)
-	if len(outs) != 1 || outs[0]["pattern"] != "*.ts" {
-		t.Fatalf("ex-find query glob = %v, want [{pattern:*.ts}]", outs)
+	if len(outs) != 1 || outs[0]["path"] != "*.ts" {
+		t.Fatalf("ex-find query glob = %v, want [{path:*.ts}]", outs)
 	}
 	// Native glob keeps the OMP glob {path} shape (glob→glob identity).
 	native := ToolMapper{family: familyOMP}
@@ -191,8 +194,8 @@ func TestFindGlobRestore(t *testing.T) {
 	if _, ok := findMapper.ReshapeArgsFor("find", `{"pattern":"*.go"}`); ok {
 		t.Error("OMP-vocabulary find reshaped, want passthrough (already OMP shape)")
 	}
-	if got := findMapper.RestoreName("glob"); got != "find" {
-		t.Errorf("RestoreName(glob) = %q, want find", got)
+	if got := findMapper.RestoreName("glob"); got != "glob" {
+		t.Errorf("RestoreName(glob) = %q, want glob (find has no dispatch target)", got)
 	}
 	if got := native.RestoreName("glob"); got != "glob" {
 		t.Errorf("native RestoreName(glob) = %q, want glob identity", got)
@@ -231,11 +234,11 @@ func TestFindGlobRequestRoute(t *testing.T) {
 			t.Errorf("floor wire carries %q (foreign-schema rider risk)", banned)
 		}
 	}
-	if got := mapper.RestoreName("glob"); got != "find" {
-		t.Errorf("RestoreName(glob) = %q, want find (find claimed the wire name)", got)
+	if got := mapper.RestoreName("glob"); got != "glob" {
+		t.Errorf("RestoreName(glob) = %q, want glob (find has no OMP dispatch target)", got)
 	}
 	outs := fanoutBodies(t, mapper, "glob", `{"pattern":"*.go"}`)
-	if len(outs) != 1 || outs[0]["pattern"] != "*.go" {
-		t.Fatalf("mapped glob reshape = %v, want [{pattern:*.go}]", outs)
+	if len(outs) != 1 || outs[0]["path"] != "*.go" {
+		t.Fatalf("mapped glob reshape = %v, want [{path:*.go}]", outs)
 	}
 }

@@ -128,13 +128,18 @@ var clientToOfficial = map[string]string{
 	"todos": "write_todos",
 	"rg":    "code_search",
 
-	// Pi / Oh My Pi (OMP)
+	// Pi tools + one OMP-alias rider (verified against the harness
+	// corpora — none of these three are OMP builtins: powershell is pi's
+	// Windows shell registration, edit-diff belongs to another harness,
+	// and find is OMP's legacy selection alias for glob).
 	"powershell": "run_terminal_command",
 	// OMP find {pattern} (the live prompt also emits query+grep_keywords
 	// vocabulary) is file-pattern search: it rides as CLI glob {pattern},
-	// an official floor name with zero new gate surface, and restores
-	// shape-aware to find {pattern} only when the call originated as find
-	// — native glob calls keep the OMP glob {path} shape (fanoutGlobArgs).
+	// an official floor name with zero new gate surface. The response leg
+	// restores wire glob calls to the registered `glob {path}` shape —
+	// never to `find`, which has no OMP dispatch target (the alias is
+	// canonicalized at tool-selection time; dispatch matches name "glob"
+	// only, so a restored `find` answers "Tool find not found").
 	// A verbatim find def must never ride: any foreign-schema definition
 	// alongside the floor trips the gate.
 	"find":      "glob",

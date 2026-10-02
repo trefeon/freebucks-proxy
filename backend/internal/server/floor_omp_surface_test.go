@@ -3,30 +3,32 @@ package server_test
 import (
 	"encoding/json"
 	"fmt"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
-
-	"freebuff-proxy/backend/internal/testutil"
 )
 
 // ompDispatchableToolNames is OMP's complete callable surface as the client
-// dispatches it: BUILTIN_TOOL_NAMES + HIDDEN_TOOL_NAMES
-// (pi-coding-agent/src/tools/builtin-names.ts, omp 18.4.x) plus the
+// dispatches it: the 30 BUILTIN_TOOL_NAMES + HIDDEN_TOOL_NAMES
+// (pi-coding-agent/src/tools/builtin-names.ts:1-35, omp 18.4.x) plus the
 // ADVISOR-role `advise` tool (role-scoped, absent from builtin-names.ts,
 // called from prompt vocabulary on floor-only wires) plus the
 // `mcp__<server>_<tool>` external namespace. A floor-only relay must never
 // hand the client a name outside this set, and must never mangle a name
-// inside it.
+// inside it. Notably ABSENT (no dispatch target despite appearing in older
+// proxy comments): `find` (legacy selection alias for glob), `wait`,
+// `new_context`, `context_notes`, and `ida` — a restored call to any of
+// those answers "Tool <name> not found" (waits go through hub op "wait").
 var ompDispatchableToolNames = []string{
-	// builtins
-	"read", "bash", "edit", "ast_grep", "ast_edit", "ask", "debug", "ida",
-	"eval", "github", "glob", "grep", "find", "lsp", "checkpoint", "rewind",
-	"context_notes", "new_context", "security_scan", "task", "wait", "todo",
-	"web_search", "write", "memory_edit", "retain", "recall", "reflect",
-	"learn", "manage_skill",
+	// builtins (verbatim builtin-names.ts order)
+	"read", "bash", "edit", "ast_grep", "ast_edit", "ask", "debug",
+	"eval", "github", "glob", "grep", "lsp", "inspect_image", "browser",
+	"computer", "checkpoint", "rewind", "security_scan", "task", "hub",
+	"todo", "web_search", "write", "memory_edit", "retain", "recall",
+	"reflect", "learn", "manage_skill",
 	// hidden
 	"yield", "goal", "think",
 	// ADVISOR-role (omp 18.4.3, intentTracing:false): never declared on
@@ -34,9 +36,6 @@ var ompDispatchableToolNames = []string{
 	"advise",
 	// external / MCP
 	"mcp__resend_send", "mcp__postgres_query",
-	// subagent + coordination capabilities the model reaches through the
-	// prompt vocabulary (task/wait/hub-style) — no official CLI equivalent.
-	"task",
 }
 
 // Every OMP callable name survives the floor-only response leg byte-identically:

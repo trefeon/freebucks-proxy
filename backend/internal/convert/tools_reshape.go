@@ -264,15 +264,16 @@ func piEditArgs(in map[string]any) []map[string]any {
 	return []map[string]any{{"path": strField(in, "path"), "edits": edits}}
 }
 
-// fanoutGlobArgs reshapes CLI glob {pattern, ...} to the OMP shape dictated
-// by the request origin: a wire glob claimed by the client's `find` tool
-// restores as OMP find {pattern}, a native glob as OMP glob {path}.
-// The pattern source is the first present of pattern/query: the live OMP
-// prompt emits find with query+grep_keywords vocabulary while the wire never
-// shows a find def, so either key may arrive; cwd/max_results/grep_keywords
-// have no OMP-find equivalent and are dropped. No pattern source at all
-// means already OMP shape (native {path} emission): nil (passthrough),
-// never a blanked-out path.
+// fanoutGlobArgs reshapes CLI glob {pattern, ...} to the registered OMP
+// shape glob {path}. OMP has no `find` dispatch target (its find→glob entry
+// is a legacy selection alias only; the registered tool is GlobTool
+// name "glob"), so a restored `find {pattern}` answers "Tool find not
+// found". The pattern source is the first present of pattern/query: the
+// live OMP prompt emits find with query+grep_keywords vocabulary while the
+// wire never shows a find def, so either key may arrive;
+// cwd/max_results/grep_keywords have no glob equivalent and are dropped. No
+// pattern source at all means already OMP shape (native {path} emission):
+// nil (passthrough), never a blanked-out path.
 func (m ToolMapper) fanoutGlobArgs(in map[string]any) []map[string]any {
 	src := strField(in, "pattern")
 	if src == "" {
@@ -280,9 +281,6 @@ func (m ToolMapper) fanoutGlobArgs(in map[string]any) []map[string]any {
 	}
 	if src == "" {
 		return nil
-	}
-	if m.upstreamToClient["glob"] == "find" {
-		return []map[string]any{{"pattern": src}}
 	}
 	return []map[string]any{{"path": src}}
 }
@@ -622,11 +620,16 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 		}
 		return nil
 	},
-	// OMP todo is an op-machine, CLI write_todos a state dump. OMP's init
+	// OMP todo is a 9-op machine (TodoOperation, tools/todo.ts:23; schema
+	// :69-81), CLI write_todos a state dump. OMP's init
 	// list carries string-only items (InitListEntry.items: string[]), so a
 	// per-item {task, completed} object is rejected by the dispatcher; this
 	// single entry emits the init half and fanoutArgs appends one `done` op
-	// per completed task. Empty dump reads back as a view.
+	// per completed task. Empty dump reads back as a view. Known collapse:
+	// CLI in-progress/blocked/pending distinctions do not survive — OMP
+	// infers in-progress as the first pending item, so a resumed checklist
+	// may restart progress display from the top. No proxy fix exists short
+	// of inventing ops the 9-op machine does not define.
 	"write_todos": func(in map[string]any) map[string]any {
 		titles, _, ok := todoItems(in)
 		if !ok {
@@ -657,7 +660,11 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 	// identically). A valid non-empty tasks[] passes through (nil);
 	// otherwise every original key is preserved and tasks[] is synthesized
 	// around the singular keys — never invented from nothing (nil =
-	// passthrough, the harness errors exactly as today). Wire-safe: this
+	// passthrough, the harness errors exactly as today). Synthesized agent
+	// names still face the harness spawn-policy validation
+	// (task/index.ts:226-266; discovery/helpers.ts:289-292): an unknown
+	// agent type fails loudly in-harness, which is the honest signal (the
+	// proxy cannot know the client's agent catalog). Wire-safe: this
 	// runs on the response leg only, the 16+end_turn wire is untouched.
 	"task": func(in map[string]any) map[string]any {
 		if arr, ok := in["tasks"].([]any); ok && len(arr) > 0 {

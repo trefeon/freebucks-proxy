@@ -195,6 +195,11 @@ func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options)
 		// Replay tool calls in historical assistant messages must match
 		// the canonical floor tools on the wire.
 		mapper.RenameMessagesToolCalls(payload)
+		// Resumed history may call harness-only tools the floor dropped
+		// (task/eval/learn/...): fold those calls (and their echoes) into
+		// assistant text so the wire carries no call to an undeclared
+		// tool, which upstream refuses.
+		foldResumedHistoryCalls(payload)
 	}
 	mapper.RenameRequestToolChoice(payload)
 	renamed, merr := json.Marshal(payload)

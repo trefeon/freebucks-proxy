@@ -64,7 +64,7 @@ func TestInjectEnvelopeOMPFloorReminderPresent(t *testing.T) {
 	if !strings.Contains(joined, ompFloorReminderSentinel) {
 		t.Fatalf("reminder absent from OMP floor-only envelope: %q", joined)
 	}
-	for _, want := range []string{"task", `"tasks"`, "todo", "ask", "eval", "wait", "context_notes", "new_context", "learn", "manage_skill", "non-empty array", "advise", `"severity"`} {
+	for _, want := range []string{"task", `"tasks"`, "todo", "ask", "eval", "hub", `"op":"wait"`, "learn", "manage_skill", "non-empty array", "advise", `"severity"`} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("reminder missing %q: %q", want, joined)
 		}
