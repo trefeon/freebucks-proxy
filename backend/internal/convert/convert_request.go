@@ -162,51 +162,16 @@ func NormalizeRequestMapped(body []byte, modelOverride string) ([]byte, ToolMapp
 
 // NormalizeRequestMappedOpts is NormalizeRequestMapped with an explicit
 // Options (issue #277). See NormalizeRequestOpts.
+//
+// The pipeline is IR-structured (ir_pipeline.go: Decode → Own →
+// Substitute+Floor → Emit): NormalizeRequestMappedIR builds the IR, owns
+// the wire names on it, emits bytes through the established appliers in
+// their documented order, and asserts IR/payload agreement. This wrapper
+// keeps the established signature; callers that want the diagnostics use
+// NormalizeRequestMappedIR directly.
 func NormalizeRequestMappedOpts(body []byte, modelOverride string, opts Options) ([]byte, ToolMapper, error) {
-	mapper := NewToolMapper(body)
-	family := detectFamilyBody(body)
-	out, err := NormalizeRequestOpts(body, modelOverride, opts)
-	if err != nil {
-		return nil, ToolMapper{}, err
-	}
-	// Apply renames on top of the normalized body.
-	var payload map[string]any
-	if err := json.Unmarshal(out, &payload); err != nil {
-		return out, ToolMapper{}, nil //nolint:NormalizeRequest already validated; unreachable in practice
-	}
-	mapper.ToUpstream(payload)
-	// Foreign-definition substitution: entries renamed onto CLI wire names
-	// carry the canonical CLI description + parameters, so the gate sees
-	// CLI definitions, never foreign schemas under renamed names.
-	SubstituteCanonicalDefinitions(payload)
-	// Family response translation (tools_floor.go). OMP-family toolsets go
-	// floor-only: no foreign-schema rider may reach the gate (live
-	// 2026-09-30). pi-family toolsets keep their substituted wire (every pi
-	// core tool already maps to an official name) and need only the
-	// response-leg pi arg reshape + unroutable text render. Non-family
-	// clients keep the riding top-up.
-	mapper.family = family
-	if family == familyOMP {
-		floorOnlyOMP(payload)
-		// Undeclared floor tools route to the OMP equivalent so model
-		// calls to ask_user/read_url/list_directory/skill restore +
-		// reshape instead of failing client-side with "not found".
-		mapper.RegisterFloorFallbacks()
-		// Replay tool calls in historical assistant messages must match
-		// the canonical floor tools on the wire.
-		mapper.RenameMessagesToolCalls(payload)
-		// Resumed history may call harness-only tools the floor dropped
-		// (task/eval/learn/...): fold those calls (and their echoes) into
-		// assistant text so the wire carries no call to an undeclared
-		// tool, which upstream refuses.
-		foldResumedHistoryCalls(payload)
-	}
-	mapper.RenameRequestToolChoice(payload)
-	renamed, merr := json.Marshal(payload)
-	if merr != nil {
-		return out, ToolMapper{}, nil // fall back to unrenamed rather than fail the request
-	}
-	return renamed, mapper, nil
+	out, mapper, _, err := NormalizeRequestMappedIR(body, modelOverride, opts)
+	return out, mapper, err
 }
 
 // stripClientCacheControl drops client-supplied cache_control markers from a
