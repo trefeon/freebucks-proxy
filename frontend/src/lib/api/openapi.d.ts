@@ -345,6 +345,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/admin/api/probe-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Smart-probe scheduler per-token due state (cheap predicate reads, no upstream traffic) */
+    get: operations["getProbeStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/api/quota/history": {
     parameters: {
       query?: never;
@@ -1122,6 +1139,15 @@ export interface components {
     PageStateResponse: {
       data: unknown;
     };
+    ProbeStatusResponse: {
+      enabled: boolean;
+      tokens: {
+        due: boolean;
+        email?: string;
+        index: number;
+        reason: string;
+      }[];
+    };
     ReloadResponse: {
       auth_tokens: number;
       message: string;
@@ -1385,6 +1411,7 @@ export interface components {
       agents: number;
       count: number;
       models: {
+        affordable?: string;
         agent: string;
         badges?: string[];
         display_name?: string;
@@ -1522,6 +1549,8 @@ export interface components {
         pending_refund?: string;
         pin_skips?: number;
         pinned_model?: string;
+        quarantine_reason?: string;
+        quarantined?: boolean;
         queue_depth: number;
         queue_position: number;
         queued_waiters: number;
@@ -1530,6 +1559,7 @@ export interface components {
         referral_qualified_count: number;
         referral_reset_at?: string;
         referral_sessions_left: number;
+        released_models?: string[];
         requests: number;
         requests_per_day: number;
         session_status: string;
@@ -1706,6 +1736,8 @@ export interface components {
         pending_refund?: string;
         pin_skips?: number;
         pinned_model?: string;
+        quarantine_reason?: string;
+        quarantined?: boolean;
         queue_depth: number;
         queue_position: number;
         queued_waiters: number;
@@ -1726,6 +1758,7 @@ export interface components {
           resets_in: string;
           usage_pct: number;
         }[];
+        quota_probed: boolean;
         quota_saved_at?: string;
         quota_stale?: boolean;
         referral_code?: string;
@@ -1733,6 +1766,7 @@ export interface components {
         referral_qualified_count: number;
         referral_reset_at?: string;
         referral_sessions_left: number;
+        released_models?: string[];
         requests: number;
         requests_per_day: number;
         session_expires_at?: string;
@@ -1783,6 +1817,7 @@ export interface components {
       traces: {
         cached?: number;
         error: string;
+        floor_only?: boolean;
         input?: number;
         model: string;
         ms: string;
@@ -1797,8 +1832,10 @@ export interface components {
         status: string;
         time: string;
         token: string;
+        tools?: number;
         total?: number;
         ts_ms?: number;
+        usage_absent?: boolean;
       }[];
     };
     usageData: {
@@ -2323,6 +2360,26 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ResultEnvelope"];
+        };
+      };
+    };
+  };
+  getProbeStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Smart-probe scheduler per-token due state (cheap predicate reads, no upstream traffic) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProbeStatusResponse"];
         };
       };
     };

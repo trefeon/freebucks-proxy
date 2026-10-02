@@ -96,10 +96,18 @@ type tokenCard struct {
 	// what produced the ~20h cooldowns) — plus upstream's window refill
 	// instant (RFC3339) and the window length it declared. Empty/zero for
 	// every other cooldown, so the SPA keeps rendering the old row.
-	CooldownKind        string  `json:"cooldown_kind,omitempty"`
-	CooldownResetsAt    string  `json:"cooldown_resets_at,omitempty"`
-	CooldownWindowHours int     `json:"cooldown_window_hours,omitempty"`
-	Locked              bool    `json:"locked"`
+	CooldownKind        string `json:"cooldown_kind,omitempty"`
+	CooldownResetsAt    string `json:"cooldown_resets_at,omitempty"`
+	CooldownWindowHours int    `json:"cooldown_window_hours,omitempty"`
+	Locked              bool   `json:"locked"`
+	// Quarantined / QuarantineReason mirror pool.TokenSnapshot (the pool's
+	// terminal anti-ban marker, process-local — never persisted): a banned
+	// account's card names the state instead of looking merely idle. The
+	// frontend bans on these fields plus ban_type; the backend never emits
+	// a "quarantined" session_status (verdict: frontend predicate fixed,
+	// backend statuses stay wire-faithful).
+	Quarantined         bool    `json:"quarantined,omitempty"`
+	QuarantineReason    string  `json:"quarantine_reason,omitempty"`
 	BanType             string  `json:"ban_type,omitempty"`
 	BannedUntil         string  `json:"banned_until,omitempty"`
 	TransientRetries    int64   `json:"transient_retries"`
@@ -132,6 +140,11 @@ type tokenCard struct {
 	// pending-refund line.
 	LastRefund    *float64 `json:"last_refund,omitempty"`
 	PendingRefund string   `json:"pending_refund,omitempty"`
+	// ReleasedModels mirrors pool.TokenSnapshot (the models inside their
+	// remembered purchase_claim_released window): the operator must make a
+	// fresh purchase/login for these models on this token. Omitted when
+	// none, so the card never renders undefined.
+	ReleasedModels []string `json:"released_models,omitempty"`
 	// Freebucks (issue #232): balance + daily/weekly/monthly windows +
 	// bindingWindow + prices. Nil when the session has not reported it.
 	Freebucks *freebucksCard `json:"freebucks,omitempty"`
@@ -451,6 +464,13 @@ type tokenSessionQuota struct {
 	SessionExpiresAt        string     `json:"session_expires_at,omitempty"`
 	Quota                   []quotaRow `json:"quota"`
 	HasQuota                bool       `json:"has_quota"`
+	// QuotaProbed splits never-probed from probed-empty: false when no
+	// probe (or admission) ever wrote quota memory for this token — no
+	// rows, no Freebucks block, no probe timestamp — true once anything
+	// did. The session stale badge requires len>0, so without this a
+	// quota-less token shows no badge either way; the card renders the
+	// "needs probe" affordance only when this is false.
+	QuotaProbed bool `json:"quota_probed"`
 	// QuotaStale labels quota restored from the on-disk session entry
 	// after a restart; QuotaSavedAt is when it was last polled.
 	QuotaStale   bool   `json:"quota_stale,omitempty"`
@@ -628,6 +648,10 @@ func (d *Dashboard) sessionQuotaFor(t pool.TokenSnapshot, sample bool) tokenSess
 		}
 	}
 	sort.Slice(sq.Quota, func(i, j int) bool { return sq.Quota[i].Model < sq.Quota[j].Model })
+	// Any quota memory means something wrote it: per-model rows, the
+	// Freebucks block, or a probe timestamp. A synthesized promo row alone
+	// does not count — it is derived, not observed.
+	sq.QuotaProbed = len(t.QuotaByModel) > 0 || t.Freebucks != nil || !t.QuotaSavedAt.IsZero()
 	sq.HasQuota = len(sq.Quota) > 0
 	return sq
 }

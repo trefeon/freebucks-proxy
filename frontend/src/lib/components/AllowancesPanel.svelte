@@ -17,7 +17,7 @@
     refreshTokens,
   } from "../stores/tokens.js";
   import { postAPI } from "../api/client.js";
-  import { adminActions } from "../api/paths.js";
+  import { adminActions, tokenActions } from "../api/paths.js";
   import { tr } from "../i18n.js";
   import {
     formatFreebucks,
@@ -111,6 +111,33 @@
       pushToast({
         tone: "error",
         title: e?.message || $tr("Network error probing tokens"),
+      });
+    } finally {
+      probing = false;
+    }
+  }
+  // Per-account probe (POST /admin/tokens/{id}/test, zero-cost like
+  // probe-all): the affordance behind the never-probed copy, so one dark
+  // account need not wait for a fleet-wide probe.
+  async function probeOne(idx) {
+    if (probing) return;
+    probing = true;
+    try {
+      const res = await postAPI(tokenActions.test(idx), {});
+      const ok = res?.ok !== false;
+      pushToast({
+        tone: ok ? "success" : "error",
+        title:
+          res?.message ||
+          (ok
+            ? $tr("Account #{idx} probed", { idx: idx + 1 })
+            : $tr("Account #{idx} probe failed", { idx: idx + 1 })),
+      });
+      refreshTokens();
+    } catch (e) {
+      pushToast({
+        tone: "error",
+        title: e?.message || $tr("Network error probing token"),
       });
     } finally {
       probing = false;
@@ -276,12 +303,21 @@
   </div>
   {#if resetAt}
     {#if Date.parse(resetAt) <= now}
-      <p
-        class="text-xs text-[var(--fp-muted)] font-mono"
-        data-testid="reset-strip"
-      >
-        {$tr("Updating balance…")}
-      </p>
+      <div class="flex flex-wrap items-center gap-2" data-testid="reset-strip">
+        <p class="text-xs text-[var(--fp-muted)] font-mono">
+          {$tr("Updating balance…")}
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={probing}
+          loading={probing}
+          onclick={probeAll}
+          title={$tr("Zero-cost probe of every account: no session claimed")}
+        >
+          {probing ? $tr("Probing…") : $tr("Probe all")}
+        </Button>
+      </div>
     {:else}
       <p
         class="text-xs text-[var(--fp-muted)] font-mono"
@@ -323,7 +359,7 @@
     class="grid grid-cols-1 lg:grid-cols-2 gap-2.5"
     aria-label={$tr("Accounts")}
   >
-    {#each data.tokens as token, ti (token.index ?? ti)}
+    {#each data.tokens as token, ti ((token.account_id || token.email || token.index) ?? ti)}
       {@const idx = token.index ?? ti}
       {@const fb = freebucksDisplayModel(token, now)}
       {@const monthly = monthlyWin(token)}
@@ -497,9 +533,28 @@
                 {$tr("monthly usage left")}{/if}
             </p>
           {/if}
+        {:else if token.quota_probed === false}
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="text-xs text-[var(--fp-dim)] italic">
+              {$tr("No Freebucks data yet — probe this account to populate.")}
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={probing}
+              onclick={() => probeOne(idx)}
+              title={$tr("Zero-cost probe of this account: no session claimed")}
+            >
+              {$tr("Probe")}
+            </Button>
+          </div>
         {:else}
           <p class="text-xs text-[var(--fp-dim)] italic">
-            {$tr("No Freebucks data — run a request or Probe all to populate.")}
+            {$tr(
+              token.quota_probed
+                ? "No Freebucks data — the last probe returned none."
+                : "No Freebucks data — run a request or Probe all to populate.",
+            )}
           </p>
         {/if}
         <RefundLines

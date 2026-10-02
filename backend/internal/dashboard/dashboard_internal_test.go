@@ -729,3 +729,135 @@ func TestCardFromSnapshotFirstTabDiscount(t *testing.T) {
 		t.Errorf("Freebucks card = %+v without a block, want nil", bare.Freebucks)
 	}
 }
+
+// TestCardsPropagateQuarantineAndReleased pins the dashboard↔backend sync
+// contract gap behind the incident: the pool snapshot carries
+// quarantine/ban state but both cards dropped it, so a banned account
+// rendered with no chip; the Overview isBanned predicate keyed on a
+// "quarantined" session_status the backend never emits. Verdict: the
+// backend now emits quarantined/quarantine_reason + ban fields on both the
+// full and live cards (session_status stays wire-faithful), and the
+// frontend predicates on those fields instead.
+func TestCardsPropagateQuarantineAndReleased(t *testing.T) {
+	snap := pool.TokenSnapshot{
+		Token: 0, Email: "dead@example.com", AccountID: "acc-1",
+		SessionStatus:    "idle",
+		Quarantined:      true,
+		QuarantineReason: "banned",
+		BanType:          "hard",
+		ReleasedModels:   []string{"deepseek/deepseek-v4-flash"},
+	}
+	full := cardFromSnapshot(snap)
+	if !full.Quarantined || full.QuarantineReason != "banned" {
+		t.Errorf("full card quarantine = %v/%q, want true/banned", full.Quarantined, full.QuarantineReason)
+	}
+	if full.BanType != "hard" {
+		t.Errorf("full card ban = %q, want hard", full.BanType)
+	}
+	if len(full.ReleasedModels) != 1 || full.ReleasedModels[0] != "deepseek/deepseek-v4-flash" {
+		t.Errorf("full card released = %v, want [deepseek/deepseek-v4-flash]", full.ReleasedModels)
+	}
+	if full.SessionStatus == "quarantined" {
+		t.Errorf("full card session_status = quarantined: backend statuses stay wire-faithful, quarantine rides its own fields")
+	}
+	live := liveCardFromSnapshot(snap)
+	if !live.Quarantined || live.QuarantineReason != "banned" {
+		t.Errorf("live card quarantine = %v/%q, want true/banned", live.Quarantined, live.QuarantineReason)
+	}
+	if live.BanType != "hard" {
+		t.Errorf("live card ban = %q, want hard", live.BanType)
+	}
+	if len(live.ReleasedModels) != 1 || live.ReleasedModels[0] != "deepseek/deepseek-v4-flash" {
+		t.Errorf("live card released = %v, want [deepseek/deepseek-v4-flash]", live.ReleasedModels)
+	}
+
+	bare := cardFromSnapshot(pool.TokenSnapshot{Token: 1})
+	if bare.Quarantined || bare.QuarantineReason != "" || bare.BanType != "" {
+		t.Errorf("bare card quarantine/ban = %v/%q/%q, want zero (omitempty)", bare.Quarantined, bare.QuarantineReason, bare.BanType)
+	}
+	if bare.ReleasedModels != nil {
+		t.Errorf("bare card released = %v, want nil (never undefined, never empty)", bare.ReleasedModels)
+	}
+	bareLive := liveCardFromSnapshot(pool.TokenSnapshot{Token: 1})
+	if bareLive.Quarantined || bareLive.QuarantineReason != "" || bareLive.ReleasedModels != nil {
+		t.Errorf("bare live card = %v/%q/%v, want zero", bareLive.Quarantined, bareLive.QuarantineReason, bareLive.ReleasedModels)
+	}
+}
+
+// TestSessionQuotaProbedSplit pins never-probed vs probed-empty: the
+// session stale badge requires len>0, so a quota-less token shows no badge
+// either way — the card renders the "needs probe" affordance only when
+// QuotaProbed is false.
+func TestSessionQuotaProbedSplit(t *testing.T) {
+	d := testDashboard(t)
+	never := d.sessionQuotaFor(pool.TokenSnapshot{Token: 0}, false)
+	if never.HasQuota {
+		t.Errorf("never-probed HasQuota = true, want false")
+	}
+	if never.QuotaProbed {
+		t.Errorf("never-probed QuotaProbed = true, want false (nothing ever wrote)")
+	}
+	// A probe that wrote a Freebucks block but no servable quota rows is
+	// probed-empty: the card shows the empty state, not the probe CTA.
+	probed := d.sessionQuotaFor(pool.TokenSnapshot{
+		Token:     0,
+		Freebucks: &upstream.FreebucksInfo{Balance: 0},
+	}, false)
+	if probed.HasQuota {
+		t.Errorf("probed-empty HasQuota = true, want false")
+	}
+	if !probed.QuotaProbed {
+		t.Errorf("probed-empty QuotaProbed = false, want true (Freebucks block observed)")
+	}
+}
+
+// TestTokenStateHashDetectsFreebucksFill pins the probe-fill push: a
+// probe-all fill flips has_quota false→true and the Freebucks balance from
+// absent to a number. Without both in the hash the 1s diff loop swallows
+// the fill and the SPA sits stale behind a fill toast until the next poll.
+func TestTokenStateHashDetectsFreebucksFill(t *testing.T) {
+	d := testDashboard(t)
+	stale := tokensData{
+		Mode: "pooled", TokenCount: 1,
+		Tokens: []tokenDetail{{tokenCard: tokenCard{Index: 0, SessionStatus: "idle"}}},
+	}
+	filled := tokensData{
+		Mode: "pooled", TokenCount: 1,
+		Tokens: []tokenDetail{{
+			tokenCard:         tokenCard{Index: 0, SessionStatus: "idle", Freebucks: &freebucksCard{Balance: 15}},
+			tokenSessionQuota: tokenSessionQuota{HasQuota: true, QuotaProbed: true},
+		}},
+	}
+	if d.tokenStateHash(stale) == d.tokenStateHash(filled) {
+		t.Errorf("hash unchanged by probe fill: the SSE push would never fire")
+	}
+}
+
+// TestProbeStatusDataShape pins the GET /admin/api/probe-status view model:
+// the scheduler switch plus one row per token, JSON keys stable.
+func TestProbeStatusDataShape(t *testing.T) {
+	d := testDashboard(t)
+	res := d.probeStatusData()
+	if res.Enabled {
+		t.Errorf("Enabled = true on a zero-value config, want false")
+	}
+	if len(res.Tokens) != 0 {
+		t.Errorf("Tokens = %d rows on an empty pool, want 0", len(res.Tokens))
+	}
+}
+
+// TestLiveCardCarriesMergeKeys pins the swap-mismerge fix: the hot-poll
+// card carries email/account_id (omitempty) so the SPA can key live rows
+// by account instead of a bare pointer index that moves on swap/reorder.
+func TestLiveCardCarriesMergeKeys(t *testing.T) {
+	live := liveCardFromSnapshot(pool.TokenSnapshot{
+		Token: 3, Email: "c@example.com", AccountID: "acc-3",
+	})
+	if live.Email != "c@example.com" || live.AccountID != "acc-3" {
+		t.Errorf("live merge keys = %q/%q, want c@example.com/acc-3", live.Email, live.AccountID)
+	}
+	anon := liveCardFromSnapshot(pool.TokenSnapshot{Token: 0})
+	if anon.Email != "" || anon.AccountID != "" {
+		t.Errorf("anonymous live keys = %q/%q, want empty (omitted)", anon.Email, anon.AccountID)
+	}
+}

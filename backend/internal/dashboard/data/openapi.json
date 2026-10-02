@@ -337,6 +337,43 @@
         ],
         "type": "object"
       },
+      "ProbeStatusResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "tokens": {
+            "items": {
+              "properties": {
+                "due": {
+                  "type": "boolean"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "due",
+                "index",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "enabled",
+          "tokens"
+        ],
+        "type": "object"
+      },
       "ReloadResponse": {
         "properties": {
           "auth_tokens": {
@@ -1392,6 +1429,9 @@
           "models": {
             "items": {
               "properties": {
+                "affordable": {
+                  "type": "string"
+                },
                 "agent": {
                   "type": "string"
                 },
@@ -1862,6 +1902,12 @@
                 "pinned_model": {
                   "type": "string"
                 },
+                "quarantine_reason": {
+                  "type": "string"
+                },
+                "quarantined": {
+                  "type": "boolean"
+                },
                 "queue_depth": {
                   "type": "integer"
                 },
@@ -1885,6 +1931,12 @@
                 },
                 "referral_sessions_left": {
                   "type": "integer"
+                },
+                "released_models": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "requests": {
                   "type": "integer"
@@ -2531,6 +2583,12 @@
                 "pinned_model": {
                   "type": "string"
                 },
+                "quarantine_reason": {
+                  "type": "string"
+                },
+                "quarantined": {
+                  "type": "boolean"
+                },
                 "queue_depth": {
                   "type": "integer"
                 },
@@ -2608,6 +2666,9 @@
                   },
                   "type": "array"
                 },
+                "quota_probed": {
+                  "type": "boolean"
+                },
                 "quota_saved_at": {
                   "type": "string"
                 },
@@ -2628,6 +2689,12 @@
                 },
                 "referral_sessions_left": {
                   "type": "integer"
+                },
+                "released_models": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "requests": {
                   "type": "integer"
@@ -2731,6 +2798,7 @@
                 "queue_position",
                 "queued_waiters",
                 "quota",
+                "quota_probed",
                 "referral_github_linked",
                 "referral_qualified_count",
                 "referral_sessions_left",
@@ -2847,6 +2915,9 @@
                 "error": {
                   "type": "string"
                 },
+                "floor_only": {
+                  "type": "boolean"
+                },
                 "input": {
                   "type": "integer"
                 },
@@ -2895,11 +2966,17 @@
                 "token": {
                   "type": "string"
                 },
+                "tools": {
+                  "type": "integer"
+                },
                 "total": {
                   "type": "integer"
                 },
                 "ts_ms": {
                   "type": "integer"
+                },
+                "usage_absent": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -3865,6 +3942,32 @@
         "summary": "Upsert one per-page UI snapshot (data must be a JSON object)",
         "tags": [
           "settings"
+        ]
+      }
+    },
+    "/admin/api/probe-status": {
+      "get": {
+        "operationId": "getProbeStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatusResponse"
+                }
+              }
+            },
+            "description": "Smart-probe scheduler per-token due state (cheap predicate reads, no upstream traffic)"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Smart-probe scheduler per-token due state (cheap predicate reads, no upstream traffic)",
+        "tags": [
+          "views"
         ]
       }
     },

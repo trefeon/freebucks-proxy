@@ -31,6 +31,8 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 		TransientRetries:   t.TransientRetries,
 		PinSkips:           t.PinSkips,
 		Locked:             t.Locked,
+		Quarantined:        t.Quarantined,
+		QuarantineReason:   t.QuarantineReason,
 	}
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
 		card.CooldownActive = true
@@ -78,6 +80,7 @@ func cardFromSnapshot(t pool.TokenSnapshot) tokenCard {
 	if t.Freebucks != nil {
 		card.Freebucks = freebucksCardFromInfo(t.Freebucks)
 	}
+	card.ReleasedModels = append([]string(nil), t.ReleasedModels...)
 	card.LastRefund = t.LastRefund
 	card.PendingRefund = t.PendingRefund
 	if t.Streak > 0 {
@@ -135,6 +138,12 @@ type tokenLiveCard struct {
 	Index         int    `json:"index"`
 	SessionStatus string `json:"session_status"`
 	AccessTier    string `json:"access_tier,omitempty"`
+	// Email / AccountID ride the hot poll even though they are stable: the
+	// SPA merges live rows by account (never bare index), so a swap or
+	// reorder between polls must still key each live row onto the right
+	// static row. Same additive/omitempty contract.
+	Email     string `json:"email,omitempty"`
+	AccountID string `json:"account_id,omitempty"`
 	// CountryCode / CountryBlockReason ride the hot poll like cooldown_until
 	// itself: a block (or its lift) lands between full fetches, and the
 	// account card must render the warning from the merged view. Same
@@ -164,12 +173,21 @@ type tokenLiveCard struct {
 	CooldownResetsAt    string `json:"cooldown_resets_at,omitempty"`
 	CooldownWindowHours int    `json:"cooldown_window_hours,omitempty"`
 	Locked              bool   `json:"locked"`
-	BanType             string `json:"ban_type,omitempty"`
-	BannedUntil         string `json:"banned_until,omitempty"`
-	TransientRetries    int64  `json:"transient_retries"`
+	// Quarantined / QuarantineReason ride the hot poll like BanType: a ban
+	// (or its lift) lands between full fetches, and the merged view must
+	// render the chip immediately. Same additive/omitempty contract.
+	Quarantined      bool   `json:"quarantined,omitempty"`
+	QuarantineReason string `json:"quarantine_reason,omitempty"`
+	BanType          string `json:"ban_type,omitempty"`
+	BannedUntil      string `json:"banned_until,omitempty"`
+	TransientRetries int64  `json:"transient_retries"`
 	// PinSkips is live (like TransientRetries): every poll refreshes
 	// it, so it stays out of the SPA's static cache.
 	PinSkips int64 `json:"pin_skips,omitempty"`
+	// ReleasedModels mirrors the full card: a probe can park models in the
+	// released window between full fetches, and the merged view must show
+	// it. Same additive/omitempty contract.
+	ReleasedModels []string `json:"released_models,omitempty"`
 	// LastRefund / PendingRefund ride the hot poll like Freebucks: a
 	// release or replay can settle or park a refund between full fetches,
 	// and the account card reads the merged view.
@@ -190,6 +208,8 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 		Index:              t.Token,
 		SessionStatus:      t.SessionStatus,
 		AccessTier:         t.AccessTier,
+		Email:              t.Email,
+		AccountID:          t.AccountID,
 		CountryCode:        t.CountryCode,
 		CountryBlockReason: t.CountryBlockReason,
 		QueuePosition:      t.SessionQueuePosition,
@@ -203,6 +223,8 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 		RequestsPerDay:     t.RequestsPerDay,
 		TransientRetries:   t.TransientRetries,
 		Locked:             t.Locked,
+		Quarantined:        t.Quarantined,
+		QuarantineReason:   t.QuarantineReason,
 	}
 	card.PinSkips = t.PinSkips
 	if !t.CooldownUntil.IsZero() && time.Now().Before(t.CooldownUntil) {
@@ -223,6 +245,7 @@ func liveCardFromSnapshot(t pool.TokenSnapshot) tokenLiveCard {
 	if t.Freebucks != nil {
 		card.Freebucks = freebucksCardFromInfo(t.Freebucks)
 	}
+	card.ReleasedModels = append([]string(nil), t.ReleasedModels...)
 	card.LastRefund = t.LastRefund
 	card.PendingRefund = t.PendingRefund
 	if t.Streak > 0 {

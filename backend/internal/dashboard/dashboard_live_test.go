@@ -3,12 +3,6 @@ package dashboard_test
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
-
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/dashboard"
 	"freebuff-proxy/backend/internal/pool"
@@ -16,6 +10,11 @@ import (
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
 )
 
 // liveTestServer mounts the overview + tokens JSON handlers over one pooled
@@ -106,7 +105,12 @@ func TestLiveViewOverviewOmitsStatic(t *testing.T) {
 		t.Fatalf("live overview tokens len = %d, want 1", len(toks))
 	}
 	card, _ := toks[0].(map[string]any)
-	for _, k := range []string{"email", "account_id", "standing_level", "has_standing", "referral_code", "has_referral"} {
+	// Per-token live cards omit account-stable fields — except email and
+	// account_id, which ride live as merge keys: the SPA keys live rows by
+	// account (never bare index), so a swap between polls still merges each
+	// live row onto the right static row. (Presence itself is omitempty and
+	// pinned by TestLiveCardCarriesMergeKeys.)
+	for _, k := range []string{"standing_level", "has_standing", "referral_code", "has_referral"} {
 		if _, ok := card[k]; ok {
 			t.Errorf("live token card carries static %q", k)
 		}
@@ -154,7 +158,9 @@ func TestLiveViewTokensOmitsStatic(t *testing.T) {
 		t.Fatalf("live tokens len = %d, want 1", len(toks))
 	}
 	card, _ := toks[0].(map[string]any)
-	for _, k := range []string{"email", "account_id", "daily_limit", "has_standing", "standing_level", "has_referral", "referral_code"} {
+	// email/account_id ride live as merge keys (see the overview test);
+	// everything else account-stable stays full-shape only.
+	for _, k := range []string{"daily_limit", "has_standing", "standing_level", "has_referral", "referral_code"} {
 		if _, ok := card[k]; ok {
 			t.Errorf("live token detail carries static %q", k)
 		}

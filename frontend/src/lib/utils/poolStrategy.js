@@ -281,9 +281,9 @@ export function distinctPinModels(raw) {
  * roster order eligible for selectedModel, mirroring the gateway spill
  * order (backend/internal/pool/spill_order.go) through the fields the
  * token card actually carries (dashboard_cards.go tokenCard):
- * locked, ban_type / session_status (quarantine proxy — the pool's
- * terminal marker has no card field, so a ban type or a banned /
- * quarantined status stands in), cooldown_active (the drawer parkedNote
+ * locked, quarantined (the pool's terminal marker, now a real card field),
+ * ban_type / session_status (a banned status still stands in for older
+ * servers), cooldown_active (the drawer parkedNote
  * pattern), and pinned_model. Session warmth (active status) is reported
  * on the pick, never reordered: the walk is strictly positional.
  *
@@ -314,6 +314,7 @@ export function predictNextAccount(tokens, selectedModel) {
   const ordered = [...rows].sort((a, b) => a.index - b.index);
   for (const t of ordered) {
     if (t.locked) continue;
+    if (t.quarantined) continue;
     if (t.ban_type) continue;
     const status = t.session_status ?? "";
     if (status === "banned" || status === "quarantined") continue;

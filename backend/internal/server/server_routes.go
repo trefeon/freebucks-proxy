@@ -63,6 +63,8 @@ func (s *Server) adminHandler(r dashboard.AdminRoute) http.Handler {
 		return s.dash.APIHandler("tokens")
 	case "GET /admin/api/events":
 		return http.HandlerFunc(s.dash.HandleEvents)
+	case "GET /admin/api/probe-status":
+		return s.dash.APIHandler("probe-status")
 	case "GET /admin/api/models":
 		return s.dash.APIHandler("models")
 	case "GET /admin/api/traces":

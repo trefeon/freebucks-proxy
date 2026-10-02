@@ -69,8 +69,15 @@
     "pinned_model",
   ];
   let staticPart = null;
-  let staticTokensByIndex = {};
+  let staticTokensByKey = {};
 
+  // Stable row identity (same contract as stores/tokens.js): the backend
+  // pointer index moves on swap/reorder, so the merge keys on account_id
+  // (email fallback, index last resort) — never a bare index.
+  function rowKey(t, fallback) {
+    if (t === null || typeof t !== "object") return fallback;
+    return (t.account_id || t.email || t.index) ?? fallback;
+  }
   function pick(obj, keys) {
     const out = {};
     for (const k of keys) if (k in obj) out[k] = obj[k];
@@ -79,9 +86,9 @@
 
   function rememberStatic(full) {
     staticPart = pick(full, STATIC_TOP_KEYS);
-    staticTokensByIndex = {};
+    staticTokensByKey = {};
     for (const t of full.tokens ?? []) {
-      staticTokensByIndex[t.index] = pick(t, STATIC_TOKEN_KEYS);
+      staticTokensByKey[rowKey(t, -1)] = pick(t, STATIC_TOKEN_KEYS);
     }
   }
 
@@ -92,8 +99,8 @@
     return {
       ...staticPart,
       ...live,
-      tokens: (live.tokens ?? []).map((lt) => ({
-        ...(staticTokensByIndex[lt.index] ?? {}),
+      tokens: (live.tokens ?? []).map((lt, i) => ({
+        ...(staticTokensByKey[rowKey(lt, lt.index ?? i)] ?? {}),
         ...lt,
       })),
     };
@@ -106,8 +113,8 @@
   const LIVE_QS = "?view=live";
   const overviewQuery = createQueryStore({
     intervalMs: 15000,
-    fetchFull: () => fetchAPI(adminApi.overview),
-    fetchLive: () => fetchAPI(adminApi.overview + LIVE_QS),
+    fetchFull: (signal) => fetchAPI(adminApi.overview, { signal }),
+    fetchLive: (signal) => fetchAPI(adminApi.overview + LIVE_QS, { signal }),
     merge: (_cached, live) => mergeLive(live),
   });
 
@@ -148,9 +155,14 @@
   });
   // Worst-account callout: single token needing attention — banned first,
   // then cooldown active, then lowest requests/day headroom.
+  // Backend verdict: the gateway never emits a "quarantined" session_status
+  // (statuses stay wire-faithful) — quarantine rides its own card fields,
+  // so the predicate reads those plus ban_type, not the status string.
   function isBanned(t) {
+    if (!t) return false;
     if (t.ban_type) return true;
-    return t.session_status === "banned" || t.session_status === "quarantined";
+    if (t.quarantined) return true;
+    return t.session_status === "banned";
   }
   function dayHeadroom(t) {
     const limit = t.requests_per_day_limit ?? 0;

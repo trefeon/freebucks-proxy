@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,20 +50,27 @@ func newEventStreamHub() *eventStreamHub {
 // per-token status, instance, cooldown, active runs and a minute-bucket
 // of the session countdown (so the client's own per-second tick is not
 // spammed), plus mode, token count, queue posture (queue_wait/queue_depth
-// alongside slots/spill, so a QUEUE_WAIT-only edit pushes), and per-model
-// quota recent counts.
+// alongside slots/spill, so a QUEUE_WAIT-only edit pushes), per-model
+// quota recent counts, and the Freebucks presence (a probe-all fill flips
+// has_quota/false→true and the Freebucks balance from absent to a number:
+// without these the hash swallows the fill and the SPA sits stale behind
+// a fill toast until the next poll).
 func (d *Dashboard) tokenStateHash(td tokensData) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "mode=%s;count=%d;slots=%d;spill=%d;qwait=%s;qdepth=%d;mat_en=%v;",
 		td.Mode, td.TokenCount, td.SlotsPerAccount, td.MaxSpillAccounts, td.QueueWait, td.QueueDepth, td.MaturityEnabled)
 	for i := range td.Tokens {
 		t := &td.Tokens[i]
-		fmt.Fprintf(&b, "[%d]%s=%s;cd=%s;runs=%d;rem=%d;sess=%s;rpd=%d;lock=%v;ban=%s:%s;",
+		fbBalance := "nil"
+		if t.Freebucks != nil {
+			fbBalance = strconv.FormatFloat(t.Freebucks.Balance, 'f', -1, 64)
+		}
+		fmt.Fprintf(&b, "[%d]%s=%s;cd=%s;runs=%d;rem=%d;sess=%s;rpd=%d;lock=%v;ban=%s:%s;hq=%v;fb=%s;",
 			t.Index, t.SessionStatus, t.SessionInstance, t.CooldownUntil,
 			t.ActiveRuns,
 			t.SessionRemainingSeconds/60, t.SessionModel,
 			t.RequestsPerDay,
-			t.Locked, t.BanType, t.BannedUntil)
+			t.Locked, t.BanType, t.BannedUntil, t.HasQuota, fbBalance)
 		if t.Maturity != nil {
 			fmt.Fprintf(&b, "m:%v/%d/%s/%s;", t.Maturity.Enabled, t.Maturity.Target, t.Maturity.Mode, t.Maturity.Badge)
 		}

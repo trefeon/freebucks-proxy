@@ -232,6 +232,15 @@
   },
   {
     "method": "GET",
+    "path": "/admin/api/probe-status",
+    "auth": "dashboard",
+    "js": {
+      "export": "adminApi",
+      "key": "probeStatus"
+    }
+  },
+  {
+    "method": "GET",
     "path": "/admin/api/auth/status",
     "auth": "dashboard",
     "js": {

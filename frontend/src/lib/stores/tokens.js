@@ -54,8 +54,16 @@ const STATIC_TOKEN_KEYS = [
   "streak_updated_at",
 ];
 let staticTop = null;
-let staticTokensByIndex = {};
+let staticTokensByKey = {};
 
+// Stable row identity: the backend pointer index moves on swap/reorder, so
+// the merge keys on account_id (email fallback, index last resort) — never
+// a bare index — or a swap mismerges one account's static fields onto
+// another's live row.
+function rowKey(t, fallback) {
+  if (t === null || typeof t !== "object") return fallback;
+  return (t.account_id || t.email || t.index) ?? fallback;
+}
 function pick(obj, keys) {
   const out = {};
   for (const k of keys) if (k in obj) out[k] = obj[k];
@@ -64,9 +72,9 @@ function pick(obj, keys) {
 
 function rememberStatic(full) {
   staticTop = pick(full, STATIC_TOP_KEYS);
-  staticTokensByIndex = {};
+  staticTokensByKey = {};
   for (const t of full.tokens ?? []) {
-    staticTokensByIndex[t.index ?? -1] = pick(t, STATIC_TOKEN_KEYS);
+    staticTokensByKey[rowKey(t, -1)] = pick(t, STATIC_TOKEN_KEYS);
   }
 }
 
@@ -79,21 +87,21 @@ function mergeLive(live) {
   return {
     ...staticTop,
     ...live,
-    tokens: (live.tokens ?? []).map((lt) => ({
-      ...(staticTokensByIndex[lt.index ?? -1] ?? {}),
+    tokens: (live.tokens ?? []).map((lt, i) => ({
+      ...(staticTokensByKey[rowKey(lt, lt.index ?? i)] ?? {}),
       ...lt,
     })),
   };
 }
 
-async function fetchFull() {
-  const data = await fetchAPI(adminApi.tokens);
+async function fetchFull(signal) {
+  const data = await fetchAPI(adminApi.tokens, { signal });
   rememberStatic(data);
   return data;
 }
 
-async function fetchLive() {
-  return fetchAPI(adminApi.tokens + LIVE_QS);
+async function fetchLive(signal) {
+  return fetchAPI(adminApi.tokens + LIVE_QS, { signal });
 }
 
 /**
@@ -141,5 +149,6 @@ export function refreshTokens() {
   // Mutations can change pool membership and account state: drop the static
   // cache so the next poll takes the full shape.
   staticTop = null;
+  staticTokensByKey = {};
   return store.refresh();
 }

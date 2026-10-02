@@ -129,9 +129,14 @@ export async function fetchData() {
   if (firstLoad) loading.set(true);
   error.set("");
   try {
-    const [metaRes, cfgRes] = await Promise.all([
+    // One flight for all three reads: the settings overlay used to trail
+    // in a second round-trip, doubling mount latency on the Tokens/Settings
+    // pages. The overlay apply stays best-effort (a failed overlay keeps
+    // last-known sources, never the whole form).
+    const [metaRes, cfgRes, setRes] = await Promise.all([
       fetchAPI(adminApi.configMeta),
       fetchAPI(adminApi.config),
+      fetchAPI(adminApi.settings).catch(() => null),
     ]);
     meta.set(Array.isArray(metaRes) ? metaRes : (metaRes?.entries ?? []));
     configData.set(cfgRes);
@@ -144,8 +149,7 @@ export async function fetchData() {
     const $base = get(baseContent);
     rawText.set($base);
     formValues.set(applyDisplayValues($base));
-    try {
-      const setRes = await fetchAPI(adminApi.settings);
+    if (setRes) {
       const next = {};
       const overlayVals = {};
       for (const e of setRes.settings ?? []) {
@@ -156,9 +160,9 @@ export async function fetchData() {
       settingsDegraded.set(setRes.degraded === true);
       lastOverlayValues = overlayVals;
       formValues.set(applyDisplayValues($base));
-    } catch {
-      // Keep last-known sources on background refresh failure.
     }
+    // A null overlay (failed settings read) keeps last-known sources on
+    // background refresh failure — same contract as the old inner catch.
   } catch (e) {
     if (firstLoad) error.set(e.message || t("Failed to fetch configuration"));
   } finally {

@@ -27,6 +27,19 @@ export function banBadge(token) {
 }
 
 /**
+ * Quarantine chip, or null when the pool has not parked the account. The
+ * pool's terminal anti-ban marker rides its own card fields
+ * (quarantined/quarantine_reason) — the backend never emits a
+ * "quarantined" session_status, so this (plus ban_type) is the predicate,
+ * not the status string.
+ */
+export function quarantineBadge(token) {
+  if (!token.quarantined) return null;
+  const reason = token.quarantine_reason ? ` (${token.quarantine_reason})` : "";
+  return { label: `${t()("quarantined")}${reason}`, tone: "bad" };
+}
+
+/**
  * True when an account has exhausted its daily Freebucks limit or window,
  * rather than hitting a transient rate limit.
  */
@@ -65,6 +78,8 @@ export function resetTimeFor(token) {
 export function statusFor(token) {
   const ban = banBadge(token);
   if (ban) return ban;
+  const quar = quarantineBadge(token);
+  if (quar) return quar;
   if (token.locked) return { label: t()("locked"), tone: "warn" };
   if (isExhausted(token)) return { label: t()("exhausted"), tone: "warn" };
   if (token.cooldown_active) return { label: t()("cooldown"), tone: "warn" };

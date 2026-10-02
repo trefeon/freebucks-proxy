@@ -44,16 +44,17 @@ describe("predictNextAccount", () => {
     });
   });
 
-  it("skips locked, banned, cooling lanes and reports warmth", () => {
+  it("skips locked, banned, quarantined, cooling lanes and reports warmth", () => {
     const tokens = [
       row(0, { locked: true }),
       row(1, { ban_type: "hard" }),
       row(2, { session_status: "quarantined" }),
       row(3, { cooldown_active: true }),
-      row(4, { session_status: "active" }),
+      row(4, { quarantined: true, quarantine_reason: "banned" }),
+      row(5, { session_status: "active" }),
     ];
     const pick = predictNextAccount(tokens, "");
-    assert.equal(pick.index, 4);
+    assert.equal(pick.index, 5);
     assert.equal(pick.warm, true);
   });
 

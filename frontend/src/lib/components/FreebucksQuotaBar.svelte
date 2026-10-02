@@ -191,7 +191,7 @@
               {#if wReset.shape === "pending"}
                 {$tr("Updating balance…")}
               {:else if wReset.shape === "countdown"}
-                {$tr("Resets in")}
+                {$tr("resets in")}
                 {wReset.rel} — {wReset.clock}
               {:else if wReset.shape === "clock"}
                 {wReset.clock}

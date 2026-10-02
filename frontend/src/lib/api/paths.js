@@ -37,6 +37,7 @@ export const adminApi = {
   changePassword: "/admin/api/change-password",
   notices: "/admin/api/notices",
   events: "/admin/api/events",
+  probeStatus: "/admin/api/probe-status",
   loginStatus: "/admin/login/status",
 };
 

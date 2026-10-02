@@ -28,6 +28,7 @@ import (
 	"freebuff-proxy/backend/internal/runs"
 	"freebuff-proxy/backend/internal/session"
 	"freebuff-proxy/backend/internal/upstream"
+	"strconv"
 	"time"
 )
 
@@ -218,6 +219,64 @@ func (p *Pool) smartProbeDueToken(tok *tokenEntry, now time.Time) (bool, string)
 	return false, "idle"
 }
 
+// smartProbeSuppressed names every non-due token's suppression reason at
+// now ("N:reason" in roster order, 1-based display numbers): the
+// observability behind the silent-tick incident (a quarantined account
+// stayed idle for hours with no dispatch and no error). The tick logs it
+// at debug on every pass and GET /admin/api/probe-status serves it, so a
+// never-probed token always answers WHY. Pure predicate reads, no I/O.
+func (p *Pool) smartProbeSuppressed(now time.Time) []string {
+	toks := p.roster.Load()
+	if toks == nil {
+		return nil
+	}
+	var out []string
+	for i, tok := range *toks {
+		if ok, reason := p.smartProbeDueToken(tok, now); !ok {
+			out = append(out, "token "+itoa1(i)+":"+reason)
+		}
+	}
+	return out
+}
+
+// itoa1 formats a 0-based roster index as the 1-based display number the
+// pool logs use ("token 1", never "token 0").
+func itoa1(i int) string {
+	return strconv.Itoa(i + 1)
+}
+
+// ProbeStatusRow is one token's smart-probe scheduler state for
+// GET /admin/api/probe-status: whether the token is due and, when it is
+// not, the machine-readable suppression reason (same vocabulary
+// smartProbeDueToken returns: locked, quarantined, banned, cooling,
+// country-blocked, inflight, fresh, debounced, reset-pending, idle — plus
+// no-entry for a nil slot).
+type ProbeStatusRow struct {
+	Index  int    `json:"index"`
+	Email  string `json:"email,omitempty"`
+	Due    bool   `json:"due"`
+	Reason string `json:"reason"`
+}
+
+// ProbeStatus reports every token's smart-probe due state at now. Cheap
+// predicate reads only — no upstream traffic, safe to poll.
+func (p *Pool) ProbeStatus(now time.Time) []ProbeStatusRow {
+	toks := p.roster.Load()
+	if toks == nil {
+		return nil
+	}
+	out := make([]ProbeStatusRow, 0, len(*toks))
+	for i, tok := range *toks {
+		row := ProbeStatusRow{Index: i}
+		if tok != nil {
+			row.Email = tok.Email()
+		}
+		row.Due, row.Reason = p.smartProbeDueToken(tok, now)
+		out = append(out, row)
+	}
+	return out
+}
+
 // smartProbeDue collects the due token indexes in roster order, capped to
 // one round's width.
 func (p *Pool) smartProbeDue(now time.Time) []int {
@@ -260,6 +319,10 @@ func (p *Pool) smartProbeTickAt(ctx context.Context, now time.Time) {
 	}
 	due := p.smartProbeDue(now)
 	if len(due) == 0 {
+		// Silent-tick observability: a fully-suppressed pass still names
+		// WHY at debug, so a never-probed token (quarantined, banned,
+		// reset-pending, …) leaves a trail instead of idle silence.
+		p.logger.Debug("pool: smart probe tick: nothing due", "suppressed", p.smartProbeSuppressed(now))
 		return
 	}
 	// Round single-flight: a stagger worker still running suppresses this

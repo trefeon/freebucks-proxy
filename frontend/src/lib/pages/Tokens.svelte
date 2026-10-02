@@ -42,6 +42,7 @@
   import { spawnIntent, intentAskLine } from "../utils/freebucks.js";
   import { fallbackModelOptions, cheapestFreeOption } from "../modelOptions.js";
   import { confirmAction } from "../stores/confirm.js";
+  import { isSessionDead } from "../stores/session.js";
   import {
     loadPageState,
     savePageState,
@@ -52,7 +53,6 @@
   let error = $state("");
   let unsubStore = null;
   let unsubErr = null;
-
   // Add-token form
   let newToken = $state("");
   let adding = $state(false);
@@ -403,6 +403,14 @@
 
         clearInterval(oauthTimer);
         oauthTimer = setInterval(async () => {
+          // Route the wizard poll through the session gate like every
+          // other poll: a dead admin session stops polling instead of
+          // hammering login/status until the tab closes.
+          if (isSessionDead()) {
+            clearInterval(oauthTimer);
+            oauthTimer = null;
+            return;
+          }
           try {
             const pollRes = await fetch(
               `${adminApi.loginStatus}?fingerprint=${encodeURIComponent(result.fingerprint)}`,
@@ -454,7 +462,6 @@
   }
   function toggleExpand(idx) {
     expandedToken = expandedToken === idx ? null : idx;
-    savePageState("tokens", { expandedToken });
   }
 
   // Deep page state: the expanded token row survives restarts via

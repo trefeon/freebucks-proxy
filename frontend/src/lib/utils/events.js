@@ -22,12 +22,23 @@ export function useEventStream({ onTokens, onOpen, onError }) {
   }
   let es = null;
   let closed = false;
+  // Connection generation: every connect/disconnect bumps it, and handlers
+  // drop events from a stale generation. A hidden tab disconnects; if the
+  // old connection still delivers a late event after resume's reconnect,
+  // it must not regress the fresh snapshot the new stream just pushed.
+  let gen = 0;
 
   function connect() {
     if (closed || isSessionDead() || document.hidden) return;
+    if (es) {
+      es.close();
+      es = null;
+    }
+    const myGen = ++gen;
     try {
       es = new EventSource(adminApi.events);
       es.addEventListener("tokens", (e) => {
+        if (myGen !== gen) return;
         try {
           const data = JSON.parse(e.data);
           onTokens?.(data);
@@ -36,9 +47,11 @@ export function useEventStream({ onTokens, onOpen, onError }) {
         }
       });
       es.onopen = () => {
+        if (myGen !== gen) return;
         onOpen?.();
       };
       es.onerror = (err) => {
+        if (myGen !== gen) return;
         onError?.(err);
       };
     } catch (err) {
@@ -47,12 +60,12 @@ export function useEventStream({ onTokens, onOpen, onError }) {
   }
 
   function disconnect() {
+    gen += 1;
     if (es) {
       es.close();
       es = null;
     }
   }
-
   function handleVisibility() {
     if (document.hidden) {
       disconnect();

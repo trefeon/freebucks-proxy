@@ -194,6 +194,8 @@ func (d *Dashboard) dataFor(name string, r *http.Request) any {
 			return d.tokensLiveData()
 		}
 		return d.tokensData()
+	case "probe-status":
+		return d.probeStatusData()
 	case "models":
 		return d.modelsData()
 	case "logs":

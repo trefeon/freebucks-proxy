@@ -1,10 +1,13 @@
 package pool
 
 import (
+	"bytes"
 	"context"
 	"freebuff-proxy/backend/internal/config"
 	"freebuff-proxy/backend/internal/testutil"
 	"freebuff-proxy/backend/internal/upstream"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -388,5 +391,76 @@ func TestSmartProbeDisabledConfigStaysQuiet(t *testing.T) {
 	p.smartProbeTickAt(ctx, time.Now().Add(61*time.Second))
 	if got := mock.SessionProbesSnapshot(); got != 0 {
 		t.Errorf("probes with SMART_PROBE_ENABLED off = %d, want 0", got)
+	}
+}
+
+// TestSmartProbeQuarantinedStaysIdleForever is the prod-incident regression
+// (vps-us 15650d33): after boot the tick probed the healthy token but the
+// banned-and-quarantined token NEVER fired — no dispatch, no error, for
+// hours — while the dashboard showed "No Freebucks data" plus a stuck
+// "Updating balance…". Pin the scheduler half across repeated passes: the
+// quarantined token reports false/quarantined every time (never bootstrap),
+// fires zero probes while the healthy token bootstraps exactly once, and a
+// fully-suppressed pass still logs WHY at debug. Quarantine/ban state is
+// process-local (pool.go entry, pool_persist.go allowlist — hints gate
+// Acquire only, never the probe predicate) and is NOT persisted: this test
+// asserts the predicate, the probes, and the log — never the store.
+func TestSmartProbeQuarantinedStaysIdleForever(t *testing.T) {
+	banned := testutil.NewMock()
+	t.Cleanup(banned.Close)
+	healthy := testutil.NewMock()
+	t.Cleanup(healthy.Close)
+	p := newTestPoolCfg(t, func(c *config.Config) {
+		c.SmartProbeEnabled = true
+		c.SmartProbeBootstrap = true
+	}, banned, healthy)
+	var buf bytes.Buffer
+	p.logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Terminal refusal quarantines token 0 (the incident's banned account).
+	p.CooldownTokenBan(0, &upstream.BanError{Body: "banned"})
+	toks := p.roster.Load()
+	tok0 := (*toks)[0]
+	if ok, reason := p.smartProbeDueToken(tok0, time.Now()); ok || reason != "quarantined" {
+		t.Fatalf("quarantined due = %v (%q), want false/quarantined", ok, reason)
+	}
+
+	// Repeated passes (the incident's 11h idle): token 1 bootstraps once,
+	// token 0 never fires.
+	for i := range 3 {
+		now := time.Now()
+		for _, idx := range p.smartProbeDue(now) {
+			p.smartProbeFireOne(ctx, idx)
+		}
+		if ok, reason := p.smartProbeDueToken(tok0, now); ok || reason != "quarantined" {
+			t.Fatalf("pass %d: quarantined due = %v (%q), want false/quarantined", i, ok, reason)
+		}
+	}
+	if got := banned.SessionProbesSnapshot(); got != 0 {
+		t.Errorf("banned account probes = %d, want 0 (idle forever)", got)
+	}
+	if got := healthy.SessionProbesSnapshot(); got != 1 {
+		t.Errorf("healthy account probes = %d, want 1 (one bootstrap, then quiet)", got)
+	}
+
+	// Fully-suppressed pass: the tick logs WHY at debug instead of idling
+	// silently. Token 1 is the quarantined one in display numbering.
+	p.smartProbeTickAt(ctx, time.Now())
+	if got := buf.String(); !strings.Contains(got, "token 1:quarantined") {
+		t.Errorf("suppression log missing %q in:\n%s", "token 1:quarantined", got)
+	}
+
+	// The cheap status view answers WHY per token with no upstream traffic.
+	rows := p.ProbeStatus(time.Now())
+	if len(rows) != 2 {
+		t.Fatalf("ProbeStatus rows = %d, want 2", len(rows))
+	}
+	if rows[0].Due || rows[0].Reason != "quarantined" {
+		t.Errorf("ProbeStatus[0] = %+v, want {Due:false Reason:quarantined}", rows[0])
+	}
+	if rows[1].Due {
+		t.Errorf("ProbeStatus[1] = %+v, want Due:false (bootstrap consumed)", rows[1])
 	}
 }
