@@ -29,11 +29,14 @@
   import { confirmAction } from "../stores/confirm.js";
   import { tr } from "../i18n.js";
   import { ensureTokensStore, tokensData } from "../stores/tokens.js";
+
   import {
     loadPageState,
     savePageState,
     pageStateNotice,
   } from "../stores/pageState.js";
+  import { loadPageSize, savePageSize } from "../utils/pageSize.js";
+  import { readPageHash, scheduleHashUpdate } from "../utils/tableUrlState.js";
 
   let {
     cursor = 0,
@@ -56,7 +59,9 @@
   let hideAdmin = $state(true);
   let autoPoll = $state(true);
   let page = $state(0);
-  let pageSize = $state(10);
+  // R2 global page-size memory: one `fp-page-size` key shared by all tables.
+  // Invalid/stale stored values fall back to 10 inside loadPageSize.
+  let pageSize = $state(loadPageSize());
   // Console time window. "" = no override (the server applies
   // LOG_CONSOLE_WINDOW, its default view window); picking an option sends
   // ?window= for this browser. View-only: the server keeps storing rows for
@@ -787,6 +792,22 @@
     });
   });
 
+  // R1 shareable URL: the filter set also rides the hash query
+  // (#activity?view=table&level=error&msg=...&page=2), merged per-key and
+  // debounced via replaceState — no hashchange, no shell-sync loop, and no
+  // clobber of Activity's own `tab` key. Defaults stay unencoded so a plain
+  // #activity stays bare.
+  $effect(() => {
+    if (!filtersReady) return;
+    scheduleHashUpdate("activity", {
+      level: filterLevel || null,
+      msg: filterMsg.trim() || null,
+      view: viewMode === "table" ? "table" : null,
+      hideAdmin: hideAdmin ? null : "0",
+      page: page > 0 ? page : null,
+    });
+  });
+
   onMount(() => {
     // One-shot initial filter: the prop covers in-page links (trace/metric
     // "Logs" buttons via {#key} remount); sessionStorage covers cross-page
@@ -836,27 +857,68 @@
         )
           viewMode = d.viewMode;
       }
-      // One-shot links only fill an untouched filter: a restored snapshot
-      // with user filter text (or in-flight keystrokes) always wins.
+      // R1: an explicit pasted URL overlays the stored snapshot (shareable
+      // links win), but never in-flight keystrokes — each key applies only
+      // when the operator has not touched it since mount.
+      const { page: urlPage, params: urlParams } = readPageHash();
+      const onActivity = urlPage === "activity";
+      let hashMsg = "";
+      if (onActivity) {
+        const lv = urlParams.get("level");
+        if (
+          (lv === "debug" ||
+            lv === "info" ||
+            lv === "warn" ||
+            lv === "error") &&
+          filterLevel === mountFilters.filterLevel
+        )
+          filterLevel = lv;
+        if (urlParams.has("msg") && filterMsg === mountFilters.filterMsg) {
+          filterMsg = urlParams.get("msg") ?? "";
+          hashMsg = filterMsg;
+        }
+        const vm = urlParams.get("view");
+        if (
+          (vm === "console" || vm === "table") &&
+          viewMode === mountFilters.viewMode
+        )
+          viewMode = vm;
+        const ha = urlParams.get("hideAdmin");
+        if ((ha === "0" || ha === "1") && hideAdmin === mountFilters.hideAdmin)
+          hideAdmin = ha === "1";
+      }
+      // One-shot links only fill an untouched filter: a restored snapshot or
+      // hash value (or in-flight keystrokes) always wins.
       const restoredMsg =
         d && typeof d === "object" && typeof d.filterMsg === "string"
           ? d.filterMsg
           : "";
-      if (oneShot && !restoredMsg && filterMsg === mountFilters.filterMsg)
+      if (
+        oneShot &&
+        !restoredMsg &&
+        !hashMsg &&
+        filterMsg === mountFilters.filterMsg
+      )
         filterMsg = oneShot;
       filtersReady = true;
       await fetchLogs();
       // Page restores after the first fetch lands: applying it earlier lets
       // the pager clamp (empty entries → 1 page) reset it to 0 before the
-      // restored filters ever load.
-      if (
-        d &&
-        typeof d === "object" &&
-        Number.isInteger(d.page) &&
-        d.page >= 0 &&
-        page === mountFilters.page
-      )
-        page = d.page;
+      // restored filters ever load. The hash page wins over the snapshot.
+      const urlPageNum =
+        onActivity && urlParams.has("page")
+          ? Number(urlParams.get("page"))
+          : NaN;
+      const wantPage =
+        Number.isInteger(urlPageNum) && urlPageNum >= 0
+          ? urlPageNum
+          : d &&
+              typeof d === "object" &&
+              Number.isInteger(d.page) &&
+              d.page >= 0
+            ? d.page
+            : null;
+      if (wantPage !== null && page === mountFilters.page) page = wantPage;
     });
     return () => {
       unsubNotice?.();
@@ -1501,7 +1563,10 @@
                     class="fp-input !h-8 !w-auto min-w-[4.25rem] !py-1 !pl-2.5 text-xs"
                     value={pageSize}
                     onchange={(e) => {
+                      // R2: remember across all tables; invalid values are
+                      // ignored by savePageSize and rejected by loadPageSize.
                       pageSize = Number(e.currentTarget.value);
+                      savePageSize(pageSize);
                       page = 0;
                     }}
                   >

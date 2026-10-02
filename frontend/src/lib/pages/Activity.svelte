@@ -9,7 +9,9 @@
   import TeamUsagePanel from "../components/TeamUsagePanel.svelte";
   import TracesPanel from "../components/TracesPanel.svelte";
   import { tr } from "../i18n.js";
+
   import { recordPageVisit } from "../stores/pageState.js";
+  import { readPageHash, scheduleHashUpdate } from "../utils/tableUrlState.js";
 
   let tab = $state("live");
   // Shared time cursor: "Refresh all" stamps it; every panel refetches when
@@ -21,7 +23,6 @@
   // initialFilter through a {#key} remount.
   let liveInitial = $state("");
   let liveKey = $state(0);
-
   function onOpenTrace(reqId, token) {
     void token;
     traceFocus = reqId ?? "";
@@ -44,18 +45,43 @@
     location.hash = "tokens";
   }
 
+  // R1 shareable URL: the activity tab rides the hash query
+  // (#activity?tab=traces), merged per-key so LiveConsole's filter keys are
+  // never clobbered. The default tab stays unencoded.
+  $effect(() => {
+    scheduleHashUpdate("activity", { tab: tab === "live" ? null : tab });
+  });
+
+  // Map a tab id from any source (legacy one-shot, hash) onto the page tab.
+  // Returns true when it matched a known tab.
+  function applyActivityTab(want) {
+    if (want === "live" || want === "requests") tab = "live";
+    else if (want === "metrics") tab = "metrics";
+    else if (want === "team" || want === "keys") tab = "team";
+    else if (want === "traces") tab = "traces";
+    else return false;
+    return true;
+  }
+
   onMount(() => {
     recordPageVisit("logs");
     // One-shot deep-link tab (set by the shell's legacy-hash redirect);
     // consumed on mount so back-navigation keeps the operator's own tab.
+    // A pasted shareable URL (?tab=...) fills the same slot when no
+    // one-shot is present. Unknown values never switch the view.
+    let consumedOneShot = false;
     try {
       const t = sessionStorage.getItem("fp-page-tab:activity") || "";
-      if (t === "live" || t === "requests") tab = "live";
-      else if (t === "metrics") tab = "metrics";
-      else if (t === "team" || t === "keys") tab = "team";
-      else if (t === "traces") tab = "traces";
+      if (t) {
+        sessionStorage.removeItem("fp-page-tab:activity");
+        consumedOneShot = applyActivityTab(t);
+      }
     } catch {
-      // Storage unavailable — stay on the default Live tab.
+      // Storage unavailable — fall through to the hash.
+    }
+    if (!consumedOneShot) {
+      const { page: urlPage, params: urlParams } = readPageHash();
+      if (urlPage === "activity") applyActivityTab(urlParams.get("tab") ?? "");
     }
   });
 </script>

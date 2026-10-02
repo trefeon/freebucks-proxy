@@ -18,6 +18,7 @@
     updateAuthState,
   } from "./lib/stores/session.js";
   import { tr } from "./lib/i18n.js";
+  import { hashPageId } from "./lib/utils/tableUrlState.js";
   import { loadPageState, savePageState } from "./lib/stores/pageState.js";
   // Legacy page ids redirect to their IA-merge target (see
   // LEGACY_PAGE_REDIRECTS in lib/nav.js). A redirect carrying a tab plants
@@ -35,10 +36,13 @@
     }
     return target.page;
   }
+
   function getInitialTab() {
     if (typeof window === "undefined") return "overview";
     const path = window.location.pathname;
-    const hash = window.location.hash.replace("#", "");
+    // Table state rides the hash query (R1: #activity?view=table&...). The
+    // shell routes on the page segment only; components own the query.
+    const hash = hashPageId(window.location.hash);
     if (path === adminActions.login || hash === "login") return "login";
     // Legacy hash (incl. the '#config' alias): redirect to the target page.
     if (hash) return applyLegacyRedirect(hash);
@@ -77,7 +81,10 @@
   }
 
   function persistHash() {
-    const h = window.location.hash.replace("#", "");
+    // Route on the page segment: a table-state query (#activity?view=table)
+    // persists its page, and an unknown page never persists — with or
+    // without a query.
+    const h = hashPageId(window.location.hash);
     // Only known pages are remembered: persisting an unknown hash would
     // reopen a NotFound view on the next boot with no explicit route.
     // Legacy ids normalize to their redirect target first (a stored legacy
@@ -90,10 +97,11 @@
 
   $effect(() => {
     if (restoringHash) return;
-    if (
-      activeTab !== "login" &&
-      window.location.hash.replace("#", "") !== activeTab
-    ) {
+    if (activeTab === "login") return;
+    // Compare page segments only: the table-state query belongs to the
+    // page's components (replaceState-managed, no hashchange). Stamping the
+    // bare page here would strip a freshly restored shareable URL.
+    if (hashPageId(window.location.hash) !== activeTab) {
       window.location.hash = activeTab;
     }
   });

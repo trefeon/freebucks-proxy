@@ -48,6 +48,7 @@
     savePageState,
     recordPageVisit,
   } from "../stores/pageState.js";
+  import { readPageHash, scheduleHashUpdate } from "../utils/tableUrlState.js";
   let data = $state(null);
   let loading = $state(true);
   let error = $state("");
@@ -483,28 +484,72 @@
         }
       }
     } catch {
-      /* storage blocked: fall through to pages_state */
+      /* storage blocked: fall through to the hash, then pages_state */
+    }
+    // R1: a pasted shareable URL overlays the stored snapshot. Clamping
+    // happens in applyTokens when the token list arrives; an out-of-range
+    // index is dropped there and the hash writer removes the param.
+    const { page: urlPage, params: urlParams } = readPageHash();
+    if (urlPage === "tokens" && urlParams.has("expand")) {
+      const n = Number(urlParams.get("expand"));
+      if (Number.isInteger(n) && n >= 0) {
+        expandedToken = n;
+        savePageState("tokens", { expandedToken });
+        return;
+      }
     }
     loadPageState("tokens").then((d) => {
       if (Number.isInteger(d?.expandedToken) && d.expandedToken >= 0)
         expandedToken = d.expandedToken;
     });
   }
+
+  // R1 shareable URL: tab + expanded row ride the hash query
+  // (#tokens?tab=warming&expand=1), merged per-key and debounced via
+  // replaceState. Defaults stay unencoded so a plain #tokens stays bare.
+  $effect(() => {
+    scheduleHashUpdate("tokens", {
+      tab: tab === "accounts" ? null : tab,
+      expand: expandedToken === null ? null : expandedToken,
+    });
+  });
   onMount(() => {
     recordPageVisit("tokens");
     // Legacy #maturity redirects here one-shot: consume the requested tab,
     // then drop the key so a plain visit always lands on Accounts.
+    let consumedLegacyTab = false;
+    const applyLegacyTab = (t) => {
+      tab = t;
+      consumedLegacyTab = true;
+    };
     try {
       const want = sessionStorage.getItem("fp-page-tab:tokens");
       if (want !== null) {
         sessionStorage.removeItem("fp-page-tab:tokens");
-        if (want === "fleet" || want === "accounts") tab = "accounts";
-        else if (want === "allowances") tab = "allowances";
-        else if (want === "streaks" || want === "warming") tab = "warming";
-        else if (want === "strategy" || want === "controls") tab = "controls";
+        if (want === "fleet" || want === "accounts") applyLegacyTab("accounts");
+        else if (want === "allowances") applyLegacyTab("allowances");
+        else if (want === "streaks" || want === "warming")
+          applyLegacyTab("warming");
+        else if (want === "strategy" || want === "controls")
+          applyLegacyTab("controls");
       }
     } catch {
       /* storage blocked: default tab stands */
+    }
+    // R1: a pasted shareable URL selects the tab when no legacy one-shot
+    // tab was consumed above. Unknown values never switch the view.
+    if (!consumedLegacyTab) {
+      const { page: urlPage, params: urlParams } = readPageHash();
+      if (urlPage === "tokens") {
+        const ht = urlParams.get("tab");
+        if (
+          ht === "accounts" ||
+          ht === "allowances" ||
+          ht === "warming" ||
+          ht === "controls"
+        )
+          tab = ht;
+      }
     }
     restoreExpandedToken();
     // Shared settings draft (same store as Settings): hydrates the inline
