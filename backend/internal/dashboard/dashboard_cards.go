@@ -547,8 +547,13 @@ func (d *Dashboard) tokensData() tokensData {
 // touching the store.
 func (d *Dashboard) sessionQuotaFor(t pool.TokenSnapshot, sample bool) tokenSessionQuota {
 	sq := tokenSessionQuota{
-		SessionInstance:         t.SessionInstanceID,
-		SessionModel:            t.SessionModel,
+		SessionInstance: t.SessionInstanceID,
+		// Catalog-mode admissions store the opaque row key (m-*) as the
+		// session model; the genuine CLI displays the friendly id it
+		// resolved from its catalog rows. Resolve the same way here:
+		// friendly id when resolvable, raw key otherwise (never blank,
+		// never guessed). Frontend renders this verbatim in every view.
+		SessionModel:            upstream.CatalogKeyToModelID(t.SessionModel),
 		SessionRemainingSeconds: t.SessionRemainingSeconds,
 		SessionExpiresAt:        utcAttr(t.SessionExpiresAt),
 		QuotaStale:              t.QuotaStale,

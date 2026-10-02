@@ -811,6 +811,22 @@ func TestSessionQuotaProbedSplit(t *testing.T) {
 	}
 }
 
+// TestSessionModelResolvesCatalogKey pins the live-hour display: a
+// catalog-mode admission stores the opaque row key (m-*) as the session
+// model, and the session block must show the friendly id the genuine CLI
+// displays — unknown keys pass through verbatim, never blank.
+func TestSessionModelResolvesCatalogKey(t *testing.T) {
+	d := testDashboard(t)
+	got := d.sessionQuotaFor(pool.TokenSnapshot{Token: 0, SessionModel: "m-096e75164d"}, false)
+	if got.SessionModel != "deepseek/deepseek-v4-flash" {
+		t.Errorf("session_model = %q, want deepseek/deepseek-v4-flash", got.SessionModel)
+	}
+	unknown := d.sessionQuotaFor(pool.TokenSnapshot{Token: 0, SessionModel: "m-xxx-unknown"}, false)
+	if unknown.SessionModel != "m-xxx-unknown" {
+		t.Errorf("unknown session_model = %q, want verbatim passthrough", unknown.SessionModel)
+	}
+}
+
 // TestTokenStateHashDetectsFreebucksFill pins the probe-fill push: a
 // probe-all fill flips has_quota false→true and the Freebucks balance from
 // absent to a number. Without both in the hash the 1s diff loop swallows
