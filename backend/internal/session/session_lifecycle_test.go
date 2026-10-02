@@ -81,9 +81,10 @@ func TestExpiredCacheRefreshes(t *testing.T) {
 }
 
 // TestSingleFlightFailureBounded verifies a failed refresh is NOT amplified:
-// N concurrent callers must trigger exactly 1 upstream create and all N must
-// surface the retained refresh error (instead of each becoming the next
-// refresher and re-running the failing POST).
+// N concurrent callers must trigger exactly 1 upstream create (plus the one
+// catalog read that precedes the round) and all N must surface the retained
+// refresh error (instead of each becoming the next refresher and re-running
+// the failing POST).
 //
 // Determinism (issue #205): under loaded -race runners a follower could
 // formerly be scheduled only after the leader's instant 429 round trip had
@@ -137,8 +138,8 @@ func TestSingleFlightFailureBounded(t *testing.T) {
 	close(hold) // release the held response; its failure fans out to waiters
 	wg.Wait()
 
-	if got := mock.RequestCount(); got != 1 {
-		t.Errorf("upstream requests = %d, want exactly 1 (single-flight failure must not amplify)", got)
+	if got := mock.RequestCount(); got != 2 {
+		t.Errorf("upstream requests = %d, want exactly 2 (1 catalog read + 1 create: single-flight failure must not amplify)", got)
 	}
 	err := <-leaderErr
 	assertRateLimited(t, "leader", err)

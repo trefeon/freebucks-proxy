@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/modelcat"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
-
-	"freebuff-proxy/backend/internal/modelcat"
 )
 
 // Session wire vocabulary shared with the upstream CLI and desktop clients
@@ -132,7 +132,10 @@ func (c *Client) CreateSessionForModel(ctx context.Context, model string) (*Sess
 
 // CreateSessionForModelWithClaim POSTs the dedicated admission route with
 // the requested model and wallet limit, carrying the caller-held claimID
-// as x-freebuff-instance-id instead of minting a fresh cli:<uuid>. The
+// as x-freebuff-instance-id instead of minting a fresh cli:<uuid>. Catalog
+// mode (catalog.go, vendor callFreebuffSession): the held per-account
+// catalog maps the model id to its handle, the POST carries the protocol
+// headers, and a stale handle refetches once with a same-claim retry. The
 // session manager owns the persisted per-token claim (persist/rotate/
 // retry); the wire only carries it. Ordinary models send the claim with
 // the multi-session attempt headers when it is cli:-prefixed (its suffix
@@ -163,27 +166,70 @@ func (c *Client) CreateSessionForModelWithClaim(ctx context.Context, model, clai
 		}
 		attemptID, _ = sessionAttemptSuffix(instanceID)
 	}
-	req, err := c.newRequest(ctx, http.MethodPost, SessionAdmissionPath, nil)
-	if err != nil {
-		return nil, err
+	// Catalog mode (vendor callFreebuffSession): the held catalog maps the
+	// requested id to its handle. Nil catalog is fallback — today's exact
+	// shape (raw id, no protocol headers).
+	held := c.ensureModelCatalog(ctx)
+	post := func(cat *modelCatalog) (*SessionState, error) {
+		req, err := c.newRequest(ctx, http.MethodPost, SessionAdmissionPath, nil)
+		if err != nil {
+			return nil, err
+		}
+		stampCatalogModel(req, model, cat)
+		req.Header.Set(WalletSpendLimitHeader, DefaultWalletSpendLimit)
+		if attemptMode && instanceID != "" {
+			req.Header.Set(sessionInstanceIDHeader, instanceID)
+			if attemptID != "" {
+				req.Header.Set(sessionMultiSessionHeader, "1")
+				req.Header.Set(sessionPurchaseContinuityHeader, "1")
+				req.Header.Set(sessionDesktopAttemptIDHeader, attemptID)
+			}
+		}
+		return c.sessionCall(req)
 	}
-	if model != "" {
-		req.Header.Set("x-freebuff-model", model)
-	}
-	req.Header.Set(WalletSpendLimitHeader, DefaultWalletSpendLimit)
-	if attemptMode && instanceID != "" {
-		req.Header.Set(sessionInstanceIDHeader, instanceID)
-		if attemptID != "" {
-			req.Header.Set(sessionMultiSessionHeader, "1")
-			req.Header.Set(sessionPurchaseContinuityHeader, "1")
-			req.Header.Set(sessionDesktopAttemptIDHeader, attemptID)
+	backfill := func(st *SessionState) {
+		if attemptMode && st != nil && st.InstanceID == "" && st.Status == "active" {
+			st.InstanceID = instanceID
 		}
 	}
-	st, err := c.sessionCall(req)
-	if err == nil && attemptMode && st != nil && st.InstanceID == "" && st.Status == "active" {
-		st.InstanceID = instanceID
+	st, err := post(held)
+	if !isCatalogStaleResult(st, err) {
+		backfill(st)
+		return st, err
 	}
-	return st, err
+	// Stale loop (vendor callFreebuffSession + refreshAfterStale): refetch
+	// once and retry the SAME claim with the new handle, exactly once. A
+	// second refusal surfaces as-is — no infinite loop, and the claim is
+	// NEVER rotated here (rotation stays on the DELETE/superseded paths).
+	// Without a held catalog there is nothing to refetch, so a fallback
+	// stale surfaces like the vendor's fallback mode does.
+	if held == nil || ctx.Err() != nil {
+		return nil, staleAdmissionError(st, err)
+	}
+	slog.Debug("upstream: catalog handle stale, refetching once and retrying same claim")
+	fresh, ok := c.refreshModelCatalogAfterStale(ctx)
+	if !ok {
+		return nil, staleAdmissionError(st, err)
+	}
+	st2, err2 := post(fresh)
+	if isCatalogStaleResult(st2, err2) {
+		return nil, staleAdmissionError(st2, err2)
+	}
+	backfill(st2)
+	return st2, err2
+}
+
+// staleAdmissionError normalizes a stale-handle refusal to the typed error,
+// whichever shape the parse surfaced (classify error or status row).
+func staleAdmissionError(st *SessionState, err error) error {
+	if err != nil {
+		return err
+	}
+	body := ""
+	if st != nil {
+		body = st.WireBody
+	}
+	return &CatalogStaleError{Status: http.StatusConflict, Body: truncate(body, 200)}
 }
 
 // GetSession polls /api/v1/freebuff/session for the given instance. A poll

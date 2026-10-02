@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"freebuff-proxy/backend/internal/config"
+	"freebuff-proxy/backend/internal/stealth"
+	"freebuff-proxy/backend/internal/testutil"
 	"io"
 	"net"
 	"net/http"
@@ -18,10 +21,6 @@ import (
 	"testing"
 	"time"
 	_ "time/tzdata"
-
-	"freebuff-proxy/backend/internal/config"
-	"freebuff-proxy/backend/internal/stealth"
-	"freebuff-proxy/backend/internal/testutil"
 
 	utls "github.com/refraction-networking/utls"
 )
@@ -580,18 +579,20 @@ func TestChatCompletionsRetriesTwiceWhenAllowed(t *testing.T) {
 // TestCreateSessionNeverRetriesTransportFailure pins R5 (vendor tip 57943aa71,
 // cli/src/utils/freebuff-session-api.ts:57-74): a session admission POST whose
 // disposition is unknown after a transport failure is NEVER retried — not even
-// with TRANSIENT_RETRIES budget left. Exactly one upstream hit fires and the
-// error surfaces as unknown/unavailable (generic transport wrap, never a
-// classified sentinel). Replaces the pre-parity TestCreateSessionRetriesConnectionReset,
+// with TRANSIENT_RETRIES budget left. Exactly two upstream hits fire (the
+// catalog read, then the one admission POST — neither retried) and the error
+// surfaces as unknown/unavailable (generic transport wrap, never a classified
+// sentinel). Replaces the pre-parity TestCreateSessionRetriesConnectionReset,
 // which pinned the old #120 deliberate-retry behavior this carves the admission
 // exception out of.
 func TestCreateSessionNeverRetriesTransportFailure(t *testing.T) {
 	// Inject the transport-level reset at the RoundTripper boundary: this is
 	// the same code path a live dial/TLS failure takes. (A real abrupt close
 	// surfaces as context.Canceled on some platforms, which is likewise never
-	// retried.)
+	// retried.) Both pre-admission hits fail: the catalog read falls back and
+	// the admission POST surfaces the reset.
 	rt := &flakyRT{
-		failN:  1,
+		failN:  2,
 		err:    errors.New("read tcp 127.0.0.1:443: connection reset by peer"),
 		header: http.Header{"Content-Type": []string{"application/json"}},
 		body:   []byte(`{"status":"active","instanceId":"inst-1","expiresAt":"2030-01-01T00:00:00Z"}`),
@@ -607,8 +608,8 @@ func TestCreateSessionNeverRetriesTransportFailure(t *testing.T) {
 	if err == nil {
 		t.Fatalf("CreateSession succeeded after transport failure, want unknown/unavailable error (st=%+v)", st)
 	}
-	if rt.calls.Load() != 1 {
-		t.Errorf("upstream attempts = %d, want exactly 1 (admission POST never retried)", rt.calls.Load())
+	if rt.calls.Load() != 2 {
+		t.Errorf("upstream attempts = %d, want exactly 2 (1 catalog read + 1 admission POST, neither retried)", rt.calls.Load())
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("admission transport error = %v, want the transport failure itself (do() must not launder it through cancel())", err)
@@ -616,7 +617,7 @@ func TestCreateSessionNeverRetriesTransportFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "connection reset by peer") {
 		t.Errorf("admission transport error = %v, want the reset failure surfaced", err)
 	}
-	for _, sentinel := range []error{ErrRateLimited, ErrBanned, ErrSessionInvalid, ErrSessionSuperseded, ErrSessionAdmissionUnsupported} {
+	for _, sentinel := range []error{ErrRateLimited, ErrBanned, ErrSessionInvalid, ErrSessionSuperseded, ErrSessionAdmissionUnsupported, ErrCatalogStale} {
 		if errors.Is(err, sentinel) {
 			t.Errorf("admission transport error %v matches classified sentinel %v, want generic unknown/unavailable", err, sentinel)
 		}

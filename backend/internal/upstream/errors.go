@@ -152,6 +152,13 @@ var (
 	// offer moved mid-admission so the quote is stale (nothing charged).
 	// Terminal for the request; never a cooldown, never a retry.
 	ErrFirstTabChanged = errors.New("upstream first-tab discount changed")
+	// ErrCatalogStale: freebuff_catalog_stale — the handle sent on a
+	// catalog-mode call is stale, expired or unknown. The admission path
+	// refetches the catalog once and retries the SAME claim with the new
+	// handle; anything else surfaces this typed error. Terminal for the
+	// request (a second refusal is returned as-is); never a cooldown,
+	// never a session invalidation, never a claim rotation.
+	ErrCatalogStale = errors.New("upstream catalog handle stale")
 )
 
 // WaitingRoomError is the concrete value behind ErrWaitingRoom; callers
@@ -571,3 +578,18 @@ func (e *FirstTabChangedError) Error() string {
 }
 
 func (e *FirstTabChangedError) Unwrap() error { return ErrFirstTabChanged }
+
+// CatalogStaleError is a freebuff_catalog_stale refusal: the handle sent on
+// a catalog-mode call is stale, expired or unknown (vendor
+// common/src/types/freebuff-model-catalog.ts FREEBUFF_CATALOG_STALE_ERROR).
+// Unwrap makes errors.Is(err, ErrCatalogStale) work.
+type CatalogStaleError struct {
+	Status int
+	Body   string // truncated upstream body
+}
+
+func (e *CatalogStaleError) Error() string {
+	return fmt.Sprintf("upstream %d: %s", e.Status, e.Body)
+}
+
+func (e *CatalogStaleError) Unwrap() error { return ErrCatalogStale }

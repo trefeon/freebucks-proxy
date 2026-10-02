@@ -83,6 +83,15 @@ func classifyError(status int, body string, hdr http.Header) error {
 		// 502. The incoming status is preserved for telemetry; the server
 		// still surfaces 429 turn_spend_limited with no Retry-After.
 		return &TurnSpendLimitError{Status: status, Body: truncate(body, 200)}
+	case containsAny(lower, CatalogStaleCode):
+		// freebuff_catalog_stale: the handle sent on a catalog-mode call is
+		// stale, expired or unknown (vendor common/src/types/
+		// freebuff-model-catalog.ts FREEBUFF_CATALOG_STALE_ERROR, read off
+		// body.error on any non-ok session POST). Status-independent like
+		// the turn-spend arm: the marker is unique, and the admission path
+		// owns the once-only same-claim retry — everything else surfaces
+		// this typed error.
+		return &CatalogStaleError{Status: status, Body: truncate(body, 200)}
 	case (status == http.StatusPaymentRequired || status == http.StatusUnauthorized) && reProviderUsageBill.MatchString(lower) && !reCodebuffOwnCredits.MatchString(lower):
 		// Provider-billing failure behind Freebuff (observed as 401 and
 		// 402): the shared provider account needs a refill — an operator
