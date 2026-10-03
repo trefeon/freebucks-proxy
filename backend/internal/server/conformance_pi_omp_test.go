@@ -16,11 +16,13 @@ import (
 // pi's core coding-agent tool registry
 // (packages/coding-agent/src/core/tools/{bash,edit,edit-diff,find,grep,ls,
 // powershell,read,write}.ts) emits the CLASSIC tool names (bash, edit, read,
-// ...), and OMP's BUILTIN_TOOL_NAMES (packages/coding-agent/src/tools/
-// builtin-names.ts) adds todo/web_search plus first-class loop tools with NO
-// official codebuff equivalent (ask, task, hub, eval, lsp, browser, computer,
-// github, ast_grep, ast_edit, checkpoint, rewind, security_scan, memory_edit,
-// learn, manage_skill, debug, inspect_image).
+// ...), and OMP's live 18.5.0 BUILTIN_TOOL_NAMES (packages/coding-agent/src/
+// tools/builtin-names.ts) adds todo/web_search/find plus first-class loop
+// tools with NO official codebuff equivalent (ask, task, eval, lsp, github,
+// ast_grep, ast_edit, checkpoint, rewind, security_scan, memory_edit, learn,
+// manage_skill, debug, ida, wait, context_notes, new_context). hub/browser/
+// computer/inspect_image are GONE from the live registry (no dispatch
+// target) and are not exercised here.
 //
 // Contract under test (issue #140 + foreign_toolset gate):
 //   1. Every classic pi/OMP tool with an official signature equivalent is
@@ -466,10 +468,12 @@ func TestConformancePiDelegationAcrossSurfaces(t *testing.T) {
 }
 
 // TestConformanceOmpUnmappedLoopToolsVirtualized replays an OMP turn carrying
-// the first-class loop tools that have NO official signature equivalent
-// (ask/task/hub/eval/lsp/browser/computer/github/ast_grep/ast_edit/
-// checkpoint/rewind/security_scan/memory_edit/learn/manage_skill/debug/
-// inspect_image) plus the mapped todo and the official web_search. The
+// a mix of unmapped loop tools with NO official signature equivalent
+// (ask/task/eval/lsp/github/ast_grep/ast_edit/checkpoint/rewind/
+// security_scan/memory_edit/learn/manage_skill/debug) plus the mapped todo
+// and the official web_search. hub/browser/computer/inspect_image are NOT
+// in the mix: removed from the live 18.5.0 registry, they have no dispatch
+// target (see floor_omp_surface_test.go). The
 // family set goes floor-only (tools_floor.go): the wire carries the 16
 // canonical floor defs + pins with zero riders (live 2026-09-30 the gate
 // 503s on any foreign definition riding alongside the floor), while the
@@ -493,7 +497,7 @@ func TestConformanceOmpUnmappedLoopToolsVirtualized(t *testing.T) {
 	ts, _ := newTestServer(t, []string{"omp-key"}, mock)
 
 	var tools []string
-	for _, name := range []string{"ask", "task", "hub", "eval", "lsp", "browser", "computer", "github", "ast_grep", "ast_edit", "checkpoint", "rewind", "security_scan", "memory_edit", "learn", "manage_skill", "debug", "inspect_image", "todo", "web_search"} {
+	for _, name := range []string{"ask", "task", "eval", "lsp", "github", "ast_grep", "ast_edit", "checkpoint", "rewind", "security_scan", "memory_edit", "learn", "manage_skill", "debug", "todo", "web_search"} {
 		tools = append(tools, tool(name, `{"type":"object","properties":{},"required":[]}`))
 	}
 	body := `{"model":"` + modelA + `","messages":[{"role":"user","content":"hi"}],"stream":true,"tools":[` + strings.Join(tools, ",") + `]}`

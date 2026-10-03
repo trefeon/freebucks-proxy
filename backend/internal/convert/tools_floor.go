@@ -503,20 +503,13 @@ var floorFallbacks = map[string]string{
 
 // RegisterFloorFallbacks records the fallback routes on the mapper so
 // response calls to undeclared floor tools restore + reshape to the OMP
-// equivalent. Never overrides a real mapping (first claim wins) — with one
-// exception: a wire glob claimed by the client's `find` restores to the
-// registered `glob` name, not `find`. OMP has no `find` dispatch target
-// (legacy selection alias only; the registered tool is GlobTool name
-// "glob"), so a restored `find` answers "Tool find not found". Other
-// families keep their own find→glob restore (pi dispatches find from its
-// own vocabulary; custom clients dispatch their own declared find).
+// equivalent. Never overrides a real mapping (first claim wins) — including
+// a wire glob claimed by the client's `find`: it restores to `find` with the
+// live 18.5.0 find {query, grep_keywords} shape (fanoutGlobArgs), because
+// find is a registered dispatch target. Other families keep their own
+// find→glob restore (pi dispatches find from its own vocabulary; custom
+// clients dispatch their own declared find).
 func (m *ToolMapper) RegisterFloorFallbacks() {
-	if m.upstreamToClient == nil || m.clientToUpstream == nil {
-		return
-	}
-	if m.upstreamToClient["glob"] == "find" {
-		m.upstreamToClient["glob"] = "glob"
-	}
 	if m.upstreamToClient == nil || m.clientToUpstream == nil {
 		return
 	}

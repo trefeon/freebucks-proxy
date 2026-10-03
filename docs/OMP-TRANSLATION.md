@@ -2,8 +2,10 @@
 
 Single canonical page for the OMP-family request/response translation layer,
 plus the pi family (§6) — pi is the project OMP forked from and is a separate,
-non-floor family. Truth date: 2026-10-01. Every behavior below names its code
-path.
+non-floor family. Truth date: 2026-10-03, live registry OMP 18.5.0
+(`BUILTIN_TOOL_NAMES`: 30 names — `find`, `ida`, `wait`, `context_notes`,
+`new_context` registered; `hub`/`browser`/`computer`/`inspect_image`
+REMOVED). Every behavior below names its code path.
 
 ## 1. What the gate checks: definitions only
 
@@ -51,7 +53,7 @@ OMP-declared names that rename (keys lowercase):
 | `write` | `write_file` |
 | `grep` | `code_search` |
 | `todo` | `write_todos` |
-| `find` | `glob` (file-pattern search; restores shape-aware to `find`, §3) |
+| `find` | `glob` (live 18.5.0 semantic search; restores shape-aware to `find {query, grep_keywords}`, §3) |
 | `edit-diff` | `apply_patch` |
 `glob`, `web_search` are already official (identity). `wait`,
 `context_notes`, `new_context`, `eval`, `learn`, `manage_skill`, `task` have
@@ -89,9 +91,8 @@ that tool: resolution is total, so a trimmed toolset (`--tools`,
 | `run_terminal_command` | `bash` | reshaped (extras dropped) |
 | `read_files` | `read` | reshaped (fan-out per path) |
 | `str_replace` | `edit` | reshaped (fan-out per replacement) |
-| `write_file` | `write` | reshaped (nested content preserved) |
 | `code_search` | `grep` | reshaped (`cwd`→`path`) |
-| `glob` | `glob` | ex-`find` origin restores to registered `glob {path}` (`find` is a legacy selection alias with no dispatch target) |
+| `glob` | `find` | ex-`find` origin restores to the registered `find {query, grep_keywords}` (keywords default to the query; `cwd` scopes via `path`); native `glob` restores to `glob {path}` (`find` is a registered semantic-search tool since 18.5.0) |
 | `write_todos` | `todo` | reshaped (phase form) |
 | `web_search` | `web_search` | reshaped (`depth` dropped) |
 | `ask_user` | `ask` | reshaped (ids synthesized) |
@@ -122,8 +123,7 @@ name (non-streaming: `server/openai_stream.go:275-292`).
 | `read_files` | `read` | **fan-out**: one `{path}` per `paths` entry, order preserved; single stays 1:1; object entries keep `path`, `offset`/`limit` dropped |
 | `str_replace` | `edit` | **fan-out**: one flat `{path, old_string, new_string}` per `replacements` entry, order preserved; single stays 1:1; `allowMultiple` dropped. Open (deferred — no OMP dispatcher in-repo for a hermetic dispatch proof): the flat shape validates only against the replace-mode schema (`edit/modes/replace.ts`), while OMP's default `edit.mode` is reportedly `"hashline"` (schema `{input}` only) — whether default-mode OMP accepts proxy-shaped edits is unproven |
 | `write_file` | `write` | `{path, content}`; `instructions` dropped |
-| `code_search` | `grep` | `{pattern, path≤cwd}`; flags/`maxResults` dropped |
-| `glob` | `glob` | ex-`find` origin → OMP `glob {path}` (source: first present of `pattern`/`query`; `cwd`/`max_results`/`grep_keywords` dropped — `find` has no dispatch target); native → OMP `glob {path}`; already-OMP-shaped emissions pass through |
+| `glob` (ex-`find`) | `find` | `find {query, grep_keywords[, path≤cwd]}` — the live 18.5.0 strict shape (both required; keywords default to the query); native `glob` → OMP `glob {path}`; already-OMP-shaped emissions pass through |
 | `write_todos` | `todo` | **fan-out**: `op:init` with STRING items (`list:[{phase:"Tasks", items:[string]}]` — OMP's `InitListEntry.items` is `string[]`, so the CLI `{task, completed}` objects are rejected), then one trailing `op:done {task}` per completed entry (init has no per-item status); empty dump → `op:view`; an already-OMP-shaped emission (no `todos` key) passes through. Known collapse: CLI in-progress/blocked/pending distinctions do not survive (OMP infers in-progress as the first pending item) |
 | `web_search` | `web_search` | `{query}` only; `depth` dropped |
 | `ask_user` | `ask` | ids synthesized `q0…` (OMP requires them); labels/descriptions verbatim (probe UI: `ask` without per-question `id` fails validation) |
@@ -169,16 +169,17 @@ through untouched.
 
 | Group | Names | Path |
 |---|---|---|
-| Loop / subagent | `hub` | verbatim both ways (waits go through `hub` op `"wait"`; a bare `wait` is not a registered OMP tool) |
+| Background wait | `wait` | verbatim both ways (the registered 18.5.0 background-wait tool, args `{}`) |
 | Delegation | `task` | name verbatim (incl. an `mcp__task` emission — the model namespaces a prose-only tool by the `mcp__` convention saturating its context; the rule keys on it pre-restore); args gain synthesized `tasks[]` batch (singular-to-batch normalization — the harness validates non-empty `tasks[]`, valid batches and stringified batches pass through/parse; synthesized agent names still face harness spawn-policy validation, so unknown agent types fail loudly in-harness) |
-| OMP-only builtins | `eval`, `learn`, `manage_skill`, `debug`, `security_scan`, `checkpoint`, `rewind`, `github`, `lsp`, `ast_grep`, `ast_edit`, `advise`, `recall` | verbatim (incl. the ADVISOR-role `advise` feedback tool — role-scoped, never on the wire) |
+| OMP-only builtins | `eval`, `learn`, `manage_skill`, `debug`, `ida`, `security_scan`, `checkpoint`, `rewind`, `github`, `lsp`, `ast_grep`, `ast_edit`, `advise`, `recall`, `context_notes`, `new_context` | verbatim (incl. the ADVISOR-role `advise` feedback tool — role-scoped, never on the wire) |
 | Hidden | `yield`, `goal`, `think` | verbatim |
 | `xd://` devices | ast_grep/ast_edit/lsp/github/debug/checkpoint/rewind/mem_*/security_scan/… | ride through the model's `write`/`read` calls (reshaped to OMP shape, `xd://` path preserved) |
 | External | `mcp__<server>_<tool>` | verbatim, namespace preserved |
+| REMOVED (18.5.0) | `hub`, `browser`, `computer`, `inspect_image` | no dispatch target — a relayed call answers "Tool <name> not found" (decision per name in `convert/toolmap_coverage_test.go` `TestLiveOMPRemovedNamesHaveNoPassthrough`: dropped from every passthrough claim, no invented fallback mappings; the capability reminder §3c never advertises them) |
 Regression proof: `server/floor_omp_surface_test.go`
 (`TestFloorOMPToolSurfaceRoundTrip` drives every name in the OMP registry and
 asserts the name restores). Delegation args specifically:
-`TestFloorOmpDelegationStreamsVerbatim` (fragmented `task` + whole `hub`, turn
+`TestFloorOmpDelegationStreamsVerbatim` (fragmented `task` + whole `wait`, turn
 stays `tool_calls`, task args carry the synthesized `tasks[]`) and
 `TestFloorOmpDelegationAcrossSurfaces` (Anthropic + Responses);
 `convert/tools_reshape_test.go` (`TestReshapeTaskSingularToTasksBatch`:
@@ -200,12 +201,11 @@ system marker (`upstream/chat.go`: `ompFloorCapabilityReminder`,
 `toolMap.FloorOnly()` at `server/engine_attempt.go`): the harness-only names
 with their exact required arg shapes — `task` (`tasks` non-empty
 `[{name?, agent?, task}]`), the `todo` op-machine, `ask` (`questions` with
-per-question `id`), `eval`, `learn`, `manage_skill`, `hub` (`op: "wait"` for
+per-question `id`), `eval`, `learn`, `manage_skill`, `wait` (`{}` for
 background-job waits), `advise` (`note`, optional `severity`:
 nit|concern|blocker, omitted for a plain nit) — stated as callable by name
-with these args though absent from `tools[]`. (Bare `wait`,
-`new_context` and `context_notes` are NOT registered OMP tools and are not
-advertised.) Gate-safety: system-prompt text is exonerated (§1 —
+with these args though absent from `tools[]`. (Removed 18.5.0 names — `hub`,
+`browser`, `computer`, `inspect_image` — are never advertised.) Gate-safety:
 the full 77 KB OMP prompt returns 200), the canonical opening stays the
 trimmed prefix at position 0, and the wire stays 16 + `end_turn` (pinned by
 `TestInjectEnvelopeOMPFloorReminderWireUntouched`). OMP-only: pi and
@@ -225,8 +225,8 @@ Non-streaming chat, Anthropic and Responses relays share `ReshapeCompletionCalls
   never shown them (the gate rejects any foreign-schema rider). This is a
   wire-shape constraint, not a capability loss: the model still calls them
 - **Routed, not dropped**: OMP `find` rides as floor `glob` and restores to
-  the registered `glob {path}` shape (§3) — `find` is a legacy selection
-  alias with no dispatch target.
+  the registered `find {query, grep_keywords}` shape (§3) — `find` is a
+  registered 18.5.0 semantic-search tool with a strict schema.
 - **Unroutable floor calls degrade, never fail**: a model call to
   `suggest_followups`, `gravity_index`, `render_ui` or
   `report_project_profile` is suppressed and rendered as assistant text (or

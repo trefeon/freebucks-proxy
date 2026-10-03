@@ -18,13 +18,14 @@ import (
 // — OMP and pi share the agent loop).
 //
 // OMP: four of the sixteen have no OMP equivalent AT ALL — verified against
-// OMP's builtin registry (pi-coding-agent/src/tools/builtin-names.ts: read,
-// bash, edit, ast_grep, ast_edit, ask, debug, eval, github, glob, grep, lsp,
-// inspect_image, browser, computer, checkpoint, rewind, security_scan, task,
-// hub, todo, web_search, write, memory_edit, retain, recall, reflect,
-// learn, manage_skill, plus hidden yield/goal/think; `find` is a legacy
-// selection alias for glob and `wait`/`new_context`/`context_notes` are not
-// registered tools at all). A call to one of those restores
+// OMP's live 18.5.0 builtin registry (BUILTIN_TOOL_NAMES: read, bash, edit,
+// ast_grep, ast_edit, ask, debug, ida, eval, github, glob, grep, find, lsp,
+// checkpoint, rewind, context_notes, new_context, security_scan, task,
+// wait, todo, web_search, write, memory_edit, retain, recall, reflect,
+// learn, manage_skill, plus hidden yield/goal/think; `find` is a registered
+// semantic-search tool since 18.5.0, and hub/browser/computer/inspect_image
+// are GONE — a call relayed under any of those answers "Tool <name> not
+// found"). A call to one of those restores
 // by identity to a CLI name and the OMP dispatcher answers
 // "Tool <name> not found" (pi-agent-core/src/agent-loop.ts:2828-2839).
 //
@@ -260,7 +261,25 @@ func renderQuestionList(in map[string]any) string {
 // unroutable set. kind is TextFallbackNone for every ordinary call. Rendered
 // text is empty for TextFallbackAbsorb and for a render whose payload carried
 // nothing renderable (callers treat an empty render as an absorb).
+//
+// OMP empty-gravity guard: a gravity_index shape with no query source cannot
+// ride as web_search (query is strict-required), so it renders the discovery
+// note here instead. Query-ful shapes fall through to the web_search reshape
+// — the guard is conditional on the args, which is why gravity_index has no
+// static entry in textFloorRenderers below (the name-based strip cannot see
+// it; the chat-streaming flush consults this same classifier on the whole
+// args before injecting).
 func (m ToolMapper) TextFallback(wireName, args string) (string, TextFallbackKind) {
+	if m.family == familyOMP && wireName == "gravity_index" {
+		var in map[string]any
+		if args != "" {
+			_ = json.Unmarshal([]byte(args), &in)
+		}
+		if gravityQuery(in) == "" {
+			return renderGravityIndex(in), TextFallbackRender
+		}
+		return "", TextFallbackNone
+	}
 	render, ok := m.unroutableRenderer(wireName)
 	if !ok {
 		return "", TextFallbackNone

@@ -12,23 +12,25 @@ import (
 )
 
 // ompDispatchableToolNames is OMP's complete callable surface as the client
-// dispatches it: the 30 BUILTIN_TOOL_NAMES + HIDDEN_TOOL_NAMES
-// (pi-coding-agent/src/tools/builtin-names.ts:1-35, omp 18.4.x) plus the
-// ADVISOR-role `advise` tool (role-scoped, absent from builtin-names.ts,
-// called from prompt vocabulary on floor-only wires) plus the
-// `mcp__<server>_<tool>` external namespace. A floor-only relay must never
-// hand the client a name outside this set, and must never mangle a name
-// inside it. Notably ABSENT (no dispatch target despite appearing in older
-// proxy comments): `find` (legacy selection alias for glob), `wait`,
-// `new_context`, `context_notes`, and `ida` — a restored call to any of
-// those answers "Tool <name> not found" (waits go through hub op "wait").
+// dispatches it: the 30 live BUILTIN_TOOL_NAMES + HIDDEN_TOOL_NAMES
+// (pi-coding-agent builtin-names.ts, live 18.5.0) plus the ADVISOR-role
+// `advise` tool (role-scoped, absent from builtin-names.ts, called from
+// prompt vocabulary on floor-only wires) plus the `mcp__<server>_<tool>`
+// external namespace. A floor-only relay must never hand the client a name
+// outside this set, and must never mangle a name inside it. Notably ABSENT
+// (no dispatch target despite appearing in older proxy comments and the
+// pinned 18.0.11 reference tree): `hub`, `browser`, `computer` and
+// `inspect_image` — removed from the live registry, so a restored call to
+// any of those answers "Tool <name> not found". `find` IS registered
+// (semantic search, strict {query, grep_keywords}) and background waits go
+// through the registered `wait` tool — never `hub`.
 var ompDispatchableToolNames = []string{
-	// builtins (verbatim builtin-names.ts order)
+	// builtins (verbatim live builtin-names.ts order)
 	"read", "bash", "edit", "ast_grep", "ast_edit", "ask", "debug",
-	"eval", "github", "glob", "grep", "lsp", "inspect_image", "browser",
-	"computer", "checkpoint", "rewind", "security_scan", "task", "hub",
-	"todo", "web_search", "write", "memory_edit", "retain", "recall",
-	"reflect", "learn", "manage_skill",
+	"ida", "eval", "github", "glob", "grep", "find", "lsp",
+	"checkpoint", "rewind", "context_notes", "new_context",
+	"security_scan", "task", "wait", "todo", "web_search", "write",
+	"memory_edit", "retain", "recall", "reflect", "learn", "manage_skill",
 	// hidden
 	"yield", "goal", "think",
 	// ADVISOR-role (omp 18.4.3, intentTracing:false): never declared on
@@ -94,25 +96,25 @@ func TestFloorOMPToolSurfaceRoundTrip(t *testing.T) {
 // surface, because subagent spawning is CLIENT-SIDE: OMP's task tool
 // (pi-coding-agent/src/task/index.ts:507, "Spawn subagents to complete
 // delegated tasks", params agent/name/task/context/tasks[]/batch) runs the
-// subagent locally, and `hub` coordinates the resulting jobs. The proxy's
-// only job is to hand the call back under OMP's own name with OMP's own
-// args — a rename, a virtualized mcp__name or a dropped entry is what turns
-// delegation into "Tool task not found". The model reaches them through
-// OMP's own # Tool Inventory system prompt (the proxy prepends its canonical
-// opening, never replaces the client prompt), so no client def needs to ride
-// the gate-mandated floor.
+// subagent locally, and `wait` pauses for the resulting background result.
+// The proxy's only job is to hand the call back under OMP's own name with
+// OMP's own args — a rename, a virtualized mcp__name or a dropped entry is
+// what turns delegation into "Tool task not found". The model reaches them
+// through OMP's own # Tool Inventory system prompt (the proxy prepends its
+// canonical opening, never replaces the client prompt), so no client def
+// needs to ride the gate-mandated floor.
 const (
 	ompTaskArgs  = `{"agent":"researcher","task":"audit the auth flow","context":"focus on session refresh"}`
 	ompTaskFrag1 = `{"agent":"researcher","task":"audit the auth `
 	ompTaskFrag2 = `flow","context":"focus on session refresh"}`
-	ompHubArgs   = `{"op":"wait","job_id":"job-7"}`
+	ompWaitArgs  = `{}`
 )
 
-// Streaming chat: a fragmented task call and a whole hub call come back
+// Streaming chat: a fragmented task call and a whole wait call come back
 // under OMP's own names with OMP's own args, the turn stays a tool_calls
 // turn, and the request leg carried zero foreign riders. The task args gain
 // the harness-validating tasks[] batch (singular-to-batch normalization);
-// hub has no such requirement and stays byte-identical.
+// wait takes no params and stays byte-identical.
 func TestFloorOmpDelegationStreamsVerbatim(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode")
@@ -129,7 +131,7 @@ func TestFloorOmpDelegationStreamsVerbatim(t *testing.T) {
 			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(ompTaskFrag1)+`}}]},"finish_reason":null}]`)))
 		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-del", 1,
 			`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":`+strconv.Quote(ompTaskFrag2)+`}},`+
-				`{"index":1,"id":"call_h1","type":"function","function":{"name":"hub","arguments":`+strconv.Quote(ompHubArgs)+`}}]},"finish_reason":null}]`)))
+				`{"index":1,"id":"call_w1","type":"function","function":{"name":"wait","arguments":`+strconv.Quote(ompWaitArgs)+`}}]},"finish_reason":null}]`)))
 		_, _ = io.WriteString(w, testutil.SSEEvent(chunk("cmpl-del", 1,
 			`"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":40,"completion_tokens":20,"total_tokens":60}`)))
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
@@ -154,11 +156,11 @@ func TestFloorOmpDelegationStreamsVerbatim(t *testing.T) {
 	if args := joinToolArgs(frames, 0); args != wantTaskArgs {
 		t.Errorf("index 0 args = %q, want normalized OMP task args %q", args, wantTaskArgs)
 	}
-	if name := toolCallName(frames, 1); name != "hub" {
-		t.Errorf("index 1 name = %q, want hub", name)
+	if name := toolCallName(frames, 1); name != "wait" {
+		t.Errorf("index 1 name = %q, want wait", name)
 	}
-	if args := joinToolArgs(frames, 1); args != ompHubArgs {
-		t.Errorf("index 1 args = %q, want verbatim OMP hub args %q", args, ompHubArgs)
+	if args := joinToolArgs(frames, 1); args != ompWaitArgs {
+		t.Errorf("index 1 args = %q, want verbatim OMP wait args %q", args, ompWaitArgs)
 	}
 	// A delegation turn must stay a tool turn, not be downgraded to text.
 	last := frames[len(frames)-1]

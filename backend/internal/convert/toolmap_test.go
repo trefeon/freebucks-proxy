@@ -464,7 +464,6 @@ func TestHarnessToolsetsWireClassification(t *testing.T) {
 				{"glob", map[string]any{"pattern": "string"}},
 				{"task", map[string]any{"task": "string"}},
 				{"eval", map[string]any{"code": "string"}},
-				{"hub", map[string]any{"op": "string"}},
 				{"todo", map[string]any{"action": "string"}},
 			},
 		},

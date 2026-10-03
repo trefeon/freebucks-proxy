@@ -167,7 +167,7 @@ func TestWithholdStreamArgsGate(t *testing.T) {
 	}
 	for _, wire := range []string{
 		"read_files", "str_replace", "run_terminal_command", "write_file",
-		"code_search", "glob", "write_todos", "web_search", "ask_user",
+		"code_search", "glob", "find", "write_todos", "web_search", "ask_user",
 		"read_url", "skill", "gravity_index", "task", "mcp__task",
 		"suggest_followups", "render_ui", "report_project_profile",
 	} {
@@ -175,10 +175,7 @@ func TestWithholdStreamArgsGate(t *testing.T) {
 			t.Errorf("OMP %q does not withhold", wire)
 		}
 	}
-	for _, wire := range []string{"end_turn", "decide", "advise", "task", "hub", "list_directory", "eval"} {
-		if wire == "task" {
-			continue // task HAS a reshape rule (batch normalization)
-		}
+	for _, wire := range []string{"end_turn", "decide", "advise", "list_directory", "eval"} {
 		if omp.WithholdStreamArgs(wire) {
 			t.Errorf("OMP %q withholds but has no rule or fallback", wire)
 		}
@@ -192,10 +189,15 @@ func TestWithholdStreamArgsGate(t *testing.T) {
 			t.Errorf("pi %q does not withhold", wire)
 		}
 	}
-	// list_directory restores verbatim ({path} is already pi shape: no
+	// pi list_directory restores verbatim ({path} is already pi shape: no
 	// rule, no fallback) so it streams live like an extension tool.
 	if pi.WithholdStreamArgs("list_directory") {
 		t.Error("pi list_directory withholds (must stream live)")
+	}
+	// pi find dispatches its own vocabulary (no rule on this family), so it
+	// streams live alongside the other unruled names.
+	if pi.WithholdStreamArgs("find") {
+		t.Error("pi find withholds (must stream live)")
 	}
 	if pi.WithholdStreamArgs("mcp__spawn_agent") {
 		t.Error("pi extension mcp__spawn_agent withholds (must stream live)")

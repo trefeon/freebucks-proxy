@@ -351,6 +351,7 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 	// upstream never sent one.
 	streamID, _ := chunk["id"].(string)
 	injected := false
+	suppressed := false
 	for _, idx := range idxs {
 		acc := cr.reshapeBuf[idx]
 		if acc.args.Len() == 0 {
@@ -358,6 +359,39 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 		}
 		bodies, ok := cr.stats.toolMap.ReshapeArgsFanout(acc.wire, acc.args.String())
 		if !ok || len(bodies) == 0 {
+			// Flush-time fallback parity: a withheld call whose whole args
+			// classify as unroutable (conditional guards the name-based
+			// strip cannot see — OMP empty-gravity shapes, which would
+			// otherwise flush verbatim as a query-less web_search the
+			// strict dispatcher rejects) never injects as a tool call.
+			// The full args ride the text-fallback buffers so the terminal
+			// render (stage 6b) turns them into assistant text exactly like
+			// a stripped call. Residual: the name-only fragment relayed
+			// before the flush stays assembled client-side with empty args
+			// (and the strip already counted a real call, so no finish
+			// flip) — the turn still errors, but with the note attached
+			// instead of a bare strict rejection.
+			if _, kind := cr.stats.toolMap.TextFallback(acc.wire, acc.args.String()); kind != convert.TextFallbackNone {
+				if cr.textFallbackArgs == nil {
+					cr.textFallbackArgs = make(map[int]*bytes.Buffer)
+				}
+				buf := cr.textFallbackArgs[idx]
+				if buf == nil {
+					buf = &bytes.Buffer{}
+					cr.textFallbackArgs[idx] = buf
+				}
+				buf.WriteString(acc.args.String())
+				if cr.textFallbackWires == nil {
+					cr.textFallbackWires = make(map[int]string)
+				}
+				cr.textFallbackWires[idx] = acc.wire
+				if cr.textFallbackIndexes == nil {
+					cr.textFallbackIndexes = make(map[int]bool)
+				}
+				cr.textFallbackIndexes[idx] = true
+				suppressed = true
+				continue
+			}
 			bodies = []string{acc.args.String()}
 		}
 		for k, args := range bodies {
@@ -385,6 +419,9 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 		}
 	}
 	if !injected {
+		if suppressed {
+			clear(cr.reshapeBuf)
+		}
 		return false
 	}
 	delta["tool_calls"] = tcs

@@ -161,41 +161,50 @@ func TestReshapeMessageCallsFanout(t *testing.T) {
 }
 
 func TestFindGlobRestore(t *testing.T) {
-	// OMP has no `find` dispatch target (legacy selection alias only; the
-	// registered tool is GlobTool name "glob"), so a wire glob claimed by
-	// the client's find tool restores to the registered `glob {path}`
-	// shape — never `find {pattern}`, which answers "Tool find not found".
+	// Live OMP 18.5.0 dispatches `find` (semantic search, strict
+	// {query, grep_keywords}): a wire glob claimed by the client's find
+	// tool restores to the registered `find` shape, a native glob to the
+	// registered `glob {path}` shape.
 	findMapper := ToolMapper{
 		family:           familyOMP,
-		upstreamToClient: map[string]string{"glob": "glob"},
+		upstreamToClient: map[string]string{"glob": "find"},
 		clientToUpstream: map[string]string{"find": "glob"},
 	}
-	// CLI glob shape restores to glob {path}; extras dropped.
+	// CLI glob shape restores to find {query, grep_keywords}; extras
+	// dropped, keywords default to the query.
 	outs := fanoutBodies(t, findMapper, "glob", `{"pattern":"*.go","cwd":"src","max_results":5}`)
-	if len(outs) != 1 || outs[0]["path"] != "*.go" || len(outs[0]) != 1 {
-		t.Fatalf("ex-find glob = %v, want [{path:*.go}]", outs)
+	if len(outs) != 1 || outs[0]["query"] != "*.go" || len(outs[0]) != 3 {
+		t.Fatalf("ex-find glob = %v, want [{query:*.go grep_keywords path}]", outs)
 	}
-	// Live-prompt query vocabulary maps to path too.
+	if kw, _ := outs[0]["grep_keywords"].([]any); len(kw) != 1 || kw[0] != "*.go" {
+		t.Fatalf("ex-find keywords = %v, want [*.go]", outs[0]["grep_keywords"])
+	}
+	if outs[0]["path"] != "src" {
+		t.Fatalf("ex-find path = %v, want src (cwd scopes)", outs[0]["path"])
+	}
+	// Live-prompt query vocabulary keeps its keywords.
 	outs = fanoutBodies(t, findMapper, "glob", `{"query":"*.ts","grep_keywords":["x"]}`)
-	if len(outs) != 1 || outs[0]["path"] != "*.ts" {
-		t.Fatalf("ex-find query glob = %v, want [{path:*.ts}]", outs)
+	if len(outs) != 1 || outs[0]["query"] != "*.ts" {
+		t.Fatalf("ex-find query glob = %v, want [{query:*.ts}]", outs)
+	}
+	if kw, _ := outs[0]["grep_keywords"].([]any); len(kw) != 1 || kw[0] != "x" {
+		t.Fatalf("ex-find kept keywords = %v, want [x]", outs[0]["grep_keywords"])
 	}
 	// Native glob keeps the OMP glob {path} shape (glob→glob identity).
-	native := ToolMapper{family: familyOMP}
+	native := ToolMapper{
+		family:           familyOMP,
+		upstreamToClient: map[string]string{"glob": "glob"},
+	}
 	outs = fanoutBodies(t, native, "glob", `{"pattern":"*.go"}`)
-	if len(outs) != 1 || outs[0]["path"] != "*.go" {
+	if len(outs) != 1 || outs[0]["path"] != "*.go" || len(outs[0]) != 1 {
 		t.Fatalf("native glob = %v, want [{path:*.go}]", outs)
 	}
 	// OMP-native glob emission passes through (never blanked to {path:""}).
 	if _, ok := native.ReshapeArgsFanout("glob", `{"path":"src/**/*.go"}`); ok {
 		t.Error("OMP-native glob reshaped, want passthrough")
 	}
-	// A model-emitted OMP "find" is already OMP-shaped: no rule, passthrough.
-	if _, ok := findMapper.ReshapeArgsFor("find", `{"pattern":"*.go"}`); ok {
-		t.Error("OMP-vocabulary find reshaped, want passthrough (already OMP shape)")
-	}
-	if got := findMapper.RestoreName("glob"); got != "glob" {
-		t.Errorf("RestoreName(glob) = %q, want glob (find has no dispatch target)", got)
+	if got := findMapper.RestoreName("glob"); got != "find" {
+		t.Errorf("RestoreName(glob) = %q, want find (ex-find origin)", got)
 	}
 	if got := native.RestoreName("glob"); got != "glob" {
 		t.Errorf("native RestoreName(glob) = %q, want glob identity", got)
@@ -234,11 +243,14 @@ func TestFindGlobRequestRoute(t *testing.T) {
 			t.Errorf("floor wire carries %q (foreign-schema rider risk)", banned)
 		}
 	}
-	if got := mapper.RestoreName("glob"); got != "glob" {
-		t.Errorf("RestoreName(glob) = %q, want glob (find has no OMP dispatch target)", got)
+	if got := mapper.RestoreName("glob"); got != "find" {
+		t.Errorf("RestoreName(glob) = %q, want find (ex-find origin restores the client name)", got)
 	}
 	outs := fanoutBodies(t, mapper, "glob", `{"pattern":"*.go"}`)
-	if len(outs) != 1 || outs[0]["path"] != "*.go" {
-		t.Fatalf("mapped glob reshape = %v, want [{path:*.go}]", outs)
+	if len(outs) != 1 || outs[0]["query"] != "*.go" {
+		t.Fatalf("mapped glob reshape = %v, want [{query:*.go grep_keywords}]", outs)
+	}
+	if kw, _ := outs[0]["grep_keywords"].([]any); len(kw) != 1 || kw[0] != "*.go" {
+		t.Fatalf("mapped glob keywords = %v, want [*.go]", outs[0]["grep_keywords"])
 	}
 }

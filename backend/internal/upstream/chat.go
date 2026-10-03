@@ -479,7 +479,7 @@ const ompFloorCapabilityReminder = `Harness tools callable by name with these ex
 - todo op-machine {"op",...}: init {list:[{phase,items:[string]}]}, done {task}, view.
 - ask {"questions":[{"id","question","options"}]} — every question needs its id.
 - eval {"language","code"}; learn {"memory"}; manage_skill {"action",...}.
-- hub {"op":"wait","job_id",...} — the only way to pause for a background job.
+- wait {} — the only way to pause for a background job.
 - advise {"note","severity"?} — nit|concern|blocker, omit severity for plain nit.`
 
 // appendOMPFloorReminder appends ompFloorCapabilityReminder to the first

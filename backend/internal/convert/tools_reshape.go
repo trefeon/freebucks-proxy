@@ -32,8 +32,9 @@ import (
 // verbatim rather than failing the turn. Kept scalar drops (grep flags,
 // bash background extras, write instructions, web_search depth, read
 // offset/limit — OMP only, pi reads keep them —, edit allowMultiple, glob
-// cwd/max_results, OMP-find query/grep_keywords variants) are documented at
-// each rule; whole tools with no CLI equivalent (eval, task, wait, learn,
+// cwd/max_results) are documented at each rule; a model-emitted `find`
+// name reshapes to the live OMP find {query, grep_keywords} shape (the
+// find rule). Whole tools with no CLI equivalent (eval, task, wait, learn,
 // manage_skill, new_context, context_notes) never reach the wire at all —
 // floorOnlyOMP drops them so the model is never shown them.
 
@@ -153,8 +154,12 @@ func (m ToolMapper) fanoutArgs(resolved string, in map[string]any) []map[string]
 	case "read_files":
 		// OMP read {path} is singular: one call per entry, order
 		// preserved. Object entries {path, offset, limit} keep the path;
-		// offset/limit have no OMP equivalent and are dropped. No paths
-		// key means already OMP shape: nil (passthrough), never blanked.
+		// offset/limit have no OMP equivalent and are dropped. Blank
+		// paths (empty or whitespace-only, either form) are skipped: the
+		// live read schema requires path, so emitting {path:""} would
+		// fail dispatch. No paths key — or nothing but blanks — means
+		// already OMP shape or nothing usable: nil (passthrough), never
+		// blanked, never dropped.
 		paths, ok := in["paths"].([]any)
 		if !ok {
 			return nil
@@ -163,8 +168,14 @@ func (m ToolMapper) fanoutArgs(resolved string, in map[string]any) []map[string]
 		for _, p := range paths {
 			switch v := p.(type) {
 			case string:
+				if strings.TrimSpace(v) == "" {
+					continue
+				}
 				outs = append(outs, map[string]any{"path": v})
 			case map[string]any:
+				if strings.TrimSpace(strField(v, "path")) == "" {
+					continue
+				}
 				outs = append(outs, map[string]any{"path": strField(v, "path")})
 			}
 		}
@@ -286,16 +297,20 @@ func piEditArgs(in map[string]any) []map[string]any {
 	return []map[string]any{{"path": strField(in, "path"), "edits": edits}}
 }
 
-// fanoutGlobArgs reshapes CLI glob {pattern, ...} to the registered OMP
-// shape glob {path}. OMP has no `find` dispatch target (its find→glob entry
-// is a legacy selection alias only; the registered tool is GlobTool
-// name "glob"), so a restored `find {pattern}` answers "Tool find not
-// found". The pattern source is the first present of pattern/query: the
-// live OMP prompt emits find with query+grep_keywords vocabulary while the
-// wire never shows a find def, so either key may arrive;
-// cwd/max_results/grep_keywords have no glob equivalent and are dropped. No
-// pattern source at all means already OMP shape (native {path} emission):
-// nil (passthrough), never a blanked-out path.
+// fanoutGlobArgs reshapes CLI glob {pattern, ...} to the OMP shape dictated
+// by the request origin: on OMP-family mappers, a wire glob claimed by the
+// client's `find` tool restores as the live OMP find {query,
+// grep_keywords[, path]} (18.5.0, strict — query and grep_keywords are both
+// required), a native glob as OMP glob {path}. Other families keep their own
+// restore (pi dispatches find from its own vocabulary, so the ex-find branch
+// never runs for pi). The query source is the first present of
+// pattern/query: the live OMP prompt emits find with query+grep_keywords
+// vocabulary while the wire never shows a find def, so either key may
+// arrive; a wire carrying grep_keywords already keeps it, otherwise it
+// defaults to the query itself. cwd scopes via find path, mirroring the
+// grep rule; max_results has no find equivalent and is dropped. No query
+// source at all means already OMP shape (native {path} emission): nil
+// (passthrough), never a blanked-out path.
 func (m ToolMapper) fanoutGlobArgs(in map[string]any) []map[string]any {
 	src := strField(in, "pattern")
 	if src == "" {
@@ -304,7 +319,48 @@ func (m ToolMapper) fanoutGlobArgs(in map[string]any) []map[string]any {
 	if src == "" {
 		return nil
 	}
+	if m.family == familyOMP && m.upstreamToClient["glob"] == "find" {
+		return []map[string]any{findArgs(in, src)}
+	}
 	return []map[string]any{{"path": src}}
+}
+
+// findArgs builds the live OMP find shape {query, grep_keywords[, path]}
+// from a CLI glob arguments object and the resolved query text. Both query
+// and grep_keywords are strict-required, so keywords default to the query
+// itself when the wire carries none; the CLI cwd scopes via path.
+func findArgs(in map[string]any, query string) map[string]any {
+	out := map[string]any{"query": query}
+	if kw, ok := in["grep_keywords"].([]any); ok && len(kw) > 0 {
+		out["grep_keywords"] = kw
+	} else {
+		out["grep_keywords"] = []any{query}
+	}
+	if cwd := strField(in, "cwd"); cwd != "" {
+		out["path"] = cwd
+	}
+	return out
+}
+
+// gravityQuery synthesizes the OMP web_search query from a gravity_index
+// shape: the search query, a browse keyword/category, or a service slug.
+// Empty means the shape carries nothing searchable — the response leg must
+// not ride it as a query-less web_search (query is strict-required), so the
+// OMP empty-gravity text guard renders it as assistant text instead.
+func gravityQuery(in map[string]any) string {
+	if query := strField(in, "query"); query != "" {
+		return query
+	}
+	if query := strField(in, "q"); query != "" {
+		return query
+	}
+	if cat := strField(in, "category"); cat != "" {
+		return cat + " developer services"
+	}
+	if slug := strField(in, "slug"); slug != "" {
+		return slug + " developer documentation"
+	}
+	return ""
 }
 
 // HasReshapeRule reports whether wireName has a reshape rule on this
@@ -605,9 +661,9 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 		}
 	},
 	// OMP read {path} — singular per call; the fan-out core (fanoutArgs)
-	// expands one call per path, this single is the first. No paths key
-	// means already OMP shape: nil (passthrough) rather than a
-	// blanked-out path.
+	// expands one call per path, this single is the first. No paths key —
+	// or a blank first path — means already OMP shape or nothing usable:
+	// nil (passthrough) rather than a blanked-out path.
 	"read_files": func(in map[string]any) map[string]any {
 		paths, _ := in["paths"].([]any)
 		if len(paths) == 0 {
@@ -619,6 +675,9 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 			first = p
 		case map[string]any:
 			first = strField(p, "path")
+		}
+		if strings.TrimSpace(first) == "" {
+			return nil
 		}
 		return map[string]any{"path": first}
 	},
@@ -652,13 +711,35 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 	// CLI pattern rides as path (best-effort; magic chars pass through to
 	// the OMP glob implementation). Membership in this map keeps
 	// HasReshapeRule true for the streaming buffer gate; the live reshape
-	// runs through fanoutGlobArgs, which routes ex-find origins to OMP
-	// find {pattern} instead. No pattern/query source means already OMP
-	// shape (native {path} emission): nil (passthrough), never a
-	// blanked-out path.
+	// runs through fanoutGlobArgs, which routes ex-find origins to the live
+	// OMP find {query, grep_keywords} shape instead. No pattern/query
+	// source means already OMP shape (native {path} emission): nil
+	// (passthrough), never a blanked-out path.
 	"glob": func(in map[string]any) map[string]any {
 		if p := strField(in, "pattern"); p != "" {
 			return map[string]any{"path": p}
+		}
+		return nil
+	},
+	// OMP find {query, grep_keywords[, path]} (live 18.5.0, strict — both
+	// query and grep_keywords are required): a model-emitted `find` call
+	// carrying CLI pattern vocabulary reshapes to the registered shape; an
+	// already-valid emission (query plus non-empty grep_keywords) passes
+	// through untouched, and a shape with neither vocabulary passes through
+	// for the harness to reject exactly as today. Keywords default to the
+	// query itself when the emission carries none; cwd scopes via path like
+	// the grep rule. pi has no find rule (piReshapeWires): pi dispatches
+	// its own find {pattern, path?} vocabulary, so pi emissions stay
+	// untouched.
+	"find": func(in map[string]any) map[string]any {
+		if q := strField(in, "query"); q != "" {
+			if kw, ok := in["grep_keywords"].([]any); ok && len(kw) > 0 {
+				return nil
+			}
+			return findArgs(in, q)
+		}
+		if p := strField(in, "pattern"); p != "" {
+			return findArgs(in, p)
 		}
 		return nil
 	},
@@ -737,26 +818,15 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 	},
 	// gravity_index -> OMP web_search {query}: searches developer services
 	// directory; query synthesizes from search query, browse keyword/category,
-	// or service slug so the model gets live service info via web search.
+	// or service slug so the model gets live service info via web search. A
+	// shape with no query source at all yields nil (passthrough) — the
+	// OMP empty-gravity text guard (TextFallback) catches those before they
+	// can ride as a query-less web_search, which strict rejects.
 	"gravity_index": func(in map[string]any) map[string]any {
-		query := strField(in, "query")
-		if query == "" {
-			query = strField(in, "q")
+		if query := gravityQuery(in); query != "" {
+			return map[string]any{"query": query}
 		}
-		if query == "" {
-			if cat := strField(in, "category"); cat != "" {
-				query = cat + " developer services"
-			}
-		}
-		if query == "" {
-			if slug := strField(in, "slug"); slug != "" {
-				query = slug + " developer documentation"
-			}
-		}
-		if query == "" {
-			return nil
-		}
-		return map[string]any{"query": query}
+		return nil
 	},
 	// synthesized per index (OMP requires them), option labels and
 	// descriptions carried verbatim.
@@ -787,21 +857,25 @@ var reshapeRules = map[string]func(map[string]any) map[string]any{
 				"id":       "q" + strconv.Itoa(i),
 				"question": strField(qm, "question"),
 			}
-			if opts, ok := qm["options"].([]any); ok {
-				clean := make([]any, 0, len(opts))
-				for _, o := range opts {
-					om, _ := o.(map[string]any)
-					if om == nil {
-						continue
-					}
-					item := map[string]any{"label": strField(om, "label")}
-					if d := strField(om, "description"); d != "" {
-						item["description"] = d
-					}
-					clean = append(clean, item)
+			// options is required per question by the live OMP ask schema
+			// (strict): a question carrying no usable options emits an empty
+			// array rather than omitting the key, so the call stays
+			// dispatchable — an optionless question is answered free-text
+			// (OTHER_OPTION), never dropped.
+			opts, _ := qm["options"].([]any)
+			clean := make([]any, 0, len(opts))
+			for _, o := range opts {
+				om, _ := o.(map[string]any)
+				if om == nil {
+					continue
 				}
-				entry["options"] = clean
+				item := map[string]any{"label": strField(om, "label")}
+				if d := strField(om, "description"); d != "" {
+					item["description"] = d
+				}
+				clean = append(clean, item)
 			}
+			entry["options"] = clean
 			out = append(out, entry)
 		}
 		return map[string]any{"questions": out}

@@ -64,9 +64,16 @@ func TestInjectEnvelopeOMPFloorReminderPresent(t *testing.T) {
 	if !strings.Contains(joined, ompFloorReminderSentinel) {
 		t.Fatalf("reminder absent from OMP floor-only envelope: %q", joined)
 	}
-	for _, want := range []string{"task", `"tasks"`, "todo", "ask", "eval", "hub", `"op":"wait"`, "learn", "manage_skill", "non-empty array", "advise", `"severity"`} {
+	for _, want := range []string{"task", `"tasks"`, "todo", "ask", "eval", "wait", "learn", "manage_skill", "non-empty array", "advise", `"severity"`} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("reminder missing %q: %q", want, joined)
+		}
+	}
+	// Removed from the live 18.5.0 registry: advertising one as callable
+	// would route the model into "Tool <name> not found".
+	for _, gone := range []string{"hub", "browser", "computer", "inspect_image"} {
+		if strings.Contains(joined, gone) {
+			t.Errorf("reminder advertises removed tool %q: %q", gone, joined)
 		}
 	}
 	for _, foreign := range []string{`"name":"task"`, `"name":"eval"`, `"name":"wait"`, `"name":"learn"`, `"name":"manage_skill"`, `"name":"context_notes"`, `"name":"new_context"`} {

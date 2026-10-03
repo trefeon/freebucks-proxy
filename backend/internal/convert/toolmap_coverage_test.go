@@ -54,18 +54,23 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"Pi", "powershell", classMapped, "run_terminal_command"},
 		{"Pi", "edit-diff", classMapped, "apply_patch"},
 
-		// ── Oh My Pi (reference/harnesses/oh-my-pi
-		//    packages/coding-agent/src/tools/builtin-names.ts) ──
+		// ── Oh My Pi, live 18.5.0 registry (BUILTIN_TOOL_NAMES, no hub/browser/
+		//    computer/inspect_image — those relay as "Tool <name> not found",
+		//    so the table pins ONLY live names; removed names are asserted
+		//    absent in TestLiveOMPRemovedNamesHaveNoPassthrough below) ──
+		{"OMP", "read", classMapped, "read_files"},
+		{"OMP", "bash", classMapped, "run_terminal_command"},
+		{"OMP", "edit", classMapped, "str_replace"},
+		{"OMP", "write", classMapped, "write_file"},
+		{"OMP", "grep", classMapped, "code_search"},
+		{"OMP", "find", classMapped, "glob"},
 		{"OMP", "todo", classMapped, "write_todos"},
 		{"OMP", "glob", classOfficial, ""},
 		{"OMP", "web_search", classOfficial, ""},
 		{"OMP", "ask", classPassthru, ""},
 		{"OMP", "task", classPassthru, ""},
-		{"OMP", "hub", classPassthru, ""},
 		{"OMP", "eval", classPassthru, ""},
 		{"OMP", "lsp", classPassthru, ""},
-		{"OMP", "browser", classPassthru, ""},
-		{"OMP", "computer", classPassthru, ""},
 		{"OMP", "github", classPassthru, ""},
 		{"OMP", "ast_grep", classPassthru, ""},
 		{"OMP", "ast_edit", classPassthru, ""},
@@ -79,8 +84,10 @@ func TestComprehensiveToolClassification(t *testing.T) {
 		{"OMP", "learn", classPassthru, ""},
 		{"OMP", "manage_skill", classPassthru, ""},
 		{"OMP", "debug", classPassthru, ""},
-		{"OMP", "inspect_image", classPassthru, ""},
-
+		{"OMP", "ida", classPassthru, ""},
+		{"OMP", "wait", classPassthru, ""},
+		{"OMP", "context_notes", classPassthru, ""},
+		{"OMP", "new_context", classPassthru, ""},
 		// ── Claude Code (reference/agents/claude-code, PascalCase wire names;
 		//    mapping is case-insensitive, restore returns exact casing) ──
 		{"Claude-Code", "Bash", classMapped, "run_terminal_command"},
@@ -358,5 +365,48 @@ func TestComprehensiveToolClassification(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestLiveOMPRemovedNamesHaveNoPassthrough pins the G2 decision: hub,
+// browser, computer and inspect_image were removed from the live OMP 18.5.0
+// BUILTIN_TOOL_NAMES, so no proxy table may claim them as OMP passthrough.
+// They are not mapped either (no invented mappings): a mapper that sees one
+// carries no restore entry for it, so the response leg relays the name
+// verbatim by identity — exactly the "Tool <name> not found" the audit
+// proves, documented at OMP-TRANSLATION.md §3b rather than hidden.
+func TestLiveOMPRemovedNamesHaveNoPassthrough(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		where string
+	}{
+		{"hub", "docs/OMP-TRANSLATION.md §3b removed-names row"},
+		{"browser", "docs/OMP-TRANSLATION.md §3b removed-names row"},
+		{"computer", "docs/OMP-TRANSLATION.md §3b removed-names row"},
+		{"inspect_image", "docs/OMP-TRANSLATION.md §3b removed-names row"},
+	} {
+		if _, ok := clientToOfficial[tc.name]; ok {
+			t.Errorf("%s is mapped (no invented mappings allowed)", tc.name)
+		}
+		body, _ := json.Marshal(map[string]any{
+			"model":    "m",
+			"messages": []any{map[string]any{"role": "user", "content": "hi"}},
+			"tools": []any{
+				map[string]any{
+					"type": "function",
+					"function": map[string]any{
+						"name":       tc.name,
+						"parameters": map[string]any{"type": "object", "properties": map[string]any{}},
+					},
+				},
+			},
+		})
+		_, mapper, err := NormalizeRequestMapped(body, "")
+		if err != nil {
+			t.Fatalf("NormalizeRequestMapped(%s) failed: %v", tc.name, err)
+		}
+		if got := mapper.RestoreName(tc.name); got != tc.name {
+			t.Errorf("RestoreName(%q) = %q, want identity (verbatim relay %s)", tc.name, got, tc.where)
+		}
 	}
 }

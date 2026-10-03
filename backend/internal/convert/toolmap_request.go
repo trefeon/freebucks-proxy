@@ -128,20 +128,19 @@ var clientToOfficial = map[string]string{
 	"todos": "write_todos",
 	"rg":    "code_search",
 
-	// Pi tools + one OMP-alias rider (verified against the harness
-	// corpora — none of these three are OMP builtins: powershell is pi's
-	// Windows shell registration, edit-diff belongs to another harness,
-	// and find is OMP's legacy selection alias for glob).
+	// Pi tools + one OMP rider (verified against the harness corpora:
+	// powershell is pi's Windows shell registration, edit-diff belongs to
+	// another harness; find IS a live OMP builtin but rides the wire as
+	// glob, see below).
 	"powershell": "run_terminal_command",
-	// OMP find {pattern} (the live prompt also emits query+grep_keywords
-	// vocabulary) is file-pattern search: it rides as CLI glob {pattern},
-	// an official floor name with zero new gate surface. The response leg
-	// restores wire glob calls to the registered `glob {path}` shape —
-	// never to `find`, which has no OMP dispatch target (the alias is
-	// canonicalized at tool-selection time; dispatch matches name "glob"
-	// only, so a restored `find` answers "Tool find not found").
-	// A verbatim find def must never ride: any foreign-schema definition
-	// alongside the floor trips the gate.
+	// OMP find (live 18.5.0: semantic search {query, grep_keywords},
+	// strict) rides as CLI glob {pattern}, an official floor name with
+	// zero new gate surface. The response leg restores wire glob calls of
+	// ex-find origin to `find` with the registered {query,
+	// grep_keywords} shape (fanoutGlobArgs) — and reshapes model-emitted
+	// `find` names to it (the find rule) — so the client dispatches what
+	// it declared. A verbatim find def must never ride: any foreign-schema
+	// definition alongside the floor trips the gate.
 	"find":      "glob",
 	"edit-diff": "apply_patch",
 	// Kilocode / OpenCode
