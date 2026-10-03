@@ -186,3 +186,41 @@ func TestReshapeFlushSplitShapes(t *testing.T) {
 		}
 	})
 }
+
+func TestReshapeFlushEmitsDistinctIDs(t *testing.T) {
+	rw := newChunkRewriter(&relayStats{toolMap: splitStreamMapper(t)})
+	// Buffer two ruled indexes: the first with an upstream id, the second
+	// without (upstream sent args but no name/id chunk) — the exact shape
+	// that glued in OMP's id-keyed assembly.
+	if !rw.reshapeBuffer(toolCallFragmentAt("call_9", "read_files", `{"path":"a.txt"}`, 0)) {
+		t.Fatal("withheld nothing for index 0")
+	}
+	if !rw.reshapeBuffer(toolCallFragmentAt("", "read_files", `{"path":"b.txt"}`, 1)) {
+		t.Fatal("withheld nothing for index 1")
+	}
+	chunk := splitTerminalChunk()
+	chunk["id"] = "chatcmpl-ids"
+	if !rw.reshapeFlush(chunk) {
+		t.Fatal("reshapeFlush injected nothing")
+	}
+	tcs := splitFlushedCalls(t, chunk)
+	if len(tcs) != 2 {
+		t.Fatalf("injected calls = %d, want 2", len(tcs))
+	}
+	seen := map[string]bool{}
+	for i, raw := range tcs {
+		tc := raw.(map[string]any)
+		id, _ := tc["id"].(string)
+		if id == "" {
+			t.Errorf("call[%d] missing id — OMP merges id-less entries into one buffer", i)
+			continue
+		}
+		if seen[id] {
+			t.Errorf("call[%d] duplicate id %q", i, id)
+		}
+		seen[id] = true
+	}
+	if id, _ := tcs[0].(map[string]any)["id"].(string); id != "call_9" {
+		t.Errorf("call[0] id = %q, want upstream call_9 preserved", id)
+	}
+}

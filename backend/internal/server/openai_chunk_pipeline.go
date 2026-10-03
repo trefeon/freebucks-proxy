@@ -10,6 +10,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"freebuff-proxy/backend/internal/convert"
 	"sort"
 	"time"
@@ -342,6 +343,13 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 	}
 	sort.Ints(idxs)
 	next := cr.reshapeMaxIdx + 1
+	// OMP assembles streaming tool calls keyed by id: an entry without one
+	// is appended to the current buffer, gluing N calls into one malformed
+	// arguments string. Every injected entry therefore carries a distinct
+	// id: the buffered upstream id for the first body, `{id}-fanout-{k}`
+	// for fan-out/split extras, synthesized from the stream id when the
+	// upstream never sent one.
+	streamID, _ := chunk["id"].(string)
 	injected := false
 	for _, idx := range idxs {
 		acc := cr.reshapeBuf[idx]
@@ -354,12 +362,19 @@ func (cr *chunkRewriter) reshapeFlush(chunk map[string]any) bool {
 		}
 		for k, args := range bodies {
 			useIdx := idx
+			callID := acc.id
 			if k > 0 {
 				useIdx = next
 				next++
 			}
+			if callID == "" {
+				callID = fmt.Sprintf("%s-call-%d", streamID, useIdx)
+			} else if k > 0 {
+				callID = fmt.Sprintf("%s-fanout-%d", acc.id, k)
+			}
 			entry := map[string]any{
 				"index": useIdx,
+				"id":    callID,
 				"function": map[string]any{
 					"name":      cr.stats.toolMap.RestoreName(acc.wire),
 					"arguments": args,
