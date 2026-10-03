@@ -299,7 +299,8 @@ func (cr *chunkRewriter) reshapeBuffer(chunk map[string]any) bool {
 // reshapeFlush injects delta.tool_calls entries for every buffered index
 // onto the terminal chunk (any non-empty finish_reason): the reshaped whole
 // args under the restored client name. Multi-path reads and
-// multi-replacement edits fan out to one entry per call — the first keeps
+// multi-replacement edits fan out to one entry per call, and one buffer
+// carrying glued JSON values splits the same way — the first keeps
 // its index, extras take fresh indexes above every observed upstream index,
 // so the client SDK assembles each call separately. The client SDK
 // concatenates fragments, so withheld empties + these wholes assemble
@@ -399,8 +400,13 @@ func (cr *chunkRewriter) flushReshapeTerminal(streamID, model string) (map[strin
 			continue
 		}
 		if !json.Valid(acc.args.Bytes()) {
-			complete = false
-			break
+			// Concatenated complete values are whole, not truncated: every
+			// part decoded cleanly, so the turn still settles on the split
+			// calls instead of surfacing a transport error.
+			if _, ok := convert.SplitConcatenatedJSONValues(acc.args.String()); !ok {
+				complete = false
+				break
+			}
 		}
 	}
 	if streamID == "" {

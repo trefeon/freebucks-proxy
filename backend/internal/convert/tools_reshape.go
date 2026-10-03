@@ -76,6 +76,28 @@ func (m ToolMapper) ReshapeArgsFanout(wireName, args string) ([]string, bool) {
 	if err := dec.Decode(&in); err != nil || in == nil {
 		return nil, false
 	}
+	// Concatenated tool-call JSON (live: one arguments string carrying two
+	// complete objects back to back): the Decode above takes the first value
+	// and silently drops the rest, so every operation after the first never
+	// runs. Split into parts and reshape each through the same wire rule
+	// below, so one glued call becomes N valid calls. Parts without a rule
+	// shape ride verbatim — never dropped. Trailing bytes that are not
+	// complete values keep the legacy path (reshape the first value).
+	if rest := strings.TrimSpace(args[int(dec.InputOffset()):]); rest != "" {
+		if parts, ok := SplitConcatenatedJSONValues(args); ok {
+			bodies := make([]string, 0, len(parts))
+			for _, part := range parts {
+				if sub, ok := m.ReshapeArgsFanout(wireName, part); ok && len(sub) > 0 {
+					bodies = append(bodies, sub...)
+					continue
+				}
+				bodies = append(bodies, part)
+			}
+			if len(bodies) >= 2 {
+				return bodies, true
+			}
+		}
+	}
 	// OMP-vocabulary emission (live 2026-09-30: a turn called OMP-native
 	// "read" with OMP-native {path}): the name resolves to a wire rule,
 	// but args already in OMP shape must pass through — reshaping them
@@ -374,8 +396,10 @@ func hasAnyKey(m map[string]any, keys []string) bool {
 // per replacement, extras inserted immediately after their parent with
 // suffixed ids (<id>-fanout-<k>) so every dispatched call keeps a unique
 // identity the client can echo results against. Order is preserved
-// throughout. Returns the (possibly longer) call list and whether anything
-// changed; entries without a rule keep byte-identical args.
+// throughout. Glued arguments (two complete JSON values back to back) split
+// into one entry per value first, each then reshaped. Returns the (possibly
+// longer) call list and whether anything changed; entries without a rule keep
+// byte-identical args.
 func (m ToolMapper) ReshapeMessageCalls(tcs []any) ([]any, bool) {
 	if m.family == familyNone {
 		return tcs, false
@@ -397,8 +421,26 @@ func (m ToolMapper) ReshapeMessageCalls(tcs []any) ([]any, bool) {
 		if wire == "" || args == "" {
 			continue
 		}
-		bodies, ok := m.ReshapeArgsFanout(wire, args)
-		if !ok || len(bodies) == 0 {
+		// Concatenated tool-call JSON (live: one arguments string carrying
+		// two complete objects back to back): split first so one glued call
+		// becomes N valid calls, then run each part through the family
+		// reshape below — a split part without a rule shape rides verbatim,
+		// never dropped. Order preserved throughout.
+		parts := []string{args}
+		if split, ok := SplitConcatenatedJSONValues(args); ok {
+			parts = split
+		}
+		bodies := make([]string, 0, len(parts))
+		reshaped := false
+		for _, part := range parts {
+			if sub, ok := m.ReshapeArgsFanout(wire, part); ok && len(sub) > 0 {
+				bodies = append(bodies, sub...)
+				reshaped = true
+				continue
+			}
+			bodies = append(bodies, part)
+		}
+		if len(parts) == 1 && !reshaped {
 			continue
 		}
 		fn["arguments"] = bodies[0]

@@ -79,9 +79,14 @@ func (m ToolMapper) FinalizeStreamedCall(wire, id, args string) (calls []Streame
 	}
 	// Partial/truncated args never reshape: relay verbatim like the live
 	// path would have (chat-parity: unreshapable buffers flush verbatim,
-	// no dispatchable call is ever swallowed).
+	// no dispatchable call is ever swallowed). Concatenated complete values
+	// are the exception: they flow into ReshapeArgsFanout below, which
+	// splits and reshapes per part, so one glued call becomes N valid calls
+	// exactly like the whole-args legs.
 	if !validStreamArgs(args) {
-		return single(), "", false
+		if _, ok := SplitConcatenatedJSONValues(args); !ok {
+			return single(), "", false
+		}
 	}
 	if bodies, ok := m.ReshapeArgsFanout(wire, args); ok && len(bodies) > 0 {
 		calls = make([]StreamedCall, 0, len(bodies))
